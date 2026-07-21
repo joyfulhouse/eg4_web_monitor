@@ -85,7 +85,11 @@ KNOWN_HOLDING_REGISTERS: dict[int, dict[str, object]] = {
         "unit": "%",
     },
     # Green mode
-    110: {"name": "register_110", "scale": 1, "desc": "Green mode bitfield at bit 8"},
+    110: {
+        "name": "register_110",
+        "scale": 1,
+        "desc": "Green mode bitfield at bit 14 (#476)",
+    },
     125: {
         "name": "offgrid_discharge_soc",
         "scale": 1,

@@ -1293,7 +1293,12 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # FUNC_BAT_SHARED (reporter-verified). Same bit in pylxpweb's base AND
     # SNA reg-110 tables ("all sources agree on bits 0-4").
     PARAM_FUNC_BAT_SHARED: (110, 3),
-    PARAM_FUNC_GREEN_EN: (110, 8),
+    # Green/Off-Grid Mode (GH #476): reg 110 bit 14 — live 18kPV toggle
+    # 2026-07-21 (cloud enable flips raw 1056 <-> 17440, single-bit delta,
+    # EG4 cloud decode in lockstep; lxp_modbus GreenModeEn agrees). The
+    # historic bit 8 was a wrong decode — HYBRID/LOCAL toggles wrote the
+    # PVCT-sample region and never moved green mode (#476/#194).
+    PARAM_FUNC_GREEN_EN: (110, 14),
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
     # Export PV Only (GH #135): reg 179 bit 3, pinned 2026-06-12
     # ~16:05-16:07 PT via authorized live cloud toggles raw-verified on BOTH

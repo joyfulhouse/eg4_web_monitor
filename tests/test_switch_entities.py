@@ -1375,10 +1375,10 @@ class TestOffGridModeSwitch:
     def test_is_on_unknown_when_param_missing(self):
         """Absent FUNC_GREEN_EN = UNKNOWN (None), never off (#310 round 2).
 
-        EG4_OFFGRID local reads deliberately omit the key (unverified SNA
-        bit, pylxpweb #210) and the local param refresh replaces the
-        serial's parameters wholesale — False here would flip a
-        cloud-confirmed "on" to "off" after any local refresh.
+        The local param refresh replaces the serial's parameters
+        wholesale — False for an absent key (e.g. a partial read that
+        missed register 110) would flip a cloud-confirmed "on" to "off"
+        after any local refresh.
         """
         coordinator = _mock_coordinator()
         switch = EG4OffGridModeSwitch(coordinator, "1234567890")
@@ -1393,9 +1393,9 @@ class TestOffGridModeSwitch:
         assert switch.is_on is False
 
     def test_offgrid_local_refresh_without_key_goes_unknown_not_off(self):
-        """Offgrid: cloud-seeded True, then a local param refresh replaces
-        the params wholesale WITHOUT the key -> state becomes unknown,
-        not a silent revert to off."""
+        """Cloud-seeded True, then a local param refresh replaces the
+        params wholesale WITHOUT the key (partial read) -> state becomes
+        unknown, not a silent revert to off."""
         coordinator = _mock_coordinator(
             has_local=True,
             has_http=True,
@@ -1406,7 +1406,7 @@ class TestOffGridModeSwitch:
         assert switch.is_on is True
 
         # Wholesale replace, as _refresh_device_parameters does after a
-        # successful offgrid local read (no FUNC_GREEN_EN served).
+        # local read that did not cover register 110.
         coordinator.data["parameters"]["1234567890"] = {
             "FUNC_BUZZER_EN": True,
             "FUNC_CHARGE_LAST": False,
@@ -2003,9 +2003,14 @@ class TestCloudFallbackParameterSeeding:
         coordinator.note_parameters_written.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_cloud_only_green_mode_with_transport_seeds(self):
-        """cloud_only actions (off-grid green mode) with a transport
-        attached are cloud-preferred writes — they seed as well."""
+    async def test_offgrid_green_mode_writes_locally(self):
+        """Off-grid family green mode writes locally like every family.
+
+        The historic cloud-only gate existed while green's register-110
+        bit was unverified on SNA; the 2026-07-21 18kPV toggle test pinned
+        it at bit 14 lineage-wide (pylxpweb >= 0.9.39b4, #476), so the
+        local-first write path applies to EG4_OFFGRID too.
+        """
         coordinator = _mock_coordinator(
             has_local=True,
             has_http=True,
@@ -2016,13 +2021,11 @@ class TestCloudFallbackParameterSeeding:
 
         await switch.async_turn_on()
 
-        # Local write withheld (unverified SNA bit), cloud method used
-        coordinator.write_named_parameter.assert_not_called()
-        inverter = coordinator.get_inverter_object("1234567890")
-        inverter.enable_green_mode.assert_called_once()
-        coordinator.note_parameters_written.assert_called_once_with(
-            "1234567890", {PARAM_FUNC_GREEN_EN: True}
+        coordinator.write_named_parameter.assert_called_once_with(
+            PARAM_FUNC_GREEN_EN, True, serial="1234567890"
         )
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_green_mode.assert_not_called()
 
 
 # ── DSTSwitch ────────────────────────────────────────────────────────
