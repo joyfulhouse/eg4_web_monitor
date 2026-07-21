@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Off-Grid Mode switch now works on Local and Hybrid connections** ([#476](https://github.com/joyfulhouse/eg4_web_monitor/issues/476), reported by @scottjvincent; also the unexplained tail of [#194](https://github.com/joyfulhouse/eg4_web_monitor/issues/194)): the local register map placed green/off-grid mode at register 110 bit 8, but a live toggle test on an 18kPV (2026-07-21) pinned the real bit at 14 — so local toggles wrote a do-nothing bit (actually the PVCT-sampling config region), reported success, and never fell back to the cloud, while the switch state read the same wrong bit. pylxpweb 0.9.39b4 moves green mode to the hardware-verified bit 14 for every inverter family (the register-110 upper-bit layout is now unified lineage-wide: buzzer bit 7, green 14, battery ECO 15, unverified slots explicitly unmapped). If you toggled Off-Grid Mode from HA on a Local/Hybrid connection before this fix, check your PV CT sampling setting in the EG4 portal — the old writes may have altered it.
+- **Off-Grid Mode (Green Mode) local control enabled for the EG4 off-grid family** (12000XP/6000XP): the cloud-only restriction existed because the bit position was unverified on that family; with bit 14 pinned lineage-wide the switch now writes locally with cloud fallback, same as every other family.
+
 ## [3.5.1-beta.2] - 2026-07-17
 
 Cloud AC couple controls (a switch plus the Start/End SOC window) and a
