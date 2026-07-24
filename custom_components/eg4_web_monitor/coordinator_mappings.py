@@ -206,6 +206,115 @@ def drop_offgrid_cloud_output_power(
     sensors.pop("output_power", None)
 
 
+# Sensor keys that stay populated while the cloud reports the inverter lost
+# (dongle link down, ``lost=true``).  Everything else is a measurement mirror
+# the portal keeps serving frozen at its pre-outage value, so it is blanked to
+# None (HA "unknown") instead — see blank_lost_inverter_measurements (#479).
+LOST_KEEP_SENSOR_KEYS: frozenset[str] = frozenset(
+    {
+        # Device identity / capability diagnostics — static, never stale.
+        "firmware_version",
+        "has_data",
+        "inverter_family",
+        "device_type_code",
+        "grid_type",
+        # Static ratings — never stale ("12kW" cannot age out).
+        "power_rating",
+        "inverter_power_rating",
+        # Status: the cloud's own "offline" verdict is the one fresh datum,
+        # and inverter_lost_status IS the Connection Lost entity — blanking
+        # it would read "unknown" at the exact moment it must read lost.
+        "status_text",
+        "operating_state",
+        "inverter_lost_status",
+        # Fault/warning codes are sticky by design across outages (#261):
+        # a stale code beats a gap and cannot be observed while down.
+        "fault_code",
+        "warning_code",
+        # Honest poll timestamp, not a measurement.
+        "battery_bank_last_polled",
+    }
+)
+
+# Individual-battery keys that stay populated while the parent inverter is
+# cloud-lost: identity/spec metadata and the freshness timestamps.  Every
+# other key is a measurement mirror frozen by the portal — blanked to None
+# by blank_lost_battery_measurements (#479).
+LOST_KEEP_BATTERY_KEYS: frozenset[str] = frozenset(
+    {
+        "battery_serial_number",
+        "battery_index",
+        "battery_model",
+        "battery_bms_model",
+        "battery_type",
+        "battery_type_text",
+        "battery_firmware_version",
+        # Design capacity is a spec, not a reading.
+        "battery_design_capacity",
+        # Freshness timestamps are data about the poll, not measurements.
+        "battery_last_seen",
+        "battery_last_polled",
+    }
+)
+
+# Cloud-supplemental sensors that keep reading the HTTP runtime even when a
+# local transport is attached (the #222 load split has no local register).
+# In HYBRID with a live transport the inverter is NOT lost, but a lost cloud
+# mirror still freezes exactly these keys — they are blanked separately.
+CLOUD_SUPPLEMENTAL_LOST_KEYS: frozenset[str] = frozenset(
+    {
+        "smart_load_power",
+        "grid_load_power",
+        "eps_load_power",
+    }
+)
+
+
+def blank_lost_battery_measurements(battery_sensors: dict[str, Any]) -> None:
+    """Blank one battery's measurement values for a cloud-lost parent (#479).
+
+    Same portal behavior one level down from the inverter: getBatteryInfo
+    keeps mirroring the pre-outage per-module voltage/current/SoC/cell data
+    while the dongle is offline, and the #258 carry-forward would otherwise
+    republish it verbatim.  Values go to None (HA "unknown"); keys stay
+    present so the battery entities remain available rather than vanishing.
+    """
+    for key in battery_sensors:
+        if key not in LOST_KEEP_BATTERY_KEYS:
+            battery_sensors[key] = None
+
+
+def blank_lost_inverter_measurements(processed: dict[str, Any]) -> None:
+    """Blank measurement sensors for a cloud-lost inverter (issue #479).
+
+    When the dongle loses its internet link the portal keeps answering with
+    ``success:true`` and the last register mirror it received, flagged only by
+    ``lost:true`` — so without this gate every runtime/energy sensor freezes
+    at its pre-outage value for the whole outage.  Publish None (HA "unknown")
+    for the measurements instead, keeping the diagnostic/status keys
+    (``status_text`` reads "offline", the Lost binary sensor reads on) so the
+    device stays present and clearly reports the outage rather than blacking
+    out (#256 philosophy: present-but-unknown).
+
+    No grace period is needed: the cloud only raises ``lost`` after its own
+    multi-minute reporting timeout, and pylxpweb's ``is_lost`` already returns
+    False whenever live local transport data is attached (HYBRID stays on the
+    local readings).
+
+    Args:
+        processed: The per-device dict under construction; ``sensors`` and
+            ``binary_sensors`` are mutated in place.
+    """
+    sensors = processed["sensors"]
+    for key in sensors:
+        if key not in LOST_KEEP_SENSOR_KEYS:
+            sensors[key] = None
+    binary_sensors = processed["binary_sensors"]
+    for key in binary_sensors:
+        if key != "is_lost":
+            binary_sensors[key] = None
+
+
 # ---------------------------------------------------------------------------
 # Static sensor key sets — extracted from the mapping function dicts below.
 # Used by _build_static_local_data() for immediate entity creation during
@@ -1192,10 +1301,14 @@ def build_battery_bank_sensors(
     if not is_cloud or power is not None:
         sensors["battery_bank_power"] = power
     if power is None:
-        _LOGGER.warning(
-            "%s battery_bank_power: cannot calculate - "
+        # Debug, not warning: this is the expected state for an offline or
+        # partially-reported bank (e.g. cloud-lost inverter, #479) and would
+        # otherwise repeat every poll for the whole outage.
+        _LOGGER.debug(
+            "%s battery_bank_power for %s: cannot calculate - "
             "charge=%s, discharge=%s, battery_power=%s",
             source.upper(),
+            getattr(bank, "serial_number", None) or "unknown serial",
             charge,
             discharge,
             api_power,

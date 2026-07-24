@@ -40,6 +40,7 @@ from .const import (
 from .coordinator_mappings import (
     _build_individual_battery_mapping,
     _get_transport_label,
+    blank_lost_battery_measurements,
     compute_parallel_group_charge_rate,
 )
 from .coordinator_mixins import (
@@ -887,9 +888,17 @@ class HTTPUpdateMixin(_MixinBase):
 
                     # Aggregate member inverter battery data for parallel group.
                     # Single pass collects both battery count (override when
-                    # cloud returns 0) and battery current sum.
+                    # cloud returns 0) and battery current sum.  Skipped when a
+                    # member is cloud-lost (#479): the loop would silently sum
+                    # only the live members' (blanked-to-None-excluded) values
+                    # and resurrect a plausible-looking partial total over the
+                    # group blanking.
                     pg_sensors = group_data.get("sensors", {})
-                    need_bat_count = pg_sensors.get("parallel_battery_count", 0) == 0
+                    has_lost_member = bool(group_data.get("has_lost_member"))
+                    need_bat_count = (
+                        not has_lost_member
+                        and pg_sensors.get("parallel_battery_count", 0) == 0
+                    )
                     total_bats = 0
                     total_current = 0.0
                     has_current = False
@@ -910,7 +919,7 @@ class HTTPUpdateMixin(_MixinBase):
                             has_current = True
                     if need_bat_count and total_bats > 0:
                         pg_sensors["parallel_battery_count"] = total_bats
-                    if has_current:
+                    if has_current and not has_lost_member:
                         pg_sensors["parallel_battery_current"] = total_current
 
                     # Compute parallel group charge/discharge C-rates (%/h)
@@ -1254,6 +1263,25 @@ class HTTPUpdateMixin(_MixinBase):
             self._apply_battery_carry_forward(
                 serial, device_data, exclude=cloud_key_migrations.keys()
             )
+
+        # Blank the battery measurements of every cloud-lost inverter (#479).
+        # Runs AFTER the loop above because each of its branches (cloud
+        # extraction, #258 carry-forward, hybrid merge) republishes the
+        # frozen portal mirror; a second pass catches them all at one choke
+        # point.  Same gate as the inverter-sensor blanking: a genuinely
+        # lost-flagged cloud payload only — live local transport data reads
+        # is_lost=False and keeps HYBRID batteries fresh.
+        for serial, device_data in processed["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            inverter = self.get_inverter_object(serial)
+            if (
+                inverter is not None
+                and getattr(inverter, "is_lost", False)
+                and getattr(inverter, "has_runtime_data", False)
+            ):
+                for battery_sensors in device_data.get("batteries", {}).values():
+                    blank_lost_battery_measurements(battery_sensors)
 
         # Check if we need to refresh parameters for any inverters
         if "parameters" not in processed:

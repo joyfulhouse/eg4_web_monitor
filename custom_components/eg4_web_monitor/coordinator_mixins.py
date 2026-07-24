@@ -43,6 +43,7 @@ from .const import (
     operating_state_slug,
 )
 from .coordinator_mappings import (
+    CLOUD_SUPPLEMENTAL_LOST_KEYS,
     SMART_PORT_VALIDATED_KEY,
     _apply_grid_type_override,
     _apply_model_family_fallback,
@@ -52,6 +53,7 @@ from .coordinator_mappings import (
     _safe_float,
     _write_charge_rate,
     alias_common_voltage_sensors,
+    blank_lost_inverter_measurements,
     build_battery_bank_sensors,
     compute_bank_charge_rate,
     drop_offgrid_cloud_output_power,
@@ -355,7 +357,15 @@ def apply_ac_couple_pv_adjustment(
         )
 
     if ac_couple_total > 0:
-        current_pv = float(pg_sensors.get("pv_total_power", 0.0) or 0.0)
+        current_pv_raw = pg_sensors.get("pv_total_power", 0.0)
+        if current_pv_raw is None:
+            # Explicit None means the inverter PV sum is UNKNOWN (a
+            # cloud-lost member blanked the group, #479) — writing only the
+            # AC-couple contribution would publish an understated real value
+            # where "unknown" is intended.  A missing key keeps the legacy
+            # treat-as-zero behavior.
+            return
+        current_pv = float(current_pv_raw or 0.0)
         pg_sensors["pv_total_power"] = current_pv + ac_couple_total
         _LOGGER.debug(
             "Parallel group %s: pv_total_power=%sW (inverters=%sW + AC couple=%sW)",
@@ -1669,9 +1679,15 @@ class DeviceProcessingMixin(_MixinBase):
                     inverter.serial_number,
                     e,
                 )
-        elif cloud_count > 0:
+        elif cloud_count > 0 and not bool(
+            getattr(cloud_battery_bank, "is_lost", False)
+        ):
             # Cloud-only mode, or HYBRID where the transport reg-96 count
             # flickered to 0/None while the cloud bank stayed populated (#261).
+            # The is_lost gate keeps a LOST cloud bank (frozen portal mirror,
+            # #479) from being restored over a flickering transport count —
+            # in pure CLOUD the inverter-level blanking would null these keys
+            # anyway; skipping extraction reads the same "unknown".
             _LOGGER.debug(
                 "Battery bank for %s: using CLOUD data (battery_count=%d, "
                 "transport reg-96 count=%d)",
@@ -1703,6 +1719,33 @@ class DeviceProcessingMixin(_MixinBase):
         # bank data) and max_charge_current / max_discharge_current (from
         # _map_device_properties).
         compute_bank_charge_rate(processed["sensors"])
+
+        # Cloud reports the inverter lost (dongle link down): the portal keeps
+        # serving the pre-outage register mirror, so blank the measurements to
+        # "unknown" instead of freezing them (#479).  The has_runtime_data
+        # conjunct restricts the gate to a genuinely lost-flagged cloud
+        # payload — is_lost alone also reads True for "no data at all", where
+        # there is nothing frozen to blank.  Keys added below this point
+        # (quick charge, last event, AC couple SOC) are settings/event state
+        # with their own carry-forward semantics and stay untouched.
+        if getattr(inverter, "is_lost", False) and getattr(
+            inverter, "has_runtime_data", False
+        ):
+            blank_lost_inverter_measurements(processed)
+        elif transport_runtime is not None and getattr(
+            getattr(inverter, "_runtime", None), "lost", False
+        ):
+            # HYBRID with live local data but a lost cloud mirror: only the
+            # cloud-supplemental #222 load-split keys are stale (they read
+            # the HTTP runtime even with a transport attached — there is no
+            # local register), so blank just those and keep the fresh local
+            # measurements.  Private _runtime access mirrors the
+            # _battery_bank precedent above; is_lost cannot be used here
+            # because it deliberately reads False while transport data is
+            # live.
+            for key in CLOUD_SUPPLEMENTAL_LOST_KEYS:
+                if key in processed["sensors"]:
+                    processed["sensors"][key] = None
 
         # Fetch quick charge and battery backup status with 30s throttle
         # These are cloud API calls that should not run every update cycle
@@ -2139,6 +2182,27 @@ class DeviceProcessingMixin(_MixinBase):
                 sensors.get("charging_lifetime"),
                 sensors.get("grid_export_lifetime"),
             )
+
+        # A cloud-lost member's frozen register mirror is baked into every
+        # aggregate above — the pylxpweb group properties sum raw member
+        # values, bypassing the per-inverter blanking (#479).  With a lost
+        # member the sums are unknowable (not merely incomplete), so blank
+        # them rather than publish a plausible-looking wrong total.  Members
+        # with live transport data read is_lost=False and keep the group
+        # aggregates alive in HYBRID.  The flag is published so downstream
+        # post-processing (the member battery count/current override) can
+        # skip its own partial-sum writes; the GridBOSS CT overlay still
+        # applies — those measurements come from an independent device and
+        # stay authoritative during a sibling inverter's cloud outage.
+        processed["has_lost_member"] = any(
+            getattr(inv, "is_lost", False) and getattr(inv, "has_runtime_data", False)
+            for inv in getattr(group, "inverters", [])
+        )
+        if processed["has_lost_member"]:
+            sensors = processed["sensors"]
+            for key in sensors:
+                if key != "parallel_group_last_polled":
+                    sensors[key] = None
 
         return processed
 
