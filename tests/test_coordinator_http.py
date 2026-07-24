@@ -1234,6 +1234,8 @@ class TestBatteryExtraction:
         )
         bank = MagicMock()
         bank.batteries = [cloud1, cloud2]
+        # The incident's bank is ONLINE (the #479 lost-bank gate must not fire).
+        bank.is_lost = False
         inv._battery_bank = bank
 
         # The failed-block-read cycle shape: a bank object with NO batteries.

@@ -640,3 +640,117 @@ class TestCarryForwardCacheBlanking:
         cached = coordinator._battery_carry_forward[serial]["key1"]
         assert cached["battery_real_voltage"] is None
         assert cached["battery_serial_number"] == "BAT001122334"
+
+
+class TestLostBankOmittedFieldKeys:
+    """A lost bank's OMITTED fields must still publish None keys (#479 r5).
+
+    The cloud extractor skips fields the lost payload omits, so without the
+    prior-cycle key union the already-created entities behind those keys
+    would flip unavailable (key-presence availability) instead of unknown.
+    """
+
+    async def test_prior_cycle_bank_keys_union_as_none(
+        self, hass, mock_config_entry
+    ) -> None:
+        from types import SimpleNamespace
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+
+        # Previous healthy cycle published a bank SOC the lost payload omits.
+        coordinator.data = {
+            "devices": {
+                "5555555555": {
+                    "sensors": {
+                        "battery_bank_soc": 80,
+                        "battery_status": "Normal",
+                        "pv1_power": 1500,
+                    }
+                }
+            }
+        }
+        inverter = _make_cloud_inverter(lost=False)
+        # Lost bank still mirrors current/voltage but omits soc entirely.
+        inverter._battery_bank = SimpleNamespace(
+            battery_count=2,
+            current=10.0,
+            voltage=53.2,
+            is_lost=True,
+            batteries=[],
+        )
+        result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+        assert "battery_bank_soc" in sensors  # unioned from the prior cycle
+        assert sensors["battery_bank_soc"] is None
+        assert "battery_status" in sensors
+        assert sensors["battery_status"] is None
+        # Non-bank prior keys are NOT unioned by this path.
+        assert sensors.get("pv1_power") == 1500
+
+
+class TestBatteryBlankingOnBankEndpointDisagreement:
+    """Per-battery blanking also fires on a lost BANK with an online runtime
+    (#479 r5): the endpoints poll independently and can transiently disagree;
+    the frozen module mirror must not republish through the gap."""
+
+    async def test_bank_lost_runtime_online_blanks_batteries(
+        self, hass, mock_config_entry
+    ) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+
+        from homeassistant.util import dt as dt_util
+
+        # Runtime says ONLINE; only the battery endpoint is lost (empty
+        # module array), and the #258 carry-forward store still holds the
+        # frozen pre-outage module — the republish path Codex flagged.
+        inverter = _make_cloud_inverter(lost=False)
+        inverter._battery_bank = SimpleNamespace(
+            is_lost=True, battery_count=1, batteries=[]
+        )
+        coordinator._battery_carry_forward = {
+            "5555555555": {
+                "key1": {
+                    "battery_real_voltage": 53.2,
+                    "battery_serial_number": "BAT001122334",
+                    "battery_last_seen": dt_util.utcnow(),
+                }
+            }
+        }
+        coordinator._inverter_cache = {"5555555555": inverter}
+        coordinator.station = SimpleNamespace(
+            id="12345",
+            name="Test Station",
+            timezone="GMT -8",
+            all_inverters=[inverter],
+            all_mid_devices=[],
+            refresh_all_data=_AsyncMock(),
+            detect_dst_status=lambda: None,
+            sync_dst_setting=_AsyncMock(return_value=True),
+            parallel_groups=[],
+        )
+
+        result = await coordinator._process_station_data()
+        device = result["devices"]["5555555555"]
+        assert device["batteries"], "frozen module should still be published"
+        for battery_sensors in device["batteries"].values():
+            # Measurements blanked; identity metadata survives.
+            assert battery_sensors.get("battery_serial_number") == "BAT001122334"
+            for key, value in battery_sensors.items():
+                if key not in (
+                    "battery_serial_number",
+                    "battery_index",
+                    "battery_model",
+                    "battery_bms_model",
+                    "battery_type",
+                    "battery_type_text",
+                    "battery_firmware_version",
+                    "battery_design_capacity",
+                    "battery_last_seen",
+                    "battery_last_polled",
+                ):
+                    assert value is None, f"{key} not blanked: {value!r}"

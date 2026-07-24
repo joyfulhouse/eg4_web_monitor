@@ -1700,7 +1700,22 @@ class DeviceProcessingMixin(_MixinBase):
                 # the HYBRID reg-96-flicker restore path too (inverter-level
                 # blanking cannot reach it: is_lost reads False while local
                 # transport data is live).
-                if bool(getattr(cloud_battery_bank, "is_lost", False)):
+                if getattr(cloud_battery_bank, "is_lost", False) is True:
+                    # The cloud extractor skips fields the lost payload OMITS
+                    # entirely, so union in the previous cycle's bank keys as
+                    # None too — otherwise the already-created entities behind
+                    # those keys flip unavailable instead of unknown.
+                    prev_sensors = (
+                        (self.data or {})
+                        .get("devices", {})
+                        .get(inverter.serial_number, {})
+                        .get("sensors", {})
+                    )
+                    for key in prev_sensors:
+                        if (
+                            key.startswith("battery_bank_") or key == "battery_status"
+                        ) and key not in bank_sensors:
+                            bank_sensors[key] = None
                     for key in bank_sensors:
                         if key != "battery_bank_last_polled":
                             bank_sensors[key] = None

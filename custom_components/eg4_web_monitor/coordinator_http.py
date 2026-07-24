@@ -1283,11 +1283,25 @@ class HTTPUpdateMixin(_MixinBase):
             if device_data.get("type") != "inverter":
                 continue
             inverter = self.get_inverter_object(serial)
-            if (
-                inverter is not None
-                and getattr(inverter, "is_lost", False)
-                and getattr(inverter, "has_runtime_data", False)
-            ):
+            if inverter is None:
+                continue
+            inverter_lost = getattr(inverter, "is_lost", False) and getattr(
+                inverter, "has_runtime_data", False
+            )
+            # The runtime and battery endpoints are polled independently and
+            # can transiently disagree: a lost-flagged cloud BANK with no live
+            # transport batteries is the same frozen mirror even while the
+            # runtime already reads online again.  Live transport batteries
+            # (HYBRID) stay exempt — their overlay is fresh local data.
+            cloud_bank = getattr(inverter, "_battery_bank", None)
+            transport_battery = getattr(inverter, "transport_battery", None)
+            # `is True` guards against non-bool stand-ins (test doubles,
+            # partial objects) reading truthy — only pylxpweb's genuine bool
+            # verdict may trigger blanking; anything else fails safe.
+            bank_lost = getattr(cloud_bank, "is_lost", False) is True and not bool(
+                getattr(transport_battery, "batteries", None)
+            )
+            if inverter_lost or bank_lost:
                 for battery_sensors in device_data.get("batteries", {}).values():
                     blank_lost_battery_measurements(battery_sensors)
 
