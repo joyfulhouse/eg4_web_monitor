@@ -1291,15 +1291,27 @@ class HTTPUpdateMixin(_MixinBase):
             # The runtime and battery endpoints are polled independently and
             # can transiently disagree: a lost-flagged cloud BANK with no live
             # transport batteries is the same frozen mirror even while the
-            # runtime already reads online again.  Live transport batteries
-            # (HYBRID) stay exempt — their overlay is fresh local data.
+            # runtime already reads online again.  "Live" is freshness-aware
+            # with the same HYBRID_TRANSPORT_FRESHNESS rule as the merge
+            # overlay above: pylxpweb's accumulator never evicts and the
+            # 5002+ block reads can fail while runtime reads keep the link
+            # up, so a merely NON-EMPTY transport list may be entirely stale
+            # blocks the overlay already skipped — falling back to the lost
+            # cloud baseline.  Only a block read within the window exempts.
             cloud_bank = getattr(inverter, "_battery_bank", None)
             transport_battery = getattr(inverter, "transport_battery", None)
+            has_fresh_transport_batt = any(
+                (last_seen := getattr(batt, "last_seen", None)) is not None
+                and dt_util.utcnow() - dt_util.as_utc(last_seen)
+                <= HYBRID_TRANSPORT_FRESHNESS
+                for batt in getattr(transport_battery, "batteries", None) or []
+            )
             # `is True` guards against non-bool stand-ins (test doubles,
             # partial objects) reading truthy — only pylxpweb's genuine bool
             # verdict may trigger blanking; anything else fails safe.
-            bank_lost = getattr(cloud_bank, "is_lost", False) is True and not bool(
-                getattr(transport_battery, "batteries", None)
+            bank_lost = (
+                getattr(cloud_bank, "is_lost", False) is True
+                and not has_fresh_transport_batt
             )
             if inverter_lost or bank_lost:
                 for battery_sensors in device_data.get("batteries", {}).values():

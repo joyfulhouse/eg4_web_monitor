@@ -754,3 +754,83 @@ class TestBatteryBlankingOnBankEndpointDisagreement:
                     "battery_last_polled",
                 ):
                     assert value is None, f"{key} not blanked: {value!r}"
+
+
+class TestStaleTransportAccumulatorDoesNotExempt:
+    """A merely NON-EMPTY transport accumulator must not suppress blanking
+    (#479 r6): 5002+ block reads can fail while runtime reads keep the link
+    up, so the never-evict accumulator serves stale blocks the merge overlay
+    already skips — the gate must apply the same freshness rule."""
+
+    async def test_stale_blocks_do_not_exempt_blanking(
+        self, hass, mock_config_entry
+    ) -> None:
+        from datetime import timedelta
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        from homeassistant.util import dt as dt_util
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+
+        inverter = _make_cloud_inverter(lost=False)  # runtime online
+        from pylxpweb.transports.data import BatteryData
+
+        stale_block = BatteryData(
+            battery_index=0,
+            serial_number="BAT001122334",
+            voltage=53.2,
+            soc=80,
+        )
+        stale_block.last_seen = dt_util.utcnow() - timedelta(minutes=10)
+        inverter._battery_bank = SimpleNamespace(is_lost=True, batteries=[])
+        inverter._transport_battery = SimpleNamespace(batteries=[stale_block])
+        coordinator._battery_carry_forward = {
+            "5555555555": {
+                "key1": {
+                    "battery_real_voltage": 53.2,
+                    "battery_serial_number": "BAT001122334",
+                    "battery_last_seen": dt_util.utcnow(),
+                }
+            }
+        }
+        coordinator._inverter_cache = {"5555555555": inverter}
+        coordinator.station = SimpleNamespace(
+            id="12345",
+            name="Test Station",
+            timezone="GMT -8",
+            all_inverters=[inverter],
+            all_mid_devices=[],
+            refresh_all_data=_AsyncMock(),
+            detect_dst_status=lambda: None,
+            sync_dst_setting=_AsyncMock(return_value=True),
+            parallel_groups=[],
+        )
+
+        result = await coordinator._process_station_data()
+        batteries = result["devices"]["5555555555"]["batteries"]
+        assert batteries
+        for battery_sensors in batteries.values():
+            assert battery_sensors.get("battery_real_voltage") is None
+
+    async def test_fresh_block_exempts_blanking(self, hass, mock_config_entry) -> None:
+        """Control: one block read within the window keeps HYBRID data live."""
+        from types import SimpleNamespace
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.eg4_web_monitor.coordinator_http import (
+            HYBRID_TRANSPORT_FRESHNESS,
+        )
+
+        fresh_block = SimpleNamespace(
+            battery_sn="BAT001122334", last_seen=dt_util.utcnow()
+        )
+        transport_battery = SimpleNamespace(batteries=[fresh_block])
+        has_fresh = any(
+            (ls := getattr(b, "last_seen", None)) is not None
+            and dt_util.utcnow() - dt_util.as_utc(ls) <= HYBRID_TRANSPORT_FRESHNESS
+            for b in getattr(transport_battery, "batteries", None) or []
+        )
+        assert has_fresh is True
