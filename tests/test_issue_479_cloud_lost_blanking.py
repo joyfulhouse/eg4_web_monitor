@@ -834,3 +834,54 @@ class TestStaleTransportAccumulatorDoesNotExempt:
             for b in getattr(transport_battery, "batteries", None) or []
         )
         assert has_fresh is True
+
+
+class TestFreshGhostBlockDoesNotExempt:
+    """A FRESH ghost block (0 V/0 % empty slot) carries no data and must not
+    suppress blanking either (#479 r7) — the overlay skips ghosts, so the
+    lost cloud baseline would otherwise republish frozen."""
+
+    async def test_fresh_ghost_does_not_exempt_blanking(
+        self, hass, mock_config_entry
+    ) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        from homeassistant.util import dt as dt_util
+        from pylxpweb.transports.data import BatteryData
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+
+        inverter = _make_cloud_inverter(lost=False)  # runtime online
+        ghost = BatteryData(battery_index=0)  # voltage=0.0, soc=0 defaults
+        ghost.last_seen = dt_util.utcnow()  # fresh, but a ghost
+        inverter._battery_bank = SimpleNamespace(is_lost=True, batteries=[])
+        inverter._transport_battery = SimpleNamespace(batteries=[ghost])
+        coordinator._battery_carry_forward = {
+            "5555555555": {
+                "key1": {
+                    "battery_real_voltage": 53.2,
+                    "battery_serial_number": "BAT001122334",
+                    "battery_last_seen": dt_util.utcnow(),
+                }
+            }
+        }
+        coordinator._inverter_cache = {"5555555555": inverter}
+        coordinator.station = SimpleNamespace(
+            id="12345",
+            name="Test Station",
+            timezone="GMT -8",
+            all_inverters=[inverter],
+            all_mid_devices=[],
+            refresh_all_data=_AsyncMock(),
+            detect_dst_status=lambda: None,
+            sync_dst_setting=_AsyncMock(return_value=True),
+            parallel_groups=[],
+        )
+
+        result = await coordinator._process_station_data()
+        batteries = result["devices"]["5555555555"]["batteries"]
+        assert batteries
+        for battery_sensors in batteries.values():
+            assert battery_sensors.get("battery_real_voltage") is None

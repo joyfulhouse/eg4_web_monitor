@@ -1300,8 +1300,12 @@ class HTTPUpdateMixin(_MixinBase):
             # cloud baseline.  Only a block read within the window exempts.
             cloud_bank = getattr(inverter, "_battery_bank", None)
             transport_battery = getattr(inverter, "transport_battery", None)
+            # Ghost predicate mirrors the rr merge: an empty 5002+ slot reads
+            # 0 V/0 % (BatteryData fields are non-optional) — a fresh ghost
+            # carries no data and must not exempt either.
             has_fresh_transport_batt = any(
-                (last_seen := getattr(batt, "last_seen", None)) is not None
+                not (getattr(batt, "voltage", 0) == 0 and getattr(batt, "soc", 0) == 0)
+                and (last_seen := getattr(batt, "last_seen", None)) is not None
                 and dt_util.utcnow() - dt_util.as_utc(last_seen)
                 <= HYBRID_TRANSPORT_FRESHNESS
                 for batt in getattr(transport_battery, "batteries", None) or []
