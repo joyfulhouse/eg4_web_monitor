@@ -553,3 +553,90 @@ class TestGroupResurrectionPaths:
         assert pg["sensors"].get("parallel_battery_current") is None
         assert pg["sensors"].get("pv_total_power") is None
         assert pg["sensors"].get("parallel_battery_count") is None
+
+
+class TestLostCloudBankKeepsKeys:
+    """A lost cloud bank blanks values but keeps keys (#479 r3/#261).
+
+    Bank-entity availability is key-presence: dropping the keys would flip
+    the aggregate entities unavailable (the #261 flicker) instead of the
+    intended present-but-unknown.
+    """
+
+    async def test_lost_bank_extracts_keys_with_none_values(
+        self, hass, mock_config_entry
+    ) -> None:
+        from types import SimpleNamespace
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+
+        # Inverter NOT lost (runtime and battery endpoints have separate
+        # cadences and can transiently disagree) — isolates the bank-level
+        # gate from the inverter-level blanking.
+        inverter = _make_cloud_inverter(lost=False)
+        inverter._battery_bank = SimpleNamespace(
+            battery_count=2,
+            current=10.0,
+            voltage=53.2,
+            is_lost=True,
+            batteries=[],
+        )
+        result = await coordinator._process_inverter_object(inverter)
+        sensors = result["sensors"]
+        # Keys present (entities stay available) but values unknown.
+        assert "battery_bank_current" in sensors
+        assert sensors["battery_bank_current"] is None
+        assert "battery_bank_voltage" in sensors
+        assert sensors["battery_bank_voltage"] is None
+
+    async def test_live_bank_keeps_values(self, hass, mock_config_entry) -> None:
+        from types import SimpleNamespace
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+
+        inverter = _make_cloud_inverter(lost=False)
+        inverter._battery_bank = SimpleNamespace(
+            battery_count=2,
+            current=10.0,
+            voltage=53.2,
+            is_lost=False,
+            batteries=[],
+        )
+        result = await coordinator._process_inverter_object(inverter)
+        assert result["sensors"]["battery_bank_current"] == 10.0
+
+
+class TestCarryForwardCacheBlanking:
+    """The blanking pass must reach the #258 carry-forward store (#479 r4).
+
+    The post-loop blanking mutates per-battery dicts in place; the
+    carry-forward store snapshots dict(current) — a SHALLOW copy sharing
+    those inner dicts — so the cache blanks by aliasing.  This test pins
+    that coupling: if either side starts deep-copying, a later
+    carry-forward cycle would resurrect the frozen pre-outage values.
+    """
+
+    async def test_blanking_propagates_into_carry_forward_cache(
+        self, hass, mock_config_entry
+    ) -> None:
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+
+        serial = "5555555555"
+        battery = {
+            "battery_real_voltage": 53.2,
+            "battery_serial_number": "BAT001122334",
+        }
+        device_data = {"type": "inverter", "batteries": {"key1": battery}}
+        # Seed the carry-forward store the way the pipeline does (shallow
+        # snapshot of the current batteries dict).
+        coordinator._apply_battery_carry_forward(serial, device_data)
+        assert coordinator._battery_carry_forward[serial]["key1"] is battery
+
+        blank_lost_battery_measurements(battery)
+
+        cached = coordinator._battery_carry_forward[serial]["key1"]
+        assert cached["battery_real_voltage"] is None
+        assert cached["battery_serial_number"] == "BAT001122334"

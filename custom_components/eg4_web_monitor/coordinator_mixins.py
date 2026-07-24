@@ -1679,15 +1679,9 @@ class DeviceProcessingMixin(_MixinBase):
                     inverter.serial_number,
                     e,
                 )
-        elif cloud_count > 0 and not bool(
-            getattr(cloud_battery_bank, "is_lost", False)
-        ):
+        elif cloud_count > 0:
             # Cloud-only mode, or HYBRID where the transport reg-96 count
             # flickered to 0/None while the cloud bank stayed populated (#261).
-            # The is_lost gate keeps a LOST cloud bank (frozen portal mirror,
-            # #479) from being restored over a flickering transport count —
-            # in pure CLOUD the inverter-level blanking would null these keys
-            # anyway; skipping extraction reads the same "unknown".
             _LOGGER.debug(
                 "Battery bank for %s: using CLOUD data (battery_count=%d, "
                 "transport reg-96 count=%d)",
@@ -1696,9 +1690,21 @@ class DeviceProcessingMixin(_MixinBase):
                 transport_count,
             )
             try:
-                processed["sensors"].update(
-                    self._extract_battery_bank_from_object(cloud_battery_bank)
+                bank_sensors = self._extract_battery_bank_from_object(
+                    cloud_battery_bank
                 )
+                # A LOST cloud bank is a frozen portal mirror (#479): null the
+                # extracted values but KEEP the keys — bank-entity availability
+                # is key-presence (#261), so dropping the keys would flip the
+                # aggregate entities unavailable instead of unknown.  Covers
+                # the HYBRID reg-96-flicker restore path too (inverter-level
+                # blanking cannot reach it: is_lost reads False while local
+                # transport data is live).
+                if bool(getattr(cloud_battery_bank, "is_lost", False)):
+                    for key in bank_sensors:
+                        if key != "battery_bank_last_polled":
+                            bank_sensors[key] = None
+                processed["sensors"].update(bank_sensors)
             except Exception as e:
                 _LOGGER.warning(
                     "Error extracting battery bank data for inverter %s: %s",

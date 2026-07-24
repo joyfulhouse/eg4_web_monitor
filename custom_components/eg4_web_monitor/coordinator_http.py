@@ -1271,6 +1271,14 @@ class HTTPUpdateMixin(_MixinBase):
         # point.  Same gate as the inverter-sensor blanking: a genuinely
         # lost-flagged cloud payload only — live local transport data reads
         # is_lost=False and keeps HYBRID batteries fresh.
+        #
+        # The in-place mutation deliberately ALIASES into the #258
+        # carry-forward store: _apply_battery_carry_forward snapshots
+        # dict(current) — a shallow copy sharing these per-battery dicts —
+        # so blanking here also blanks the cached copy, and a later
+        # carry-forward cycle cannot resurrect the frozen values.  Pinned by
+        # test_blanking_propagates_into_carry_forward_cache; if either side
+        # ever deep-copies, that test fails.
         for serial, device_data in processed["devices"].items():
             if device_data.get("type") != "inverter":
                 continue
