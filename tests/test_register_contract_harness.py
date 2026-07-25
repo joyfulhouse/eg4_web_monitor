@@ -55,6 +55,7 @@ import pytest
 from pylxpweb.constants.registers import (
     MULTI_BIT_FIELDS,
     REGISTER_TO_PARAM_KEYS,
+    get_register_to_param_mapping,
 )
 from pylxpweb.devices import Battery, GenericInverter, MIDDevice
 from pylxpweb.registers.battery import BATTERY_REGISTERS
@@ -1293,7 +1294,12 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # FUNC_BAT_SHARED (reporter-verified). Same bit in pylxpweb's base AND
     # SNA reg-110 tables ("all sources agree on bits 0-4").
     PARAM_FUNC_BAT_SHARED: (110, 3),
-    PARAM_FUNC_GREEN_EN: (110, 8),
+    # Green/Off-Grid Mode (GH #476): reg 110 bit 14 — live 18kPV toggle
+    # 2026-07-21 (cloud enable flips raw 1056 <-> 17440, single-bit delta,
+    # EG4 cloud decode in lockstep; lxp_modbus GreenModeEn agrees). The
+    # historic bit 8 was a wrong decode — HYBRID/LOCAL toggles wrote the
+    # PVCT-sample region and never moved green mode (#476/#194).
+    PARAM_FUNC_GREEN_EN: (110, 14),
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
     # Export PV Only (GH #135): reg 179 bit 3, pinned 2026-06-12
     # ~16:05-16:07 PT via authorized live cloud toggles raw-verified on BOTH
@@ -1420,6 +1426,40 @@ def test_control_params_resolve_to_documented_registers() -> None:
     assert not offenders, (
         "Control parameter register contract violations:\n  " + "\n  ".join(offenders)
     )
+
+
+@pytest.mark.parametrize("family", ["EG4_OFFGRID", "EG4_HYBRID", "LXP", "UNKNOWN"])
+def test_register_110_contract_holds_for_every_family(family: str) -> None:
+    """Register-110 controls resolve identically on every family's mapping.
+
+    The global ``REGISTER_TO_PARAM_KEYS`` check above cannot see a
+    family-specific override, and EG4_OFFGRID carried one until #476
+    unified the layouts.  That unification is what lets the Off-Grid Mode
+    switch write locally on the off-grid family (12000XP/6000XP/SNA) —
+    green at bit 14 there rests on lineage inference, not a toggle test on
+    that hardware, so a silent re-divergence would put those writes back
+    on a wrong bit with no error to trigger the cloud fallback.  Pin every
+    family to the same positions so that can only happen deliberately.
+    """
+    mapping = get_register_to_param_mapping(family)
+    keys = mapping.get(110, [])
+    assert keys, f"{family}: register 110 missing from the mapping entirely"
+
+    checked = 0
+    for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
+        if expected_addr != 110:
+            continue
+        checked += 1
+        assert name in keys, f"{family}: {name} absent from register 110 — writes fail"
+        assert keys.index(name) == expected_bit, (
+            f"{family}: {name} sits at bit {keys.index(name)}, contract says "
+            f"bit {expected_bit} — a wrong-bit write ACKs and never falls back"
+        )
+
+    assert PARAM_FUNC_GREEN_EN in _CONTROL_REGISTER_CONTRACT, (
+        "green mode dropped out of the contract — this test would pass vacuously"
+    )
+    assert checked, "no register-110 controls in the contract — test is vacuous"
 
 
 # Cloud-only controls: function parameters whose local register/bit is
