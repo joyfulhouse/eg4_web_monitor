@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-device removal from the UI** ([#174](https://github.com/joyfulhouse/eg4_web_monitor/issues/174), requested by @dscowan): devices the integration no longer provides — an inverter removed from the station or the configuration, a battery module no longer reported, a dissolved parallel group, or a legacy-format duplicate left behind by an older version — can now be deleted from their device page (**Settings → Devices & Services → device → three-dot menu → Delete**), without deleting and re-adding the whole integration entry. Deletion is refused for devices still being provided (their entities would immediately recreate them under fresh registry entries) and whenever the last update cycle failed or returned placeholder data, so a transient outage or a LOCAL-mode first refresh cannot make a live device look stale.
+
 ## [3.5.1-beta.4] - 2026-07-27
 
 ### Added

@@ -125,6 +125,14 @@ endpoints, and SSL certificate verification by default.
 prompts you to re-enter credentials through the UI — no need to delete and re-add
 the integration.
 
+**How do I remove a device that is no longer part of my system?** Open its device
+page (**Settings → Devices & Services → EG4 Web Monitor → the device**) and choose
+**Delete** from the three-dot menu. Removal is only allowed for devices the
+integration no longer reports — an inverter removed from your station or
+configuration, a battery module no longer present, or leftovers from older
+versions. A device that is still being reported is refused, since its entities
+would immediately recreate it.
+
 ## Enabling Debug Logging
 
 Add the following to `configuration.yaml` and restart Home Assistant:
