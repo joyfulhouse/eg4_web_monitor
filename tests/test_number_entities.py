@@ -132,12 +132,14 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS creates 23 number entities.
+        """FlexBOSS creates 25 number entities.
 
         12 base + 6 voltage + grid sell + start discharge threshold + Quick
         Charge Duration (HTTP-only) + the two cloud-only AC Couple SOC
-        window numbers (GH #352, cloud client present, family-neutral). The
-        reg-117 start CHARGE threshold is absent: no local transport and the
+        window numbers (GH #352, cloud client present, family-neutral) + the
+        two reg-160/161 AC-charge SOC window numbers (now created on
+        grid-tied families too; End disabled by default there). The reg-117
+        start CHARGE threshold is absent: no local transport and the
         register has no cloud param name (GH #272).
         """
         coordinator = _mock_coordinator()
@@ -147,7 +149,7 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 23
+        assert len(entities) == 25
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         # Quick Charge Duration preference (HTTP-only, #251)
@@ -182,9 +184,21 @@ class TestNumberPlatformSetup:
         assert "StopDischargeVoltageNumber" in type_names
         # Reg 67 keeps working on grid-tied families (GH #331)
         assert "ACChargeSOCLimitNumber" in type_names
-        # The off-grid AC-charge SOC window (regs 160/161) is offgrid-only
-        assert "ACChargeStartBatterySOCNumber" not in type_names
-        assert "ACChargeEndBatterySOCNumber" not in type_names
+        # The reg-160/161 AC-charge SOC window is created on grid-tied
+        # families too (FlexBOSS21 evidence: reg 160 gates AC charging
+        # regardless of ACChargeType/windows). Start ships enabled; End
+        # disabled by default pending grid-tied write verification
+        # (PR #332 review note).
+        assert "ACChargeStartBatterySOCNumber" in type_names
+        assert "ACChargeEndBatterySOCNumber" in type_names
+        start_soc = next(
+            e for e in entities if type(e).__name__ == "ACChargeStartBatterySOCNumber"
+        )
+        assert start_soc.entity_registry_enabled_default is True
+        end_soc = next(
+            e for e in entities if type(e).__name__ == "ACChargeEndBatterySOCNumber"
+        )
+        assert end_soc.entity_registry_enabled_default is False
         # The AC Couple SOC window is NOT family-gated (GH #352 evidence
         # spans grid-tied hardware) — created whenever a cloud client exists
         assert "ACCoupleStartSOCNumber" in type_names
@@ -2035,21 +2049,23 @@ class TestOffgridGridTiedNumberSuppression:
         assert "GridPeakShavingPowerNumber" in type_names
         assert "ForcedDischargePowerNumber" in type_names
         assert "ForcedDischargeSOCLimitNumber" in type_names
-        # Fail-open keeps the reg-67 AC Charge SOC Limit too (GH #331), and
-        # the offgrid-only reg-160/161 window is NOT created without a
-        # positive family ID.
+        # Fail-open keeps the reg-67 AC Charge SOC Limit too (GH #331). The
+        # reg-160/161 window is no longer offgrid-gated — it is live on both
+        # families, so fail-open creates it as well (grid-tied shape: End
+        # disabled by default).
         assert "ACChargeSOCLimitNumber" in type_names
-        assert "ACChargeStartBatterySOCNumber" not in type_names
-        assert "ACChargeEndBatterySOCNumber" not in type_names
+        assert "ACChargeStartBatterySOCNumber" in type_names
+        assert "ACChargeEndBatterySOCNumber" in type_names
         # The AC Couple SOC window has no family gate at all (GH #352) —
         # cloud client present is enough
         assert "ACCoupleStartSOCNumber" in type_names
         assert "ACCoupleEndSOCNumber" in type_names
         # Fail-open keeps every control except Grid Sell Back, whose own
         # XP-model gate (GH #135) fires on the model name alone = 18, plus the
-        # HTTP-only Quick Charge Duration preference (#251) and the two AC
-        # Couple SOC window numbers (GH #352) = 21
-        assert len(entities) == 21
+        # HTTP-only Quick Charge Duration preference (#251), the two AC
+        # Couple SOC window numbers (GH #352) and the two reg-160/161
+        # AC-charge SOC window numbers = 23
+        assert len(entities) == 23
 
     @pytest.mark.asyncio
     async def test_repairs_issue_for_previously_registered_numbers(self, hass):

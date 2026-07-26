@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **AC Charge Start/End Battery SOC entities extended to grid-tied families** (follow-up to [#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331)): the reg-160/161 AC-charge SOC window numbers, previously created only on EG4_OFFGRID, are now created for grid-tied families as well. Hardware evidence from a FlexBOSS21 (EG4_HYBRID, fw FAAB-2727, local dongle Modbus): reg 160 initiates AC charging whenever battery SOC is below its value — in or out of the AC-charge time windows and regardless of the reg-120 ACChargeType selector — so with the entity hidden, the factory default of 90 silently pins a ToU-managed battery high around the clock (grid-charging outside every window), while a low value silently prevents the scheduled in-window charge; the portal/app exposes the same field for the family as "Start AC Charge SOC(%)". *Start* ships enabled (reg-160 local read+write verified on the FlexBOSS21); *End* ships disabled by default on grid-tied families pending a verified grid-tied write (reg-161 writes were observed rejected on grid-tied hardware, PR [#332](https://github.com/joyfulhouse/eg4_web_monitor/pull/332) review note). EG4_OFFGRID behavior is unchanged.
+
 ## [3.5.1-beta.4] - 2026-07-27
 
 ### Added

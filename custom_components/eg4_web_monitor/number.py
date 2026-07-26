@@ -671,6 +671,22 @@ async def async_setup_entry(
                         ]
                     )
                 else:
+                    # The reg-160/161 AC-charge SOC window is live on
+                    # grid-tied families too, not just EG4_OFFGRID: on a
+                    # FlexBOSS21 (EG4_HYBRID, fw FAAB-2727) reg 160 starts
+                    # AC charging whenever battery SOC is below it — in or
+                    # out of the AC-charge time windows and regardless of
+                    # the reg-120 ACChargeType selector — and the portal
+                    # exposes it for the family as "Start AC Charge SOC(%)".
+                    # Hidden from HA, it silently overrides any charge
+                    # schedule (its factory 90 kept a ToU battery pinned
+                    # high around the clock). Reg-160 local dongle
+                    # read+write verified on that unit; reg 161 reads fine
+                    # but grid-tied writes were observed rejected (PR #332
+                    # review), so the End entity ships disabled by default
+                    # here until a grid-tied write is verified.
+                    end_soc = ACChargeEndBatterySOCNumber(coordinator, serial)
+                    end_soc._attr_entity_registry_enabled_default = False
                     entities.extend(
                         [
                             GridPeakShavingPowerNumber(coordinator, serial),
@@ -679,6 +695,8 @@ async def async_setup_entry(
                             # Reg 67 keeps working on grid-tied/unknown
                             # families — fail-open, matching the other gates.
                             ACChargeSOCLimitNumber(coordinator, serial),
+                            ACChargeStartBatterySOCNumber(coordinator, serial),
+                            end_soc,
                         ]
                     )
 
@@ -1330,16 +1348,29 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
 
 
 class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
-    """AC Charge Start Battery SOC (reg 160, EG4_OFFGRID only, GH #331).
+    """AC Charge Start Battery SOC (reg 160, all inverter families, GH #331).
 
-    Battery SOC at which the off-grid family's AC Charge working mode starts
-    charging from the grid — with reg 161 the family's PRIMARY AC-charge SOC
-    window, a portal-verified writable holdParam on the off-grid working-mode
-    page (the reference dump reads 90, the reporter's live config). Reg 67
-    (AC Charge SOC Limit) is family-rejected there (REMOTE_SET_ERROR + portal
-    absence + reads 0), so this entity replaces it on EG4_OFFGRID. Whole
-    percent, SCALE_NONE on both paths; reg 160 is in pylxpweb's transport
-    name map, so local named reads/writes work as-is.
+    Battery SOC at which AC Charge starts charging from the grid.
+
+    On EG4_OFFGRID (the original GH #331 case) this pairs with reg 161 as
+    the family's PRIMARY AC-charge SOC window, a portal-verified writable
+    holdParam on the off-grid working-mode page (the reference dump reads
+    90, the reporter's live config). Reg 67 (AC Charge SOC Limit) is
+    family-rejected there (REMOTE_SET_ERROR + portal absence + reads 0), so
+    this entity replaces it on EG4_OFFGRID.
+
+    On grid-tied families the register is equally live and MORE dangerous
+    for being invisible: FlexBOSS21 hardware evidence (fw FAAB-2727, local
+    dongle Modbus, read+write verified) shows reg 160 initiates AC charging
+    whenever battery SOC is below it, regardless of the reg-120
+    ACChargeType selector and of the AC-charge time windows — charges start
+    out-of-window at SOC < value, and no window charge starts at
+    SOC > value. The portal exposes the field for the family as "Start AC
+    Charge SOC(%)"; without this entity its factory default of 90 silently
+    defeats any window/ToU charge schedule.
+
+    Whole percent, SCALE_NONE on both paths; reg 160 is in pylxpweb's
+    transport name map, so local named reads/writes work as-is.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1396,14 +1427,18 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
 
 
 class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
-    """AC Charge End Battery SOC (reg 161, EG4_OFFGRID only, GH #331).
+    """AC Charge End Battery SOC (reg 161, all inverter families, GH #331).
 
-    Battery SOC at which the off-grid family's AC Charge working mode stops
-    charging from the grid — with reg 160 the family's PRIMARY AC-charge SOC
-    window, a portal-verified writable holdParam on the off-grid working-mode
-    page (the reference dump reads 100, the reporter's live config). Reg 67
-    (AC Charge SOC Limit) is family-rejected there (REMOTE_SET_ERROR + portal
-    absence + reads 0), so this entity replaces it on EG4_OFFGRID.
+    Battery SOC at which the AC Charge working mode stops charging from the
+    grid — with reg 160 the AC-charge SOC window. On EG4_OFFGRID (the
+    original GH #331 case) it is a portal-verified writable holdParam on the
+    off-grid working-mode page (the reference dump reads 100, the reporter's
+    live config), and reg 67 (AC Charge SOC Limit) is family-rejected there
+    (REMOTE_SET_ERROR + portal absence + reads 0), so this entity replaces
+    it on EG4_OFFGRID. On grid-tied families it is created DISABLED by
+    default: reads verified on FlexBOSS21 hardware, but grid-tied writes
+    were observed rejected (see the PR #332 note below), so it ships as an
+    opt-in until a grid-tied write is verified.
 
     Whole percent, SCALE_NONE on both paths; reg 161 is in pylxpweb's
     transport name map from 0.9.36b28, so this entity mirrors the Start
