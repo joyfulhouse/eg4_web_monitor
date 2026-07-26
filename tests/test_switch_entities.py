@@ -39,6 +39,7 @@ def _mock_coordinator(
     has_http: bool = True,
     has_local: bool = False,
     local_only: bool = False,
+    link_down: bool = False,
     transport_attached: bool | None = None,
     model: str = "FlexBOSS21",
     serial: str = "1234567890",
@@ -50,6 +51,7 @@ def _mock_coordinator(
     coordinator = MagicMock()
     coordinator.has_http_api = MagicMock(return_value=has_http)
     coordinator.has_local_transport = MagicMock(return_value=has_local)
+    coordinator.is_transport_link_down = MagicMock(return_value=link_down)
     coordinator.is_local_only = MagicMock(return_value=local_only)
     coordinator.last_update_success = True
     coordinator.plant_id = "plant_123"
@@ -1833,6 +1835,73 @@ class TestCloudFallback:
 
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.enable_peak_shaving_mode.assert_called_once()
+
+    # ── Known-down link short-circuit (GH #485) ──────────────────────
+    #
+    # Parity with utils.async_write_with_cloud_fallback: when pylxpweb has
+    # already flagged the local link DOWN and a cloud API exists, the switch
+    # write must go straight to the cloud instead of waiting out the doomed
+    # Modbus timeout/retry of a local read-modify-write.
+
+    @pytest.mark.asyncio
+    async def test_link_down_skips_local_named_method_route(self):
+        """HYBRID + known-down link: named-method cloud write, no local RMW."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True, link_down=True)
+        switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        # The doomed local write was never attempted
+        coordinator.write_named_parameter.assert_not_called()
+        # The write landed via the cloud named method
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_battery_backup.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_link_down_skips_local_function_control_route(self):
+        """HYBRID + known-down link: control_function cloud write, no local
+        RMW, and the acknowledged value seeds the parameter cache (#310
+        convergence — the local param re-read is skipped on a down link)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True, link_down=True)
+        switch = _make_charge_last_switch(coordinator)
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_not_called()
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", PARAM_FUNC_CHARGE_LAST, True
+        )
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {PARAM_FUNC_CHARGE_LAST: True}
+        )
+
+    @pytest.mark.asyncio
+    async def test_link_down_local_only_still_attempts_local(self):
+        """LOCAL-only + known-down link: no cloud to prefer, so the local
+        write is still attempted and its error propagates unchanged."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False, link_down=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="Modbus timeout"):
+            await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_link_up_still_prefers_local(self):
+        """HYBRID + healthy link: the local write path is unchanged."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True, link_down=False)
+        switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
+        _prep(switch)
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_called_once()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.enable_battery_backup.assert_not_called()
 
 
 class TestCloudFallbackParameterSeeding:

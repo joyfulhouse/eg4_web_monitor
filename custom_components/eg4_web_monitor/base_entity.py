@@ -1419,6 +1419,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         contention), transparently retries via the cloud API. Both paths are
         idempotent (set specific state, not toggle), so a double-write is safe.
 
+        Mirrors :func:`utils.async_write_with_cloud_fallback` (GH #485): when
+        pylxpweb has already declared the local link DOWN and a cloud API
+        exists, the write goes straight to the cloud instead of waiting out a
+        doomed Modbus timeout. LOCAL-only installs (no cloud) still attempt
+        the local write so their error behavior is unchanged. Reads keep
+        probing the link each poll cycle, so recovery re-enables local writes.
+
         Args:
             action_name: Human-readable name of the action for logging.
             parameter: HTTP API-style parameter name (e.g., "FUNC_EPS_EN").
@@ -1445,30 +1452,45 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             )
 
         if self.coordinator.has_local_transport(self._serial):
-            try:
-                # When a cloud fallback exists, keep the optimistic state on
-                # local failure: clearing it there would publish the stale
-                # pre-write value for one transition before the cloud retry
-                # re-asserts it (#310 review — recorder pollution/automation
-                # misfire). The cloud path's own error handling clears it if
-                # the retry fails too.
-                await self._execute_named_parameter_action(
-                    action_name=action_name,
-                    parameter=parameter,
-                    value=value,
-                    clear_optimistic_on_error=not self.coordinator.has_http_api(),
+            cloud_available = self.coordinator.has_http_api()
+            if cloud_available and self.coordinator.is_transport_link_down(
+                self._serial
+            ):
+                # Known-dead link with a working cloud route: skip the doomed
+                # local RMW (full Modbus timeout/retry) and write via the
+                # cloud immediately (#485, parity with the number/select/time
+                # helper). Without a cloud we still attempt locally below.
+                _LOGGER.warning(
+                    "Local transport link is down for device %s; writing %s "
+                    "via the cloud API",
+                    self._serial,
+                    action_name,
                 )
-                return
-            except HomeAssistantError:
-                if self.coordinator.has_http_api():
-                    _LOGGER.warning(
-                        "Local transport write failed for %s on device %s, "
-                        "falling back to cloud API",
-                        action_name,
-                        self._serial,
+            else:
+                try:
+                    # When a cloud fallback exists, keep the optimistic state on
+                    # local failure: clearing it there would publish the stale
+                    # pre-write value for one transition before the cloud retry
+                    # re-asserts it (#310 review — recorder pollution/automation
+                    # misfire). The cloud path's own error handling clears it if
+                    # the retry fails too.
+                    await self._execute_named_parameter_action(
+                        action_name=action_name,
+                        parameter=parameter,
+                        value=value,
+                        clear_optimistic_on_error=not cloud_available,
                     )
-                else:
-                    raise
+                    return
+                except HomeAssistantError:
+                    if cloud_available:
+                        _LOGGER.warning(
+                            "Local transport write failed for %s on device %s, "
+                            "falling back to cloud API",
+                            action_name,
+                            self._serial,
+                        )
+                    else:
+                        raise
 
         if self.coordinator.has_http_api():
             # The write lands via the cloud: seed the parameter cache with

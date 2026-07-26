@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Switch toggles no longer wait out a doomed Modbus timeout when the local link is already known down** ([#485](https://github.com/joyfulhouse/eg4_web_monitor/issues/485), found by review on PR #477): on a Hybrid connection, number/select/time controls already write straight through the cloud when pylxpweb has flagged the local transport link down — but switches still attempted the local read-modify-write first and only reached the cloud after the full timeout/retry. Switch writes now take the same short-circuit: known-down link plus a working cloud route goes directly to the cloud (with the acknowledged value seeded into the parameter cache so the switch converges). Local-only connections are unchanged — with no cloud to prefer, the local write is still attempted and its error reported as before.
+
 ## [3.5.1-beta.3] - 2026-07-25
 
 Two live-reported control and data-integrity fixes: sensors no longer freeze
