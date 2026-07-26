@@ -58,6 +58,7 @@ from pylxpweb.constants.registers import (
     get_register_to_param_mapping,
 )
 from pylxpweb.devices import Battery, GenericInverter, MIDDevice
+from pylxpweb.devices.inverters import InverterFamily
 from pylxpweb.registers.battery import BATTERY_REGISTERS
 from pylxpweb.registers.battery import BY_CLOUD_FIELD as BATTERY_BY_CLOUD_FIELD
 from pylxpweb.registers.gridboss import BY_NAME as GRIDBOSS_BY_NAME
@@ -1428,8 +1429,12 @@ def test_control_params_resolve_to_documented_registers() -> None:
     )
 
 
-@pytest.mark.parametrize("family", ["EG4_OFFGRID", "EG4_HYBRID", "LXP", "UNKNOWN"])
-def test_register_110_contract_holds_for_every_family(family: str) -> None:
+@pytest.mark.parametrize(
+    "family",
+    [*(f.value for f in InverterFamily), None],
+    ids=lambda f: f if f else "no-family",
+)
+def test_register_110_contract_holds_for_every_family(family: str | None) -> None:
     """Register-110 controls resolve identically on every family's mapping.
 
     The global ``REGISTER_TO_PARAM_KEYS`` check above cannot see a
@@ -1440,26 +1445,41 @@ def test_register_110_contract_holds_for_every_family(family: str) -> None:
     that hardware, so a silent re-divergence would put those writes back
     on a wrong bit with no error to trigger the cloud fallback.  Pin every
     family to the same positions so that can only happen deliberately.
+
+    Parametrised off ``InverterFamily`` itself rather than a hardcoded
+    list: today only EG4_OFFGRID takes a family-specific branch and every
+    other value falls through to the shared base table, so most of these
+    cases are re-checking the same mapping.  That is the point — when a
+    new family is added, or an override is reintroduced for one that
+    currently has none, this test covers it without anyone remembering to
+    extend a list.  ``None`` (no family supplied) is included because it
+    is a real caller state, not an enum member.
     """
     mapping = get_register_to_param_mapping(family)
     keys = mapping.get(110, [])
     assert keys, f"{family}: register 110 missing from the mapping entirely"
 
-    checked = 0
+    checked: list[str] = []
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         if expected_addr != 110:
             continue
-        checked += 1
+        checked.append(name)
         assert name in keys, f"{family}: {name} absent from register 110 — writes fail"
         assert keys.index(name) == expected_bit, (
             f"{family}: {name} sits at bit {keys.index(name)}, contract says "
             f"bit {expected_bit} — a wrong-bit write ACKs and never falls back"
         )
 
-    assert PARAM_FUNC_GREEN_EN in _CONTROL_REGISTER_CONTRACT, (
-        "green mode dropped out of the contract — this test would pass vacuously"
+    # Guard the guard: assert green was actually exercised by the loop
+    # above, not merely present somewhere in the contract.  If green's
+    # contract entry moved off register 110, the loop would skip it while
+    # the other reg-110 controls kept `checked` non-empty — and the bit
+    # this whole test exists to pin would silently stop being pinned.
+    assert PARAM_FUNC_GREEN_EN in checked, (
+        "green mode was not checked against register 110 — it is the bit "
+        "the off-grid family's local writes depend on, so it must be "
+        "pinned here or this test is not doing its job"
     )
-    assert checked, "no register-110 controls in the contract — test is vacuous"
 
 
 # Cloud-only controls: function parameters whose local register/bit is
