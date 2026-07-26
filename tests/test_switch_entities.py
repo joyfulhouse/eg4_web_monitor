@@ -1838,42 +1838,49 @@ class TestCloudFallback:
 
     # ── Known-down link short-circuit (GH #485) ──────────────────────
     #
-    # Parity with utils.async_write_with_cloud_fallback: when pylxpweb has
-    # already flagged the local link DOWN and a cloud API exists, the switch
-    # write must go straight to the cloud instead of waiting out the doomed
-    # Modbus timeout/retry of a local read-modify-write.
+    # The shared async_write_with_cloud_fallback router must send switches
+    # straight to the cloud when pylxpweb has already flagged the local link
+    # DOWN, instead of waiting out a doomed Modbus read-modify-write.
 
     @pytest.mark.asyncio
     async def test_link_down_skips_local_named_method_route(self):
-        """HYBRID + known-down link: named-method cloud write, no local RMW."""
+        """HYBRID + known-down link: named-method cloud write, no local reads."""
         coordinator = _mock_coordinator(has_local=True, has_http=True, link_down=True)
         switch = EG4BatteryBackupSwitch(coordinator, "1234567890")
         _prep(switch)
         await switch.async_turn_on()
 
-        # The doomed local write was never attempted
+        # Neither the local write nor its post-write runtime/parameter reads
+        # may probe a link pylxpweb already declared down.
         coordinator.write_named_parameter.assert_not_called()
-        # The write landed via the cloud named method
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.enable_battery_backup.assert_called_once()
+        inverter.refresh.assert_not_awaited()
+        coordinator.async_refresh_device_parameters.assert_not_awaited()
+        assert switch._optimistic_state is True
+        assert switch._optimistic_retained is True
 
     @pytest.mark.asyncio
     async def test_link_down_skips_local_function_control_route(self):
         """HYBRID + known-down link: control_function cloud write, no local
-        RMW, and the acknowledged value seeds the parameter cache (#310
-        convergence — the local param re-read is skipped on a down link)."""
+        write or post-write reads, and the acknowledged value is retained."""
         coordinator = _mock_coordinator(has_local=True, has_http=True, link_down=True)
         switch = _make_charge_last_switch(coordinator)
         _prep(switch)
         await switch.async_turn_on()
 
         coordinator.write_named_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.refresh.assert_not_awaited()
+        coordinator.async_refresh_device_parameters.assert_not_awaited()
         coordinator.client.api.control.control_function.assert_called_once_with(
             "1234567890", PARAM_FUNC_CHARGE_LAST, True
         )
         coordinator.note_parameters_written.assert_called_once_with(
             "1234567890", {PARAM_FUNC_CHARGE_LAST: True}
         )
+        assert switch._optimistic_state is True
+        assert switch._optimistic_retained is True
 
     @pytest.mark.asyncio
     async def test_link_down_local_only_still_attempts_local(self):
@@ -1911,8 +1918,8 @@ class TestCloudFallbackParameterSeeding:
     skipped (``_refresh_device_parameters``), so without seeding the
     acknowledged value via ``note_parameters_written()`` the switch
     reverts to the stale pre-write cache value once its optimistic state
-    clears. Mirrors ``utils.async_write_with_cloud_fallback``: seed only
-    when a local transport is attached, never for pure-cloud.
+    clears. The switch envelope seeds before its refresh phase; the shared
+    router's later generic seed is deliberately omitted here.
     """
 
     @staticmethod

@@ -36,6 +36,7 @@ from .const import (
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
+    async_write_with_cloud_fallback,
     clean_model_name,
     generate_entity_id,
     generate_unique_id,
@@ -1297,6 +1298,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         api_delay: float = 1.0,
         enable_kwargs: dict[str, Any] | None = None,
         seed_param_key: str | None = None,
+        refresh_after_write: bool = True,
     ) -> None:
         """Execute a switch action with optimistic state handling.
 
@@ -1330,6 +1332,11 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 Pass only for parameter-backed switches whose ``is_on`` reads
                 this key; leave ``None`` for status-based actions (e.g. quick
                 charge) and pure-cloud-only callers.
+            refresh_after_write: Whether to run the post-write device and
+                coordinator refreshes. Known-down cloud fallback routes pass
+                False so no local recovery probe can block the acknowledged
+                write; the envelope reports the refresh incomplete and retains
+                the optimistic state until ordinary polling recovers.
 
         Raises:
             HomeAssistantError: If the action fails.
@@ -1389,6 +1396,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             await inverter.refresh()
 
         async def do_refresh() -> bool:
+            if not refresh_after_write:
+                return False
             if refresh_params:
                 return await self.coordinator.async_refresh_device_parameters(
                     self._serial
@@ -1400,8 +1409,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             turn_on,
             do_write=do_write,
             do_refresh=do_refresh,
-            pre_delay_refresh=pre_delay_refresh,
-            api_delay=api_delay,
+            pre_delay_refresh=pre_delay_refresh if refresh_after_write else None,
+            api_delay=api_delay if refresh_after_write else 0.0,
             seed_param_key=seed_param_key,
         )
 
@@ -1419,12 +1428,10 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         contention), transparently retries via the cloud API. Both paths are
         idempotent (set specific state, not toggle), so a double-write is safe.
 
-        Mirrors :func:`utils.async_write_with_cloud_fallback` (GH #485): when
-        pylxpweb has already declared the local link DOWN and a cloud API
-        exists, the write goes straight to the cloud instead of waiting out a
-        doomed Modbus timeout. LOCAL-only installs (no cloud) still attempt
-        the local write so their error behavior is unchanged. Reads keep
-        probing the link each poll cycle, so recovery re-enables local writes.
+        Delegates transport routing to
+        :func:`utils.async_write_with_cloud_fallback` (GH #485), so switches
+        share the same local-first, cloud-fallback, and known-down
+        short-circuit policy as number/select/time controls.
 
         Args:
             action_name: Human-readable name of the action for logging.
@@ -1451,53 +1458,33 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 f"enable={cloud_enable_method!r}, disable={cloud_disable_method!r}"
             )
 
-        if self.coordinator.has_local_transport(self._serial):
-            cloud_available = self.coordinator.has_http_api()
-            if cloud_available and self.coordinator.is_transport_link_down(
-                self._serial
-            ):
-                # Known-dead link with a working cloud route: skip the doomed
-                # local RMW (full Modbus timeout/retry) and write via the
-                # cloud immediately (#485, parity with the number/select/time
-                # helper). Without a cloud we still attempt locally below.
-                _LOGGER.warning(
-                    "Local transport link is down for device %s; writing %s "
-                    "via the cloud API",
-                    self._serial,
-                    action_name,
-                )
-            else:
-                try:
-                    # When a cloud fallback exists, keep the optimistic state on
-                    # local failure: clearing it there would publish the stale
-                    # pre-write value for one transition before the cloud retry
-                    # re-asserts it (#310 review — recorder pollution/automation
-                    # misfire). The cloud path's own error handling clears it if
-                    # the retry fails too.
-                    await self._execute_named_parameter_action(
-                        action_name=action_name,
-                        parameter=parameter,
-                        value=value,
-                        clear_optimistic_on_error=not cloud_available,
-                    )
-                    return
-                except HomeAssistantError:
-                    if cloud_available:
-                        _LOGGER.warning(
-                            "Local transport write failed for %s on device %s, "
-                            "falling back to cloud API",
-                            action_name,
-                            self._serial,
-                        )
-                    else:
-                        raise
+        local_attached = self.coordinator.has_local_transport(self._serial)
+        cloud_available = self.coordinator.has_http_api()
+        if not local_attached and not cloud_available:
+            raise HomeAssistantError(f"No transport available for {action_name}")
 
-        if self.coordinator.has_http_api():
-            # The write lands via the cloud: seed the parameter cache with
-            # the acknowledged value so the switch converges even when the
-            # post-write local parameter refresh is skipped (#310). Every
-            # ``parameter`` reaching this wrapper is a named local bit
-            # param, i.e. exactly the parameter-cache key ``is_on`` reads.
+        async def local_write() -> None:
+            # When a cloud fallback exists, keep the optimistic state on local
+            # failure: clearing it there would publish the stale pre-write
+            # value for one transition before the cloud retry re-asserts it
+            # (#310 review — recorder pollution/automation misfire). The cloud
+            # path clears it if that retry fails too.
+            await self._execute_named_parameter_action(
+                action_name=action_name,
+                parameter=parameter,
+                value=value,
+                clear_optimistic_on_error=not cloud_available,
+            )
+
+        async def cloud_write() -> None:
+            # A failed local attempt can mark the link down, so evaluate this
+            # at cloud-route execution time rather than before the shared
+            # router runs. On a known-down link, both cloud envelopes report
+            # the post-write refresh incomplete without scheduling local reads.
+            refresh_after_write = not (
+                self.coordinator.has_local_transport(self._serial)
+                and self.coordinator.is_transport_link_down(self._serial)
+            )
             if cloud_enable_method and cloud_disable_method:
                 await self._execute_switch_action(
                     action_name=action_name,
@@ -1506,6 +1493,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     turn_on=value,
                     refresh_params=True,
                     seed_param_key=parameter,
+                    refresh_after_write=refresh_after_write,
                 )
             else:
                 await self._execute_cloud_function_action(
@@ -1513,9 +1501,20 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                     parameter=parameter,
                     value=value,
                     seed_param_key=parameter,
+                    refresh_after_write=refresh_after_write,
                 )
-        else:
-            raise HomeAssistantError(f"No transport available for {action_name}")
+
+        # The switch envelope seeds the acknowledged value before its refresh
+        # phase, so local_values deliberately stays omitted here; passing it
+        # would notify listeners twice and would seed too late to prevent a
+        # stale post-write refresh from publishing.
+        await async_write_with_cloud_fallback(
+            self.coordinator,
+            self._serial,
+            action_name,
+            local_write=local_write,
+            cloud_write=cloud_write if cloud_available else None,
+        )
 
     def _seed_cloud_written_parameter(self, param_key: str, value: bool) -> None:
         """Seed an acknowledged cloud-written FUNC_ bit into the parameter cache.
@@ -1544,6 +1543,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         value: bool,
         api_delay: float = 1.0,
         seed_param_key: str | None = None,
+        refresh_after_write: bool = True,
     ) -> None:
         """Execute a switch action via the cloud function-control API.
 
@@ -1564,6 +1564,10 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 only for parameter-backed switches whose ``is_on`` reads this
                 key; leave ``None`` for actions whose state is not parameter
                 cache backed (e.g. status-based quick charge).
+            refresh_after_write: Whether to run the post-write parameter
+                refresh. Known-down cloud fallback routes pass False so no
+                local recovery probe can block; the envelope retains the
+                acknowledged state until ordinary polling recovers.
 
         Raises:
             HomeAssistantError: If no cloud client exists or the write fails.
@@ -1598,6 +1602,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             )
 
         async def do_refresh() -> bool:
+            if not refresh_after_write:
+                return False
             return await self.coordinator.async_refresh_device_parameters(self._serial)
 
         await self._optimistic_write_envelope(
@@ -1605,7 +1611,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             value,
             do_write=do_write,
             do_refresh=do_refresh,
-            api_delay=api_delay,
+            api_delay=api_delay if refresh_after_write else 0.0,
             seed_param_key=seed_param_key,
         )
 

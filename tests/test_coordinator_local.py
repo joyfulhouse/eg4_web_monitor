@@ -3551,6 +3551,42 @@ class TestLinkDownParameterRefreshGate:
         assert result is True
         down.refresh.assert_awaited_once_with(force=True, include_parameters=True)
 
+    async def test_async_refresh_device_parameters_reports_incomplete_fetch(
+        self, hass, local_config_entry
+    ):
+        """A soft-failed pylxpweb parameter fetch reports failure.
+
+        pylxpweb retains stale parameters and returns normally when one cloud
+        range fails, exposing the failure only through
+        ``parameters_complete=False``.  The public wrapper must not report that
+        as a completed refresh: its boolean drives the acknowledged-write
+        retention envelope (#362). The coordinator refresh side effect remains
+        intact for older callers that ignore the boolean.
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        incomplete = self._fake_inverter(
+            link_down=False, parameters={"FUNC_TEST": False}
+        )
+        incomplete.parameters_complete = True
+
+        async def _soft_fail_parameter_fetch(**_kwargs: Any) -> None:
+            incomplete.parameters_complete = False
+
+        incomplete.refresh = AsyncMock(side_effect=_soft_fail_parameter_fetch)
+        coordinator._inverter_cache = {"INV1": incomplete}
+        coordinator.data = {
+            "devices": {"INV1": {"type": "inverter"}},
+            "parameters": {"INV1": {"FUNC_TEST": True}},
+        }
+        coordinator.async_request_refresh = AsyncMock()
+
+        result = await coordinator.async_refresh_device_parameters("INV1")
+
+        assert result is False
+        incomplete.refresh.assert_awaited_once_with(force=True, include_parameters=True)
+        coordinator.async_request_refresh.assert_awaited_once_with()
+
     async def test_async_refresh_device_parameters_reports_failure(
         self, hass, local_config_entry
     ):
