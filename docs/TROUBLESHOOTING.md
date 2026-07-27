@@ -128,9 +128,19 @@ the integration.
 **How do I remove a device that is no longer part of my system?** Open its device
 page (**Settings → Devices & Services → EG4 Web Monitor → the device**) and choose
 **Delete** from the three-dot menu. Removal is only allowed for devices the
-integration no longer reports — an inverter removed from your station or
-configuration, a battery module no longer present, or leftovers from older
-versions. A device that is still being reported is refused, since its entities
+integration has not reported for a while — an inverter removed from your station
+or configuration, a battery module no longer present, or leftovers from older
+versions. Because a single poll can under-report what is really connected
+(battery slots rotate, cloud responses omit modules), deletion requires the
+device to have been continuously absent for an observation window of
+successful updates: 15 minutes for inverters, GridBOSS units, parallel
+groups, and the station; 6 hours for battery modules and battery banks.
+The window counts only observed time — it restarts after a Home Assistant
+restart, an integration reload, or a stretch of failed updates. For a
+physically removed battery module the practical wait is about 12 hours:
+battery tracking keeps a missing module visible for its first 6 hours of
+absence, and the deletion window starts once it stops being reported. A
+device that is still being reported is always refused, since its entities
 would immediately recreate it.
 
 ## Enabling Debug Logging

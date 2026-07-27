@@ -88,6 +88,7 @@ from .const import (
     HYBRID_LOCAL_MODBUS,
 )
 from .battery_migration import async_migrate_battery_keys
+from .device_removal import record_provided_identifiers
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -326,6 +327,17 @@ class EG4DataUpdateCoordinator(
         # MID device (GridBOSS) cache for LOCAL mode
         self._mid_device_cache: dict[str, Any] = {}
 
+        # Per-device-removal observation ledger (device_removal.py):
+        # identifier -> (monotonic last-seen, class), stamped once per
+        # successful refresh. observed_since marks the start of the CURRENT
+        # contiguous run of successful refreshes (restarted after any
+        # failed cycle) and gates the class-specific continuous-absence
+        # windows — blind time never counts as absence. In-memory on
+        # purpose: the observed-coverage requirement is the cold-start
+        # safety.
+        self._removal_identifier_last_seen: dict[str, tuple[float, str]] = {}
+        self._removal_observed_since: float | None = None
+
         # Round-robin battery cache for LOCAL/HYBRID Modbus.
         # Some inverter firmware rotates which physical batteries appear in the
         # fixed register slots (5002+) on each CAN bus poll.  We accumulate
@@ -532,6 +544,12 @@ class EG4DataUpdateCoordinator(
                     for key in _TOTAL_INCREASING_KEYS:
                         if key in sensors and sensors[key] == 0:
                             sensors[key] = None
+
+            # Stamp the per-device-removal observation ledger with this
+            # cycle's provided identifiers. Deliberately NOT on the
+            # 3-strike cached-fallback path below — served cache is old
+            # evidence, not a fresh sighting.
+            record_provided_identifiers(self, data)
 
             return data
         except ConfigEntryAuthFailed:
