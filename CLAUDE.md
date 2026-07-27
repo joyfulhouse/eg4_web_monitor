@@ -114,7 +114,16 @@ Connection type (http/local/hybrid) is **auto-derived** from configured data, no
 ## Entity Management
 
 ### ID Formats
-- **Unique ID**: `{serial}_{data_type}_{sensor_key}_{batteryKey?}`
+- **Unique ID (Device)**: `{serial}_{sensor_key}`
+- **Unique ID (Battery)**: `{serial}_{battery_key}_{sensor_key}`
+- **Unique ID (Battery Bank)**: `{serial}_battery_bank_{sensor_key}`
+- **Unique ID (Station)**: `station_{plant_id}_{sensor_key}`
+  - These are the forms `base_entity.py` actually emits. An older
+    `{serial}_{data_type}_{sensor_key}_{batteryKey?}` format was documented
+    here for a long time but was never implemented — no Python in this
+    repo's history emits a data-type segment. It is corrected because it
+    misled a registry-cleanup matcher into defending against a shape that
+    does not exist (#490 review).
 - **Entity ID (Inverter)**: `eg4_{model}_{serial}_{sensor_name}`
 - **Entity ID (Battery)**: `eg4_{model}_{serial}_battery_{batteryKey}_{sensor_name}`
 - **Entity ID (GridBOSS)**: `eg4_gridboss_{serial}_{sensor_name}`

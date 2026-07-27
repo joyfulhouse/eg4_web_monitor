@@ -56,6 +56,7 @@ from .coordinator_mappings import (
     blank_lost_inverter_measurements,
     build_battery_bank_sensors,
     compute_bank_charge_rate,
+    blank_cloud_zero_internal_temperature,
     drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
 )
@@ -1480,6 +1481,16 @@ class DeviceProcessingMixin(_MixinBase):
         drop_offgrid_cloud_output_power(
             processed["sensors"],
             features.get("inverter_family"),
+            inverter.transport_runtime is not None,
+        )
+
+        # The cloud relays a constant `tinner: 0` on some hardware while the
+        # radiator temps read live, so a cloud-sourced internal_temperature of
+        # exactly 0 is published as unknown rather than a wrong constant
+        # (#490).  Value-scoped, NOT family-scoped: a 6000XP reports live
+        # Tinner while a 12000XP reports 0, and both are EG4_OFFGRID.
+        blank_cloud_zero_internal_temperature(
+            processed["sensors"],
             inverter.transport_runtime is not None,
         )
 

@@ -244,7 +244,7 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |
 |-----|----------------|-------|------|---------------|
-| 64 | `internal_temperature` | 1 | C | `internal_temperature` |
+| 64 | `internal_temperature` | 1 | C | `internal_temperature` (genuine on this path; see the CLOUD caveat below) |
 | 65 | `radiator_temperature_1` | 1 | C | `radiator1_temperature` |
 | 66 | `radiator_temperature_2` | 1 | C | `radiator2_temperature` |
 | 67 | `battery_temperature` | 1 | C | `battery_temperature` |
@@ -252,6 +252,38 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 > **Note:** `bt_temperature` (reg 108) is Modbus-only (not available via Cloud API).
 > Available in LOCAL and HYBRID modes (overlaid via `_TRANSPORT_OVERLAY`).
+
+> **CLOUD caveat — Internal Temperature reads a constant 0 on some
+> hardware (#490).** The cloud `getInverterRuntime` payload relays
+> `tinner: 0` permanently on some units while `tradiator1`/`tradiator2`
+> read live (the #490 reporter's 12000XP and the #76 raw payload from a
+> second 12000XP). `tinner` is a REQUIRED pydantic field in pylxpweb, so
+> the 0 is literally on the wire — there is no sentinel to translate. A
+> **cloud-sourced** `internal_temperature` of exactly 0 is therefore
+> published as `None` (HA “unknown”) instead of a wrong constant, via
+> `blank_cloud_zero_internal_temperature` in `coordinator_mappings.py`.
+>
+> **This is NOT a family difference — do not turn it into one.** The
+> defect splits *within* deviceTypeCode 54: a **12000XP** reports the
+> constant 0, while a **6000XP** reports live `Tinner` of 31-32 °C
+> alongside radiators at 58-65 °C in EG4's own data table
+> ([forum thread](https://forum.eg4electronics.com/community/troubleshooting/3-6000xps-in-parallel-fans-do-not-run-at-low-wattage/)).
+> Both are classified `EG4_OFFGRID`, and nothing distinguishes them
+> (#259/#307), so a family gate would suppress a sensor that
+> demonstrably works. Only the observed VALUE is treated.
+>
+> **Scope is the SOURCE, not the mode.** pylxpweb's
+> `Inverter.inverter_temperature` is
+> `_raw_int("internal_temperature", "tinner")`: it returns the transport
+> register whenever transport runtime exists and falls back to cloud
+> `tinner` only when it does not. The treatment is gated on
+> `transport_runtime is not None`, so LOCAL is untouched and HYBRID
+> cycles that fell back to the cloud are correctly treated. There is no
+> evidence against register 64 on any family.
+>
+> **Trade-off:** 0 °C is a physically legitimate reading, so a unit
+> genuinely at 0 on a cloud connection now reads unknown — the same
+> caveat #348 raised for `tBat`. Bounded, and reversible.
 
 ### Energy Registers (Daily)
 
@@ -931,7 +963,7 @@ Mapping dict: `INVERTER_RUNTIME_FIELD_MAPPING`
 | `vpv3` | `pv3_voltage` | 1 |
 | `soc` | `state_of_charge` | 1 |
 | `frequency` | `frequency` | 1 |
-| `tinner` | `internal_temperature` | 1 |
+| `tinner` | `internal_temperature` (a constant `0` on some units is published as unknown, #490) | 1 |
 | `tradiator1` | `radiator1_temperature` | 1 |
 | `tradiator2` | `radiator2_temperature` | 1 |
 | `todayYielding` | `yield` | ÷10 |

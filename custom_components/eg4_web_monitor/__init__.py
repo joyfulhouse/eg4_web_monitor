@@ -29,6 +29,7 @@ from .const import (
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DOMAIN,
     INVERTER_FAMILY_EG4_OFFGRID,
+    INVERTER_FAMILY_UNKNOWN,
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
 )
@@ -362,6 +363,144 @@ def _async_cleanup_duplicate_runtime_data_entities(
             )
 
 
+# Segments that may sit between the serial and the sensor key in a DEVICE
+# unique ID.
+#
+# ``""`` is the ONLY segment this code is known to have ever emitted.
+# ``base_entity`` builds a bare ``{serial}_{sensor_key}`` today and did at
+# v3.2.0 as well, and ``generate_unique_id`` is never called with a data-type
+# argument.  The remaining entries are DEFENSIVE, NOT OBSERVED: a
+# ``{serial}_{data_type}_{sensor_key}`` shape is described in CLAUDE.md and
+# seeded by ``test_conditional_cleanup_by_family``, but no Python in this
+# repository's history has ever produced it — ``git log --all -S`` finds that
+# shape only in markdown and in that test's fixture.  They are kept so that
+# introducing a data-type scheme later cannot silently turn this guard into a
+# no-op, and they cost nothing while unused.  This is an ALLOWLIST on purpose
+# — see ``_is_device_namespace_uid``.
+_DEVICE_UID_DATA_TYPE_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "",  # current form: {serial}_{sensor_key}
+        "runtime",
+        "energy",
+        "parameters",
+        "midbox_runtime",
+    }
+)
+
+
+def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bool:
+    """Whether ``unique_id`` is *this device's own* entity for ``sensor_key``.
+
+    One shared ``SENSOR_TYPES`` table backs several unique-ID namespaces that
+    ALL begin with the parent inverter serial::
+
+        device   {serial}_{data_type}_{key}   <- the only purge target
+        battery  {serial}_{battery_key}_{key}
+        bank     {serial}_battery_bank_{key}
+
+    A bare ``endswith(f"_{key}")`` therefore reaches into the battery and bank
+    namespaces.  That is harmless for ``battery_discharge_power`` today, but
+    generic keys DO live in those namespaces — ``cycle_count`` is both a
+    per-battery key (``coordinator_mixins`` battery map) and a bank key
+    (``coordinator_mappings`` maps ``battery_bank_cycle_count`` onto it), and
+    ``state_of_health``/``battery_type``/``battery_serial_number`` are
+    per-battery.  Adding one of those here later would be a one-line change
+    that silently deleted every per-battery and bank entity for that key while
+    passing every existing test.
+
+    An exact ``unique_id == f"{serial}_{sensor_key}"`` match WOULD in fact
+    match every row this code has ever emitted — the "legacy data-type" shape
+    is a documentation artifact, not an observed one (see the note on
+    ``_DEVICE_UID_DATA_TYPE_SEGMENTS``).  The allowlist is kept anyway because
+    ``test_conditional_cleanup_by_family`` seeds ``{serial}_runtime_{key}``
+    and asserts it purged, and because it stays correct if a data-type scheme
+    is ever introduced.  It costs nothing and fails in the safe direction.
+
+    So the device namespace is identified by ALLOWLISTING its own shapes
+    rather than by blocklisting the siblings.  That direction matters: a
+    ``battery_key`` does NOT reliably restate the parent serial, so a
+    "``middle`` starts with the serial" test does not identify batteries.
+    ``clean_battery_display_name`` returns ``{serial}-nn`` for the common
+    ``{inverterSn}_{batterySn}`` key, but passes a ``BAT``-prefixed key
+    through verbatim (``BAT001``).  That branch is live today, so any cloud
+    ``batteryKey`` beginning ``BAT`` produces a ``{serial}_BAT001_{key}`` row;
+    the integration also carried a code PATH defaulting the key to
+    ``BAT{index:03d}`` when a battery object had no ``battery_key`` at all
+    (commit d3dba21, #76) — whether any install actually hit that default is
+    not demonstrable from the history, but it does not need to be.  Its final
+    branch also passes arbitrary cleaned keys through, and ``cloud_battery_key``
+    exists specifically to warn that the ``batteryKey`` format deviates in the
+    field (#252).  An allowlist leaves every one of those alone, because an
+    unrecognised shape is not on the list.  It is not absolute — a battery
+    whose cleaned key were literally ``runtime`` would still be matched — but
+    that requires the cloud to return a batteryKey colliding with a listed
+    data-type name, which is implausible rather than impossible.
+
+    Deriving the battery keys from ``coordinator.data[...]["batteries"]``
+    instead was considered and rejected: that dict is initialised empty and is
+    only populated once real battery data has been read, so on a LOCAL first
+    refresh it is ``{}`` at the moment this purge runs — which would make every
+    battery row look unknown and fail OPEN, the #217 failure mode.
+    """
+    suffix = f"_{sensor_key}"
+    prefix = f"{serial}_"
+    if not unique_id.startswith(prefix) or not unique_id.endswith(suffix):
+        return False
+    middle = unique_id[len(prefix) : -len(suffix)]
+    return middle in _DEVICE_UID_DATA_TYPE_SEGMENTS
+
+
+def _async_cleanup_deprecated_battery_discharge_power_entities(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    coordinator: EG4DataUpdateCoordinator,
+) -> None:
+    """Purge the stale per-inverter ``_battery_discharge_power`` sensor (#197).
+
+    The key was deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197),
+    so it cannot be purged unconditionally: installs that skipped the purging
+    versions still carry the stale entry on non-offgrid hardware.  Remove it
+    ONLY when the device's family is positively RESOLVED and is not
+    EG4_OFFGRID.
+
+    "Resolved" EXCLUDES the ``UNKNOWN`` family string.  pylxpweb's
+    ``InverterFeatures.model_family`` defaults to ``InverterFamily.UNKNOWN``
+    and ``detect_features()`` returns that default WITHOUT raising when the
+    parameter fetch leaves parameters unavailable, so ``"UNKNOWN"`` is the
+    value the pipeline emits for an unresolved device — and it is truthy.
+    Treating it as "family known" would let a single transient parameter-read
+    failure on a genuine off-grid unit delete the very sensor #197
+    reintroduced for that family, irreversibly.  Unresolved devices keep
+    their entities; the family resolves on a later refresh.
+    """
+    entity_registry = er.async_get(hass)
+    offgrid_serials: set[str] = set()
+    family_known_serials: set[str] = set()
+    if coordinator.data and "devices" in coordinator.data:
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            family = (device_data.get("features") or {}).get("inverter_family")
+            if family and family != INVERTER_FAMILY_UNKNOWN:
+                family_known_serials.add(serial)
+                if family == INVERTER_FAMILY_EG4_OFFGRID:
+                    offgrid_serials.add(serial)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        serial = entity.unique_id.partition("_")[0]
+        if not _is_device_namespace_uid(
+            entity.unique_id, serial, "battery_discharge_power"
+        ):
+            continue
+        if serial in family_known_serials and serial not in offgrid_serials:
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed deprecated sensor for non-offgrid device: %s",
+                entity.entity_id,
+            )
+
+
 def _async_cleanup_stale_smart_port_entities(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
@@ -638,36 +777,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # aliases of EPS Power L1/L2 (#335).
     _async_cleanup_duplicate_runtime_data_entities(hass, entry)
 
-    # Conditional cleanup: per-inverter "_battery_discharge_power" was
-    # deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197). Installs
-    # that skipped the purging versions still carry the stale entry on
-    # non-offgrid hardware — remove it ONLY when the device's family is
-    # positively known and not EG4_OFFGRID; unresolved devices keep theirs
-    # (conservative — pure-cloud family resolves on a later refresh).
-    offgrid_serials: set[str] = set()
-    family_known_serials: set[str] = set()
-    if coordinator.data and "devices" in coordinator.data:
-        for serial, device_data in coordinator.data["devices"].items():
-            if device_data.get("type") != "inverter":
-                continue
-            family = (device_data.get("features") or {}).get("inverter_family")
-            if family:
-                family_known_serials.add(serial)
-                if family == INVERTER_FAMILY_EG4_OFFGRID:
-                    offgrid_serials.add(serial)
-    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-        if entity.domain != "sensor":
-            continue
-        uid = entity.unique_id
-        if not uid.endswith("_battery_discharge_power"):
-            continue
-        serial = uid.split("_", 1)[0]
-        if serial in family_known_serials and serial not in offgrid_serials:
-            entity_registry.async_remove(entity.entity_id)
-            _LOGGER.info(
-                "Removed deprecated sensor for non-offgrid device: %s",
-                entity.entity_id,
-            )
+    # Conditional cleanup: the reintroduced-for-offgrid
+    # "_battery_discharge_power" (#197) on resolved non-offgrid hardware.
+    _async_cleanup_deprecated_battery_discharge_power_entities(hass, entry, coordinator)
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities
