@@ -12,6 +12,7 @@ from custom_components.eg4_web_monitor.const import (
     PARAM_HOLD_FORCED_CHG_POWER,
 )
 from custom_components.eg4_web_monitor.number import (
+    _READBACK_ATTEMPTS,
     async_setup_entry,
     ACChargeEndBatterySOCNumber,
     ACChargePowerNumber,
@@ -2347,6 +2348,34 @@ class TestOffgridACChargeSOCWindow:
         entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         assert entity.native_value is None
 
+    @pytest.mark.parametrize("legacy_value", [91, 95, 100])
+    def test_start_soc_read_displays_above_write_cap(self, legacy_value):
+        """PR #488 fix-round item 3: the 90 write cap does NOT clamp reads —
+        a legacy register value in 91-100 (written by an earlier version, or
+        from the portal) still DISPLAYS rather than blanking to unknown. Reads
+        keep the tolerant 0-100 window; only writes cap at 90."""
+        coordinator = self._offgrid_coordinator(
+            parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": legacy_value}
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        assert entity.native_value == legacy_value
+
+    @pytest.mark.asyncio
+    async def test_start_soc_write_cap_boundary(self):
+        """The Start WRITE cap is exactly 90: 90 is accepted, 91 rejected —
+        pinning the pylxpweb reg-160 bound independently of the shared
+        coerce-int parametrization (PR #488 fix-round item 3)."""
+        coordinator = self._offgrid_coordinator(has_local=True)
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(90)  # boundary: accepted
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_AC_CHARGE_START_BATTERY_SOC", 90, serial="1234567890"
+        )
+        with pytest.raises(HomeAssistantError, match="between 0-90"):
+            await entity.async_set_native_value(91)
+
     def test_missing_params_read_none(self):
         coordinator = self._offgrid_coordinator(parameters={})
         assert (
@@ -2459,8 +2488,9 @@ class TestOffgridACChargeSOCWindow:
 
     @pytest.mark.asyncio
     async def test_cloud_write_readback_mismatch_raises(self):
-        """success:true with the register still at its old value raises —
-        the acknowledged-but-unapplied class (PR #488 review item 5)."""
+        """success:true with the register STAYING at its old value across the
+        settle re-read raises — the acknowledged-but-unapplied class (PR #488
+        review item 5, fix-round item 2)."""
         coordinator = self._offgrid_coordinator(has_local=False)
         coordinator.client.api.control.write_parameter = AsyncMock(
             return_value=MagicMock(success=True)
@@ -2473,11 +2503,45 @@ class TestOffgridACChargeSOCWindow:
         entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match="still reads"):
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.number.asyncio.sleep", AsyncMock()
+            ),
+            pytest.raises(HomeAssistantError, match="still reads"),
+        ):
             await entity.async_set_native_value(10)
-        coordinator.client.api.control.read_parameters.assert_awaited_once_with(
+        # Verification actually ran, and a persistent mismatch settled+retried
+        # before failing (kills a "verification removed" or "no retry" mutation).
+        assert (
+            coordinator.client.api.control.read_parameters.await_count
+            == _READBACK_ATTEMPTS
+        )
+        coordinator.client.api.control.read_parameters.assert_awaited_with(
             "1234567890", 160, 1
         )
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_readback_recovers_after_settle(self):
+        """PR #488 fix-round item 1: a write that applies a beat after the ACK
+        reads stale first, then correct — it must NOT surface as a failure."""
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            side_effect=[
+                MagicMock(parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": "90"}),
+                MagicMock(parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": "10"}),
+            ]
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with patch(
+            "custom_components.eg4_web_monitor.number.asyncio.sleep", AsyncMock()
+        ):
+            await entity.async_set_native_value(10)  # no raise: settled to 10
+        assert coordinator.client.api.control.read_parameters.await_count == 2
 
     @pytest.mark.asyncio
     async def test_end_soc_cloud_write_arms_reg_161_readback(self):
@@ -2492,15 +2556,21 @@ class TestOffgridACChargeSOCWindow:
         entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match="still reads"):
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.number.asyncio.sleep", AsyncMock()
+            ),
+            pytest.raises(HomeAssistantError, match="still reads"),
+        ):
             await entity.async_set_native_value(95)
-        coordinator.client.api.control.read_parameters.assert_awaited_once_with(
+        coordinator.client.api.control.read_parameters.assert_awaited_with(
             "1234567890", 161, 1
         )
 
     @pytest.mark.asyncio
     async def test_cloud_write_readback_match_succeeds(self):
-        """A readback equal to the written value confirms the write."""
+        """A readback equal to the written value confirms the write — and the
+        readback actually happened (kills a "verification removed" mutation)."""
         coordinator = self._offgrid_coordinator(has_local=False)
         coordinator.client.api.control.write_parameter = AsyncMock(
             return_value=MagicMock(success=True)
@@ -2514,10 +2584,15 @@ class TestOffgridACChargeSOCWindow:
         _prep(entity)
 
         await entity.async_set_native_value(10)
+        # A first-read match takes the fast path: exactly one read, no settle.
+        coordinator.client.api.control.read_parameters.assert_awaited_once_with(
+            "1234567890", 160, 1
+        )
 
     @pytest.mark.asyncio
     async def test_cloud_write_readback_failure_does_not_fail_write(self):
-        """A flaky readback only logs — the acknowledged write stands."""
+        """A flaky readback only logs — the acknowledged write stands — but the
+        readback WAS attempted (kills a "verification removed" mutation)."""
         coordinator = self._offgrid_coordinator(has_local=False)
         coordinator.client.api.control.write_parameter = AsyncMock(
             return_value=MagicMock(success=True)
@@ -2529,6 +2604,29 @@ class TestOffgridACChargeSOCWindow:
         _prep(entity)
 
         await entity.async_set_native_value(10)
+        coordinator.client.api.control.read_parameters.assert_awaited_once_with(
+            "1234567890", 160, 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_readback_absent_key_trusts_write(self):
+        """PR #488 fix-round item 2: a readback that omits the key cannot
+        testify, so the acknowledged write is trusted (documented no-op gap)."""
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(parameters={})  # key absent
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(10)  # no raise
+        # An absent key ends verification immediately — no settle/retry.
+        coordinator.client.api.control.read_parameters.assert_awaited_once_with(
+            "1234567890", 160, 1
+        )
 
     # ── Range / integer validation ─────────────────────────────────────
 

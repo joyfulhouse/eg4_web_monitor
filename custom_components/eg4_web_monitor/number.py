@@ -1534,6 +1534,18 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         )
 
 
+# Post-write readback settle (PR #488 fix round, item 1). The portal can ACK
+# a holdParam write seconds before the register reflects it (firmware-side
+# delayed apply / concurrent propagation), matching pylxpweb's own
+# ~2 s write-and-verify guidance. So an immediate mismatch is not yet
+# evidence of a no-op: the first read is taken with no delay (fast path for a
+# write that landed at once), and only a value that STAYS wrong across a
+# settle re-read fails the write. A false failure on a write that DID apply is
+# worse than trusting it -- the user retries a write that already succeeded.
+_READBACK_SETTLE_SECONDS = 2.0
+_READBACK_ATTEMPTS = 2
+
+
 async def _write_cloud_named_parameter(
     entity: EG4BaseNumberEntity,
     param: str,
@@ -1549,42 +1561,65 @@ async def _write_cloud_named_parameter(
     ``verify_register`` arms an equality-checked readback: after a
     ``success: true`` response the register is re-read through the cloud
     (pylxpweb invalidates its parameter cache on a successful write, so the
-    read is fresh) and a value that DEFINITELY differs from the write raises
-    instead of reporting success — the acknowledged-but-unapplied class
-    (portal says OK, register unchanged). A readback that cannot testify is
-    fail-safe toward the write: a raising read logs a warning, and an absent
-    or non-numeric key silently skips verification — a flaky read must not
-    fail a write that in all likelihood landed.
+    read is fresh) and a value that STAYS DIFFERENT from the write across a
+    settle re-read (see ``_READBACK_SETTLE_SECONDS``) raises instead of
+    reporting success — the acknowledged-but-unapplied class (portal says OK,
+    register unchanged).
+
+    The readback catches a *definite, persistent numeric mismatch* and nothing
+    more: it is deliberately fail-safe toward the write, so a readback that
+    cannot testify — a read that raises, an absent key, or a non-numeric value
+    — is trusted rather than failed (a flaky read must not fail a write that in
+    all likelihood landed). So a ``success: true`` whose readback times out or
+    omits the key still reports success; only a register that keeps reading a
+    different value does not.
     """
     client = entity.coordinator.require_client()
     result = await client.api.control.write_parameter(entity.serial, param, str(value))
     if not result.success:
         raise HomeAssistantError(error_message)
     if verify_register is not None:
+        # None => could not testify (unreadable / absent / non-numeric);
+        # True/False => a numeric comparison was made. Only a persistent False
+        # fails the write.
+        verified: bool | None = None
         readback: Any = None
-        try:
-            response = await client.api.control.read_parameters(
-                entity.serial, verify_register, 1
-            )
-            readback = response.parameters.get(param)
-        except Exception as err:
-            _LOGGER.warning(
-                "Post-write readback of %s failed for %s: %s "
-                "(write was acknowledged; skipping verification)",
-                param,
-                entity.serial,
-                err,
-            )
-        if readback is not None:
+        for attempt in range(_READBACK_ATTEMPTS):
+            if attempt > 0:
+                # Let a slow-to-apply write propagate before the deciding read.
+                await asyncio.sleep(_READBACK_SETTLE_SECONDS)
+            try:
+                response = await client.api.control.read_parameters(
+                    entity.serial, verify_register, 1
+                )
+                readback = response.parameters.get(param)
+            except Exception as err:
+                _LOGGER.warning(
+                    "Post-write readback of %s failed for %s: %s "
+                    "(write was acknowledged; skipping verification)",
+                    param,
+                    entity.serial,
+                    err,
+                )
+                verified = None
+                break
+            if readback is None:
+                verified = None  # key absent — cannot testify
+                break
             try:
                 verified = int(float(readback)) == value
             except (TypeError, ValueError):
-                verified = True  # non-numeric readback proves nothing
-            if not verified:
-                raise HomeAssistantError(
-                    f"{error_message}: the write was acknowledged but the "
-                    f"register still reads {readback}"
-                )
+                verified = None  # non-numeric readback proves nothing
+                break
+            if verified:
+                break
+            # A mismatch on the first read may just be propagation lag; loop to
+            # settle and re-read before deciding it is a genuine no-op.
+        if verified is False:
+            raise HomeAssistantError(
+                f"{error_message}: the write was acknowledged but the "
+                f"register still reads {readback}"
+            )
     await entity.coordinator.refresh_inverter_params_if_linked(entity.serial)
 
 
