@@ -198,6 +198,7 @@ from .device_types import (
     INVERTER_FAMILY_LXP_LV,  # Legacy alias
     INVERTER_FAMILY_PV_SERIES,  # Legacy alias
     INVERTER_FAMILY_SNA,  # Legacy alias
+    INVERTER_FAMILY_UNKNOWN,
     LEGACY_FAMILY_MAP,
     MODEL_NAME_FAMILY_FALLBACK,
     NON_THREE_PHASE_SENSORS,
@@ -458,6 +459,7 @@ __all__ = [
     "INVERTER_FAMILY_LXP_LV",  # Legacy alias
     "INVERTER_FAMILY_PV_SERIES",  # Legacy alias
     "INVERTER_FAMILY_SNA",  # Legacy alias
+    "INVERTER_FAMILY_UNKNOWN",
     "LEGACY_FAMILY_MAP",
     "MODEL_NAME_FAMILY_FALLBACK",
     # Feature-based sensor sets

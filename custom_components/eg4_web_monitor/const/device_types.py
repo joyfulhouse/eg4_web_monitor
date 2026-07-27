@@ -45,6 +45,15 @@ INVERTER_FAMILY_EG4_OFFGRID = (
 INVERTER_FAMILY_EG4_HYBRID = "EG4_HYBRID"  # Grid-tied hybrid (18kPV, 12kPV, FlexBOSS)
 INVERTER_FAMILY_LXP = "LXP"  # Luxpower (LXP-EU, LXP-LB-BR, LXP-LV)
 
+# The UNRESOLVED family. pylxpweb's ``InverterFeatures.model_family`` defaults
+# to ``InverterFamily.UNKNOWN`` and ``detect_features()`` returns that default
+# WITHOUT raising when the parameter fetch leaves ``parameters`` unavailable —
+# so this truthy string is the value the pipeline actually emits for a device
+# whose family could not be determined, not an absent key.  Never treat it as
+# "family known": ``is_offgrid_family`` and ``is_family_control_supported``
+# both classify it as unresolved.
+INVERTER_FAMILY_UNKNOWN = "UNKNOWN"
+
 # =============================================================================
 # Deprecated Legacy Aliases
 # =============================================================================

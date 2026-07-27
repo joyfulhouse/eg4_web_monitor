@@ -206,6 +206,65 @@ def drop_offgrid_cloud_output_power(
     sensors.pop("output_power", None)
 
 
+def blank_cloud_zero_internal_temperature(
+    sensors: dict[str, Any],
+    has_transport_runtime: bool,
+) -> None:
+    """Blank a CLOUD-sourced ``internal_temperature`` of exactly 0 (#490).
+
+    The cloud ``getInverterRuntime`` payload relays a constant ``tinner: 0``
+    for some hardware while the radiator temperatures read live values (the
+    #490 reporter's 12000XP, and the #76 raw payload from a second 12000XP
+    with ``tinner: 0`` next to ``tradiator1: 46``/``tradiator2: 54``).
+    ``tinner`` is a REQUIRED pydantic field in pylxpweb, so that 0 is
+    literally on the wire — there is no sentinel to translate — and the
+    sensor rendered a permanent bogus 0 °C / 32 °F.
+
+    This is deliberately NOT a family gate.  The bad value does not track
+    the inverter family: a 6000XP owner reports live ``Tinner`` of 31-32 °C
+    alongside radiators at 58-65 °C in EG4's own data table, and the 6000XP
+    is classified EG4_OFFGRID by ``MODEL_NAME_FAMILY_FALLBACK`` exactly like
+    the 12000XP — both share deviceTypeCode 54, which nothing can split
+    (#259/#307).  So the split is WITHIN the family and a family gate would
+    suppress a sensor that demonstrably works on real hardware — the #307
+    over-gating failure, confirmed rather than hypothetical.  Only the
+    observed VALUE is treated, and only on the path it was observed on.
+
+    Scope is the CLOUD source, not the connection mode.  pylxpweb's
+    ``Inverter.inverter_temperature`` is ``_raw_int("internal_temperature",
+    "tinner")``: it returns the transport register whenever transport runtime
+    exists and falls back to cloud ``tinner`` only when it does not.  So
+    ``has_transport_runtime`` is exactly "this value came from cloud
+    ``tinner`` rather than from input register 64" — LOCAL is untouched, and
+    HYBRID cycles that fell back to the cloud are correctly treated.  There
+    is no evidence against register 64 on any family: the repo holds no
+    reg-64 reading from an off-grid unit at all, and the only live register
+    probe covers an 18kPV and a FlexBOSS21 (both EG4_HYBRID) which read it
+    fine.
+
+    ACCEPTED TRADE-OFF: 0 °C is a physically legitimate internal temperature
+    (a cold-climate install, idle, in an unheated space), so a unit genuinely
+    sitting at 0 on a cloud connection now reads "unknown" instead of 0.  The
+    same caveat the ``tBat`` sentinel work raised (#348: 0 can be a real
+    battery reading) applies here.  That is a small, bounded loss against a
+    permanently-wrong constant, it costs no data on any other value, and
+    unlike deleting the entity it is trivially reversible.
+
+    Args:
+        sensors: Mutable sensor dict to update.
+        has_transport_runtime: True when Modbus transport runtime backs the
+            mapped value, i.e. it came from register 64 and is genuine.
+    """
+    if has_transport_runtime:
+        return
+    # Exact zero only.  A falsy test would be wrong in both directions: it
+    # must not fire on a valid sub-zero reading (those are truthy, but the
+    # intent matters if this is ever refactored) and must not re-blank an
+    # already-None value into a different meaning.
+    if sensors.get("internal_temperature") == 0:
+        sensors["internal_temperature"] = None
+
+
 # Sensor keys that stay populated while the cloud reports the inverter lost
 # (dongle link down, ``lost=true``).  Everything else is a measurement mirror
 # the portal keeps serving frozen at its pre-outage value, so it is blanked to

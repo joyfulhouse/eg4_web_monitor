@@ -29,6 +29,7 @@ from .const import (
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DOMAIN,
     INVERTER_FAMILY_EG4_OFFGRID,
+    INVERTER_FAMILY_UNKNOWN,
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
 )
@@ -362,6 +363,89 @@ def _async_cleanup_duplicate_runtime_data_entities(
             )
 
 
+def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bool:
+    """Whether ``unique_id`` is *this device's own* entity for ``sensor_key``.
+
+    One shared ``SENSOR_TYPES`` table backs several unique-ID namespaces that
+    ALL begin with the parent inverter serial::
+
+        device   {serial}_{data_type}_{key}     <- the only purge target
+        battery  {serial}_{battery_key}_{key}   battery_key = {serial}_Battery_ID_nn
+        bank     {serial}_battery_bank_{key}
+
+    A bare ``endswith(f"_{key}")`` therefore reaches into the battery and bank
+    namespaces.  That is harmless for ``battery_discharge_power`` today, but
+    ``battery_temperature`` — a key that DOES exist in the battery namespace —
+    would become a one-line addition that silently deleted every per-battery
+    and battery-bank temperature entity while passing every existing test.
+
+    An exact ``unique_id == f"{serial}_{sensor_key}"`` match cannot be used:
+    real device unique IDs carry a data-type segment (``{serial}_runtime_{key}``,
+    ``{serial}_midbox_runtime_{key}``), and that legacy form is precisely what
+    the 3.2.x rows this purge exists to remove look like.  So the device
+    namespace is identified by EXCLUDING the two sibling namespaces instead —
+    the bank's literal ``battery_bank`` segment, and the individual battery's
+    ``battery_key``, which always re-states the parent serial.
+    """
+    suffix = f"_{sensor_key}"
+    prefix = f"{serial}_"
+    if not unique_id.startswith(prefix) or not unique_id.endswith(suffix):
+        return False
+    middle = unique_id[len(prefix) : -len(suffix)]
+    return middle != "battery_bank" and not middle.startswith(serial)
+
+
+def _async_cleanup_deprecated_battery_discharge_power_entities(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    coordinator: EG4DataUpdateCoordinator,
+) -> None:
+    """Purge the stale per-inverter ``_battery_discharge_power`` sensor (#197).
+
+    The key was deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197),
+    so it cannot be purged unconditionally: installs that skipped the purging
+    versions still carry the stale entry on non-offgrid hardware.  Remove it
+    ONLY when the device's family is positively RESOLVED and is not
+    EG4_OFFGRID.
+
+    "Resolved" EXCLUDES the ``UNKNOWN`` family string.  pylxpweb's
+    ``InverterFeatures.model_family`` defaults to ``InverterFamily.UNKNOWN``
+    and ``detect_features()`` returns that default WITHOUT raising when the
+    parameter fetch leaves parameters unavailable, so ``"UNKNOWN"`` is the
+    value the pipeline emits for an unresolved device — and it is truthy.
+    Treating it as "family known" would let a single transient parameter-read
+    failure on a genuine off-grid unit delete the very sensor #197
+    reintroduced for that family, irreversibly.  Unresolved devices keep
+    their entities; the family resolves on a later refresh.
+    """
+    entity_registry = er.async_get(hass)
+    offgrid_serials: set[str] = set()
+    family_known_serials: set[str] = set()
+    if coordinator.data and "devices" in coordinator.data:
+        for serial, device_data in coordinator.data["devices"].items():
+            if device_data.get("type") != "inverter":
+                continue
+            family = (device_data.get("features") or {}).get("inverter_family")
+            if family and family != INVERTER_FAMILY_UNKNOWN:
+                family_known_serials.add(serial)
+                if family == INVERTER_FAMILY_EG4_OFFGRID:
+                    offgrid_serials.add(serial)
+    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if entity.domain != "sensor":
+            continue
+        serial = entity.unique_id.partition("_")[0]
+        if not _is_device_namespace_uid(
+            entity.unique_id, serial, "battery_discharge_power"
+        ):
+            continue
+        if serial in family_known_serials and serial not in offgrid_serials:
+            entity_registry.async_remove(entity.entity_id)
+            _LOGGER.info(
+                "Removed deprecated sensor for non-offgrid device: %s",
+                entity.entity_id,
+            )
+
+
 def _async_cleanup_stale_smart_port_entities(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
@@ -638,36 +722,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # aliases of EPS Power L1/L2 (#335).
     _async_cleanup_duplicate_runtime_data_entities(hass, entry)
 
-    # Conditional cleanup: per-inverter "_battery_discharge_power" was
-    # deprecated in 3.2.x but REINTRODUCED for EG4_OFFGRID (#197). Installs
-    # that skipped the purging versions still carry the stale entry on
-    # non-offgrid hardware — remove it ONLY when the device's family is
-    # positively known and not EG4_OFFGRID; unresolved devices keep theirs
-    # (conservative — pure-cloud family resolves on a later refresh).
-    offgrid_serials: set[str] = set()
-    family_known_serials: set[str] = set()
-    if coordinator.data and "devices" in coordinator.data:
-        for serial, device_data in coordinator.data["devices"].items():
-            if device_data.get("type") != "inverter":
-                continue
-            family = (device_data.get("features") or {}).get("inverter_family")
-            if family:
-                family_known_serials.add(serial)
-                if family == INVERTER_FAMILY_EG4_OFFGRID:
-                    offgrid_serials.add(serial)
-    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-        if entity.domain != "sensor":
-            continue
-        uid = entity.unique_id
-        if not uid.endswith("_battery_discharge_power"):
-            continue
-        serial = uid.split("_", 1)[0]
-        if serial in family_known_serials and serial not in offgrid_serials:
-            entity_registry.async_remove(entity.entity_id)
-            _LOGGER.info(
-                "Removed deprecated sensor for non-offgrid device: %s",
-                entity.entity_id,
-            )
+    # Conditional cleanup: the reintroduced-for-offgrid
+    # "_battery_discharge_power" (#197) on resolved non-offgrid hardware.
+    _async_cleanup_deprecated_battery_discharge_power_entities(hass, entry, coordinator)
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities
