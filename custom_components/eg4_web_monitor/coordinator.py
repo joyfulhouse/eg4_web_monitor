@@ -88,7 +88,10 @@ from .const import (
     HYBRID_LOCAL_MODBUS,
 )
 from .battery_migration import async_migrate_battery_keys
-from .device_removal import record_provided_identifiers
+from .device_removal import (
+    assess_discovery_completeness,
+    record_provided_identifiers,
+)
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -329,14 +332,19 @@ class EG4DataUpdateCoordinator(
 
         # Per-device-removal observation ledger (device_removal.py):
         # identifier -> (monotonic last-seen, class), stamped once per
-        # successful refresh. observed_since marks the start of the CURRENT
-        # contiguous run of successful refreshes (restarted after any
-        # failed cycle) and gates the class-specific continuous-absence
-        # windows — blind time never counts as absence. In-memory on
-        # purpose: the observed-coverage requirement is the cold-start
+        # successful refresh. Each class has its own observed-since clock,
+        # marking the start of the CURRENT contiguous run of cycles that
+        # observed that class COMPLETELY (restarted after any failed,
+        # cached, or silently-incomplete cycle) -- it gates the
+        # class-specific continuous-absence windows so neither blind outage
+        # time nor a swallowed discovery failure counts as absence. In-memory
+        # on purpose: the observed-coverage requirement is the cold-start
         # safety.
         self._removal_identifier_last_seen: dict[str, tuple[float, str]] = {}
-        self._removal_observed_since: float | None = None
+        self._removal_device_observed_since: float | None = None
+        self._removal_battery_observed_since: float | None = None
+        self._removal_device_list_ok: bool = False
+        self._removal_battery_ok: bool = False
 
         # Round-robin battery cache for LOCAL/HYBRID Modbus.
         # Some inverter firmware rotates which physical batteries appear in the
@@ -546,10 +554,27 @@ class EG4DataUpdateCoordinator(
                             sensors[key] = None
 
             # Stamp the per-device-removal observation ledger with this
-            # cycle's provided identifiers. Deliberately NOT on the
-            # 3-strike cached-fallback path below — served cache is old
-            # evidence, not a fresh sighting.
-            record_provided_identifiers(self, data)
+            # cycle's provided identifiers, gated by whether discovery was
+            # actually COMPLETE (a cycle can report success while pylxpweb
+            # swallowed a device-list or battery fetch failure -- PR #489
+            # fix round). Deliberately NOT on the 3-strike cached-fallback
+            # path below -- served cache is old evidence, not a fresh
+            # sighting. Peripheral bookkeeping: a fault here must never fail
+            # the data update every sensor depends on, and clearing the
+            # clocks fails safe (deletion refused) rather than open.
+            try:
+                device_list_ok, battery_ok = await assess_discovery_completeness(
+                    self, data
+                )
+                record_provided_identifiers(self, data, device_list_ok, battery_ok)
+            except Exception:  # noqa: BLE001
+                self._removal_device_observed_since = None
+                self._removal_battery_observed_since = None
+                _LOGGER.warning(
+                    "Device-removal observation bookkeeping failed this cycle; "
+                    "deletions stay refused until it recovers",
+                    exc_info=True,
+                )
 
             return data
         except ConfigEntryAuthFailed:
@@ -557,6 +582,12 @@ class EG4DataUpdateCoordinator(
         except UpdateFailed as err:
             self._consecutive_update_failures += 1
             if self._consecutive_update_failures < 3 and self.data is not None:
+                # Serving cached data is not a fresh observation: break the
+                # per-class removal observation runs so absence cannot
+                # accumulate across the outage while last_update_success is
+                # still True (PR #489 finding 3).
+                self._removal_device_observed_since = None
+                self._removal_battery_observed_since = None
                 _LOGGER.warning(
                     "Update failure %d/3, serving cached data: %s",
                     self._consecutive_update_failures,
