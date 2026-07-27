@@ -3538,10 +3538,15 @@ class TestLinkDownParameterRefreshGate:
         self, hass, local_config_entry
     ):
         """The single-serial public refresh path delegates the same way and
-        reports success (#362)."""
+        reports success (#362).
+
+        pylxpweb's cloud fallback populates ``parameters`` on the down-link
+        serial, so the cache genuinely updates — the no-parameters case is a
+        silent no-op that reports False instead (#485).
+        """
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
-        down = self._fake_inverter(link_down=True)
+        down = self._fake_inverter(link_down=True, parameters={"HOLD_Y": 2})
         coordinator._inverter_cache = {"DOWN1": down}
         coordinator.data = {"devices": {"DOWN1": {"type": "inverter"}}}
         coordinator.async_request_refresh = AsyncMock()
@@ -3586,6 +3591,88 @@ class TestLinkDownParameterRefreshGate:
         assert result is False
         incomplete.refresh.assert_awaited_once_with(force=True, include_parameters=True)
         coordinator.async_request_refresh.assert_awaited_once_with()
+
+    async def test_incomplete_fetch_logs_at_debug_not_warning(
+        self, hass, local_config_entry, caplog: pytest.LogCaptureFixture
+    ):
+        """#485: an incomplete parameter read is ROUTINE, not exceptional.
+
+        pylxpweb logs the partial read itself and #282 added the sticky
+        carry-forward plus 2-minute retry floor precisely because one
+        misrouted dongle frame routinely fails one register range. Warning
+        here duplicated the post-write caller's own WARNING for a single
+        event, and gave ``select.py`` — which discards the boolean entirely
+        — a new WARNING it never had reason to emit.
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        incomplete = self._fake_inverter(
+            link_down=False, parameters={"FUNC_TEST": False}
+        )
+        incomplete.parameters_complete = False
+        coordinator._inverter_cache = {"INV1": incomplete}
+        coordinator.data = {"devices": {"INV1": {"type": "inverter"}}}
+        coordinator.async_request_refresh = AsyncMock()
+
+        msg = "Parameter refresh incomplete for device"
+        with caplog.at_level(logging.DEBUG):
+            result = await coordinator.async_refresh_device_parameters("INV1")
+
+        assert result is False
+        levels = {r.levelno for r in caplog.records if msg in r.getMessage()}
+        assert levels == {logging.DEBUG}
+
+    async def test_refresh_device_parameters_reports_unknown_serial(
+        self, hass, local_config_entry
+    ):
+        """#485: an unknown serial refreshes nothing and must report False.
+
+        The completeness probe in the public wrapper reads
+        ``inverter is not None and ...``, so a missing inverter evaluated as
+        "complete" and the wrapper returned True having refreshed nothing —
+        the exact #362 silent-no-op shape its contract claims to prevent.
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._inverter_cache = {}
+        coordinator.data = {"devices": {}}
+        coordinator.async_request_refresh = AsyncMock()
+
+        assert await coordinator._refresh_device_parameters("GHOST") is False
+        assert await coordinator.async_refresh_device_parameters("GHOST") is False
+
+    async def test_refresh_device_parameters_reports_empty_payload(
+        self, hass, local_config_entry
+    ):
+        """#485: an empty parameter payload updates no cache -> False.
+
+        ``parameters_complete`` stays True when pylxpweb returns an empty
+        parameter dict, so the wrapper reported a completed refresh while
+        the coordinator's parameter cache was never touched.
+        """
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        empty = self._fake_inverter(link_down=False, parameters={})
+        empty.parameters_complete = True
+        coordinator._inverter_cache = {"INV1": empty}
+        coordinator.data = {"devices": {"INV1": {"type": "inverter"}}}
+        coordinator.async_request_refresh = AsyncMock()
+
+        assert await coordinator._refresh_device_parameters("INV1") is False
+        assert await coordinator.async_refresh_device_parameters("INV1") is False
+        assert "parameters" not in coordinator.data
+
+    async def test_refresh_device_parameters_reports_missing_coordinator_data(
+        self, hass, local_config_entry
+    ):
+        """#485: no coordinator data to write into is also a silent no-op."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        inv = self._fake_inverter(link_down=False, parameters={"HOLD_X": 1})
+        coordinator._inverter_cache = {"INV1": inv}
+        coordinator.data = None
+
+        assert await coordinator._refresh_device_parameters("INV1") is False
 
     async def test_async_refresh_device_parameters_reports_failure(
         self, hass, local_config_entry

@@ -1127,7 +1127,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         self,
         action_name: str,
         pre_write_state: bool | None,
-        refresh: Callable[[], Awaitable[bool]],
+        refresh: Callable[[], Awaitable[bool]] | None,
     ) -> None:
         """Run the post-write refresh phase for an ACKNOWLEDGED write (#362).
 
@@ -1136,25 +1136,41 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         state clears (coordinator data is fresh); on a failed refresh
         (reported False or raised) it is retained via :meth:`_arm_retention`
         instead of publishing the stale pre-write value.
+
+        ``refresh=None`` means the caller DELIBERATELY skipped the refresh
+        phase (the known-down cloud fallback route, #485). That takes the
+        same retain branch, but it is not a failure and must not be logged
+        as one: pairing a "did not complete" WARNING with the link-down
+        WARNING already emitted by the router described the intended path as
+        a broken one on every switch toggle during an outage.
         """
         refresh_ok = False
-        try:
-            refresh_ok = await refresh()
-            if not refresh_ok:
-                _LOGGER.warning(
-                    "Post-write refresh did not complete after %s for device "
-                    "%s (the write itself succeeded)",
-                    action_name,
-                    self._serial,
-                )
-        except Exception as e:
-            _LOGGER.warning(
-                "Post-write refresh failed after %s for device %s "
-                "(the write itself succeeded): %s",
+        if refresh is None:
+            _LOGGER.debug(
+                "Post-write refresh skipped after %s for device %s; retaining "
+                "the acknowledged state until the hourly parameter refresh "
+                "reads it back",
                 action_name,
                 self._serial,
-                e,
             )
+        else:
+            try:
+                refresh_ok = await refresh()
+                if not refresh_ok:
+                    _LOGGER.warning(
+                        "Post-write refresh did not complete after %s for device "
+                        "%s (the write itself succeeded)",
+                        action_name,
+                        self._serial,
+                    )
+            except Exception as e:
+                _LOGGER.warning(
+                    "Post-write refresh failed after %s for device %s "
+                    "(the write itself succeeded): %s",
+                    action_name,
+                    self._serial,
+                    e,
+                )
 
         if refresh_ok:
             # Coordinator data reflects the new state — publish it.
@@ -1237,10 +1253,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
 
         ``refresh_after_write=False`` skips the whole refresh phase — no
         ``pre_delay_refresh`` probe, no propagation delay, no ``do_refresh``
-        — and flows through the retain branch above. Known-down cloud
-        fallback routes pass False (#485) so no local recovery probe can
-        block or revert the acknowledged write; ordinary polling clears the
-        retained state once it observes fresh data.
+        — and flows through the retain branch above, logged as a deliberate
+        skip rather than a refresh failure (#485). Known-down cloud fallback
+        routes pass False so no local recovery probe can block or revert the
+        acknowledged write; the HOURLY parameter refresh cycle — not the
+        20-30 s data poll, which carries no parameter reads — clears the
+        retained state once it observes fresh data, and
+        ``RETAINED_OPTIMISTIC_TTL`` bounds the wait.
 
         Callers emit their path-specific debug log BEFORE invoking this
         envelope — the pinned log ordering is debug → optimistic publish →
@@ -1285,8 +1304,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             self._seed_cloud_written_parameter(seed_param_key, value)
 
         async def refresh_phase() -> bool:
-            if not refresh_after_write:
-                return False
             if pre_delay_refresh is not None:
                 await pre_delay_refresh()
 
@@ -1295,7 +1312,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             return await do_refresh()
 
         await self._settle_acknowledged_write(
-            action_name, pre_write_state, refresh_phase
+            action_name,
+            pre_write_state,
+            refresh_phase if refresh_after_write else None,
         )
 
     async def _execute_switch_action(

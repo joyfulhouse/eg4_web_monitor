@@ -612,7 +612,7 @@ if TYPE_CHECKING:
         # ── ParameterManagementMixin methods ──
         def _should_refresh_parameters(self) -> bool: ...
         async def _hourly_parameter_refresh(self) -> None: ...
-        async def _refresh_device_parameters(self, serial: str) -> None: ...
+        async def _refresh_device_parameters(self, serial: str) -> bool: ...
         async def _refresh_missing_parameters(
             self, inverter_serials: list[str], processed_data: dict[str, Any]
         ) -> None: ...
@@ -2972,25 +2972,33 @@ class ParameterManagementMixin(_MixinBase):
         """Public method to refresh parameters for a specific device.
 
         Returns:
-            True when the refresh completed; False when it raised or pylxpweb
-            reported ``parameters_complete=False``. Errors are logged, never
-            raised (#362): post-write callers must be able to distinguish
+            True when the refresh completed; False when it raised, updated no
+            parameter cache entry, or pylxpweb reported
+            ``parameters_complete=False``. Errors are logged, never raised
+            (#362): post-write callers must be able to distinguish
             "write+refresh ok" from "write ok, refresh failed" — the old
             swallow-and-return-None contract made a failed refresh
             indistinguishable from success, so entities cleared their
             optimistic state onto the stale pre-write cache value and visibly
             reverted a write the device had acknowledged.
+
+            A partial read (``parameters_complete=False``) is ROUTINE, not
+            exceptional — one misrouted dongle frame routinely fails one
+            register range, which is why #282 added the sticky carry-forward
+            and 2-minute retry floor that absorb it. It is logged at DEBUG
+            here; the post-write caller that cares about the returned False
+            emits the single user-facing WARNING for the event (#485).
         """
         try:
             _LOGGER.debug("Refreshing parameters for device %s", serial)
-            await self._refresh_device_parameters(serial)
+            refreshed = await self._refresh_device_parameters(serial)
             inverter = self.get_inverter_object(serial)
             incomplete = (
                 inverter is not None
                 and getattr(inverter, "parameters_complete", True) is False
             )
             if incomplete:
-                _LOGGER.warning(
+                _LOGGER.debug(
                     "Parameter refresh incomplete for device %s; retaining "
                     "last-known values",
                     serial,
@@ -2999,9 +3007,9 @@ class ParameterManagementMixin(_MixinBase):
         except Exception as e:
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
             return False
-        return not incomplete
+        return refreshed and not incomplete
 
-    async def _refresh_device_parameters(self, serial: str) -> None:
+    async def _refresh_device_parameters(self, serial: str) -> bool:
         """Refresh parameters for a specific device using device object.
 
         Link-down handling is delegated to pylxpweb's ``_fetch_parameters``
@@ -3012,29 +3020,39 @@ class ParameterManagementMixin(_MixinBase):
         with ``parameters_complete`` set False.  Gating here would BLOCK
         that cloud fallback — in HYBRID with a dead link parameters could
         refresh via cloud but never would (#322 review).
+
+        Returns:
+            True only when the parameter cache was actually updated. Every
+            early return is a silent no-op that refreshed nothing — an
+            unknown serial, no coordinator data to write into, or an empty
+            parameter payload — and must not be reported as a completed
+            refresh, or the #362 post-write contract ("True means the refresh
+            completed") breaks exactly where it matters (#485).
         """
         try:
             inverter = self.get_inverter_object(serial)
             if not inverter:
                 _LOGGER.warning("Cannot find inverter object for serial %s", serial)
-                return
+                return False
 
             # Use force=True to bypass cache when refreshing parameters after changes
             await inverter.refresh(force=True, include_parameters=True)
 
             if hasattr(inverter, "parameters") and inverter.parameters:
                 if not self.data:
-                    return
+                    return False
 
                 if "parameters" not in self.data:
                     self.data["parameters"] = {}
 
                 self.data["parameters"][serial] = inverter.parameters
-            else:
-                _LOGGER.warning(
-                    "Inverter %s has no parameters attribute or empty parameters",
-                    serial,
-                )
+                return True
+
+            _LOGGER.warning(
+                "Inverter %s has no parameters attribute or empty parameters",
+                serial,
+            )
+            return False
 
         except Exception as e:
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)

@@ -1,5 +1,6 @@
 """Tests for EG4 switch entities."""
 
+import logging
 import time
 
 import pytest
@@ -1897,6 +1898,62 @@ class TestCloudFallback:
             await switch.async_turn_on()
 
         coordinator.write_named_parameter.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_link_down_skip_is_not_logged_as_a_refresh_failure(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        """#485: the deliberate skip logs at DEBUG, never as a failure.
+
+        The refresh phase returns False both when it FAILED and when it was
+        deliberately skipped, and ``_settle_acknowledged_write`` could not
+        tell the two apart — so every switch toggle during an outage paired
+        the router's link-down WARNING with a second WARNING describing the
+        intended path as a broken one.
+        """
+        coordinator = _mock_coordinator(has_local=True, has_http=True, link_down=True)
+        switch = _make_charge_last_switch(coordinator)
+        _prep(switch)
+
+        with caplog.at_level(logging.DEBUG):
+            await switch.async_turn_on()
+
+        assert "Post-write refresh did not complete" not in caplog.text
+        assert "Post-write refresh failed" not in caplog.text
+        skips = [
+            r for r in caplog.records if "Post-write refresh skipped" in r.getMessage()
+        ]
+        assert [r.levelno for r in skips] == [logging.DEBUG]
+        # The skip still takes the retain branch — that part is unchanged.
+        assert switch._optimistic_state is True
+        assert switch._optimistic_retained is True
+
+    @pytest.mark.asyncio
+    async def test_genuine_refresh_failure_still_warns(
+        self, caplog: pytest.LogCaptureFixture
+    ):
+        """A real post-write refresh failure keeps its WARNING (#362).
+
+        Companion to the skip case above: the tri-state must not silence
+        the failure it was carved out of.
+        """
+        coordinator = _mock_coordinator(has_local=True, has_http=True, link_down=False)
+        # No new data object -> the refresh served stale data (#362).
+        coordinator.async_refresh = AsyncMock()
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        switch = _make_charge_last_switch(coordinator)
+        _prep(switch)
+
+        with caplog.at_level(logging.DEBUG):
+            await switch.async_turn_on()
+
+        warnings = [
+            r
+            for r in caplog.records
+            if "Post-write refresh did not complete" in r.getMessage()
+        ]
+        assert [r.levelno for r in warnings] == [logging.WARNING]
+        assert "Post-write refresh skipped" not in caplog.text
 
     @pytest.mark.asyncio
     async def test_link_up_still_prefers_local(self):
