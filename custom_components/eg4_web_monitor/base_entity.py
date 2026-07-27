@@ -1148,8 +1148,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         if refresh is None:
             _LOGGER.debug(
                 "Post-write refresh skipped after %s for device %s; retaining "
-                "the acknowledged state until the hourly parameter refresh "
-                "reads it back",
+                "the acknowledged state until a parameter refresh reads it "
+                "back (retried from the 2-minute floor after an incomplete "
+                "read, hourly otherwise)",
                 action_name,
                 self._serial,
             )
