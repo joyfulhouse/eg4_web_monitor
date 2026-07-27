@@ -39,7 +39,7 @@ from datetime import time
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EntityCategory
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -201,13 +201,6 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         self._spec = spec
         self._window = window
         self._is_end = is_end
-        # Set when a successful write's follow-up parameter refresh failed:
-        # the optimistic value is retained (the hardware holds the new time;
-        # showing the stale cache would look like a silent revert) until
-        # fresh parameter data arrives. ``_pre_write_value`` remembers what
-        # the cache decoded to before the write so freshness is detectable.
-        self._optimistic_retained = False
-        self._pre_write_value: time | None = None
 
         boundary = "end" if is_end else "start"
         key = f"{spec.key}_{boundary}_time_{window}"
@@ -313,25 +306,14 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         """Unavailable until the schedule parameter has been polled."""
         return super().available and self.native_value is not None
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Clear a retained optimistic value once fresh parameter data arrives.
+    def _cache_state(self) -> time | None:
+        """Return the boundary decoded from the parameter cache.
 
-        A retained value exists only when a successful write's follow-up
-        refresh failed (see :meth:`async_set_value`). Fresh data is anything
-        that no longer decodes to the pre-write cache value — the written
-        time coming back, or a newer portal-made change; a coordinator tick
-        that still carries the stale pre-write value keeps the optimistic
-        value (clearing there would be the silent-revert this guards
-        against, just delayed one poll).
+        The retention hook of :class:`EG4OptimisticEntity`;
+        :meth:`_decode_from_cache` already ignores the optimistic value, so
+        no masking is needed.
         """
-        if self._optimistic_retained and self._optimistic_value is not None:
-            current = self._decode_from_cache()
-            if current == self._optimistic_value or current != self._pre_write_value:
-                self._optimistic_value = None
-                self._optimistic_retained = False
-                self._pre_write_value = None
-        super()._handle_coordinator_update()
+        return self._decode_from_cache()
 
     # ── Value write ─────────────────────────────────────────────────
 
@@ -348,7 +330,8 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         refresh; when the write succeeded but the refresh failed, it is
         retained — the hardware holds the new time, and falling back to the
         stale cache would look like a silent revert — until fresh parameter
-        data arrives (:meth:`_handle_coordinator_update`).
+        data arrives or the retention TTL expires (#379,
+        :class:`EG4OptimisticEntity`).
         """
         boundary_value = time(hour=value.hour, minute=value.minute)
         packed = pack_time(boundary_value.hour, boundary_value.minute)
@@ -361,9 +344,7 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             boundary_value.isoformat(timespec="minutes"),
         )
 
-        pre_write_value = self._decode_from_cache()
-        self._optimistic_retained = False
-        self._pre_write_value = None
+        pre_write_value = self._begin_retention_window()
         self._optimistic_value = boundary_value
         self.async_write_ha_state()
 
@@ -389,7 +370,10 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
                 # the per-device parameter refresh and leave refresh_ok False
                 # so the optimistic value is RETAINED — the acknowledged
                 # cloud write IS device truth — until fresh parameter data
-                # arrives on link recovery.
+                # arrives on link recovery. A DELIBERATE skip, so retention
+                # is armed at DEBUG rather than reported as a refresh
+                # failure; the TTL still bounds it, because a skip cannot
+                # tell an unreadable write apart from a NAKed one (#379).
                 refresh_ok = False
             else:
                 refresh_ok = await self._async_refresh_parameters()
@@ -398,12 +382,11 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
                 # Write failed (entity falls back to the parameter cache —
                 # re-read device truth on the cloud partial-failure path) or
                 # the cache was refreshed with the written value.
-                self._optimistic_value = None
+                self._end_retention()
             else:
                 # Write landed but the refresh failed: retain the optimistic
-                # value until fresh parameter data arrives.
-                self._optimistic_retained = True
-                self._pre_write_value = pre_write_value
+                # value until fresh parameter data arrives or the TTL expires.
+                self._arm_retention(f"{self._spec.key} schedule time", pre_write_value)
             self.async_write_ha_state()
 
     async def _async_write_cloud(self, value: time) -> None:

@@ -2918,8 +2918,17 @@ class DeviceInfoMixin(_MixinBase):
 class ParameterManagementMixin(_MixinBase):
     """Mixin for device parameter refresh operations."""
 
-    async def refresh_all_device_parameters(self) -> None:
-        """Refresh parameters for all inverter devices when any parameter changes."""
+    async def refresh_all_device_parameters(self) -> bool:
+        """Refresh parameters for all inverter devices when any parameter changes.
+
+        Returns:
+            True when every inverter's refresh completed; False when any of
+            them failed, none could be attempted, or this method raised.
+            Errors are logged, never raised (#362/#379): post-write callers
+            retain their acknowledged optimistic value when the refresh they
+            depend on did not actually happen, instead of republishing the
+            stale pre-write cache value.
+        """
         try:
             _LOGGER.debug(
                 "Refreshing parameters for all inverter devices due to parameter change"
@@ -2930,7 +2939,7 @@ class ParameterManagementMixin(_MixinBase):
                     "No device data available for parameter refresh - "
                     "integration may still be initializing"
                 )
-                return
+                return False
 
             inverter_serials = []
             for serial, device_data in self.data["devices"].items():
@@ -2940,7 +2949,7 @@ class ParameterManagementMixin(_MixinBase):
 
             if not inverter_serials:
                 _LOGGER.warning("No inverter devices found for parameter refresh")
-                return
+                return False
 
             refresh_tasks = []
             for serial in inverter_serials:
@@ -2964,9 +2973,11 @@ class ParameterManagementMixin(_MixinBase):
                 success_count,
                 len(inverter_serials),
             )
+            return success_count == len(inverter_serials)
 
         except Exception as e:
             _LOGGER.error("Error during all-device parameter refresh: %s", e)
+            return False
 
     async def async_refresh_device_parameters(self, serial: str) -> bool:
         """Public method to refresh parameters for a specific device.
