@@ -191,6 +191,14 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
     #     _local_params_can_carry() setup probe suppresses the switch
     #     wherever the parameter cache is local-raw (LOCAL, or HYBRID with
     #     a transport), so it exists only where its state is readable.
+    #     Enforced on two levels, because either alone has a blind spot:
+    #     the contract harness guards the TABLE (no control may be locally
+    #     wired to any reg-179 name lacking a pinned contract entry, nor to
+    #     any FUNC_<reg>_BIT<n> placeholder), and
+    #     TestGridAlwaysOnSwitchBehavior guards BEHAVIOR on both turn-on and
+    #     turn-off (a bespoke local write inside the entity bypasses the
+    #     table entirely, and a one-action test misses the other action —
+    #     both holes were open at once until PR review found them).
     # No dedicated pylxpweb enable/disable methods either: the cloud path
     # uses the generic function-control API — the exact call the portal makes.
     # Disabled by default like Share Battery: only meaningful once the smart

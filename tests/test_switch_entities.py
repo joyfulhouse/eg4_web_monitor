@@ -3429,27 +3429,50 @@ class TestGridAlwaysOnSwitchBehavior:
         )
         coordinator.write_named_parameter.assert_not_called()
 
-    @pytest.mark.asyncio
-    async def test_never_writes_an_unpinned_local_register(self):
-        """No local write path, ever — even with a transport attached.
+    def test_not_wired_for_local_writes(self):
+        """Structural: the mode carries no local write name at all.
 
-        A wrong reg-179 bit is ACKed by the firmware, so the cloud fallback
-        would never fire and readback-verify could not catch it. The mode is
-        deliberately absent from ``_WORKING_MODE_PARAMETERS``.
+        The register-scoped harness guard
+        (test_cloud_only_controls_stay_unpinned_and_unwired) enforces the
+        stronger form — no control may be wired to ANY reg-179 name without a
+        pinned contract entry, which is what closes the raw-alias route.
         """
         assert (
             switch_module._WORKING_MODE_PARAMETERS.get("FUNC_ON_GRID_ALWAYS_ON") is None
         )
 
-        coordinator = _mock_coordinator(has_http=True, has_local=True)
+    @pytest.mark.parametrize("turn_on", [True, False])
+    @pytest.mark.parametrize("has_local", [False, True])
+    @pytest.mark.asyncio
+    async def test_never_writes_an_unpinned_local_register(self, turn_on, has_local):
+        """No local write path, ever — BOTH actions, transport or not.
+
+        A wrong reg-179 bit is ACKed by the firmware, so the cloud fallback
+        would never fire and readback-verify could not catch it.
+
+        Behavioral, and parametrized over turn-on AND turn-off deliberately:
+        the structural table guards cannot see a bespoke local write added
+        inside the entity, and a single-action test cannot see one added to
+        the other action. Both gaps were live at once — a turn-off-only
+        local write through the raw alias FUNC_179_BIT0 with an attached
+        transport passed every guard in review.
+        """
+        coordinator = _mock_coordinator(has_http=True, has_local=has_local)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
 
-        await switch.async_turn_on()
+        if turn_on:
+            await switch.async_turn_on()
+        else:
+            await switch.async_turn_off()
 
+        # Both local write doors: the named path and the raw-address path
+        # (write_raw_parameter would reach register 179 without ever naming
+        # a parameter, sidestepping every name-based table guard).
         coordinator.write_named_parameter.assert_not_called()
+        coordinator.write_raw_parameter.assert_not_called()
         coordinator.client.api.control.control_function.assert_called_once_with(
-            "1234567890", "FUNC_ON_GRID_ALWAYS_ON", True
+            "1234567890", "FUNC_ON_GRID_ALWAYS_ON", turn_on
         )
 
     @pytest.mark.asyncio
