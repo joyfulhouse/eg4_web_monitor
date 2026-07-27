@@ -1208,6 +1208,7 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
         pre_delay_refresh: Callable[[], Awaitable[None]] | None = None,
         api_delay: float = 1.0,
         seed_param_key: str | None = None,
+        refresh_after_write: bool = True,
     ) -> None:
         """Execute a write with optimistic state and post-write refreshes.
 
@@ -1233,6 +1234,13 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
           successful write is NEVER converted into a user-facing write
           failure, and the entity never publishes the stale pre-write cache
           value the device already superseded.
+
+        ``refresh_after_write=False`` skips the whole refresh phase — no
+        ``pre_delay_refresh`` probe, no propagation delay, no ``do_refresh``
+        — and flows through the retain branch above. Known-down cloud
+        fallback routes pass False (#485) so no local recovery probe can
+        block or revert the acknowledged write; ordinary polling clears the
+        retained state once it observes fresh data.
 
         Callers emit their path-specific debug log BEFORE invoking this
         envelope — the pinned log ordering is debug → optimistic publish →
@@ -1277,6 +1285,8 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             self._seed_cloud_written_parameter(seed_param_key, value)
 
         async def refresh_phase() -> bool:
+            if not refresh_after_write:
+                return False
             if pre_delay_refresh is not None:
                 await pre_delay_refresh()
 
@@ -1332,11 +1342,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 Pass only for parameter-backed switches whose ``is_on`` reads
                 this key; leave ``None`` for status-based actions (e.g. quick
                 charge) and pure-cloud-only callers.
-            refresh_after_write: Whether to run the post-write device and
-                coordinator refreshes. Known-down cloud fallback routes pass
-                False so no local recovery probe can block the acknowledged
-                write; the envelope reports the refresh incomplete and retains
-                the optimistic state until ordinary polling recovers.
+            refresh_after_write: Forwarded to
+                :meth:`_optimistic_write_envelope`; False skips the whole
+                post-write refresh phase (known-down cloud fallback, #485).
 
         Raises:
             HomeAssistantError: If the action fails.
@@ -1396,8 +1404,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             await inverter.refresh()
 
         async def do_refresh() -> bool:
-            if not refresh_after_write:
-                return False
             if refresh_params:
                 return await self.coordinator.async_refresh_device_parameters(
                     self._serial
@@ -1409,9 +1415,10 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             turn_on,
             do_write=do_write,
             do_refresh=do_refresh,
-            pre_delay_refresh=pre_delay_refresh if refresh_after_write else None,
-            api_delay=api_delay if refresh_after_write else 0.0,
+            pre_delay_refresh=pre_delay_refresh,
+            api_delay=api_delay,
             seed_param_key=seed_param_key,
+            refresh_after_write=refresh_after_write,
         )
 
     async def _execute_local_with_fallback(
@@ -1564,10 +1571,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
                 only for parameter-backed switches whose ``is_on`` reads this
                 key; leave ``None`` for actions whose state is not parameter
                 cache backed (e.g. status-based quick charge).
-            refresh_after_write: Whether to run the post-write parameter
-                refresh. Known-down cloud fallback routes pass False so no
-                local recovery probe can block; the envelope retains the
-                acknowledged state until ordinary polling recovers.
+            refresh_after_write: Forwarded to
+                :meth:`_optimistic_write_envelope`; False skips the whole
+                post-write refresh phase (known-down cloud fallback, #485).
 
         Raises:
             HomeAssistantError: If no cloud client exists or the write fails.
@@ -1602,8 +1608,6 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             )
 
         async def do_refresh() -> bool:
-            if not refresh_after_write:
-                return False
             return await self.coordinator.async_refresh_device_parameters(self._serial)
 
         await self._optimistic_write_envelope(
@@ -1611,8 +1615,9 @@ class EG4BaseSwitch(CoordinatorEntity, SwitchEntity):
             value,
             do_write=do_write,
             do_refresh=do_refresh,
-            api_delay=api_delay if refresh_after_write else 0.0,
+            api_delay=api_delay,
             seed_param_key=seed_param_key,
+            refresh_after_write=refresh_after_write,
         )
 
     async def _execute_named_parameter_action(
