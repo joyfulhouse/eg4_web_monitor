@@ -363,36 +363,75 @@ def _async_cleanup_duplicate_runtime_data_entities(
             )
 
 
+# Segments that may sit between the serial and the sensor key in a DEVICE
+# unique ID.  The current code emits none (``base_entity`` builds a bare
+# ``{serial}_{sensor_key}``); the legacy 3.2.x rows this purge exists to remove
+# carry a data-type segment, which is the documented historical shape
+# (``{serial}_{data_type}_{sensor_key}``, CLAUDE.md) and the form pinned by
+# ``test_conditional_cleanup_by_family``.  This is an ALLOWLIST on purpose —
+# see ``_is_device_namespace_uid``.
+_DEVICE_UID_DATA_TYPE_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "",  # current form: {serial}_{sensor_key}
+        "runtime",
+        "energy",
+        "parameters",
+        "midbox_runtime",
+    }
+)
+
+
 def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bool:
     """Whether ``unique_id`` is *this device's own* entity for ``sensor_key``.
 
     One shared ``SENSOR_TYPES`` table backs several unique-ID namespaces that
     ALL begin with the parent inverter serial::
 
-        device   {serial}_{data_type}_{key}     <- the only purge target
-        battery  {serial}_{battery_key}_{key}   battery_key = {serial}_Battery_ID_nn
+        device   {serial}_{data_type}_{key}   <- the only purge target
+        battery  {serial}_{battery_key}_{key}
         bank     {serial}_battery_bank_{key}
 
     A bare ``endswith(f"_{key}")`` therefore reaches into the battery and bank
     namespaces.  That is harmless for ``battery_discharge_power`` today, but
-    ``battery_temperature`` — a key that DOES exist in the battery namespace —
-    would become a one-line addition that silently deleted every per-battery
-    and battery-bank temperature entity while passing every existing test.
+    generic keys DO live in those namespaces — ``cycle_count`` is both a
+    per-battery key (``coordinator_mixins`` battery map) and a bank key
+    (``coordinator_mappings`` maps ``battery_bank_cycle_count`` onto it), and
+    ``state_of_health``/``battery_type``/``battery_serial_number`` are
+    per-battery.  Adding one of those here later would be a one-line change
+    that silently deleted every per-battery and bank entity for that key while
+    passing every existing test.
 
     An exact ``unique_id == f"{serial}_{sensor_key}"`` match cannot be used:
-    real device unique IDs carry a data-type segment (``{serial}_runtime_{key}``,
-    ``{serial}_midbox_runtime_{key}``), and that legacy form is precisely what
-    the 3.2.x rows this purge exists to remove look like.  So the device
-    namespace is identified by EXCLUDING the two sibling namespaces instead —
-    the bank's literal ``battery_bank`` segment, and the individual battery's
-    ``battery_key``, which always re-states the parent serial.
+    the legacy rows this purge targets carry a data-type segment
+    (``{serial}_runtime_{key}``), and dropping them is the whole point —
+    ``test_conditional_cleanup_by_family`` pins exactly that form.
+
+    So the device namespace is identified by ALLOWLISTING its own shapes
+    rather than by blocklisting the siblings.  That direction matters: a
+    ``battery_key`` does NOT reliably restate the parent serial, so a
+    "``middle`` starts with the serial" test does not identify batteries.
+    ``clean_battery_display_name`` returns ``{serial}-nn`` for the common
+    ``{inverterSn}_{batterySn}`` key, but passes a ``BAT``-prefixed key
+    through verbatim (``BAT001``) — and this integration itself GENERATED
+    ``BAT{index:03d}`` keys (commit d3dba21, #76), so ``{serial}_BAT001_{key}``
+    rows exist in exactly the old installs this purge runs against.  Its final
+    branch also passes arbitrary cleaned keys through, and ``cloud_battery_key``
+    exists specifically to warn that the ``batteryKey`` format deviates in the
+    field (#252).  An allowlist fails CLOSED on every one of those: an
+    unrecognised shape is left alone.
+
+    Deriving the battery keys from ``coordinator.data[...]["batteries"]``
+    instead was considered and rejected: that dict is initialised empty and is
+    only populated once real battery data has been read, so on a LOCAL first
+    refresh it is ``{}`` at the moment this purge runs — which would make every
+    battery row look unknown and fail OPEN, the #217 failure mode.
     """
     suffix = f"_{sensor_key}"
     prefix = f"{serial}_"
     if not unique_id.startswith(prefix) or not unique_id.endswith(suffix):
         return False
     middle = unique_id[len(prefix) : -len(suffix)]
-    return middle != "battery_bank" and not middle.startswith(serial)
+    return middle in _DEVICE_UID_DATA_TYPE_SEGMENTS
 
 
 def _async_cleanup_deprecated_battery_discharge_power_entities(

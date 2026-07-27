@@ -429,6 +429,16 @@ async def test_purge_matches_the_device_namespace_only(
     and the legacy ``{serial}_runtime_{key}`` that the 3.2.x rows this purge
     exists to remove actually carry.  That legacy form is why an exact
     ``uid == f"{serial}_{key}"`` match is NOT usable here.
+
+    The battery shapes below are the ones the code ACTUALLY emits.
+    ``base_entity`` builds ``{serial}_{battery_key}_{key}`` from the key that
+    ``clean_battery_display_name`` produced, so the raw
+    ``{serial}_Battery_ID_nn`` form never reaches a unique ID — it becomes
+    ``{serial}-nn``.  Critically, a ``BAT``-prefixed key passes through
+    VERBATIM and does NOT restate the parent serial, and this integration
+    generated exactly those (``BAT{index:03d}``, commit d3dba21 / #76).  That
+    row is why the matcher allowlists device shapes instead of blocklisting
+    "middle starts with the serial", which would have purged it.
     """
     entry = MockConfigEntry(domain=DOMAIN, entry_id="issue_490_exact_match")
     entry.add_to_hass(hass)
@@ -453,10 +463,20 @@ async def test_purge_matches_the_device_namespace_only(
         f"{serial}_runtime_battery_discharge_power",
         config_entry=entry,
     )
+    # Serial-restating battery key: clean_battery_display_name turns the cloud
+    # "{inverterSn}_{batterySn}" key into "{serial}-nn".
     battery_entity = registry.async_get_or_create(
         "sensor",
         DOMAIN,
-        f"{serial}_{serial}_Battery_ID_01_battery_discharge_power",
+        f"{serial}_{serial}-01_battery_discharge_power",
+        config_entry=entry,
+    )
+    # NON-serial-restating battery key — the case a "starts with the serial"
+    # blocklist would have wrongly purged.
+    bat_prefixed_entity = registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"{serial}_BAT001_battery_discharge_power",
         config_entry=entry,
     )
     bank_entity = registry.async_get_or_create(
@@ -471,6 +491,7 @@ async def test_purge_matches_the_device_namespace_only(
     # Both device-namespace forms are purged...
     assert registry.async_get(device_entity.entity_id) is None
     assert registry.async_get(legacy_device_entity.entity_id) is None
-    # ...and neither sibling namespace is touched.
+    # ...and no sibling-namespace row is touched, whatever the key shape.
     assert registry.async_get(battery_entity.entity_id) is not None
+    assert registry.async_get(bat_prefixed_entity.entity_id) is not None
     assert registry.async_get(bank_entity.entity_id) is not None
