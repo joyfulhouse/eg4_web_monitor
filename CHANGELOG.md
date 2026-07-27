@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.4] - 2026-07-27
+
 ### Added
 
 - **Grid Always On switch for the smart load port** ([#484](https://github.com/joyfulhouse/eg4_web_monitor/issues/484), requested by @brendonlobo123): the portal's *Maintenance → Remote Set → Smart Load Port → Smart Load* tab carries a **Grid Always On** enable/disable that keeps the smart load port energized from the grid instead of dropping it when the Smart Load SOC window closes. It is now exposed as a switch. **Disabled by default** — it only matters once the smart load port is configured, so enable it from the entity settings if you use that port. Not restricted by inverter model or family: the function comes back in the cloud parameter read on every device checked (18kPV, FlexBOSS21, GridBOSS) and the reporter's screenshot shows it live on a 12000XP, so it is offered wherever it can be read.
