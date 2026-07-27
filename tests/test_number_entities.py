@@ -132,15 +132,17 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS creates 25 number entities.
+        """FlexBOSS creates 23 number entities.
 
         12 base + 6 voltage + grid sell + start discharge threshold + Quick
         Charge Duration (HTTP-only) + the two cloud-only AC Couple SOC
-        window numbers (GH #352, cloud client present, family-neutral) + the
-        two reg-160/161 AC-charge SOC window numbers (now created on
-        grid-tied families too; End disabled by default there). The reg-117
-        start CHARGE threshold is absent: no local transport and the
-        register has no cloud param name (GH #272).
+        window numbers (GH #352, cloud client present, family-neutral). The
+        reg-117 start CHARGE threshold is absent: no local transport and the
+        register has no cloud param name (GH #272). The reg-160 AC Charge
+        Start Battery SOC is absent too: this fixture carries no positive
+        family detection and the entity's grid-tied gate is the fails-closed
+        is_hybrid_family() (PR #488 review item 2) — the EG4_HYBRID shape is
+        covered by test_async_setup_entry_hybrid_family_ac_charge_window.
         """
         coordinator = _mock_coordinator()
         entry = MagicMock()
@@ -149,7 +151,7 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 25
+        assert len(entities) == 23
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         # Quick Charge Duration preference (HTTP-only, #251)
@@ -184,25 +186,50 @@ class TestNumberPlatformSetup:
         assert "StopDischargeVoltageNumber" in type_names
         # Reg 67 keeps working on grid-tied families (GH #331)
         assert "ACChargeSOCLimitNumber" in type_names
-        # The reg-160/161 AC-charge SOC window is created on grid-tied
-        # families too (FlexBOSS21 evidence: reg 160 gates AC charging
-        # regardless of ACChargeType/windows). Start ships enabled; End
-        # disabled by default pending grid-tied write verification
-        # (PR #332 review note).
-        assert "ACChargeStartBatterySOCNumber" in type_names
-        assert "ACChargeEndBatterySOCNumber" in type_names
-        start_soc = next(
-            e for e in entities if type(e).__name__ == "ACChargeStartBatterySOCNumber"
-        )
-        assert start_soc.entity_registry_enabled_default is True
-        end_soc = next(
-            e for e in entities if type(e).__name__ == "ACChargeEndBatterySOCNumber"
-        )
-        assert end_soc.entity_registry_enabled_default is False
+        # The reg-160 Start entity requires a POSITIVE EG4_HYBRID family
+        # detection (fails-closed is_hybrid_family(), PR #488 review item
+        # 2); this fixture has none, so neither window entity is created.
+        # Reg 161 (End) is never created on grid-tied at all (the #332 note
+        # records it read-only there; pylxpweb pairs 160 with reg 67).
+        assert "ACChargeStartBatterySOCNumber" not in type_names
+        assert "ACChargeEndBatterySOCNumber" not in type_names
         # The AC Couple SOC window is NOT family-gated (GH #352 evidence
         # spans grid-tied hardware) — created whenever a cloud client exists
         assert "ACCoupleStartSOCNumber" in type_names
         assert "ACCoupleEndSOCNumber" in type_names
+
+    @pytest.mark.asyncio
+    async def test_async_setup_entry_hybrid_family_ac_charge_window(self, hass):
+        """A positively-identified EG4_HYBRID gets the reg-160 Start entity.
+
+        PR #488: reg 160 gates AC charging on the family regardless of the
+        ACChargeType selector and the AC-charge time windows (FlexBOSS21
+        hardware evidence), so the Start entity is created there, enabled,
+        write-capped at 90% (pylxpweb's register definition). Reg 161 (End)
+        is NOT created on grid-tied: the #332 note records it read-only on
+        grid-tied hardware, and pylxpweb models the grid-tied window as
+        160 + 67 (set_ac_charge_soc_limits).
+        """
+        coordinator = _mock_coordinator()
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        type_names = [type(e).__name__ for e in entities]
+        assert "ACChargeStartBatterySOCNumber" in type_names
+        assert "ACChargeEndBatterySOCNumber" not in type_names
+        # Reg 67 remains the family's window-stop control alongside Start.
+        assert "ACChargeSOCLimitNumber" in type_names
+        start_soc = next(
+            e for e in entities if type(e).__name__ == "ACChargeStartBatterySOCNumber"
+        )
+        assert start_soc.entity_registry_enabled_default is True
+        assert start_soc.native_max_value == 90
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_gridboss(self, hass):
@@ -352,6 +379,9 @@ class TestNumberPlatformSetup:
         type_names = [type(e).__name__ for e in entities]
         assert "StartDischargePowerNumber" in type_names
         assert "StartChargePowerNumber" in type_names
+        # The reg-160 Start entity's gate fails closed on LXP — the family
+        # the review named as wrongly lumped in by the old else-branch gate.
+        assert "ACChargeStartBatterySOCNumber" not in type_names
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_local_only_creates_start_charge(self, hass):
@@ -2049,23 +2079,24 @@ class TestOffgridGridTiedNumberSuppression:
         assert "GridPeakShavingPowerNumber" in type_names
         assert "ForcedDischargePowerNumber" in type_names
         assert "ForcedDischargeSOCLimitNumber" in type_names
-        # Fail-open keeps the reg-67 AC Charge SOC Limit too (GH #331). The
-        # reg-160/161 window is no longer offgrid-gated — it is live on both
-        # families, so fail-open creates it as well (grid-tied shape: End
-        # disabled by default).
+        # Fail-open keeps the reg-67 AC Charge SOC Limit too (GH #331), but
+        # NOT the reg-160/161 window: the Start entity's grid-tied gate is
+        # the fails-closed is_hybrid_family() (its hardware evidence is one
+        # EG4_HYBRID unit; PR #488 review item 2), so an unidentified family
+        # is excluded, and End is offgrid-only (read-only on grid-tied per
+        # the #332 note).
         assert "ACChargeSOCLimitNumber" in type_names
-        assert "ACChargeStartBatterySOCNumber" in type_names
-        assert "ACChargeEndBatterySOCNumber" in type_names
+        assert "ACChargeStartBatterySOCNumber" not in type_names
+        assert "ACChargeEndBatterySOCNumber" not in type_names
         # The AC Couple SOC window has no family gate at all (GH #352) —
         # cloud client present is enough
         assert "ACCoupleStartSOCNumber" in type_names
         assert "ACCoupleEndSOCNumber" in type_names
         # Fail-open keeps every control except Grid Sell Back, whose own
         # XP-model gate (GH #135) fires on the model name alone = 18, plus the
-        # HTTP-only Quick Charge Duration preference (#251), the two AC
-        # Couple SOC window numbers (GH #352) and the two reg-160/161
-        # AC-charge SOC window numbers = 23
-        assert len(entities) == 23
+        # HTTP-only Quick Charge Duration preference (#251) and the two AC
+        # Couple SOC window numbers (GH #352) = 21
+        assert len(entities) == 21
 
     @pytest.mark.asyncio
     async def test_repairs_issue_for_previously_registered_numbers(self, hass):
@@ -2424,16 +2455,93 @@ class TestOffgridACChargeSOCWindow:
         with pytest.raises(HomeAssistantError, match="Failed to set"):
             await entity.async_set_native_value(85)
 
+    # ── Cloud write verification (equality-checked readback, PR #488) ──
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_readback_mismatch_raises(self):
+        """success:true with the register still at its old value raises —
+        the acknowledged-but-unapplied class (PR #488 review item 5)."""
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(
+                parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": "90"}
+            )
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="still reads"):
+            await entity.async_set_native_value(10)
+        coordinator.client.api.control.read_parameters.assert_awaited_once_with(
+            "1234567890", 160, 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_end_soc_cloud_write_arms_reg_161_readback(self):
+        """The End entity arms verification against its own register."""
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(parameters={"HOLD_AC_CHARGE_END_BATTERY_SOC": "100"})
+        )
+        entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="still reads"):
+            await entity.async_set_native_value(95)
+        coordinator.client.api.control.read_parameters.assert_awaited_once_with(
+            "1234567890", 161, 1
+        )
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_readback_match_succeeds(self):
+        """A readback equal to the written value confirms the write."""
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(
+                parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": "10"}
+            )
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(10)
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_readback_failure_does_not_fail_write(self):
+        """A flaky readback only logs — the acknowledged write stands."""
+        coordinator = self._offgrid_coordinator(has_local=False)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            side_effect=TimeoutError("cloud blip")
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(10)
+
     # ── Range / integer validation ─────────────────────────────────────
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("bad_value", [-1, 101, 150])
+    @pytest.mark.parametrize("bad_value", [-1, 91, 150])
     async def test_start_soc_rejects_out_of_range(self, bad_value):
+        """Start writes cap at 90 — pylxpweb's reg-160 definition and its
+        hybrid setter bound (PR #488 review item 3)."""
         coordinator = self._offgrid_coordinator()
         entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match="between 0-100"):
+        with pytest.raises(HomeAssistantError, match="between 0-90"):
             await entity.async_set_native_value(bad_value)
         coordinator.write_named_parameter.assert_not_awaited()
 
@@ -2467,9 +2575,12 @@ class TestOffgridACChargeSOCWindow:
         end = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
         assert start.unique_id == "12000xp_1234567890_ac_charge_start_battery_soc"
         assert end.unique_id == "12000xp_1234567890_ac_charge_end_battery_soc"
+        # Start's WRITE cap is 90 (pylxpweb reg-160 definition); End keeps
+        # the full 0-100 portal range.
+        assert start.native_max_value == 90
+        assert end.native_max_value == 100
         for entity in (start, end):
             assert entity.native_min_value == 0
-            assert entity.native_max_value == 100
             assert entity.native_step == 1
             # ENABLED by default: the family's primary AC-charge SOC control
             # (the #331 reporter's automation target).

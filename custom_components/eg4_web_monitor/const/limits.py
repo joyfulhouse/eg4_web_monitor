@@ -64,11 +64,16 @@ AC_CHARGE_SOC_LIMIT_MIN = 0
 AC_CHARGE_SOC_LIMIT_MAX = 101
 AC_CHARGE_SOC_LIMIT_STEP = 1
 
-# Off-grid AC-charge SOC window (regs 160/161, GH #331): whole-percent
-# start/end thresholds for the EG4_OFFGRID family's AC Charge working mode.
-# No 101 top-balance sentinel here — the portal fields are plain 0-100 %.
+# AC-charge SOC window (regs 160/161, GH #331): whole-percent start/end
+# thresholds for the AC Charge working mode. No 101 top-balance sentinel
+# here — the portal fields are plain percent. The Start (reg 160) WRITE cap
+# is 90, matching pylxpweb's register definition and its hybrid setter
+# (set_ac_charge_soc_limits caps start_soc at 90); the 0-100 pair remains
+# the READ-validation window so an out-of-spec register value still
+# displays rather than blanking to unknown.
 AC_CHARGE_BATTERY_SOC_MIN = 0
 AC_CHARGE_BATTERY_SOC_MAX = 100
+AC_CHARGE_START_BATTERY_SOC_MAX = 90
 AC_CHARGE_BATTERY_SOC_STEP = 1
 
 # AC Couple Start/End SOC window (GH #352): whole-percent thresholds for the

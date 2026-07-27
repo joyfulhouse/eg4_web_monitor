@@ -96,6 +96,7 @@ from .const import (
     AC_CHARGE_BATTERY_SOC_MAX,
     AC_CHARGE_BATTERY_SOC_MIN,
     AC_CHARGE_BATTERY_SOC_STEP,
+    AC_CHARGE_START_BATTERY_SOC_MAX,
     AC_COUPLE_END_SOC_DISABLED_SENTINEL,
     AC_COUPLE_SOC_MAX,
     AC_COUPLE_SOC_MIN,
@@ -132,6 +133,7 @@ from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     async_write_with_cloud_fallback,
     flag_offgrid_control_suppression,
+    is_hybrid_family,
     is_offgrid_family,
     is_supported_control_model,
     supports_grid_sellback,
@@ -671,22 +673,6 @@ async def async_setup_entry(
                         ]
                     )
                 else:
-                    # The reg-160/161 AC-charge SOC window is live on
-                    # grid-tied families too, not just EG4_OFFGRID: on a
-                    # FlexBOSS21 (EG4_HYBRID, fw FAAB-2727) reg 160 starts
-                    # AC charging whenever battery SOC is below it — in or
-                    # out of the AC-charge time windows and regardless of
-                    # the reg-120 ACChargeType selector — and the portal
-                    # exposes it for the family as "Start AC Charge SOC(%)".
-                    # Hidden from HA, it silently overrides any charge
-                    # schedule (its factory 90 kept a ToU battery pinned
-                    # high around the clock). Reg-160 local dongle
-                    # read+write verified on that unit; reg 161 reads fine
-                    # but grid-tied writes were observed rejected (PR #332
-                    # review), so the End entity ships disabled by default
-                    # here until a grid-tied write is verified.
-                    end_soc = ACChargeEndBatterySOCNumber(coordinator, serial)
-                    end_soc._attr_entity_registry_enabled_default = False
                     entities.extend(
                         [
                             GridPeakShavingPowerNumber(coordinator, serial),
@@ -695,10 +681,30 @@ async def async_setup_entry(
                             # Reg 67 keeps working on grid-tied/unknown
                             # families — fail-open, matching the other gates.
                             ACChargeSOCLimitNumber(coordinator, serial),
-                            ACChargeStartBatterySOCNumber(coordinator, serial),
-                            end_soc,
                         ]
                     )
+                    # Reg 160 (AC Charge Start Battery SOC) is live on
+                    # EG4_HYBRID too, not just EG4_OFFGRID: on a FlexBOSS21
+                    # (fw FAAB-2727) it starts AC charging whenever battery
+                    # SOC is below it — in or out of the AC-charge time
+                    # windows and regardless of the reg-120 ACChargeType
+                    # selector — and the portal exposes it for the family
+                    # as "Start AC Charge SOC(%)". Hidden from HA, it
+                    # silently overrides any charge schedule (its factory
+                    # 90 kept a ToU battery pinned high around the clock).
+                    # Gated on is_hybrid_family() — fails CLOSED, the
+                    # convention for capabilities verified on hybrid
+                    # hardware (the schedule families in time.py) — because
+                    # the evidence is one EG4_HYBRID unit; LXP and
+                    # unidentified hardware are excluded until verified.
+                    # Reg 161 (End) is NOT created here: pylxpweb models
+                    # the grid-tied stop as reg 67 (set_ac_charge_soc_limits
+                    # pairs 160 with 67), and the #332 note records reg 161
+                    # as read-only on grid-tied hardware.
+                    if is_hybrid_family(device_data):
+                        entities.append(
+                            ACChargeStartBatterySOCNumber(coordinator, serial)
+                        )
 
                 entities.extend(
                     [
@@ -1317,7 +1323,15 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         self._attr_native_precision = 0
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber)
+        # ACChargeStartBatterySOCNumber is reg 67's grid-tied window
+        # pair-mate (pylxpweb's set_ac_charge_soc_limits writes 160 as the
+        # start and 67 as the end), so a reg-67 write refreshes it too.
+        return (
+            ACChargeSOCLimitNumber,
+            OnGridSOCCutoffNumber,
+            OffGridSOCCutoffNumber,
+            ACChargeStartBatterySOCNumber,
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -1348,7 +1362,7 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
 
 
 class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
-    """AC Charge Start Battery SOC (reg 160, all inverter families, GH #331).
+    """AC Charge Start Battery SOC (reg 160, EG4_OFFGRID + EG4_HYBRID, GH #331).
 
     Battery SOC at which AC Charge starts charging from the grid.
 
@@ -1359,18 +1373,23 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
     family-rejected there (REMOTE_SET_ERROR + portal absence + reads 0), so
     this entity replaces it on EG4_OFFGRID.
 
-    On grid-tied families the register is equally live and MORE dangerous
-    for being invisible: FlexBOSS21 hardware evidence (fw FAAB-2727, local
-    dongle Modbus, read+write verified) shows reg 160 initiates AC charging
+    On EG4_HYBRID the register is equally live and MORE dangerous for being
+    invisible: FlexBOSS21 hardware evidence (fw FAAB-2727, local dongle
+    Modbus, read+write verified) shows reg 160 initiates AC charging
     whenever battery SOC is below it, regardless of the reg-120
     ACChargeType selector and of the AC-charge time windows — charges start
     out-of-window at SOC < value, and no window charge starts at
     SOC > value. The portal exposes the field for the family as "Start AC
     Charge SOC(%)"; without this entity its factory default of 90 silently
-    defeats any window/ToU charge schedule.
+    defeats any window/ToU charge schedule. There it pairs with reg 67
+    (pylxpweb's set_ac_charge_soc_limits writes 160 as start and 67 as
+    end), so the related-refresh set spans all three SOC-window entities.
 
     Whole percent, SCALE_NONE on both paths; reg 160 is in pylxpweb's
-    transport name map, so local named reads/writes work as-is.
+    transport name map, so local named reads/writes work as-is. Writes cap
+    at 90% (pylxpweb's register definition and hybrid setter bound); reads
+    keep the tolerant 0-100 window so an out-of-spec register value still
+    displays rather than blanking.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1381,14 +1400,18 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
             f"{self._clean_model}_{serial.lower()}_ac_charge_start_battery_soc"
         )
         self._attr_native_min_value = AC_CHARGE_BATTERY_SOC_MIN
-        self._attr_native_max_value = AC_CHARGE_BATTERY_SOC_MAX
+        self._attr_native_max_value = AC_CHARGE_START_BATTERY_SOC_MAX
         self._attr_native_step = AC_CHARGE_BATTERY_SOC_STEP
         self._attr_native_unit_of_measurement = "%"
         self._attr_icon = "mdi:battery-charging-low"
         self._attr_native_precision = 0
 
     def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeStartBatterySOCNumber, ACChargeEndBatterySOCNumber)
+        return (
+            ACChargeStartBatterySOCNumber,
+            ACChargeEndBatterySOCNumber,
+            ACChargeSOCLimitNumber,
+        )
 
     @property
     def native_value(self) -> float | None:
@@ -1405,7 +1428,7 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         int_value = _coerce_int_in_range(
             value,
             min_v=AC_CHARGE_BATTERY_SOC_MIN,
-            max_v=AC_CHARGE_BATTERY_SOC_MAX,
+            max_v=AC_CHARGE_START_BATTERY_SOC_MAX,
             label="AC charge start battery SOC",
             require_integer=True,
         )
@@ -1414,31 +1437,37 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
             local_param=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
             # The named-param cloud writer is BOTH the cloud-mode path and
             # the HYBRID local-failure fallback — the portal's own
-            # holdParam write (GH #331).
+            # holdParam write (GH #331). verify_register: grid-tied cloud
+            # writes of this register are otherwise untested, so an
+            # acknowledged-but-unapplied write must not surface as success.
             cloud_write=lambda: _write_cloud_named_parameter(
                 self,
                 PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
                 int_value,
                 f"Failed to set {PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC} "
                 f"to {int_value}%",
+                verify_register=160,
             ),
             label=f"AC charge start battery SOC to {int_value}%",
         )
 
 
 class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
-    """AC Charge End Battery SOC (reg 161, all inverter families, GH #331).
+    """AC Charge End Battery SOC (reg 161, EG4_OFFGRID only, GH #331).
 
-    Battery SOC at which the AC Charge working mode stops charging from the
-    grid — with reg 160 the AC-charge SOC window. On EG4_OFFGRID (the
-    original GH #331 case) it is a portal-verified writable holdParam on the
-    off-grid working-mode page (the reference dump reads 100, the reporter's
-    live config), and reg 67 (AC Charge SOC Limit) is family-rejected there
+    Battery SOC at which the off-grid family's AC Charge working mode stops
+    charging from the grid — with reg 160 the family's PRIMARY AC-charge
+    SOC window, a portal-verified writable holdParam on the off-grid
+    working-mode page (the reference dump reads 100, the reporter's live
+    config). Reg 67 (AC Charge SOC Limit) is family-rejected there
     (REMOTE_SET_ERROR + portal absence + reads 0), so this entity replaces
-    it on EG4_OFFGRID. On grid-tied families it is created DISABLED by
-    default: reads verified on FlexBOSS21 hardware, but grid-tied writes
-    were observed rejected (see the PR #332 note below), so it ships as an
-    opt-in until a grid-tied write is verified.
+    it on EG4_OFFGRID.
+
+    Deliberately NOT created on grid-tied families (unlike the Start
+    entity): pylxpweb models the grid-tied stop threshold as reg 67
+    (set_ac_charge_soc_limits pairs 160 with 67), and the #332 note records
+    reg 161 as READ-ONLY on grid-tied hardware — reads fine, no verified
+    write. If a grid-tied write is ever verified, revisit.
 
     Whole percent, SCALE_NONE on both paths; reg 161 is in pylxpweb's
     transport name map from 0.9.36b28, so this entity mirrors the Start
@@ -1446,11 +1475,10 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
 
     NOTE (PR #332 review): LOCAL Modbus writes to reg 161 are
     hardware-UNVERIFIED on the off-grid family — all #331 write evidence is
-    the cloud holdParam path, and on grid-tied hardware reg 161 was observed
-    read-only. A silently-ignored local write is covered by the named write
-    path's post-write parameter readback plus the HYBRID cloud fallback, but
-    flag this if a LOCAL-only off-grid report ever shows the value not
-    sticking.
+    the cloud holdParam path. A silently-ignored local write is covered by
+    the named write path's post-write parameter readback plus the HYBRID
+    cloud fallback, but flag this if a LOCAL-only off-grid report ever
+    shows the value not sticking.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1500,6 +1528,7 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
                 PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
                 int_value,
                 f"Failed to set {PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC} to {int_value}%",
+                verify_register=161,
             ),
             label=f"AC charge end battery SOC to {int_value}%",
         )
@@ -1510,16 +1539,52 @@ async def _write_cloud_named_parameter(
     param: str,
     value: int,
     error_message: str,
+    verify_register: int | None = None,
 ) -> None:
     """Write a cloud holdParam value through the generic named-write API.
 
     Bare writer — logging, optimistic state and the related-entity refresh are
     provided by the callers' write wrappers.
+
+    ``verify_register`` arms an equality-checked readback: after a
+    ``success: true`` response the register is re-read through the cloud
+    (pylxpweb invalidates its parameter cache on a successful write, so the
+    read is fresh) and a value that DEFINITELY differs from the write raises
+    instead of reporting success — the acknowledged-but-unapplied class
+    (portal says OK, register unchanged). A readback that cannot testify is
+    fail-safe toward the write: a raising read logs a warning, and an absent
+    or non-numeric key silently skips verification — a flaky read must not
+    fail a write that in all likelihood landed.
     """
     client = entity.coordinator.require_client()
     result = await client.api.control.write_parameter(entity.serial, param, str(value))
     if not result.success:
         raise HomeAssistantError(error_message)
+    if verify_register is not None:
+        readback: Any = None
+        try:
+            response = await client.api.control.read_parameters(
+                entity.serial, verify_register, 1
+            )
+            readback = response.parameters.get(param)
+        except Exception as err:
+            _LOGGER.warning(
+                "Post-write readback of %s failed for %s: %s "
+                "(write was acknowledged; skipping verification)",
+                param,
+                entity.serial,
+                err,
+            )
+        if readback is not None:
+            try:
+                verified = int(float(readback)) == value
+            except (TypeError, ValueError):
+                verified = True  # non-numeric readback proves nothing
+            if not verified:
+                raise HomeAssistantError(
+                    f"{error_message}: the write was acknowledged but the "
+                    f"register still reads {readback}"
+                )
     await entity.coordinator.refresh_inverter_params_if_linked(entity.serial)
 
 
