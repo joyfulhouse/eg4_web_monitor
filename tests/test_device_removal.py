@@ -80,6 +80,7 @@ def _coordinator(data: dict | None = None) -> MagicMock:
     coordinator._removal_identifier_last_seen = {}
     coordinator._removal_device_observed_since = None
     coordinator._removal_battery_observed_since = None
+    coordinator._removal_battery_parent_since = {}
     coordinator._removal_device_list_ok = False
     coordinator._removal_battery_ok = False
     coordinator.is_transport_link_down = MagicMock(return_value=False)
@@ -156,8 +157,18 @@ def test_record_stamps_ledger_and_both_clocks(clock):
     record_provided_identifiers(coordinator, coordinator.data, True, True)
     assert coordinator._removal_device_observed_since == T0
     assert coordinator._removal_battery_observed_since == T0
-    assert coordinator._removal_identifier_last_seen[LIVE_INVERTER] == (T0, "device")
-    assert coordinator._removal_identifier_last_seen["BAT002"] == (T0, "battery")
+    # Ledger entries carry (seen_at, class, parent): a device has no parent; a
+    # battery records the serial that provides it (PR #489 finding 4).
+    assert coordinator._removal_identifier_last_seen[LIVE_INVERTER] == (
+        T0,
+        "device",
+        None,
+    )
+    assert coordinator._removal_identifier_last_seen["BAT002"] == (
+        T0,
+        "battery",
+        LIVE_INVERTER,
+    )
 
     clock["now"] = T0 + 300
     record_provided_identifiers(coordinator, coordinator.data, True, True)
@@ -165,7 +176,11 @@ def test_record_stamps_ledger_and_both_clocks(clock):
     # advances.
     assert coordinator._removal_device_observed_since == T0
     assert coordinator._removal_battery_observed_since == T0
-    assert coordinator._removal_identifier_last_seen["BAT002"] == (T0 + 300, "battery")
+    assert coordinator._removal_identifier_last_seen["BAT002"] == (
+        T0 + 300,
+        "battery",
+        LIVE_INVERTER,
+    )
 
 
 def test_clocks_restart_after_failed_cycle(clock):
@@ -624,6 +639,101 @@ async def test_degraded_row_blocks_battery_class_only(clock):
     )
     assert (
         await async_remove_config_entry_device(HASS, entry, _device_entry(GONE_SERIAL))
+        is True
+    )
+
+
+# ── Per-parent battery clocks (PR #489 finding 4) ────────────────────
+
+
+def _inverter(*, confirmed: bool = True) -> MagicMock:
+    """A minimal inverter object carrying the battery-fetch confirmation
+    signal: ``_battery_cache_time`` is stamped only on a successful fetch."""
+    inverter = MagicMock()
+    inverter._battery_cache_time = object() if confirmed else None
+    return inverter
+
+
+async def test_per_parent_clock_isolates_degraded_sibling(clock):
+    """PR #489 finding 4 CLOSED: a battery module under a healthy parent ages
+    out on ITS parent's own clock even while a SIBLING inverter is degraded --
+    one unattestable parent no longer freezes battery cleanup entry-wide."""
+    healthy, degraded = LIVE_INVERTER, "2222222222"
+    inverters = {
+        healthy: _inverter(confirmed=True),
+        degraded: _inverter(confirmed=False),
+    }
+    coordinator = _coordinator()
+    coordinator.get_inverter_object = MagicMock(side_effect=inverters.get)
+
+    def table(*, with_module: bool) -> dict:
+        batteries = {f"{healthy}-01": {}}
+        if with_module:
+            batteries[f"{healthy}-09"] = {}
+        return {
+            "devices": {
+                healthy: {
+                    "type": "inverter",
+                    "sensors": {"battery_bank_count": 1},
+                    "batteries": batteries,
+                },
+                degraded: {"type": "inverter", "sensors": {}, "batteries": {}},
+            },
+            "station": {"name": "s"},
+        }
+
+    coordinator.data = table(with_module=True)
+    # battery_ok False -- the degraded sibling fails the GLOBAL verdict -- yet
+    # the healthy parent's own clock still starts, and the degraded one stays
+    # unset.
+    _seed_history(coordinator, coordinator.data, device_list_ok=True, battery_ok=False)
+    assert coordinator._removal_battery_observed_since is None
+    assert coordinator._removal_battery_parent_since[healthy] == T0
+    assert coordinator._removal_battery_parent_since[degraded] is None
+
+    # Module -09 vanishes; the healthy parent stays enumerated and attestable
+    # for a full battery window while the sibling stays degraded.
+    coordinator.data = table(with_module=False)
+    clock["now"] = T0 + BATTERY_ABSENCE_WINDOW + 1
+    _seed_history(coordinator, coordinator.data, device_list_ok=True, battery_ok=False)
+    entry = _entry(coordinator)
+    assert (
+        await async_remove_config_entry_device(
+            HASS, entry, _device_entry(f"{healthy}-09")
+        )
+        is True
+    )
+    # The global clock never advanced: under the OLD global-only gate this
+    # deletion would have stayed refused for as long as the sibling was down.
+    assert coordinator._removal_battery_observed_since is None
+
+
+async def test_battery_of_departed_parent_uses_global_clock(clock):
+    """When a battery's recorded parent is no longer enumerated its per-parent
+    clock is pruned with it, and the module falls back to the conservative
+    GLOBAL battery clock (finding 4)."""
+    inverter = _inverter(confirmed=True)
+    coordinator = _coordinator()
+    coordinator.get_inverter_object = MagicMock(
+        side_effect=lambda serial: inverter if serial == LIVE_INVERTER else None
+    )
+    seed = _healthy_data()
+    seed["devices"][LIVE_INVERTER]["batteries"]["BAT009"] = {}
+    coordinator.data = seed
+    _seed_history(coordinator, seed, device_list_ok=True, battery_ok=True)
+    assert coordinator._removal_battery_parent_since[LIVE_INVERTER] == T0
+
+    # The whole parent departs (confirmed empty plant); its per-parent clock is
+    # pruned, so BAT009 now judges against the global clock, which the two
+    # complete cycles have carried across the window.
+    coordinator.data = {"devices": {}}
+    coordinator.get_inverter_object = MagicMock(return_value=None)
+    clock["now"] = T0 + BATTERY_ABSENCE_WINDOW + 1
+    _seed_history(coordinator, coordinator.data, device_list_ok=True, battery_ok=True)
+    assert LIVE_INVERTER not in coordinator._removal_battery_parent_since
+    entry = _entry(coordinator)
+    assert (
+        await async_remove_config_entry_device(HASS, entry, _device_entry("BAT009"))
         is True
     )
 

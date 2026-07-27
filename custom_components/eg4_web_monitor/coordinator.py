@@ -340,9 +340,12 @@ class EG4DataUpdateCoordinator(
         # time nor a swallowed discovery failure counts as absence. In-memory
         # on purpose: the observed-coverage requirement is the cold-start
         # safety.
-        self._removal_identifier_last_seen: dict[str, tuple[float, str]] = {}
+        self._removal_identifier_last_seen: dict[
+            str, tuple[float, str, str | None]
+        ] = {}
         self._removal_device_observed_since: float | None = None
         self._removal_battery_observed_since: float | None = None
+        self._removal_battery_parent_since: dict[str, float | None] = {}
         self._removal_device_list_ok: bool = False
         self._removal_battery_ok: bool = False
 
@@ -570,6 +573,7 @@ class EG4DataUpdateCoordinator(
             except Exception:  # noqa: BLE001
                 self._removal_device_observed_since = None
                 self._removal_battery_observed_since = None
+                self._removal_battery_parent_since.clear()
                 _LOGGER.warning(
                     "Device-removal observation bookkeeping failed this cycle; "
                     "deletions stay refused until it recovers",
@@ -588,6 +592,7 @@ class EG4DataUpdateCoordinator(
                 # still True (PR #489 finding 3).
                 self._removal_device_observed_since = None
                 self._removal_battery_observed_since = None
+                self._removal_battery_parent_since.clear()
                 _LOGGER.warning(
                     "Update failure %d/3, serving cached data: %s",
                     self._consecutive_update_failures,

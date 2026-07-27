@@ -146,9 +146,11 @@ reported. A device already gone before the current session started — one this
 running instance has never once observed — is held to the 6-hour window
 whatever its type, since its class cannot be confirmed. A device that is
 still being reported is always refused (its entities would immediately
-recreate it), as is any deletion while an update is failing or an inverter is
-degraded (link down, or not yet reporting its batteries) — the safe direction
-is always to refuse.
+recreate it), as is any deletion while an update is failing or is being served
+from cache. A degraded inverter (link down, or not yet reporting its
+batteries) blocks deletion of its own battery modules only — a healthy
+inverter's modules still age out normally — and the safe direction is always
+to refuse.
 
 ## Enabling Debug Logging
 

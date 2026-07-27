@@ -67,16 +67,32 @@ device-info gate from #169), so an orphan bank on a shared-battery
 secondary ages out and becomes deletable instead of being pinned forever
 by its parent's existence.
 
-The battery clock is GLOBAL across the device table: any degraded parent --
-an ``"error"`` row, a down local transport link, or an inverter that has not
-yet confirmed a single battery fetch -- resets it.  That is a deliberate
-conservative choice under the review's stated asymmetry (a refused deletion
-is an annoyance; a wrongly permitted one is irreversible): while any part of
-the battery subsystem is unattestable, no battery deletion is judged safe.
-The residual is that one permanently-degraded-but-enumerated inverter blocks
-battery cleanup for the whole entry until it recovers or is itself removed.
+Each battery-capable parent keeps its OWN battery observation clock (PR #489
+finding 4): a module ages toward deletion only while ITS parent has been
+battery-attestable -- an ``"error"`` row, a down local transport link, or an
+inverter that has not yet confirmed a single battery fetch resets that
+parent's clock alone.  So one permanently-degraded inverter no longer blocks
+battery cleanup under a healthy sibling.  Two cases have no parent to
+attribute and fall back to a GLOBAL battery clock (every enumerated parent
+attestable): a module whose recorded parent has since left the device table,
+and a module never once seen this session (its parent, and even its class,
+unknowable).  The global clock is the conservative floor under the review's
+stated asymmetry (a refused deletion is an annoyance; a wrongly permitted one
+is irreversible); the per-parent clocks only ever relax it for a battery whose
+own parent is demonstrably healthy.
+
+One residual is documented rather than papered over: a HYBRID system whose
+LOCAL battery read succeeds (stamping the parent attestable) while its CLOUD
+supplement for a 5th..Nth module fails from a COLD restart can still age that
+never-seen module out.  It is bounded by and consistent with the #258
+carry-forward: a module seen even once is re-presented (carried forward) until
+#258's own staleness gate evicts it, so removal's window starts only after
+#258 has concluded the module is gone; the cold-restart sub-case has no
+library success signal to gate on (pylxpweb stamps the supplemental timestamp
+even on a failed supplement) and self-heals the instant the module reappears.
 """
 
+from collections.abc import Iterator
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -113,17 +129,22 @@ _WINDOWS = {
 _LEDGER_PRUNE_AGE = 4 * BATTERY_ABSENCE_WINDOW
 
 
-def provided_identifiers(data: dict[str, Any], plant_id: str | None) -> dict[str, str]:
-    """Map every identifier the data currently provides to its class.
+def _iter_provided(
+    data: dict[str, Any], plant_id: str | None
+) -> Iterator[tuple[str, str, str | None]]:
+    """Yield ``(identifier, class, parent_serial)`` for everything provided.
 
-    Mirrors exactly what the integration registers: the device-table keys
-    (inverters, GridBOSS, parallel groups), each device's battery keys
-    VERBATIM, the battery-bank identifier only under the #169 device-info
-    gate, and ``station_{plant_id}`` while station data is present.
+    The single source of truth for what the integration registers: the
+    device-table keys (inverters, GridBOSS, parallel groups), each device's
+    battery keys VERBATIM, the battery-bank identifier only under the #169
+    device-info gate, and ``station_{plant_id}`` while station data is present.
+    Device-class identifiers have no parent (``None``); every battery-class
+    identifier carries the serial of the device that provides it, so a battery
+    deletion can be judged against ITS parent's clock (PR #489 finding 4).
     """
-    provided: dict[str, str] = {}
     for serial, device_data in (data.get("devices") or {}).items():
-        provided[str(serial)] = _CLASS_DEVICE
+        parent = str(serial)
+        yield parent, _CLASS_DEVICE, None
         if not isinstance(device_data, dict):
             continue
         sensors = device_data.get("sensors") or {}
@@ -133,12 +154,19 @@ def provided_identifiers(data: dict[str, Any], plant_id: str | None) -> dict[str
         if any(str(key).startswith("battery_bank_") for key in sensors) and (
             sensors.get("battery_bank_count") or 0
         ):
-            provided[f"{serial}_battery_bank"] = _CLASS_BATTERY
+            yield f"{serial}_battery_bank", _CLASS_BATTERY, parent
         for battery_key in device_data.get("batteries") or {}:
-            provided[str(battery_key)] = _CLASS_BATTERY
+            yield str(battery_key), _CLASS_BATTERY, parent
     if "station" in data and plant_id is not None:
-        provided[f"station_{plant_id}"] = _CLASS_DEVICE
-    return provided
+        yield f"station_{plant_id}", _CLASS_DEVICE, None
+
+
+def provided_identifiers(data: dict[str, Any], plant_id: str | None) -> dict[str, str]:
+    """Map every identifier the data currently provides to its class."""
+    return {
+        identifier: klass
+        for identifier, klass, _parent in _iter_provided(data, plant_id)
+    }
 
 
 async def assess_discovery_completeness(
@@ -235,6 +263,37 @@ def _battery_fetch_ok(
     return True
 
 
+def _parent_battery_ok(
+    coordinator: "EG4DataUpdateCoordinator", data: dict[str, Any]
+) -> dict[str, bool]:
+    """Per battery-capable parent: whether its battery fetch is confirmed.
+
+    The per-parent counterpart of :func:`_battery_fetch_ok` (PR #489 finding
+    4): each inverter's battery attestation is judged on ITS OWN signals so a
+    degraded parent cannot freeze battery cleanup under a healthy sibling.
+    Same three signals as the global verdict, but scoped to one parent -- an
+    ``"error"`` row or a down local transport link on that device, or an
+    inverter whose ``_battery_cache_time`` is still ``None`` (never once
+    confirmed a fetch this session).  Only inverter-bearing devices carry a
+    battery bank; MID/GridBOSS rows (no inverter object) are skipped, so a
+    GridBOSS error never resets an inverter's clock.
+    """
+    result: dict[str, bool] = {}
+    for serial, device_data in (data.get("devices") or {}).items():
+        if not isinstance(device_data, dict):
+            continue
+        inverter = coordinator.get_inverter_object(serial)
+        if inverter is None:
+            continue
+        if "error" in device_data or coordinator.is_transport_link_down(serial):
+            result[str(serial)] = False
+        elif getattr(inverter, "_battery_cache_time", None) is None:
+            result[str(serial)] = False
+        else:
+            result[str(serial)] = True
+    return result
+
+
 def record_provided_identifiers(
     coordinator: "EG4DataUpdateCoordinator",
     data: dict[str, Any],
@@ -251,8 +310,11 @@ def record_provided_identifiers(
     Each class's clock marks the start of the current contiguous run of
     cycles that observed that class COMPLETELY; it is ``None`` whenever the
     run is broken (recovery from a failed cycle, or this cycle's completeness
-    not met) and the next qualifying cycle restarts it.  See the module
-    docstring for why blind and incomplete time must never count.
+    not met) and the next qualifying cycle restarts it.  The battery class is
+    further split into one clock PER battery-capable parent plus the global
+    clock the never-seen / departed-parent cases fall back to (finding 4).
+    See the module docstring for why blind and incomplete time must never
+    count.
     """
     now = monotonic()
     recovered = not coordinator.last_update_success
@@ -275,13 +337,30 @@ def record_provided_identifiers(
     elif recovered or coordinator._removal_battery_observed_since is None:
         coordinator._removal_battery_observed_since = now
 
+    # Per-parent battery clocks (finding 4). A failed device list makes every
+    # parent unattestable, so drop them all; otherwise advance/reset each on
+    # its own verdict and prune any parent no longer enumerated (its batteries,
+    # if any linger in the registry, fall back to the global clock above).
+    parent_clocks = coordinator._removal_battery_parent_since
+    if not device_list_ok:
+        parent_clocks.clear()
+    else:
+        parent_ok = _parent_battery_ok(coordinator, data)
+        for parent_serial, ok in parent_ok.items():
+            if not ok:
+                parent_clocks[parent_serial] = None
+            elif recovered or parent_clocks.get(parent_serial) is None:
+                parent_clocks[parent_serial] = now
+        for gone in [p for p in parent_clocks if p not in parent_ok]:
+            del parent_clocks[gone]
+
     ledger = coordinator._removal_identifier_last_seen
-    for identifier, klass in provided_identifiers(data, coordinator.plant_id).items():
-        ledger[identifier] = (now, klass)
+    for identifier, klass, parent in _iter_provided(data, coordinator.plant_id):
+        ledger[identifier] = (now, klass, parent)
 
     stale = [
         identifier
-        for identifier, (seen_at, _klass) in ledger.items()
+        for identifier, (seen_at, _klass, _parent) in ledger.items()
         if now - seen_at > _LEDGER_PRUNE_AGE
     ]
     for identifier in stale:
@@ -307,8 +386,10 @@ async def async_remove_config_entry_device(
     customizations and breaking registry-pinned automations); or the current
     contiguous run of COMPLETE observations has not yet covered the
     identifier's absence window (its class's clock is unset or too young, or
-    it was seen within the window).  An identifier never seen this session is
-    held to the conservative battery-class window -- its class is unknowable.
+    it was seen within the window).  A battery module is judged against ITS
+    parent's clock while that parent is still enumerated, and the global
+    battery clock otherwise (finding 4).  An identifier never seen this session
+    is held to the conservative battery-class window -- its class is unknowable.
     """
     coordinator = getattr(config_entry, "runtime_data", None)
     if coordinator is None or not coordinator.last_update_success:
@@ -335,18 +416,27 @@ async def async_remove_config_entry_device(
         return False
 
     ledger = coordinator._removal_identifier_last_seen
+    parent_clocks = coordinator._removal_battery_parent_since
     now = monotonic()
     for identifier in identifiers:
         record = ledger.get(identifier)
         if record is None:
             seen_at: float | None = None
             klass = _CLASS_BATTERY
+            parent: str | None = None
         else:
-            seen_at, klass = record
+            seen_at, klass, parent = record
         window = _WINDOWS[klass]
         if klass == _CLASS_DEVICE:
             observed_since = coordinator._removal_device_observed_since
+        elif parent is not None and parent in provided and parent in parent_clocks:
+            # The module's parent is still enumerated and battery-attestable on
+            # its own clock: judge this module against ITS parent (finding 4),
+            # not the whole subsystem.  A degraded SIBLING never resets it.
+            observed_since = parent_clocks[parent]
         else:
+            # Parent departed, never-seen (unknown parent), or not yet
+            # battery-attestable: fall back to the conservative global clock.
             observed_since = coordinator._removal_battery_observed_since
         if observed_since is None or now - observed_since < window:
             # The current run of complete observations does not yet cover the
