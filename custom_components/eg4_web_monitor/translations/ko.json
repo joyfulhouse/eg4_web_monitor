@@ -722,6 +722,9 @@
       },
       "ac_couple": {
         "name": "AC 커플링"
+      },
+      "grid_always_on": {
+        "name": "계통 항상 켜짐"
       }
     },
     "number": {

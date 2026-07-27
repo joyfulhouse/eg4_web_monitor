@@ -2276,7 +2276,9 @@ class TestOffgridBatteryBackupGating:
         # do EPS / Off Grid Mode / Charge Last / Share Battery (fail-open,
         # no rejection evidence for them; Share Battery is gated like
         # Charge Last — all control-capable families, #288). AC Couple
-        # (GH #471) is cloud-gated, family-neutral — present here too.
+        # (GH #471) and Grid Always On (GH #484) are cloud-gated and
+        # family-neutral — present here too, and this is the family that
+        # asked for Grid Always On (12000XP, #484).
         assert self._switch_keys(entities) == {
             "quick_charge",
             "ac_couple",
@@ -2286,6 +2288,7 @@ class TestOffgridBatteryBackupGating:
             "ac_charge",
             "forced_chg_en",
             "share_battery",
+            "grid_always_on",
         }
 
     @pytest.mark.asyncio
@@ -2338,6 +2341,7 @@ class TestOffgridBatteryBackupGating:
             "pv_sell_to_grid_en",
             "fast_zero_export",
             "share_battery",
+            "grid_always_on",
         }
 
     @pytest.mark.asyncio
@@ -3242,3 +3246,233 @@ class TestShareBatterySwitchBehavior:
         coordinator.client.api.control.control_function.assert_called_once_with(
             "1234567890", "FUNC_BAT_SHARED", True
         )
+
+
+# ── Grid Always On (FUNC_ON_GRID_ALWAYS_ON, reg 179 unpinned bit, GH #484) ──
+
+
+def _make_grid_always_on_switch(coordinator) -> EG4WorkingModeSwitch:
+    """Build the Grid Always On working-mode switch under test."""
+    return EG4WorkingModeSwitch(
+        coordinator=coordinator,
+        serial="1234567890",
+        mode_config=WORKING_MODES["grid_always_on_mode"],
+    )
+
+
+class TestGridAlwaysOnGating:
+    """Setup gating for the Grid Always On switch (GH #484).
+
+    The cloud returns FUNC_ON_GRID_ALWAYS_ON among register 179's named
+    params on every device probed (18kPV, FlexBOSS21, GridBOSS — read-only
+    probe 2026-07-27), and the reporter's screenshot shows the control live
+    and enabled on a 12000XP, so it is NOT family-gated. No reg-179 bit is
+    pinned for it, so the cloud is the only transport that can read or
+    write it: the ``_local_params_can_carry`` setup probe removes the
+    switch wherever the parameter cache is local-raw.
+    """
+
+    def test_local_map_cannot_carry_on_grid_always_on(self):
+        """No pinned local register — the setup probe must report False.
+
+        Guards the premise of the whole cloud-only design: if a future
+        pylxpweb ever pins the bit, this flips and the LOCAL path becomes a
+        deliberate decision rather than an accident.
+        """
+        assert not switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
+
+    @pytest.mark.asyncio
+    async def test_cloud_mode_creates_grid_always_on(self, hass):
+        """Pure CLOUD: the switch is created (state is readable there)."""
+        coordinator = _mock_coordinator(
+            model="12000XP",
+            has_http=True,
+            has_local=False,
+            device_data={"features": {"inverter_family": "EG4_OFFGRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_ON_GRID_ALWAYS_ON" in params
+
+    @pytest.mark.asyncio
+    async def test_hybrid_family_also_creates_grid_always_on(self, hass):
+        """Not family-gated: EG4_HYBRID gets it too (probe returned the
+        param on an 18kPV and a FlexBOSS21)."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21",
+            has_http=True,
+            has_local=False,
+            device_data={"features": {"inverter_family": "EG4_HYBRID"}},
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_ON_GRID_ALWAYS_ON" in params
+
+    @pytest.mark.asyncio
+    async def test_local_only_skips_grid_always_on(self, hass):
+        """LOCAL-only: the key can never appear in a local-raw cache, so the
+        switch must not be created rather than report a lying OFF."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21", has_http=False, has_local=True, local_only=True
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_ON_GRID_ALWAYS_ON" not in params
+
+    @pytest.mark.asyncio
+    async def test_hybrid_transport_skips_grid_always_on(self, hass):
+        """HYBRID with a local transport: same local-raw cache, same skip."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21", has_http=True, has_local=True
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        assert "FUNC_ON_GRID_ALWAYS_ON" not in params
+
+
+class TestGridAlwaysOnSwitchBehavior:
+    """State reads and writes for the Grid Always On switch (GH #484)."""
+
+    def test_entity_identity(self):
+        """entity_key 'grid_always_on' (not the param-derived
+        'on_grid_always_on') and a translation_key instead of _attr_name."""
+        coordinator = _mock_coordinator()
+        switch = _make_grid_always_on_switch(coordinator)
+        assert switch.unique_id == "1234567890_grid_always_on"
+        assert switch.translation_key == "grid_always_on"
+        assert getattr(switch, "_attr_name", None) is None
+
+    def test_registered_disabled_by_default(self):
+        """Niche control (smart load port only) — same as Share Battery."""
+        coordinator = _mock_coordinator()
+        switch = _make_grid_always_on_switch(coordinator)
+        assert switch.entity_registry_enabled_default is False
+
+    def test_is_on_from_params(self):
+        """State decodes from the FUNC_ON_GRID_ALWAYS_ON cloud parameter."""
+        coordinator = _mock_coordinator(parameters={"FUNC_ON_GRID_ALWAYS_ON": True})
+        switch = _make_grid_always_on_switch(coordinator)
+        assert switch.is_on is True
+
+    def test_is_off_from_params(self):
+        coordinator = _mock_coordinator(parameters={"FUNC_ON_GRID_ALWAYS_ON": False})
+        switch = _make_grid_always_on_switch(coordinator)
+        assert switch.is_on is False
+
+    @pytest.mark.asyncio
+    async def test_turn_on_cloud_uses_function_control(self):
+        """Cloud path writes FUNC_ON_GRID_ALWAYS_ON via the generic
+        function-control API — the exact call the portal makes.
+
+        This is the wiring test for the cloud-only branch in
+        ``_execute_working_mode``: the mode has neither a local parameter
+        mapping nor dedicated pylxpweb methods, so without that branch the
+        write falls through to "not available via any transport".
+        """
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = _make_grid_always_on_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_ON_GRID_ALWAYS_ON", True
+        )
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_turn_off_cloud_uses_function_control(self):
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        switch = _make_grid_always_on_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_ON_GRID_ALWAYS_ON", False
+        )
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_never_writes_an_unpinned_local_register(self):
+        """No local write path, ever — even with a transport attached.
+
+        A wrong reg-179 bit is ACKed by the firmware, so the cloud fallback
+        would never fire and readback-verify could not catch it. The mode is
+        deliberately absent from ``_WORKING_MODE_PARAMETERS``.
+        """
+        assert (
+            switch_module._WORKING_MODE_PARAMETERS.get("FUNC_ON_GRID_ALWAYS_ON") is None
+        )
+
+        coordinator = _mock_coordinator(has_http=True, has_local=True)
+        switch = _make_grid_always_on_switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_not_called()
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_ON_GRID_ALWAYS_ON", True
+        )
+
+    @pytest.mark.asyncio
+    async def test_write_failure_raises_and_clears_optimistic_state(self):
+        """A rejected cloud write surfaces as an error, never a silent no-op."""
+        coordinator = _mock_coordinator(has_http=True, has_local=False)
+        failed = MagicMock()
+        failed.success = False
+        coordinator.client.api.control.control_function = AsyncMock(return_value=failed)
+        switch = _make_grid_always_on_switch(coordinator)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError):
+            await switch.async_turn_on()
+
+        assert switch._optimistic_state is None
+
+    @pytest.mark.asyncio
+    async def test_no_transport_raises(self):
+        """Neither cloud nor a usable local path -> explicit error."""
+        coordinator = _mock_coordinator(has_http=False, has_local=False)
+        switch = _make_grid_always_on_switch(coordinator)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="not available via any transport"):
+            await switch.async_turn_on()

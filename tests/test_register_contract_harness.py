@@ -1524,6 +1524,23 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
         "local register; never write it through the local transport name "
         "map."
     ),
+    # Grid Always On (GH #484): the portal's Smart Load Port -> Smart Load
+    # tab enable, sibling of the AC coupling tab above. A READ-ONLY cloud
+    # probe 2026-07-27 confirmed the name comes back among register 179's
+    # 16 named params on an 18kPV, a FlexBOSS21 and a GridBOSS — including
+    # in the 127-253 range read that builds the cloud parameter cache — and
+    # the reporter's portal screenshot shows it live on a 12000XP. But
+    # WHICH of register 179's bits it occupies is UNPINNED: the register's
+    # bit map still carries FUNC_179_BIT{0,1,2,4,5,6,8,12,13,14,15}
+    # placeholders. Writing a guessed bit is not a safe failure — the
+    # firmware ACKs it, so the cloud fallback never fires and
+    # readback-verify cannot catch it (the #476 reg-110 bit-8 lesson).
+    # Cloud functionControl only until a live raw<->named toggle pins it.
+    "FUNC_ON_GRID_ALWAYS_ON": (
+        "Cloud-only function param for the smart load port's Grid Always On "
+        "enable — reg 179 membership is confirmed but the BIT is unpinned; "
+        "never write it through the local transport name map."
+    ),
 }
 
 

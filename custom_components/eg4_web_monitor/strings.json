@@ -722,6 +722,9 @@
       },
       "ac_couple": {
         "name": "AC Couple"
+      },
+      "grid_always_on": {
+        "name": "Grid Always On"
       }
     },
     "number": {

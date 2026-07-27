@@ -722,6 +722,9 @@
       },
       "ac_couple": {
         "name": "Accoppiamento AC"
+      },
+      "grid_always_on": {
+        "name": "Rete sempre attiva"
       }
     },
     "number": {
