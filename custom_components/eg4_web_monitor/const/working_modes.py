@@ -16,6 +16,10 @@ Optional per-mode presentation keys (read by EG4WorkingModeSwitch):
   translation — issue #262 gotcha).
 - ``enabled_default``: set False to register the switch disabled by
   default (niche features, e.g. Share Battery — GH #288).
+- ``requires_known_state``: set True so an ABSENT state key reads
+  unavailable/None instead of a confident OFF. Opt in for any mode created
+  without a family gate — there, a device that simply lacks the parameter
+  is a live possibility rather than a contradiction (GH #484).
 - ``legacy_attrs``: map legacy state-attribute names to parameter keys when
   folding a standalone switch into the table must preserve its exact
   attribute shape (including returning None when no value is available).
@@ -214,6 +218,12 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "entity_key": "grid_always_on",
         "translation_key": "grid_always_on",
         "enabled_default": False,
+        # No family gate means "device lacks this param" is a real case, not
+        # a contradiction — so an absent key must read unavailable, never a
+        # fake OFF. This is the half of the #471 AC Couple precedent that
+        # makes its family-neutral gate safe; citing that precedent without
+        # carrying this over was a PR-review finding.
+        "requires_known_state": True,
     },
 }
 

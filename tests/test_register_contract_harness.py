@@ -1615,9 +1615,25 @@ def test_cloud_only_controls_stay_unpinned_and_unwired() -> None:
     shared register (FUNC_PV_SELL_TO_GRID_EN bit 3, FUNC_GRID_PEAK_SHAVING
     bit 7 on reg 179) stay allowed via their contract entries.
 
-    This guards the TABLE. A bespoke local write inside an entity bypasses
-    the table entirely, so per-control behavioral tests must cover both
-    turn-on AND turn-off — see TestGridAlwaysOnSwitchBehavior.
+    WHAT THIS GUARANTEES, precisely — it guards the declarative TABLES only:
+      * no cloud-only name becomes locally resolvable without the entry
+        being retired (STALE);
+      * no control is wired in _WORKING_MODE_PARAMETERS under a cloud-only
+        name, under a raw alias for that name's register, or (see the
+        companion test) under a FUNC_<reg>_BIT<n> placeholder on any
+        register.
+
+    WHAT IT DOES NOT CATCH, and what covers those instead:
+      * A bespoke local write inside an entity — it never consults the
+        table. Covered by per-control behavioral tests, which must exercise
+        BOTH turn-on and turn-off and both local write doors (named and
+        raw-address): see TestGridAlwaysOnSwitchBehavior.
+      * Wiring a cloud-only param into _WORKING_MODE_METHODS. That routes to
+        pylxpweb's named enable/disable methods, which cannot reach a local
+        register unless the name appears in HOLDING_BY_API_KEY or
+        REGISTER_TO_PARAM_KEYS — at which point the STALE check above trips.
+        Sealed transitively by pylxpweb's own tables rather than directly
+        here; if that ever stops holding, this test needs a third check.
     """
     from custom_components.eg4_web_monitor.switch import _WORKING_MODE_PARAMETERS
 

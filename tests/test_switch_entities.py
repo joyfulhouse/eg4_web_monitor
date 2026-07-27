@@ -3389,11 +3389,70 @@ class TestGridAlwaysOnSwitchBehavior:
         coordinator = _mock_coordinator(parameters={"FUNC_ON_GRID_ALWAYS_ON": True})
         switch = _make_grid_always_on_switch(coordinator)
         assert switch.is_on is True
+        assert switch.available is True
 
     def test_is_off_from_params(self):
         coordinator = _mock_coordinator(parameters={"FUNC_ON_GRID_ALWAYS_ON": False})
         switch = _make_grid_always_on_switch(coordinator)
         assert switch.is_on is False
+        assert switch.available is True
+
+    def test_absent_param_is_unavailable_not_a_fake_off(self):
+        """Absent state must read unavailable/None, never a confident OFF.
+
+        Without a family gate, a device whose cloud read omits the param — a
+        family beyond the three probed, or a parameter read that has not
+        landed yet — is a live case. A toggleable OFF there is
+        indistinguishable from the device really reporting OFF. This is the
+        guarantee EG4ACCoupleSwitch.available gives (GH #471), the precedent
+        this mode's family-neutral gate is modelled on.
+        """
+        coordinator = _mock_coordinator(parameters={})
+        switch = _make_grid_always_on_switch(coordinator)
+
+        assert switch.available is False
+        assert switch.is_on is None
+
+    def test_absent_param_matches_the_ac_couple_precedent(self):
+        """Pin the parity directly: cite #471, behave like #471.
+
+        Drives both switches off the same param-less coordinator, so the two
+        cannot silently diverge again.
+        """
+        coordinator = _mock_coordinator(parameters={})
+        grid_always_on = _make_grid_always_on_switch(coordinator)
+        ac_couple = EG4ACCoupleSwitch(coordinator, "1234567890")
+
+        assert (grid_always_on.available, grid_always_on.is_on) == (
+            ac_couple.available,
+            ac_couple.is_on,
+        )
+
+    def test_mid_write_optimistic_state_keeps_it_available(self):
+        """An in-flight write publishes its value even before data lands."""
+        coordinator = _mock_coordinator(parameters={})
+        switch = _make_grid_always_on_switch(coordinator)
+        switch._optimistic_state = True
+
+        assert switch.available is True
+        assert switch.is_on is True
+
+    def test_other_working_modes_keep_the_historical_off_default(self):
+        """The override is OPT-IN — unflagged modes are untouched.
+
+        Flipping every working mode to unavailable during the
+        pre-first-parameter-read window would be a user-visible change to
+        long-standing behavior, well outside this issue's scope.
+        """
+        coordinator = _mock_coordinator(parameters={})
+        for mode_key in ("ac_charge_mode", "charge_last_mode", "share_battery_mode"):
+            switch = EG4WorkingModeSwitch(
+                coordinator=coordinator,
+                serial="1234567890",
+                mode_config=WORKING_MODES[mode_key],
+            )
+            assert switch.available is True, mode_key
+            assert switch.is_on is False, mode_key
 
     @pytest.mark.asyncio
     async def test_turn_on_cloud_uses_function_control(self):
@@ -3477,7 +3536,14 @@ class TestGridAlwaysOnSwitchBehavior:
 
     @pytest.mark.asyncio
     async def test_write_failure_raises_and_clears_optimistic_state(self):
-        """A rejected cloud write surfaces as an error, never a silent no-op."""
+        """A REJECTED cloud write surfaces as an error, never a silent no-op.
+
+        The rejection must be the cloud call's, not a routing failure: the
+        earlier version asserted only that _optimistic_state ended None,
+        which held vacuously when the mode never reached a write at all
+        (PR-review finding). Pinning the attempted call and the error text
+        makes it fail if the cloud-only branch stops being reached.
+        """
         coordinator = _mock_coordinator(has_http=True, has_local=False)
         failed = MagicMock()
         failed.success = False
@@ -3485,17 +3551,32 @@ class TestGridAlwaysOnSwitchBehavior:
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
 
-        with pytest.raises(HomeAssistantError):
+        with pytest.raises(HomeAssistantError) as err:
             await switch.async_turn_on()
 
+        # The write was actually attempted through the cloud function API...
+        coordinator.client.api.control.control_function.assert_called_once_with(
+            "1234567890", "FUNC_ON_GRID_ALWAYS_ON", True
+        )
+        # ...and the failure is the device rejecting it, not "no transport".
+        assert "not available via any transport" not in str(err.value)
         assert switch._optimistic_state is None
 
     @pytest.mark.asyncio
     async def test_no_transport_raises(self):
-        """Neither cloud nor a usable local path -> explicit error."""
+        """Neither cloud nor a usable local path -> explicit error.
+
+        Deliberately pins the fallthrough rather than the cloud branch: it is
+        what proves the new branch is guarded by ``has_http_api()`` and does
+        not swallow the no-cloud case. Widening that condition (e.g. to an
+        unconditional ``else``) fails here — verified by mutation.
+        """
         coordinator = _mock_coordinator(has_http=False, has_local=False)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
 
         with pytest.raises(HomeAssistantError, match="not available via any transport"):
             await switch.async_turn_on()
+
+        coordinator.write_named_parameter.assert_not_called()
+        coordinator.write_raw_parameter.assert_not_called()
