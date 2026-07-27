@@ -47,6 +47,7 @@ Companion files:
 from __future__ import annotations
 
 import dataclasses
+import re
 from collections import Counter
 from collections.abc import Callable, Iterable
 from typing import Any
@@ -1484,10 +1485,18 @@ def test_register_110_contract_holds_for_every_family(family: str | None) -> Non
 
 # Cloud-only controls: function parameters whose local register/bit is
 # UNPINNED — addressable only via the cloud functionControl endpoint, never
-# via named-parameter register writes.  Each entry documents why; the honesty
-# test below fails as STALE when an entry becomes locally resolvable, at
-# which point it moves into _CONTROL_REGISTER_CONTRACT with its (addr, bit).
-_CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
+# via named-parameter register writes.  The honesty test below fails as STALE
+# when an entry becomes locally resolvable, at which point it moves into
+# _CONTROL_REGISTER_CONTRACT with its (addr, bit).
+#
+# Each entry is (containing_register, reason).  THE REGISTER IS THE INVARIANT,
+# not the friendly name: checking only the cloud name let a local write slip
+# through under a raw alias for the same register (e.g. wiring a control to
+# the placeholder FUNC_179_BIT0), which is the exact wrong-bit,
+# firmware-ACKed write this allowlist exists to prohibit.  Use None only when
+# even the containing register is unproven — then no register-scoped guard is
+# possible and the behavioral per-control tests are the only protection.
+_CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
     # FUNC_PV_SELL_TO_GRID_EN graduated 2026-06-12: its reg-179 bit 3 was
     # pinned by authorized live cloud toggles raw-verified on both a
     # FlexBOSS21 (52842P0581) and an 18kPV (4512670118) — raw 0x104c <->
@@ -1495,6 +1504,7 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
     # _CONTROL_REGISTER_CONTRACT above, exactly the promotion path this
     # allowlist's honesty test was designed to force.
     PARAM_HOLD_P_TO_USER_START_DISCHG: (
+        116,
         "Cloud spelling of reg 116 (GH #272): the live cloud API names the "
         "register HOLD_P_TO_USER_START_DISCHG (reporter-verified remoteSet "
         "call + every docs/inverters scanner dump), while pylxpweb's local "
@@ -1502,7 +1512,7 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
         "spelling is used exclusively for cloud named reads/writes — never "
         "for local register writes. If pylxpweb ever adopts the live cloud "
         "key in its tables, this entry goes STALE and the spellings should "
-        "be unified."
+        "be unified.",
     ),
     # AC Couple Start/End SOC window (GH #352): portal-verified writable
     # holdParams (mjstrand's 12000XP v2 capture + ivanfmartinez's on-grid
@@ -1514,17 +1524,48 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, str] = {
     # store (throttled get_inverter_ac_couple_soc_limits reads); writes route
     # exclusively through client.api.control.set_inverter_ac_couple_*_soc.
     PARAM_AC_COUPLE_START_SOC: (
+        # Register genuinely unproven: the probe co-located both SOC params
+        # onto the FUNC_LSP_BYPASS bitfield block (regs 219-221), a known
+        # block-detection artifact, so naming a register here would assert
+        # something nobody has verified.
+        None,
         "Cloud-only holdParam for the AC-couple START SOC threshold — no "
         "pinned local register; never write it through the local transport "
-        "name map."
+        "name map.",
     ),
     PARAM_AC_COUPLE_END_SOC: (
+        None,
         "Cloud-only holdParam for the AC-couple END SOC threshold (reads "
         "255 as the factory disabled/'never stop' sentinel) — no pinned "
         "local register; never write it through the local transport name "
-        "map."
+        "map.",
+    ),
+    # Grid Always On (GH #484): the portal's Smart Load Port -> Smart Load
+    # tab enable, sibling of the AC coupling tab above. A READ-ONLY cloud
+    # probe 2026-07-27 confirmed the name comes back among register 179's
+    # 16 named params on an 18kPV, a FlexBOSS21 and a GridBOSS — including
+    # in the 127-253 range read that builds the cloud parameter cache — and
+    # the reporter's portal screenshot shows it live on a 12000XP. But
+    # WHICH of register 179's bits it occupies is UNPINNED: the register's
+    # bit map still carries FUNC_179_BIT{0,1,2,4,5,6,8,12,13,14,15}
+    # placeholders. Writing a guessed bit is not a safe failure — the
+    # firmware ACKs it, so the cloud fallback never fires and
+    # readback-verify cannot catch it (the #476 reg-110 bit-8 lesson).
+    # Cloud functionControl only until a live raw<->named toggle pins it.
+    "FUNC_ON_GRID_ALWAYS_ON": (
+        179,
+        "Cloud-only function param for the smart load port's Grid Always On "
+        "enable — reg 179 membership is confirmed but the BIT is unpinned; "
+        "never write it through the local transport name map.",
     ),
 }
+
+
+# Unproven bit placeholders in pylxpweb's register tables: slots nobody has
+# identified, named FUNC_<reg>_BIT<n> by convention (regs 110/179/233 today).
+# They exist so the bitfield decode keeps its positional alignment — they are
+# NOT controls, and a local write through one hits an unidentified bit.
+_PLACEHOLDER_BIT_NAME = re.compile(r"^(?:FUNC|BIT|HOLD)_\d+_BIT\d+$")
 
 
 def test_control_params_cover_all_integration_constants() -> None:
@@ -1562,12 +1603,42 @@ def test_cloud_only_controls_stay_unpinned_and_unwired() -> None:
     Each entry must (a) remain unknown to BOTH pylxpweb local tables — once
     a register/bit gets pinned the entry is STALE and the control moves into
     _CONTROL_REGISTER_CONTRACT — and (b) never be wired for local writes in
-    switch._WORKING_MODE_PARAMETERS, which would write an unproven register.
+    switch._WORKING_MODE_PARAMETERS under its own name.
+
+    (c) is the register-scoped check: NO control may be locally wired to any
+    name that resolves to a cloud-only param's containing register unless
+    that name carries a pinned _CONTROL_REGISTER_CONTRACT entry. Checking
+    only the friendly name (a)/(b) was not enough — it let a local write slip
+    through under a raw alias for the same register, e.g. wiring a control to
+    the placeholder FUNC_179_BIT0, which is precisely the wrong-bit write
+    this allowlist exists to prohibit. Legitimately pinned neighbours on a
+    shared register (FUNC_PV_SELL_TO_GRID_EN bit 3, FUNC_GRID_PEAK_SHAVING
+    bit 7 on reg 179) stay allowed via their contract entries.
+
+    WHAT THIS GUARANTEES, precisely — it guards the declarative TABLES only:
+      * no cloud-only name becomes locally resolvable without the entry
+        being retired (STALE);
+      * no control is wired in _WORKING_MODE_PARAMETERS under a cloud-only
+        name, under a raw alias for that name's register, or (see the
+        companion test) under a FUNC_<reg>_BIT<n> placeholder on any
+        register.
+
+    WHAT IT DOES NOT CATCH, and what covers those instead:
+      * A bespoke local write inside an entity — it never consults the
+        table. Covered by per-control behavioral tests, which must exercise
+        BOTH turn-on and turn-off and both local write doors (named and
+        raw-address): see TestGridAlwaysOnSwitchBehavior.
+      * Wiring a cloud-only param into _WORKING_MODE_METHODS. That routes to
+        pylxpweb's named enable/disable methods, which cannot reach a local
+        register unless the name appears in HOLDING_BY_API_KEY or
+        REGISTER_TO_PARAM_KEYS — at which point the STALE check above trips.
+        Sealed transitively by pylxpweb's own tables rather than directly
+        here; if that ever stops holding, this test needs a third check.
     """
     from custom_components.eg4_web_monitor.switch import _WORKING_MODE_PARAMETERS
 
     offenders: list[str] = []
-    for name in _CLOUD_ONLY_FUNCTION_PARAMS:
+    for name, (register, _reason) in _CLOUD_ONLY_FUNCTION_PARAMS.items():
         resolutions = _resolve_param_in_pylxpweb(name)
         if resolutions:
             offenders.append(
@@ -1581,9 +1652,51 @@ def test_cloud_only_controls_stay_unpinned_and_unwired() -> None:
                 f"but its register/bit is unpinned — local writes would hit "
                 f"an unproven register"
             )
+        if register is None:
+            continue
+        for mode_param, local_name in _WORKING_MODE_PARAMETERS.items():
+            if not local_name or local_name in _CONTROL_REGISTER_CONTRACT:
+                continue
+            hit = [
+                (source, addr, bit)
+                for source, addr, bit in _resolve_param_in_pylxpweb(local_name)
+                if addr == register
+            ]
+            if hit:
+                offenders.append(
+                    f"{mode_param}: locally wired to {local_name!r}, which "
+                    f"resolves to register {register} ({hit}) — the same "
+                    f"register as cloud-only {name}, with no pinned "
+                    f"_CONTROL_REGISTER_CONTRACT entry. A wrong-bit write is "
+                    f"ACKed by the firmware, so no fallback fires and "
+                    f"readback-verify cannot catch it."
+                )
+
     assert not offenders, "Cloud-only control allowlist violations:\n  " + "\n  ".join(
         offenders
     )
+
+
+def test_no_control_is_locally_wired_to_an_unproven_bit_placeholder() -> None:
+    """No control may write a FUNC_<reg>_BIT<n> placeholder locally.
+
+    Register-agnostic companion to the check above: placeholders exist only
+    to hold positional alignment in pylxpweb's bitfield decode, so wiring one
+    as a control's local write name targets a bit nobody has identified — on
+    ANY register, including those with no cloud-only param to scope a guard
+    around. Catches the alias route even before an entry lands in
+    _CLOUD_ONLY_FUNCTION_PARAMS.
+    """
+    from custom_components.eg4_web_monitor.switch import _WORKING_MODE_PARAMETERS
+
+    offenders = [
+        f"{mode_param}: locally wired to placeholder {local_name!r} — an "
+        f"unidentified bit; pin it with a live raw<->named toggle and give "
+        f"it a real name, or route the control through the cloud"
+        for mode_param, local_name in _WORKING_MODE_PARAMETERS.items()
+        if local_name and _PLACEHOLDER_BIT_NAME.match(local_name)
+    ]
+    assert not offenders, "Placeholder-wired controls:\n  " + "\n  ".join(offenders)
 
 
 # Raw-register controls: parameters the integration addresses by RAW register

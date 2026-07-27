@@ -16,6 +16,10 @@ Optional per-mode presentation keys (read by EG4WorkingModeSwitch):
   translation — issue #262 gotcha).
 - ``enabled_default``: set False to register the switch disabled by
   default (niche features, e.g. Share Battery — GH #288).
+- ``requires_known_state``: set True so an ABSENT state key reads
+  unavailable/None instead of a confident OFF. Opt in for any mode created
+  without a family gate — there, a device that simply lacks the parameter
+  is a live possibility rather than a contradiction (GH #484).
 - ``legacy_attrs``: map legacy state-attribute names to parameter keys when
   folding a standalone switch into the table must preserve its exact
   attribute shape (including returning None when no value is available).
@@ -165,6 +169,62 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "translation_key": "share_battery",
         "enabled_default": False,
     },
+    # Grid Always On (FUNC_ON_GRID_ALWAYS_ON, GH #484) — the portal's
+    # Maintenance -> Remote Set "Smart Load Port" section, "Smart Load" tab,
+    # second row (the reporter's 12000XP screenshot); sibling of the "AC
+    # coupling" tab that GH #471/#352 already expose. Keeps the smart load
+    # port energized from the grid instead of dropping it when the Smart
+    # Load Start/End SOC window closes.
+    #
+    # CLOUD-ONLY, and no family gate. Both halves are evidence-driven:
+    #   - Read-only probe 2026-07-27 against the maintainer's own account:
+    #     the cloud returns FUNC_ON_GRID_ALWAYS_ON among reg 179's 16 named
+    #     params on an 18kPV, a FlexBOSS21 and a GridBOSS, in the very
+    #     127-253 range read that builds the cloud parameter cache. The
+    #     reporter's screenshot shows the control live and ENABLED on a
+    #     12000XP (EG4_OFFGRID), so the function spans the grid-tied AND
+    #     off-grid families — a fail-closed is_hybrid_family() gate would
+    #     strip it from the device that asked for it, and there is no
+    #     family with evidence of absence to fail-open suppress. The gate
+    #     is therefore the enclosing is_supported_control_model() only,
+    #     exactly as GH #471's AC Couple switch reasoned.
+    #   - No reg-179 BIT is pinned for it, so it is deliberately absent from
+    #     _WORKING_MODE_PARAMETERS (switch.py): writing an unpinned bit
+    #     locally is ACKed by the firmware, which means the cloud fallback
+    #     never fires and readback-verify cannot catch a wrong guess. The
+    #     _local_params_can_carry() setup probe suppresses the switch
+    #     wherever the parameter cache is local-raw (LOCAL, or HYBRID with
+    #     a transport), so it exists only where its state is readable.
+    #     Enforced on two levels, because either alone has a blind spot:
+    #     the contract harness guards the TABLE (no control may be locally
+    #     wired to any reg-179 name lacking a pinned contract entry, nor to
+    #     any FUNC_<reg>_BIT<n> placeholder), and
+    #     TestGridAlwaysOnSwitchBehavior guards BEHAVIOR on both turn-on and
+    #     turn-off (a bespoke local write inside the entity bypasses the
+    #     table entirely, and a one-action test misses the other action —
+    #     both holes were open at once until PR review found them).
+    # No dedicated pylxpweb enable/disable methods either: the cloud path
+    # uses the generic function-control API — the exact call the portal makes.
+    # Disabled by default like Share Battery: only meaningful once the smart
+    # load port is configured, so it stays out of everyone else's entity list.
+    "grid_always_on_mode": {
+        "name": "Grid Always On",
+        "param": "FUNC_ON_GRID_ALWAYS_ON",
+        "description": "Keep the smart load port energized from the grid",
+        "icon": "mdi:transmission-tower-import",
+        "entity_category": EntityCategory.CONFIG,
+        # entity_key/translation_key: the param name would yield
+        # "on_grid_always_on"; the portal calls the control "Grid Always On".
+        "entity_key": "grid_always_on",
+        "translation_key": "grid_always_on",
+        "enabled_default": False,
+        # No family gate means "device lacks this param" is a real case, not
+        # a contradiction — so an absent key must read unavailable, never a
+        # fake OFF. This is the half of the #471 AC Couple precedent that
+        # makes its family-neutral gate safe; citing that precedent without
+        # carrying this over was a PR-review finding.
+        "requires_known_state": True,
+    },
 }
 
 # =============================================================================
@@ -184,4 +244,5 @@ FUNCTION_PARAM_MAPPING = {
     "FUNC_PV_SELL_TO_GRID_EN": "FUNC_PV_SELL_TO_GRID_EN",
     "FUNC_RUN_WITHOUT_GRID": "FUNC_RUN_WITHOUT_GRID",
     "FUNC_BAT_SHARED": "FUNC_BAT_SHARED",
+    "FUNC_ON_GRID_ALWAYS_ON": "FUNC_ON_GRID_ALWAYS_ON",
 }

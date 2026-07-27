@@ -722,6 +722,9 @@
       },
       "ac_couple": {
         "name": "ACカップリング"
+      },
+      "grid_always_on": {
+        "name": "系統常時オン"
       }
     },
     "number": {

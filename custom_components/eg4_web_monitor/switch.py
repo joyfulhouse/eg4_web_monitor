@@ -940,8 +940,47 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             self._attr_entity_registry_enabled_default = False
 
     @property
-    def is_on(self) -> bool:
-        """Return if the switch is on."""
+    def _state_key_present(self) -> bool:
+        """Whether the parameter cache actually carries this mode's state key.
+
+        Distinguishes "the device reports this function OFF" from "no value
+        has ever arrived" — the two the ``.get(param_key, False)`` read below
+        otherwise collapses into a confident False.
+        """
+        param_key = FUNCTION_PARAM_MAPPING.get(self._mode_config["param"])
+        return bool(param_key) and param_key in self._parameter_data
+
+    @property
+    def available(self) -> bool:
+        """Return if the switch is available.
+
+        Modes flagged ``requires_known_state`` go UNAVAILABLE while their
+        state key is absent, rather than presenting a confident, toggleable
+        OFF. That matters for a mode created without a family gate (GH #484
+        Grid Always On): on a device whose cloud read omits the param — a
+        family beyond those probed, or simply a parameter read that has not
+        landed yet — a fake OFF is indistinguishable from the real thing.
+        Same guarantee the AC Couple switch's override gives (GH #471), which
+        is the precedent Grid Always On's family-neutral gate is modelled on.
+
+        OPT-IN, deliberately not applied to every working mode: the other ten
+        would flip from OFF to unavailable during the pre-first-parameter-read
+        window, a user-visible change to long-standing behavior well outside
+        this issue's scope. Charge Last and Share Battery are ungated too and
+        carry the same exposure — a candidate follow-up, not a silent
+        widening here.
+        """
+        if not super().available:
+            return False
+        if not self._mode_config.get("requires_known_state"):
+            return True
+        if self._optimistic_state is not None:
+            return True
+        return self._state_key_present
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return if the switch is on (None when the state is unknown)."""
         # Use optimistic state if available (for immediate UI feedback)
         if self._optimistic_state is not None:
             _LOGGER.debug(
@@ -950,6 +989,14 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 self._optimistic_state,
             )
             return self._optimistic_state
+
+        # Absent state must not read as OFF for modes that opted in — see
+        # available(). Unflagged modes keep the historical False default.
+        if (
+            self._mode_config.get("requires_known_state")
+            and not self._state_key_present
+        ):
+            return None
 
         # Read state from coordinator parameters
         try:
@@ -1079,6 +1126,21 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 disable_method=methods[1],
                 turn_on=turn_on,
                 refresh_params=True,
+                seed_param_key=FUNCTION_PARAM_MAPPING.get(param),
+            )
+        elif self.coordinator.has_http_api():
+            # Cloud-only with NEITHER a local parameter mapping NOR dedicated
+            # pylxpweb enable/disable methods (FUNC_ON_GRID_ALWAYS_ON, GH
+            # #484): drive the generic function-control API — the exact call
+            # the vendor portal makes for FUNC_ bits. Without this branch such
+            # a mode would fall through to the raise below and every write
+            # would fail, so a mode may omit both mappings only because this
+            # route exists. Seeding is a no-op on pure cloud (the helper
+            # guards on has_local_transport).
+            await self._execute_cloud_function_action(
+                action_name=action_name,
+                parameter=param,
+                value=turn_on,
                 seed_param_key=FUNCTION_PARAM_MAPPING.get(param),
             )
         else:
