@@ -119,12 +119,11 @@ async def async_write_with_cloud_fallback(
 ) -> None:
     """Attempt a local register write, falling back to the cloud API.
 
-    The non-switch counterpart of ``EG4BaseSwitch._execute_local_with_fallback``:
-    time/number/select controls used to choose the local write path purely on
-    transport ATTACHMENT, but pylxpweb keeps the transport attached while the
-    link is down (``transport_link_down`` — reads keep probing every cycle).
-    In HYBRID mode with a down local link and a healthy cloud, those writes
-    raised without ever trying their cloud branch, while switches fell back.
+    Shared by switch, time, number, select, and coordinator control paths so
+    transport attachment, link-down short-circuiting, and cloud fallback use
+    one policy. pylxpweb keeps a transport attached while its link is down
+    (``transport_link_down`` — ordinary reads keep probing for recovery), so
+    attachment alone cannot safely choose the write route.
 
     Semantics:
 
