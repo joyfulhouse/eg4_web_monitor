@@ -3332,11 +3332,14 @@ components:
           description: Human-readable description
         eventType:
           type: string
-          enum: [FAULT, WARNING, INFO, MIDBOX_WARNING]
           description: |
-            Category enum. GridBOSS/MID devices report MIDBOX_WARNING
-            (live-validated 2026-07-15 on a GridBOSS serial) — treat unknown
-            values as passthrough.
+            Category. Observed values are FAULT, WARNING, INFO and
+            MIDBOX_WARNING (the last from GridBOSS/MID devices,
+            live-validated 2026-07-15 on a GridBOSS serial). Deliberately NOT
+            an enum: the set is not known to be closed, and unknown values are
+            passed through rather than rejected — a closed enum would
+            contradict that. Kept in step with the same schema in pylxpweb's
+            docs/luxpower-api.yaml (EventListResponse).
         eventTypeText:
           type: string
           description: Localized category, e.g. Fault / Notice
