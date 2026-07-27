@@ -722,6 +722,16 @@ class TestDeprecatedCleanupSuffixes:
         mock_config_entry.add_to_hass(hass)
         registry = er.async_get(hass)
 
+        # NOTE: the "_runtime_" segment in these fixtures is a DOCUMENTATION
+        # ARTIFACT, not an observed unique-ID shape.  CLAUDE.md long described
+        # unique IDs as {serial}_{data_type}_{sensor_key}, but the code has
+        # only ever emitted {serial}_{sensor_key} for device sensors
+        # (base_entity, at v3.2.0 and today) — `git log --all -S` finds that
+        # data-type shape nowhere in Python.  Do not cite these rows as
+        # evidence the form exists in the field.  They are kept because the
+        # purge matcher covers them defensively (see
+        # _DEVICE_UID_DATA_TYPE_SEGMENTS in __init__.py), so this test still
+        # pins that defensive coverage.
         uid_offgrid = "1000000001_runtime_battery_discharge_power"
         uid_hybrid = "1000000002_runtime_battery_discharge_power"
         uid_unknown = "1000000003_runtime_battery_discharge_power"

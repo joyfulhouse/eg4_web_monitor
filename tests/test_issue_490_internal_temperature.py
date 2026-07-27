@@ -425,10 +425,12 @@ async def test_purge_matches_the_device_namespace_only(
     ``{serial}_{battery_key}_{key}`` and bank ``{serial}_battery_bank_{key}``.
     A suffix matcher deletes the battery and bank siblings too.
 
-    Both real device forms must still be purged: the bare ``{serial}_{key}``
-    and the legacy ``{serial}_runtime_{key}`` that the 3.2.x rows this purge
-    exists to remove actually carry.  That legacy form is why an exact
-    ``uid == f"{serial}_{key}"`` match is NOT usable here.
+    Two device forms are purged: the bare ``{serial}_{key}`` — the ONLY shape
+    this code is known to have ever emitted — and ``{serial}_runtime_{key}``.
+    The latter is a DOCUMENTATION ARTIFACT, not an observed shape: it appears
+    in CLAUDE.md and in ``test_conditional_cleanup_by_family``'s fixture, but
+    no Python in this repo's history produces it.  It is covered defensively
+    so a future data-type scheme cannot silently bypass the guard.
 
     The battery shapes below are the ones the code ACTUALLY emits.
     ``base_entity`` builds ``{serial}_{battery_key}_{key}`` from the key that

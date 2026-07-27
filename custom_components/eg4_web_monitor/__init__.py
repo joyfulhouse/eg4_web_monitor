@@ -364,12 +364,19 @@ def _async_cleanup_duplicate_runtime_data_entities(
 
 
 # Segments that may sit between the serial and the sensor key in a DEVICE
-# unique ID.  The current code emits none (``base_entity`` builds a bare
-# ``{serial}_{sensor_key}``); the legacy 3.2.x rows this purge exists to remove
-# carry a data-type segment, which is the documented historical shape
-# (``{serial}_{data_type}_{sensor_key}``, CLAUDE.md) and the form pinned by
-# ``test_conditional_cleanup_by_family``.  This is an ALLOWLIST on purpose —
-# see ``_is_device_namespace_uid``.
+# unique ID.
+#
+# ``""`` is the ONLY segment this code is known to have ever emitted.
+# ``base_entity`` builds a bare ``{serial}_{sensor_key}`` today and did at
+# v3.2.0 as well, and ``generate_unique_id`` is never called with a data-type
+# argument.  The remaining entries are DEFENSIVE, NOT OBSERVED: a
+# ``{serial}_{data_type}_{sensor_key}`` shape is described in CLAUDE.md and
+# seeded by ``test_conditional_cleanup_by_family``, but no Python in this
+# repository's history has ever produced it — ``git log --all -S`` finds that
+# shape only in markdown and in that test's fixture.  They are kept so that
+# introducing a data-type scheme later cannot silently turn this guard into a
+# no-op, and they cost nothing while unused.  This is an ALLOWLIST on purpose
+# — see ``_is_device_namespace_uid``.
 _DEVICE_UID_DATA_TYPE_SEGMENTS: frozenset[str] = frozenset(
     {
         "",  # current form: {serial}_{sensor_key}
@@ -401,10 +408,13 @@ def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bo
     that silently deleted every per-battery and bank entity for that key while
     passing every existing test.
 
-    An exact ``unique_id == f"{serial}_{sensor_key}"`` match cannot be used:
-    the legacy rows this purge targets carry a data-type segment
-    (``{serial}_runtime_{key}``), and dropping them is the whole point —
-    ``test_conditional_cleanup_by_family`` pins exactly that form.
+    An exact ``unique_id == f"{serial}_{sensor_key}"`` match WOULD in fact
+    match every row this code has ever emitted — the "legacy data-type" shape
+    is a documentation artifact, not an observed one (see the note on
+    ``_DEVICE_UID_DATA_TYPE_SEGMENTS``).  The allowlist is kept anyway because
+    ``test_conditional_cleanup_by_family`` seeds ``{serial}_runtime_{key}``
+    and asserts it purged, and because it stays correct if a data-type scheme
+    is ever introduced.  It costs nothing and fails in the safe direction.
 
     So the device namespace is identified by ALLOWLISTING its own shapes
     rather than by blocklisting the siblings.  That direction matters: a
@@ -412,13 +422,19 @@ def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bo
     "``middle`` starts with the serial" test does not identify batteries.
     ``clean_battery_display_name`` returns ``{serial}-nn`` for the common
     ``{inverterSn}_{batterySn}`` key, but passes a ``BAT``-prefixed key
-    through verbatim (``BAT001``) — and this integration itself GENERATED
-    ``BAT{index:03d}`` keys (commit d3dba21, #76), so ``{serial}_BAT001_{key}``
-    rows exist in exactly the old installs this purge runs against.  Its final
+    through verbatim (``BAT001``).  That branch is live today, so any cloud
+    ``batteryKey`` beginning ``BAT`` produces a ``{serial}_BAT001_{key}`` row;
+    the integration also carried a code PATH defaulting the key to
+    ``BAT{index:03d}`` when a battery object had no ``battery_key`` at all
+    (commit d3dba21, #76) — whether any install actually hit that default is
+    not demonstrable from the history, but it does not need to be.  Its final
     branch also passes arbitrary cleaned keys through, and ``cloud_battery_key``
     exists specifically to warn that the ``batteryKey`` format deviates in the
-    field (#252).  An allowlist fails CLOSED on every one of those: an
-    unrecognised shape is left alone.
+    field (#252).  An allowlist leaves every one of those alone, because an
+    unrecognised shape is not on the list.  It is not absolute — a battery
+    whose cleaned key were literally ``runtime`` would still be matched — but
+    that requires the cloud to return a batteryKey colliding with a listed
+    data-type name, which is implausible rather than impossible.
 
     Deriving the battery keys from ``coordinator.data[...]["batteries"]``
     instead was considered and rejected: that dict is initialised empty and is
