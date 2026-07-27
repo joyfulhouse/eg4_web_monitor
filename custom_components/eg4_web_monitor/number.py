@@ -341,6 +341,21 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             return fval
         return None
 
+    def _cache_state(self) -> float | None:
+        """Return ``native_value`` as decoded from coordinator data.
+
+        The retention hook of :class:`EG4OptimisticEntity`: masks the
+        optimistic value so ``native_value`` falls through to the parameter
+        cache / inverter object (every read path prefers the optimistic
+        value when set). Synchronous — the mask never spans an await point.
+        """
+        saved = self._optimistic_value
+        self._optimistic_value = None
+        try:
+            return self.native_value
+        finally:
+            self._optimistic_value = saved
+
     def _read_param_value(
         self,
         *,
@@ -462,7 +477,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 raise HomeAssistantError(f"Failed to set {label}")
             await inverter.refresh()
 
-        with optimistic_value_context(self, value):
+        with optimistic_value_context(self, value, label) as write:
             await async_write_with_cloud_fallback(
                 self.coordinator,
                 self.serial,
@@ -472,7 +487,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 or (_cloud_via_method if cloud_method else None),
                 local_values={local_param: write_val},
             )
-            await self._refresh_related_entities()
+            write.refresh_ok = await self._refresh_related_entities()
 
     async def _write_voltage_register(
         self,
@@ -511,7 +526,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 raise HomeAssistantError(f"Failed to set {label}")
             await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
-        with optimistic_value_context(self, value):
+        with optimistic_value_context(self, value, label) as write:
             await async_write_with_cloud_fallback(
                 self.coordinator,
                 self.serial,
@@ -520,12 +535,23 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 cloud_write=cloud_write or _cloud_write_raw_register,
                 local_values={param_name: raw_value},
             )
-            await self._refresh_related_entities()
+            write.refresh_ok = await self._refresh_related_entities()
 
-    async def _refresh_related_entities(self) -> None:
-        """Refresh parameters for all inverters and update related entities."""
+    async def _refresh_related_entities(self) -> bool:
+        """Refresh parameters for all inverters and update related entities.
+
+        Returns:
+            True when every device's parameter refresh completed; False when
+            any of them failed or this method raised. Errors are logged,
+            never raised (#362/#379): a post-write caller must be able to
+            tell "write+refresh ok" from "write ok, refresh failed" — the old
+            swallow-and-return-None contract made a failed refresh look
+            identical to success, so the number entity cleared its optimistic
+            value onto the stale pre-write cache value and visibly reverted a
+            write the device had acknowledged.
+        """
         try:
-            await self.coordinator.refresh_all_device_parameters()
+            refreshed = await self.coordinator.refresh_all_device_parameters()
             platform = self.platform
             if platform is not None:
                 is_related_entity = self._related_entity_predicate()
@@ -546,6 +572,8 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 await self.coordinator.async_request_refresh()
         except Exception as e:
             _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+            return False
+        return refreshed
 
 
 # ── Platform setup ───────────────────────────────────────────────────
@@ -770,16 +798,17 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
             await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
-        with optimistic_value_context(self, value):
+        label = f"system charge SOC limit to {int_value}%"
+        with optimistic_value_context(self, value, label) as write:
             await async_write_with_cloud_fallback(
                 self.coordinator,
                 self.serial,
-                f"system charge SOC limit to {int_value}%",
+                label,
                 local_write=_local_write,
                 cloud_write=_cloud_write,
                 local_values={PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: int_value},
             )
-            await self._refresh_related_entities()
+            write.refresh_ok = await self._refresh_related_entities()
 
 
 class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
@@ -1230,7 +1259,8 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
             "Setting grid peak shaving power to %.1f kW for %s", value, self.serial
         )
         self._warn_if_ineffective()
-        with optimistic_value_context(self, value):
+        label = f"grid peak shaving power to {value:.1f} kW"
+        with optimistic_value_context(self, value, label) as write:
             inverter = self._get_inverter_or_raise()
             success = await inverter.set_grid_peak_shaving_power(power_kw=value)
             if not success:
@@ -1238,7 +1268,7 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                     f"Failed to set grid peak shaving power to {value:.1f} kW"
                 )
             await inverter.refresh()
-            await self._refresh_related_entities()
+            write.refresh_ok = await self._refresh_related_entities()
 
 
 class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
@@ -1544,7 +1574,11 @@ class ACCoupleSOCNumberBase(EG4BaseNumberEntity):
         )
         client = self.coordinator.require_client()
         _LOGGER.info("Setting %s to %d%% for %s", self._label, int_value, self.serial)
-        with optimistic_value_context(self, value):
+        # No refresh wiring: this control has no parameter-cache refresh to
+        # fail — the dedicated store seed below IS its convergence channel,
+        # so the write settles immediately (OptimisticWrite defaults to
+        # refresh_ok=True) rather than arming retention it could never clear.
+        with optimistic_value_context(self, value, self._label):
             method = getattr(client.api.control, self._cloud_method, None)
             if method is None:
                 raise HomeAssistantError(
@@ -1721,7 +1755,8 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
             "Setting grid sell back power for %s to %.1f kW", self.serial, value
         )
         self._warn_if_ineffective()
-        with optimistic_value_context(self, value):
+        label = f"grid sell back power to {value:.1f} kW"
+        with optimistic_value_context(self, value, label) as write:
             result = await client.api.control.write_parameter(
                 self.serial,
                 PARAM_HOLD_FEED_IN_GRID_POWER_PERCENT,
@@ -1734,7 +1769,7 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
             inverter = self.coordinator.get_inverter_object(self.serial)
             if inverter:
                 await inverter.refresh(force=True, include_parameters=True)
-            await self._refresh_related_entities()
+            write.refresh_ok = await self._refresh_related_entities()
 
 
 def _signed_from_register(raw: Any) -> float:
@@ -1904,13 +1939,14 @@ class StartChargePowerNumber(EG4BaseNumberEntity):
             int_value,
         )
         self._warn_if_ineffective()
-        with optimistic_value_context(self, float(int_value)):
+        label = f"start charge power threshold to {int_value} W"
+        with optimistic_value_context(self, float(int_value), label) as write:
             # Two's-complement mask: -50 W writes 65486.
             await self.coordinator.write_raw_parameter(
                 REG_PTOUSER_START_CHARGE, int_value & 0xFFFF, serial=self.serial
             )
             await asyncio.sleep(0.5)
-            await self._refresh_related_entities()
+            write.refresh_ok = await self._refresh_related_entities()
 
 
 class ForcedDischargePowerNumber(EG4BaseNumberEntity):

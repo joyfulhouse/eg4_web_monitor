@@ -1,22 +1,13 @@
 """Select platform for EG4 Web Monitor integration."""
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from pylxpweb import OperatingMode
-
-if TYPE_CHECKING:
-    from homeassistant.components.select import SelectEntity
-    from homeassistant.helpers.update_coordinator import CoordinatorEntity
-else:
-    from homeassistant.components.select import SelectEntity  # type: ignore[assignment]
-    from homeassistant.helpers.update_coordinator import (
-        CoordinatorEntity,  # type: ignore[assignment]
-    )
 
 from . import EG4ConfigEntry
 from .const import (
@@ -26,7 +17,7 @@ from .const import (
     PARAM_HOLD_PV_INPUT_MODE,
 )
 from .coordinator import EG4DataUpdateCoordinator
-from .base_entity import _get_model_from_coordinator
+from .base_entity import EG4BaseSelect, _get_model_from_coordinator
 from .utils import (
     async_write_with_cloud_fallback,
     create_device_info,
@@ -89,7 +80,7 @@ async def async_setup_entry(
     """Set up EG4 Web Monitor select entities."""
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
-    entities: list[SelectEntity] = []
+    entities: list[EG4BaseSelect] = []
 
     if not coordinator.data or "devices" not in coordinator.data:
         _LOGGER.warning("No device data available for select setup")
@@ -161,7 +152,7 @@ async def async_setup_entry(
         _LOGGER.debug("No select entities created - no compatible devices found")
 
 
-class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
+class EG4OperatingModeSelect(EG4BaseSelect):
     """Select to control operating mode (Normal/Standby)."""
 
     def __init__(
@@ -171,13 +162,7 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
         device_data: dict[str, Any],
     ) -> None:
         """Initialize the operating mode select."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
-
-        self._serial = serial
-
-        # Optimistic state for immediate UI feedback
-        self._optimistic_state: str | None = None
+        super().__init__(coordinator, serial)
 
         # Get device model using shared utility
         self._model = _get_model(coordinator, serial)
@@ -258,15 +243,14 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
             _LOGGER.error("Invalid operating mode option: %s", option)
             return
 
+        _LOGGER.debug(
+            "Setting operating mode to %s for device %s", option, self._serial
+        )
+
+        # Set optimistic state immediately for UI responsiveness
+        pre_write_state = self._begin_optimistic_write(option)
+
         try:
-            _LOGGER.debug(
-                "Setting operating mode to %s for device %s", option, self._serial
-            )
-
-            # Set optimistic state immediately for UI responsiveness
-            self._optimistic_state = option
-            self.async_write_ha_state()
-
             # Get inverter device object
             inverter = self.coordinator.get_inverter_object(self._serial)
             if not inverter:
@@ -281,19 +265,8 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
             if not success:
                 raise HomeAssistantError(f"Failed to set operating mode to {option}")
 
-            _LOGGER.info(
-                "Successfully set operating mode to %s for device %s",
-                option,
-                self._serial,
-            )
-
             # Refresh inverter data
             await inverter.refresh()
-
-            # Clear optimistic state and request coordinator parameter refresh
-            self._optimistic_state = None
-            await self.coordinator.async_refresh_device_parameters(self._serial)
-
         except Exception as e:
             _LOGGER.error(
                 "Failed to set operating mode to %s for device %s: %s",
@@ -302,12 +275,23 @@ class EG4OperatingModeSelect(CoordinatorEntity, SelectEntity):
                 e,
             )
             # Revert optimistic state on error
-            self._optimistic_state = None
+            self._end_retention()
             self.async_write_ha_state()
             raise
 
+        _LOGGER.info(
+            "Successfully set operating mode to %s for device %s",
+            option,
+            self._serial,
+        )
+        await self._settle_acknowledged_write(
+            f"operating mode to {option}",
+            pre_write_state,
+            lambda: self.coordinator.async_refresh_device_parameters(self._serial),
+        )
 
-class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
+
+class EG4PVInputModeSelect(EG4BaseSelect):
     """Select to control PV Input Mode (which MPPT channels are active).
 
     Controls holding register 20 (HOLD_PV_INPUT_MODE), values 0-7.
@@ -322,13 +306,7 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
         device_data: dict[str, Any],
     ) -> None:
         """Initialize the PV input mode select."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
-
-        self._serial = serial
-
-        # Optimistic state for immediate UI feedback
-        self._optimistic_state: str | None = None
+        super().__init__(coordinator, serial)
 
         # Get device model using shared utility
         self._model = _get_model(coordinator, serial)
@@ -380,17 +358,17 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
 
         int_value = PV_INPUT_MODE_TO_VALUE[option]
 
-        try:
-            _LOGGER.info(
-                "Setting PV input mode to %s (%d) for device %s",
-                option,
-                int_value,
-                self._serial,
-            )
+        _LOGGER.info(
+            "Setting PV input mode to %s (%d) for device %s",
+            option,
+            int_value,
+            self._serial,
+        )
 
-            # Set optimistic state immediately for UI responsiveness
-            self._optimistic_state = option
-            self.async_write_ha_state()
+        # Set optimistic state immediately for UI responsiveness
+        pre_write_state = self._begin_optimistic_write(option)
+
+        try:
 
             async def _local_write() -> None:
                 # Local Modbus: write register value directly
@@ -416,17 +394,6 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
                 cloud_write=_cloud_write,
                 local_values={PARAM_HOLD_PV_INPUT_MODE: int_value},
             )
-
-            _LOGGER.info(
-                "Successfully set PV input mode to %s for device %s",
-                option,
-                self._serial,
-            )
-
-            # Clear optimistic state and refresh parameters
-            self._optimistic_state = None
-            await self.coordinator.async_refresh_device_parameters(self._serial)
-
         except Exception as e:
             _LOGGER.error(
                 "Failed to set PV input mode to %s for device %s: %s",
@@ -435,12 +402,23 @@ class EG4PVInputModeSelect(CoordinatorEntity, SelectEntity):
                 e,
             )
             # Revert optimistic state on error
-            self._optimistic_state = None
+            self._end_retention()
             self.async_write_ha_state()
             raise
 
+        _LOGGER.info(
+            "Successfully set PV input mode to %s for device %s",
+            option,
+            self._serial,
+        )
+        await self._settle_acknowledged_write(
+            f"PV input mode to {option}",
+            pre_write_state,
+            lambda: self.coordinator.async_refresh_device_parameters(self._serial),
+        )
 
-class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
+
+class EG4SmartPortModeSelect(EG4BaseSelect):
     """Select to control GridBOSS smart port mode (Off/Smart Load/AC Couple).
 
     Controls holding register 20 (bit-packed, 2 bits per port).
@@ -455,14 +433,8 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
         port: int,
     ) -> None:
         """Initialize the smart port mode select."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
-
-        self._serial = serial
+        super().__init__(coordinator, serial)
         self._port = port
-
-        # Optimistic state for immediate UI feedback
-        self._optimistic_state: str | None = None
 
         # Get device model using shared utility
         self._model = _get_model(coordinator, serial, default="GridBOSS")
@@ -515,17 +487,17 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
 
         int_value = SMART_PORT_MODE_TO_VALUE[option]
 
-        try:
-            _LOGGER.info(
-                "Setting smart port %d mode to %s (%d) for device %s",
-                self._port,
-                option,
-                int_value,
-                self._serial,
-            )
+        _LOGGER.info(
+            "Setting smart port %d mode to %s (%d) for device %s",
+            self._port,
+            option,
+            int_value,
+            self._serial,
+        )
 
-            self._optimistic_state = option
-            self.async_write_ha_state()
+        pre_write_state = self._begin_optimistic_write(option)
+
+        try:
 
             async def _local_write() -> None:
                 await self.coordinator.write_named_parameter(
@@ -551,17 +523,6 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
                 local_write=_local_write,
                 cloud_write=_cloud_write,
             )
-
-            _LOGGER.info(
-                "Successfully set smart port %d mode to %s for device %s",
-                self._port,
-                option,
-                self._serial,
-            )
-
-            self._optimistic_state = None
-            await self.coordinator.async_request_refresh()
-
         except Exception as e:
             _LOGGER.error(
                 "Failed to set smart port %d mode to %s for device %s: %s",
@@ -574,13 +535,31 @@ class EG4SmartPortModeSelect(CoordinatorEntity, SelectEntity):
             self.async_write_ha_state()
             raise
 
+        _LOGGER.info(
+            "Successfully set smart port %d mode to %s for device %s",
+            self._port,
+            option,
+            self._serial,
+        )
+        # ``async_request_refresh`` is DEBOUNCED: it returns before any new
+        # data exists, so at this point the cache still holds the pre-write
+        # mode with certainty. Clearing here would republish that stale value
+        # for at least one transition (#362/#379), so arm retention and let
+        # the refreshed tick converge it (or the TTL expire it if the port
+        # never takes the mode).
+        self._arm_retention(
+            f"smart port {self._port} mode to {option}", pre_write_state
+        )
+        self.async_write_ha_state()
+        await self.coordinator.async_request_refresh()
+
 
 # Battery control regime options (SOC vs Voltage). Label → voltage_mode bool.
 BATTERY_CONTROL_OPTIONS = ["SOC", "Voltage"]
 _BATTERY_CONTROL_TO_VOLTAGE = {"SOC": False, "Voltage": True}
 
 
-class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
+class EG4BatteryControlModeSelect(EG4BaseSelect):
     """Base select for the battery charge/discharge control regime.
 
     Controls register 179 bit 9 (charge) or bit 10 (discharge): SOC
@@ -601,11 +580,7 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
         device_data: dict[str, Any],
     ) -> None:
         """Initialize the battery control mode select."""
-        super().__init__(coordinator)
-        self.coordinator: EG4DataUpdateCoordinator = coordinator
-
-        self._serial = serial
-        self._optimistic_state: str | None = None
+        super().__init__(coordinator, serial)
         self._model = _get_model(coordinator, serial)
 
         self._attr_unique_id = generate_unique_id(serial, self._id_suffix)
@@ -656,15 +631,15 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
 
         voltage_mode = _BATTERY_CONTROL_TO_VOLTAGE[option]
 
+        _LOGGER.info(
+            "Setting %s to %s for device %s",
+            self._control_name,
+            option,
+            self._serial,
+        )
+        pre_write_state = self._begin_optimistic_write(option)
+
         try:
-            _LOGGER.info(
-                "Setting %s to %s for device %s",
-                self._control_name,
-                option,
-                self._serial,
-            )
-            self._optimistic_state = option
-            self.async_write_ha_state()
 
             async def _local_write() -> None:
                 await self.coordinator.write_named_parameter(
@@ -690,15 +665,6 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
                 cloud_write=_cloud_write,
                 local_values={self._param_key: voltage_mode},
             )
-
-            self._optimistic_state = None
-            # The inverter firmware syncs the battery control regime across the
-            # whole parallel group, so refresh ALL inverters' parameters (not
-            # just this serial) so sibling Select entities and the SOC/Voltage
-            # limit "is_effective" indicators reflect the propagated change
-            # promptly instead of waiting for the throttled poll.
-            await self.coordinator.refresh_all_device_parameters()
-
         except Exception as e:
             _LOGGER.error(
                 "Failed to set %s to %s for device %s: %s",
@@ -707,9 +673,20 @@ class EG4BatteryControlModeSelect(CoordinatorEntity, SelectEntity):
                 self._serial,
                 e,
             )
-            self._optimistic_state = None
+            self._end_retention()
             self.async_write_ha_state()
             raise
+
+        # The inverter firmware syncs the battery control regime across the
+        # whole parallel group, so refresh ALL inverters' parameters (not
+        # just this serial) so sibling Select entities and the SOC/Voltage
+        # limit "is_effective" indicators reflect the propagated change
+        # promptly instead of waiting for the throttled poll.
+        await self._settle_acknowledged_write(
+            f"{self._control_name} to {option}",
+            pre_write_state,
+            self.coordinator.refresh_all_device_parameters,
+        )
 
 
 class EG4BatteryChargeControlSelect(EG4BatteryControlModeSelect):
