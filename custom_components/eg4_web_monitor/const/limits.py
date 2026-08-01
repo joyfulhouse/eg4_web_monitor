@@ -88,10 +88,12 @@ AC_COUPLE_END_SOC_DISABLED_SENTINEL = 255
 # =============================================================================
 # Smart Load panel (GH #499, cloud-only holdParams — no pinned local register)
 # Maintenance -> Remote Set -> Smart Load Port -> "Smart Load" tab. The port is
-# energized once the start condition is met and dropped at the end condition;
-# the firmware honors either the SOC pair or the voltage pair depending on the
-# configured mode (the reporter's 12000XP shows the Volt pair greyed out while
-# SOC mode is active), so both pairs are exposed and both are writable.
+# energized once the start condition is met and dropped at the end condition.
+# The SOC pair and the voltage pair APPEAR to be alternatives selected by a
+# configured mode — the reporter's 12000XP greys the volt pair out while SOC
+# mode is active — but which pair an inverter acts on is UNTESTED here, and no
+# mode parameter has been found in the cloud data to gate on. Both pairs are
+# therefore exposed and writable rather than one being hidden on inference.
 # =============================================================================
 SMART_LOAD_SOC_MIN = 0
 SMART_LOAD_SOC_MAX = 100

@@ -1974,5 +1974,81 @@ def test_todo_divergences_are_inventoried() -> None:
     )
 
 
+# Cross-repo method contract: the pylxpweb control-endpoint methods the Smart
+# Load panel (GH #499) is built on. Unlike a register/bit pin these are plain
+# Python attributes, so the seam is checkable directly against the INSTALLED
+# pylxpweb.
+_SMART_LOAD_PYLXPWEB_METHODS: tuple[str, ...] = (
+    "get_inverter_smart_load_limits",
+    "set_inverter_smart_load_enabled",
+    "set_inverter_smart_load_start_soc",
+    "set_inverter_smart_load_end_soc",
+    "set_inverter_smart_load_start_pv_power",
+    "set_inverter_smart_load_start_volt",
+    "set_inverter_smart_load_end_volt",
+)
+
+# The pylxpweb release that carries them (joyfulhouse/pylxpweb#257).
+_SMART_LOAD_PYLXPWEB_RELEASE = "0.9.39b6"
+
+
+def test_smart_load_methods_exist_in_installed_pylxpweb() -> None:
+    """The Smart Load entities' pylxpweb seam, checked for real.
+
+    Every OTHER test of this feature mocks the control endpoint, so the whole
+    suite passes green against a pylxpweb that has none of these methods —
+    which is exactly the state that ships six permanently-unavailable entities
+    to a user whose resolver keeps an older release. This is the one test that
+    fails instead (review finding, mirroring the #472 contract pin).
+
+    DELIBERATELY RED until pylxpweb {release} is released and pinned by the
+    manifest at the release cut. Red here means "the dependency is not
+    satisfied yet", not "the integration is broken" — the entity code degrades
+    to unavailable with a version-explicit write error, which its own tests
+    cover.
+
+    The manifest pin is intentionally NOT bumped on the feature branch (repo
+    convention: the release cut owns it), so this test is what stops the pin
+    and the feature from silently drifting apart.
+    """
+    from pylxpweb.endpoints.control import ControlEndpoints
+
+    missing = [
+        name
+        for name in _SMART_LOAD_PYLXPWEB_METHODS
+        if not callable(getattr(ControlEndpoints, name, None))
+    ]
+    assert not missing, (
+        "installed pylxpweb does not provide the Smart Load control methods "
+        f"(needs >= {_SMART_LOAD_PYLXPWEB_RELEASE}, joyfulhouse/pylxpweb#257) "
+        f"— the GH #499 entities would be permanently unavailable:\n  "
+        + "\n  ".join(missing)
+    )
+
+
+def test_smart_load_entities_name_the_same_methods_the_contract_pins() -> None:
+    """The pin above tracks what the entities actually call.
+
+    Without this, a rename in number.py/switch.py would leave the contract
+    passing against methods nothing uses — the pin has to be anchored to the
+    real call sites, not maintained by hand beside them.
+    """
+    from custom_components.eg4_web_monitor.number import SMART_LOAD_NUMBER_SPECS
+    from custom_components.eg4_web_monitor.switch import EG4SmartLoadSwitch
+
+    used = {spec.cloud_method for spec in SMART_LOAD_NUMBER_SPECS}
+    used.add(EG4SmartLoadSwitch._cloud_method)
+    # The getter is named in the coordinator's store spec, not on an entity.
+    from custom_components.eg4_web_monitor.coordinator_mixins import SMART_LOAD_STORE
+
+    used.add(SMART_LOAD_STORE.getter_name)
+
+    assert used == set(_SMART_LOAD_PYLXPWEB_METHODS), (
+        "the Smart Load pylxpweb contract drifted from the call sites:\n  "
+        f"used but unpinned: {sorted(used - set(_SMART_LOAD_PYLXPWEB_METHODS))}\n  "
+        f"pinned but unused: {sorted(set(_SMART_LOAD_PYLXPWEB_METHODS) - used)}"
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     pytest.main([__file__, "-v"])

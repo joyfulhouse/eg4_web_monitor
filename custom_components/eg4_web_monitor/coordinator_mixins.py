@@ -101,6 +101,15 @@ CLOUD_PARAM_STORE_FETCH_INTERVAL = 300.0
 # session cannot hold a coordinator slot (the quick-charge timeout precedent).
 CLOUD_PARAM_STORE_FETCH_TIMEOUT = 30.0
 
+# Spacing between retries after a FAILED fetch. A failure must not hold the
+# entities on carried-forward values for the whole 5-minute interval — the
+# first fetch after startup is the worst case, where there is nothing to carry
+# and every entity stays unavailable until the window expires. Re-arming early
+# is bounded rather than immediate so a persistent cloud outage retries at this
+# spacing instead of on every ~20-30 s poll: the same trade the parameter
+# refresh makes with _PARAMETER_RETRY_INTERVAL (#282), and the same value.
+CLOUD_PARAM_STORE_RETRY_FLOOR = 120.0
+
 # Historical names, kept because they are the ones the AC-couple tests and
 # earlier review threads refer to.
 AC_COUPLE_SOC_FETCH_INTERVAL = CLOUD_PARAM_STORE_FETCH_INTERVAL
@@ -1341,6 +1350,8 @@ class DeviceProcessingMixin(_MixinBase):
         ):
             self._carry_forward_cloud_param_store(spec, serial, target)
             return
+        # Stamped BEFORE the await so a second call in the same cycle cannot
+        # launch a duplicate read; the failure path below rewinds it.
         self._last_status_fetch[key] = now
         try:
             # Whole-operation boundary (PR #380 round-3 P2-1, matching
@@ -1450,6 +1461,22 @@ class DeviceProcessingMixin(_MixinBase):
         except Exception as e:
             _LOGGER.debug(
                 "Could not fetch %s for %s: %s", spec.log_label.lower(), serial, e
+            )
+            # Re-arm early. The stamp above was taken as re-entrancy
+            # protection, not as evidence of a read; leaving it would hold the
+            # entities on carried-forward values — or, on the first-ever fetch,
+            # on NOTHING, so every entity of this store stays unavailable — for
+            # the full 5-minute interval after a single network blip. Rewound
+            # so the next attempt is due CLOUD_PARAM_STORE_RETRY_FLOOR from
+            # now rather than immediately, bounding a persistent outage to that
+            # spacing instead of a retry on every ~20-30 s poll (#282's trade).
+            #
+            # An all-None read is deliberately NOT treated as a failure: it
+            # returns above with the full stamp, because the read did happen
+            # and a device that genuinely lacks the params answers that way
+            # every time — re-arming on it would poll them forever.
+            self._last_status_fetch[key] = now - (
+                CLOUD_PARAM_STORE_FETCH_INTERVAL - CLOUD_PARAM_STORE_RETRY_FLOOR
             )
             self._carry_forward_cloud_param_store(spec, serial, target)
 

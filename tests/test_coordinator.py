@@ -64,6 +64,8 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
     AC_COUPLE_SOC_FETCH_INTERVAL,
+    CLOUD_PARAM_STORE_FETCH_INTERVAL,
+    CLOUD_PARAM_STORE_RETRY_FLOOR,
     apply_gridboss_overlay,
 )
 from pylxpweb.exceptions import (
@@ -7480,6 +7482,39 @@ class TestACCoupleSOCStore:
         getter.assert_awaited_once()  # still only the first call
         assert second["ac_couple_soc"] is first["ac_couple_soc"]
 
+    async def test_failed_fetch_rearms_before_the_full_interval(
+        self, hass, mock_config_entry
+    ):
+        """The AC-couple half of the shared early re-arm (review finding).
+
+        Both stores route through _fetch_cloud_param_store, so the one fix
+        covers both — but only a test on THIS store proves the shipped
+        AC-couple path got it too, rather than the Smart Load wrapper alone.
+        Before the fix a single failed read held these entities on stale
+        values (or, on the first fetch, unavailable) for a full 5 minutes.
+        """
+        coordinator = self._coordinator(hass, mock_config_entry)
+        getter = AsyncMock(side_effect=OSError("cloud down"))
+        coordinator.client.api.control.get_inverter_ac_couple_soc_limits = getter
+        inverter = self._inverter()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time"
+        ) as mock_time:
+            mock_time.monotonic.return_value = 2000.0
+            await coordinator._fetch_ac_couple_soc(inverter, {})
+            assert getter.await_count == 1
+
+            mock_time.monotonic.return_value = 2000.0 + 30.0
+            await coordinator._fetch_ac_couple_soc(inverter, {})
+            assert getter.await_count == 1  # floored, not immediate
+
+            mock_time.monotonic.return_value = (
+                2000.0 + CLOUD_PARAM_STORE_RETRY_FLOOR + 1.0
+            )
+            await coordinator._fetch_ac_couple_soc(inverter, {})
+            assert getter.await_count == 2
+
     async def test_fetch_picks_up_portal_edit_after_interval(
         self, hass, mock_config_entry
     ):
@@ -8261,6 +8296,72 @@ class TestSmartLoadStore:
         await coordinator._fetch_smart_load(self._inverter(), target)  # must not raise
 
         assert target["smart_load"] is prev
+
+    async def test_failed_fetch_rearms_before_the_full_interval(
+        self, hass, mock_config_entry
+    ):
+        """A failed read must not hold the entities for the whole 5 minutes.
+
+        The throttle stamp is taken before the await as re-entrancy
+        protection; leaving it on failure meant one network blip cost a full
+        CLOUD_PARAM_STORE_FETCH_INTERVAL. Worst case is the FIRST fetch, where
+        there is nothing to carry forward and every entity of the store sits
+        unavailable for the whole window (review finding — one fix here covers
+        both stores, since both are thin wrappers over this method).
+        """
+        coordinator = self._coordinator(hass, mock_config_entry)
+        getter = AsyncMock(side_effect=OSError("cloud down"))
+        coordinator.client.api.control.get_inverter_smart_load_limits = getter
+        inverter = self._inverter()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time"
+        ) as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            await coordinator._fetch_smart_load(inverter, {})
+            assert getter.await_count == 1
+
+            # Still floored: a retry on the very next ~20-30 s poll would
+            # hammer a cloud that is already failing.
+            mock_time.monotonic.return_value = 1000.0 + 30.0
+            await coordinator._fetch_smart_load(inverter, {})
+            assert getter.await_count == 1
+
+            # Due once the retry floor has passed — NOT the full interval.
+            mock_time.monotonic.return_value = (
+                1000.0 + CLOUD_PARAM_STORE_RETRY_FLOOR + 1.0
+            )
+            await coordinator._fetch_smart_load(inverter, {})
+            assert getter.await_count == 2
+
+    async def test_successful_fetch_keeps_the_full_throttle(
+        self, hass, mock_config_entry
+    ):
+        """The early re-arm is failure-only: a success still costs the full
+        5-minute window, or the retry floor would silently become the new
+        polling interval and double this store's cloud reads."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        getter = coordinator.client.api.control.get_inverter_smart_load_limits
+        inverter = self._inverter()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time"
+        ) as mock_time:
+            mock_time.monotonic.return_value = 1000.0
+            await coordinator._fetch_smart_load(inverter, {})
+            assert getter.await_count == 1
+
+            mock_time.monotonic.return_value = (
+                1000.0 + CLOUD_PARAM_STORE_RETRY_FLOOR + 1.0
+            )
+            await coordinator._fetch_smart_load(inverter, {})
+            assert getter.await_count == 1  # still inside the 300 s window
+
+            mock_time.monotonic.return_value = (
+                1000.0 + CLOUD_PARAM_STORE_FETCH_INTERVAL + 1.0
+            )
+            await coordinator._fetch_smart_load(inverter, {})
+            assert getter.await_count == 2
 
     async def test_missing_getter_leaves_no_store(self, hass, mock_config_entry):
         """A pylxpweb predating get_inverter_smart_load_limits degrades to no

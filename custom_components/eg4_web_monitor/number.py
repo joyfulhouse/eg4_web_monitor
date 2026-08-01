@@ -1785,10 +1785,12 @@ class SmartLoadNumber(EG4BaseNumberEntity):
 
     The portal's Maintenance -> Remote Set -> Smart Load Port -> "Smart Load"
     tab governs when the inverter's smart load port is energized: the SOC pair
-    (start/end percent), the PV-power threshold, and the voltage pair that
-    replaces the SOC pair when the firmware is in voltage mode. @brendonlobo123
-    asked for all of them on a 12000XP (#499); Grid Always On from the same
-    panel shipped first (#484).
+    (start/end percent), the PV-power threshold, and a voltage pair that
+    appears to stand in for the SOC pair under a voltage mode (the reporter's
+    screenshot greys it out while SOC mode is active — UNTESTED here, and no
+    mode parameter was found to gate on, so both pairs are exposed).
+    @brendonlobo123 asked for all of them on a 12000XP (#499); Grid Always On
+    from the same panel shipped first (#484).
 
     CLOUD-ONLY, dedicated store — the same arrangement as the AC Couple SOC
     pair (#352) for the same reasons: the portal writes
