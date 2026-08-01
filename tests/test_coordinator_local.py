@@ -3424,23 +3424,25 @@ class TestCanonicalAbsentPredicateInRRMerge:
         assert key_degraded in merged, "present-but-degraded battery was dropped"
         assert local_battery_key(serial, "BATEMPTY00001", 1) not in merged
 
-    async def test_degraded_row_dropped_on_older_pylxpweb(self, hass):
+    async def test_degraded_row_dropped_on_older_pylxpweb(self, hass, monkeypatch):
         """Without is_absent() the pre-#506 voltage/SOC behaviour is preserved.
 
-        This pins the pin-gated rollout: CI runs against a pylxpweb that has no
-        is_absent(), so this is the path CI actually exercises today.
+        The installed pylxpweb (>=0.9.39b6) ships is_absent(), so the
+        older-pylxpweb condition is simulated by deleting the attribute —
+        the fallback path must keep dropping voltage-0/SOC-0 rows exactly as
+        that pylxpweb's own bank code would.
         """
         serial = "DONGLE506OLD"
         coordinator = EG4DataUpdateCoordinator(
             hass, self._make_config_entry(hass, serial)
         )
 
+        monkeypatch.delattr(BatteryData, "is_absent", raising=True)
+
         degraded = BatteryData(
             battery_index=0, serial_number="BATDEGRADED1", voltage=0.0, soc=0
         )
-        assert not hasattr(degraded, "is_absent"), (
-            "pylxpweb now ships is_absent(); this test's premise needs revisiting"
-        )
+        assert not hasattr(degraded, "is_absent")
 
         merged = coordinator._merge_round_robin_batteries(serial, [degraded])
 
