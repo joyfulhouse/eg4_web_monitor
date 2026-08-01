@@ -17,9 +17,13 @@ Optional per-mode presentation keys (read by EG4WorkingModeSwitch):
 - ``enabled_default``: set False to register the switch disabled by
   default (niche features, e.g. Share Battery — GH #288).
 - ``requires_known_state``: set True so an ABSENT state key reads
-  unavailable/None instead of a confident OFF. Opt in for any mode created
-  without a family gate — there, a device that simply lacks the parameter
-  is a live possibility rather than a contradiction (GH #484).
+  unavailable/None instead of a confident OFF. Opt in for any mode without a
+  family gate — there, a device that simply lacks the parameter is a live
+  possibility rather than a contradiction (GH #484). Carried to Charge Last
+  and Share Battery in GH #497; still OPT-IN rather than the shared base,
+  because the remaining modes are family- or capability-gated and flipping
+  all of them would change long-standing behavior for no established
+  exposure.
 - ``legacy_attrs``: map legacy state-attribute names to parameter keys when
   folding a standalone switch into the table must preserve its exact
   attribute shape (including returning None when no value is available).
@@ -69,6 +73,15 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "entity_category": EntityCategory.CONFIG,
         "legacy_attrs": {"func_charge_last": "FUNC_CHARGE_LAST"},
         "action_name": "charge last",
+        # Ungated by family, so "this device does not report the function"
+        # is reachable and a toggleable OFF there is indistinguishable from
+        # a real one (GH #497). Reading it from reg 110 bit 4 does NOT make
+        # the key optional: a bit-field register decodes every one of its
+        # names on each successful read, so LOCAL/HYBRID populate this key
+        # whatever the bit's value, and the #282 carry-forward keeps it once
+        # seen. The absent window is therefore the pre-first-read one — an
+        # accepted, briefly-visible change from OFF to unavailable.
+        "requires_known_state": True,
     },
     "pv_charge_priority_mode": {
         "name": "PV Charge Priority Mode",
@@ -168,6 +181,9 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         "entity_key": "share_battery",
         "translation_key": "share_battery",
         "enabled_default": False,
+        # Same reasoning as Charge Last (GH #497): family-neutral gate, so an
+        # absent key must read unavailable rather than a confident OFF.
+        "requires_known_state": True,
     },
     # Grid Always On (FUNC_ON_GRID_ALWAYS_ON, GH #484) — the portal's
     # Maintenance -> Remote Set "Smart Load Port" section, "Smart Load" tab,

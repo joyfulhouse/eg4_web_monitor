@@ -963,12 +963,18 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         Same guarantee the AC Couple switch's override gives (GH #471), which
         is the precedent Grid Always On's family-neutral gate is modelled on.
 
-        OPT-IN, deliberately not applied to every working mode: the other ten
-        would flip from OFF to unavailable during the pre-first-parameter-read
-        window, a user-visible change to long-standing behavior well outside
-        this issue's scope. Charge Last and Share Battery are ungated too and
-        carry the same exposure — a candidate follow-up, not a silent
-        widening here.
+        Charge Last and Share Battery opted in for the same reason (GH #497):
+        both are ungated by family, so they carried the identical exposure.
+        Their state does come from register 110 (bits 4 and 3) on LOCAL and
+        HYBRID, but that narrows the absent window rather than closing it —
+        a bit-field register decodes every one of its names on each
+        successful read, so the keys are present whatever the bits' values,
+        and what remains is the pre-first-read window.
+
+        Still OPT-IN rather than the shared base: the remaining modes are
+        family- or capability-gated, and flipping them would change
+        long-standing behavior during the pre-first-parameter-read window
+        for no established exposure.
         """
         if not super().available:
             return False
@@ -1051,6 +1057,26 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             if self._optimistic_state is not None:
                 legacy_attributes["optimistic_state"] = self._optimistic_state
             return legacy_attributes if legacy_attributes else None
+
+        # A known-state mode with no known state publishes nothing, matching
+        # the legacy branch above, which returns None when it has no value
+        # (GH #497 review: Charge Last returned None on an absent key while
+        # Share Battery still returned a full metadata dict — two switches of
+        # the same class disagreeing on the same input). The entity is
+        # unavailable in this state, so a dict here is decoration on a control
+        # that is reporting "I do not know".
+        #
+        # Scoped to requires_known_state deliberately. Unflagged modes keep
+        # publishing their metadata unconditionally (pinned for ac_charge_mode),
+        # and the reverse alignment — giving Charge Last the generic attrs — is
+        # prohibited: legacy_attrs exists to preserve its exact pre-fold
+        # attribute shape, which is pinned to EXCLUDE them.
+        if (
+            self._mode_config.get("requires_known_state")
+            and not self._state_key_present
+            and self._optimistic_state is None
+        ):
+            return None
 
         attributes: dict[str, Any] = {
             "description": self._mode_config["description"],

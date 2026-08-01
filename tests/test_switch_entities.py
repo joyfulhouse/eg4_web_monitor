@@ -19,6 +19,7 @@ from custom_components.eg4_web_monitor.const import (
     WORKING_MODES,
 )
 import custom_components.eg4_web_monitor.switch as switch_module
+from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.utils import is_family_control_supported
 from custom_components.eg4_web_monitor.switch import (
     _supports_eps_battery_backup,
@@ -1471,11 +1472,18 @@ class TestChargeLastSwitch:
         switch = _make_charge_last_switch(coordinator)
         assert switch.is_on is True
 
-    def test_is_on_false_default(self):
-        """Default state should be False when param missing."""
+    def test_missing_param_is_unknown_not_off(self):
+        """A missing param is UNKNOWN, not a default OFF (GH #497).
+
+        This test asserted the fake OFF (`is_on is False`) until #497 —
+        the switch is ungated by family, so an absent key is reachable and
+        was indistinguishable from the device reporting the function off.
+        Behavior is pinned in full by TestKnownStateWorkingModeParity.
+        """
         coordinator = _mock_coordinator()
         switch = _make_charge_last_switch(coordinator)
-        assert switch.is_on is False
+        assert switch.is_on is None
+        assert switch.available is False
 
     def test_is_on_optimistic_overrides(self):
         """Optimistic state takes precedence over parameter data."""
@@ -3442,10 +3450,21 @@ class TestGridAlwaysOnSwitchBehavior:
 
         Flipping every working mode to unavailable during the
         pre-first-parameter-read window would be a user-visible change to
-        long-standing behavior, well outside this issue's scope.
+        long-standing behavior, well outside this issue's scope. Charge Last
+        and Share Battery have since opted in (GH #497) and are covered by
+        TestKnownStateWorkingModeParity; the modes here are the ones that
+        deliberately did not.
         """
         coordinator = _mock_coordinator(parameters={})
-        for mode_key in ("ac_charge_mode", "charge_last_mode", "share_battery_mode"):
+        unflagged = [
+            mode_key
+            for mode_key, mode in WORKING_MODES.items()
+            if not mode.get("requires_known_state")
+        ]
+        # Guard against this test silently emptying out if every mode opts in
+        # later: an empty loop would assert nothing at all.
+        assert "ac_charge_mode" in unflagged
+        for mode_key in unflagged:
             switch = EG4WorkingModeSwitch(
                 coordinator=coordinator,
                 serial="1234567890",
@@ -3580,3 +3599,224 @@ class TestGridAlwaysOnSwitchBehavior:
 
         coordinator.write_named_parameter.assert_not_called()
         coordinator.write_raw_parameter.assert_not_called()
+
+
+# ── requires_known_state parity (GH #497) ────────────────────────────
+
+
+class TestKnownStateWorkingModeParity:
+    """Charge Last and Share Battery must not fake an OFF (GH #497).
+
+    Both are ungated by family, so "this device does not report the
+    function" is a live case rather than a contradiction — the exposure
+    #471 identified on AC Couple and #484 fixed on Grid Always On. They opt
+    into ``requires_known_state`` here.
+    """
+
+    KNOWN_STATE_MODES = (
+        ("charge_last_mode", "FUNC_CHARGE_LAST"),
+        ("share_battery_mode", "FUNC_BAT_SHARED"),
+    )
+
+    def _switch(self, coordinator, mode_key: str) -> EG4WorkingModeSwitch:
+        return EG4WorkingModeSwitch(
+            coordinator=coordinator,
+            serial="1234567890",
+            mode_config=WORKING_MODES[mode_key],
+        )
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_absent_param_is_unavailable_not_a_fake_off(self, mode_key, param):
+        """No value has ever arrived -> unavailable/None, never a confident
+        OFF that the user could toggle against an unknown device state."""
+        switch = self._switch(_mock_coordinator(parameters={}), mode_key)
+
+        assert switch.available is False
+        assert switch.is_on is None
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_present_false_is_a_real_off(self, mode_key, param):
+        """A reported False is still a normal, toggleable OFF — the flag
+        must not turn every falsy state into unavailable."""
+        switch = self._switch(_mock_coordinator(parameters={param: False}), mode_key)
+
+        assert switch.available is True
+        assert switch.is_on is False
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_present_true_is_on(self, mode_key, param):
+        switch = self._switch(_mock_coordinator(parameters={param: True}), mode_key)
+
+        assert switch.available is True
+        assert switch.is_on is True
+
+    @pytest.mark.parametrize(
+        "raw_110", [0x0000, 0x0018], ids=["bits-clear", "bits-set"]
+    )
+    def test_local_register_sourced_state_stays_available(self, raw_110):
+        """LOCAL keeps working, driven through pylxpweb's REAL decode.
+
+        This is the load-bearing assumption of #497: opting in is only safe
+        because a local read populates these keys whatever the bits hold. So
+        the parameter dict here is not hand-seeded — it is produced by
+        pylxpweb's own ``read_named_parameters`` against a stub that returns a
+        raw register 110, then handed to the switches exactly as
+        ``_fetch_parameters`` hands it to the coordinator cache.
+
+        Seeding ``{param: False}`` directly (the first version of this test)
+        would assert nothing about the register path at all: it passes even if
+        pylxpweb drops a key or switches to emitting only SET bits, which is
+        precisely the regression that would silently strand both switches as
+        permanently unavailable on LOCAL/HYBRID. Review caught that.
+
+        Both bit polarities are covered, and which one catches what was
+        established by mutating pylxpweb rather than assumed:
+
+        * Dropping either name from the reg-110 list -> the key-presence
+          assert fires on BOTH polarities.
+        * Emitting only SET bits (the register decodes to a raw int under
+          every name instead of per-bit bools) -> 0x0000 still reads False
+          and PASSES; only 0x0018 catches it, because the raw 24 makes
+          ``is_on`` compute ``24 == 1`` -> False against an expected True.
+
+        So the all-clear case alone would miss the second regression. An
+        earlier revision of this docstring claimed the reverse; it was wrong.
+
+        Scope, and the cross-repo seam: this drives the decode with no family
+        set, so it exercises the base table. Family coverage lives in two
+        other places, neither of them here — ``test_register_contract_harness
+        .test_register_110_contract_holds_for_every_family`` pins both params
+        to reg 110 bits 4 and 3 through ``get_register_to_param_mapping`` for
+        every ``InverterFamily``, and pylxpweb additionally asserts the
+        back-compat off-grid export is the SAME list object
+        (``OFFGRID_REGISTER_110_PARAM_KEYS is REGISTER_110_PARAM_KEYS``,
+        pylxpweb tests/unit/transports/test_named_parameters.py:855). That
+        identity is a pylxpweb-side guarantee: if it were replaced by a
+        divergent copy, this repo would not fail on the identity itself —
+        only on the positions the harness pins.
+        """
+        import asyncio
+
+        from pylxpweb.transports.protocol import BaseTransport
+
+        class _StubTransport(BaseTransport):
+            """Minimal transport whose register read is fixed."""
+
+            async def read_parameters(self, start_address, count):
+                return {110: raw_110}
+
+        transport = _StubTransport("1234567890")
+        decoded = asyncio.run(transport.read_named_parameters(0, 125))
+
+        expected = bool(raw_110)
+        coordinator = _mock_coordinator(
+            has_http=False, has_local=True, local_only=True, parameters=decoded
+        )
+        for mode_key, param in self.KNOWN_STATE_MODES:
+            assert param in decoded, (
+                f"{param} absent from a decoded register-110 read — the local "
+                "path can no longer supply this switch's state"
+            )
+            switch = self._switch(coordinator, mode_key)
+            assert switch.available is True, mode_key
+            assert switch.is_on is expected, mode_key
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_mid_write_optimistic_state_keeps_it_available(self, mode_key, param):
+        """An in-flight write publishes its value before data lands, so a
+        toggle does not blink to unavailable while it is being confirmed."""
+        switch = self._switch(_mock_coordinator(parameters={}), mode_key)
+        switch._optimistic_state = True
+
+        assert switch.available is True
+        assert switch.is_on is True
+
+    def test_absent_param_matches_the_ac_couple_precedent(self):
+        """Drive every known-state switch off ONE param-less coordinator and
+        assert they agree.
+
+        This is the #484 parity pattern extended: Charge Last and Share
+        Battery diverged from AC Couple for a full release precisely because
+        nothing compared them side by side.
+        """
+        coordinator = _mock_coordinator(parameters={})
+        ac_couple = EG4ACCoupleSwitch(coordinator, "1234567890")
+        reference = (ac_couple.available, ac_couple.is_on)
+
+        for mode_key, _param in self.KNOWN_STATE_MODES:
+            switch = self._switch(coordinator, mode_key)
+            assert (switch.available, switch.is_on) == reference, mode_key
+
+        grid_always_on = _make_grid_always_on_switch(coordinator)
+        assert (grid_always_on.available, grid_always_on.is_on) == reference
+
+    @pytest.mark.asyncio
+    async def test_partial_read_dropping_the_key_stops_reporting_off(self):
+        """A refresh whose result omits the key reverts to unknown, not OFF.
+
+        Driven through the REAL write path — the coordinator's own
+        ``_refresh_device_parameters``, with pylxpweb's inverter object
+        supplying the post-read ``parameters`` — rather than by assigning the
+        end state into ``coordinator.data``. Injecting the end state asserts
+        only that the entity reads a dict it was handed; a regression in how
+        the refresh merges or replaces the cache would not fail it. Review
+        finding.
+
+        Note this is the LOCAL wholesale-replace case: pylxpweb's #282 sticky
+        carry-forward protects a PARTIAL read (some ranges failed) by merging
+        over last-known values, so it does not fire for a read that succeeds
+        while genuinely no longer reporting the function.
+        """
+        coordinator = EG4DataUpdateCoordinator.__new__(EG4DataUpdateCoordinator)
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
+            "parameters": {
+                "1234567890": {"FUNC_CHARGE_LAST": True, "FUNC_BAT_SHARED": True}
+            },
+        }
+        inverter = MagicMock()
+        inverter.refresh = AsyncMock()
+        inverter.parameters = {"FUNC_BUZZER_EN": True}
+        coordinator.get_inverter_object = MagicMock(return_value=inverter)
+
+        entity_coordinator = _mock_coordinator(
+            parameters=coordinator.data["parameters"]["1234567890"]
+        )
+        switches = {
+            mode_key: self._switch(entity_coordinator, mode_key)
+            for mode_key, _ in self.KNOWN_STATE_MODES
+        }
+        for mode_key, switch in switches.items():
+            assert switch.is_on is True, mode_key
+
+        assert await coordinator._refresh_device_parameters("1234567890") is True
+        inverter.refresh.assert_awaited_once()
+        entity_coordinator.data["parameters"]["1234567890"] = coordinator.data[
+            "parameters"
+        ]["1234567890"]
+
+        for mode_key, switch in switches.items():
+            assert switch.available is False, mode_key
+            assert switch.is_on is None, mode_key
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_absent_state_publishes_no_attributes(self, mode_key, param):
+        """Unknown state publishes no attributes, on BOTH switches.
+
+        Charge Last (legacy_attrs) returned None on an absent key while Share
+        Battery returned a full static metadata dict — two switches of the
+        same class disagreeing on the same input. Review finding; aligned on
+        the None side, because the reverse would violate the pinned pre-fold
+        attribute shape of Charge Last.
+        """
+        switch = self._switch(_mock_coordinator(parameters={}), mode_key)
+
+        assert switch.extra_state_attributes is None
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_known_state_still_publishes_attributes(self, mode_key, param):
+        """The suppression above is scoped to UNKNOWN state, not to these
+        modes wholesale — a real value restores normal attributes."""
+        switch = self._switch(_mock_coordinator(parameters={param: True}), mode_key)
+
+        assert switch.extra_state_attributes
