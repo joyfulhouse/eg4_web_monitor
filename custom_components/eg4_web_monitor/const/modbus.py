@@ -55,6 +55,17 @@ PARAM_FUNC_GRID_PEAK_SHAVING = "FUNC_GRID_PEAK_SHAVING"
 # pylxpweb's REGISTER_TO_PARAM_KEYS (>= 0.9.36b6).
 PARAM_FUNC_PV_SELL_TO_GRID_EN = "FUNC_PV_SELL_TO_GRID_EN"
 PARAM_FUNC_BATTERY_BACKUP_CTRL = "FUNC_BATTERY_BACKUP_CTRL"
+# AC Couple function (reg 179 bit 11, GH #471/#472) — the inverter-level
+# smart-port AC couple enable, distinct from the GridBOSS per-port
+# FUNC_AC_COUPLE_EN_{n}. NOT pinned by this project's raw<->named lockstep
+# toggle: the Luxpower Modbus doc and the ant0nkr/luxpower-ha-integration
+# register map both place it at bit 11, that same reg-179 layout is the one
+# whose bits 3/7/9/10 are hardware-proven on EG4 hardware, and the reporter
+# has driven the control through it on his LXP. Shipped on that lineage
+# inference like the #476 green-mode bit; #472 tracks the toggle capture.
+# Local writes resolve through pylxpweb's REGISTER_TO_PARAM_KEYS
+# (>= 0.9.39b6); older installs keep the cloud-only behavior.
+PARAM_FUNC_AC_COUPLING_FUNCTION = "FUNC_AC_COUPLING_FUNCTION"
 
 # PV configuration parameter names (registers 20, 22)
 PARAM_HOLD_PV_INPUT_MODE = "HOLD_PV_INPUT_MODE"

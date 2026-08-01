@@ -649,10 +649,29 @@ per boundary). Cloud param names take the window suffix
 | 7 | `FUNC_GRID_PEAK_SHAVING` | `grid_peak_shaving` | Grid peak shaving mode (confirmed) |
 | 9 | `FUNC_BAT_CHARGE_CONTROL` | `battery_charge_control` (select) | Battery **charge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
 | 10 | `FUNC_BAT_DISCHARGE_CONTROL` | `battery_discharge_control` (select) | Battery **discharge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
+| 11 | `FUNC_AC_COUPLING_FUNCTION` | `ac_couple` (switch "AC Couple") | Inverter-level AC-coupled source enable ([#471](https://github.com/joyfulhouse/eg4_web_monitor/issues/471)/[#472](https://github.com/joyfulhouse/eg4_web_monitor/issues/472)); **not toggle-pinned** — see the note below |
 
 > **Note:** Register 179 contains 16 API-mapped parameters (`FUNC_ACTIVE_POWER_LIMIT_MODE`,
 > `FUNC_AC_COUPLING_FUNCTION`, etc.). Bits 3, 7, 9, and 10 are confirmed via live toggle
-> testing; the remaining bits have placeholder names (`FUNC_179_BIT0` etc.) until verified.
+> testing; bit 11 rests on lineage inference (below); the remaining bits have placeholder
+> names (`FUNC_179_BIT0` etc.) until verified.
+>
+> `FUNC_AC_COUPLING_FUNCTION` (the `AC Couple` switch,
+> [#472](https://github.com/joyfulhouse/eg4_web_monitor/issues/472)) is mapped to
+> **bit 11** WITHOUT a raw↔named lockstep toggle. The evidence is: the Luxpower
+> Modbus doc; the `ant0nkr/luxpower-ha-integration` register map
+> (`H_FUNCTION_ENABLE_4 = 179`, "Bit 11: uFunctionEn2.ubACcoupling"), whose full
+> 16-bit reg-179 layout matches this project's canonical table bit-for-bit and
+> four of whose bits (3/7/9/10) are hardware-proven on EG4 hardware; and #471's
+> reporter having driven the control through that mapping on his LXP, with his
+> live named reads agreeing (AC-couple-enabled LXPUS810K reads the cloud param
+> `True`, a disabled SNA12K-US probe reads `False`). This is the same standing
+> the #476 off-grid green-mode bit shipped on. A wrong bit would be ACKed by the
+> firmware, so readback-verify cannot rule it out — a raw reg-179 read before and
+> after toggling the switch would, and #472 asks for exactly that. Requires
+> pylxpweb ≥ 0.9.39b6; older installs keep the cloud-only path via the
+> `switch._local_params_can_carry` probe. The register contract harness pins the
+> name to (179, 11) on every inverter family.
 >
 > `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
 > [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) was **pinned to
