@@ -1183,6 +1183,61 @@ class TestACCoupleSwitch:
         assert switch.is_on is True
         assert switch.available is True
 
+    def test_hybrid_unavailable_when_cloud_never_reported_the_param(self):
+        """HYBRID capability probe (codex P2): reg 179 bit 11 decodes to a
+        bool on ANY device that answers the register, so a device with no
+        AC-coupled input yields a confident local False. The cloud store's
+        absence of the param is the only existence proof available, and it
+        must win — otherwise HYBRID publishes a phantom, toggleable OFF
+        switch on unsupported hardware."""
+        coordinator = self._coordinator(
+            store={"start_soc": None, "end_soc": None, "enabled": None},
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": False},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is False
+        assert switch.is_on is None
+
+    def test_hybrid_unavailable_before_the_first_cloud_fetch(self):
+        """Same gate during the startup window: no store yet -> unavailable,
+        even though the local register already decodes."""
+        coordinator = self._coordinator(
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": True},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is False
+
+    def test_hybrid_available_and_local_wins_once_cloud_confirms_support(self):
+        """Cloud bool present -> supported; the fresher local read is the
+        state, so the capability gate costs nothing on real hardware."""
+        coordinator = self._coordinator(
+            store={"enabled": False},
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": True},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is True
+        assert switch.is_on is True
+
+    def test_pure_local_keeps_the_documented_no_probe_gap(self):
+        """Pure LOCAL has no cloud probe to consult, so the local decode is
+        all there is — the accepted gap, asserted so a future change to the
+        availability gate cannot silently widen or close it unnoticed."""
+        coordinator = self._coordinator(
+            has_http=False,
+            has_local=True,
+            local_only=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": False},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is True
+        assert switch.is_on is False
+
     def test_cloud_only_ignores_parameter_cache(self):
         """Pure CLOUD is unchanged by #472: the store is the only source,
         even if the cloud-fed parameter cache happens to carry the key."""
@@ -1321,6 +1376,58 @@ class TestACCoupleSwitch:
         await switch.async_turn_on()
 
         coordinator.note_ac_couple_soc_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_local_write_forces_a_verifying_parameter_reread(self):
+        """codex P2: the promised readback must actually happen.
+
+        The shared local-write envelope only mutates the cached value and
+        runs a coordinator DATA refresh; parameters live on their own tier,
+        so without an explicit re-read reg 179 is not read back until the
+        next scheduled parameter cycle. Bit 11 is lineage-inferred, so the
+        readback is the point.
+        """
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            self.SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_failed_reread_warns_but_does_not_fail_the_write(self, caplog):
+        """A failed verification must not fail a command the device already
+        acknowledged — it warns and leaves the commanded value showing."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        with caplog.at_level(logging.WARNING):
+            await switch.async_turn_on()
+
+        assert "verifying parameter re-read did not complete" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_local_only_write_also_rereads(self):
+        """Pure LOCAL takes the same readback path (no cloud client)."""
+        coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)
+        coordinator.client = None
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            self.SERIAL
+        )
 
     @pytest.mark.asyncio
     async def test_local_write_failure_without_cloud_raises(self):

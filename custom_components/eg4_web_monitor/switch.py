@@ -238,17 +238,23 @@ async def async_setup_entry(
                 # modes probe theirs, by asking the map rather than trusting a
                 # version string.
                 #
-                # KNOWN GAP on pure LOCAL: the cloud getter's None WAS the
+                # KNOWN GAP, pure LOCAL ONLY: the cloud getter's None IS the
                 # capability probe — a device whose family lacks the function
-                # simply did not report the param. Reg 179 bit 11 has no such
-                # tell: it decodes to a bool on any device that answers the
-                # register, so a LOCAL-only install shows the switch on every
+                # never reports the param. Reg 179 bit 11 has no such tell: it
+                # decodes to a bool on any device that answers the register,
+                # so a LOCAL-only install shows the switch on every
                 # control-capable inverter, reading OFF where the hardware has
                 # no AC-coupled input. There is no local capability signal to
                 # gate on (pylxpweb's InverterFeatures has no AC-couple or
                 # smart-port flag), and inventing a model-string gate would
-                # repeat the #259 mistake. HYBRID keeps the cloud probe via
-                # the store. Revisit if a real report shows a phantom switch.
+                # repeat the #259 mistake.
+                #
+                # HYBRID does NOT share this gap: wherever a cloud client
+                # exists the store's tri-state gates availability (see
+                # EG4ACCoupleSwitch.available). An earlier revision claimed
+                # that protection while local precedence actually overrode it
+                # — the phantom switch was real in HYBRID too until the
+                # availability gate was fixed to consult the probe.
                 if coordinator.has_http_api() or (
                     coordinator.has_configured_local_transport(serial)
                     and _local_params_can_carry(PARAM_FUNC_AC_COUPLING_FUNCTION)
@@ -626,10 +632,12 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
     reg-179 layout is the one whose bits 3/7/9/10 are hardware-proven on EG4
     hardware, and #471's reporter has driven the control through the mapping
     on his LXP — exactly the #476 green-mode precedent. Writes are
-    local-first with cloud fallback, and every write is followed by a
-    parameter re-read, so a write that fails to land is visible; a write
-    that lands on the WRONG bit would still ACK, which is what the lockstep
-    toggle requested in #472 would rule out.
+    local-first with cloud fallback, and a local write forces a parameter
+    re-read of register 179 before returning, so a write that fails to land
+    is visible within the cycle rather than at the next scheduled parameter
+    refresh. A write that lands on the WRONG bit would still ACK, which no
+    readback can catch — that is what the lockstep toggle requested in #472
+    would rule out.
 
     The base class's full-refresh write envelope is deliberately NOT used on
     the pure-cloud path: the store IS the state source there and the
@@ -689,28 +697,57 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
         return value if isinstance(value, bool) else None
 
     @property
-    def available(self) -> bool:
-        """Available only while some source holds a state (or mid-write).
+    def _capability_known(self) -> bool:
+        """Whether a source has positively evidenced the function exists.
 
-        Absent state — first read pending, a pre-0.9.39b3 pylxpweb getter,
-        or a device whose family genuinely lacks the function param — must
-        show unavailable, never a fake OFF.
+        The single notion behind both :attr:`available` and :attr:`is_on`,
+        so an unsupported device cannot be unavailable-but-confidently-OFF.
+        """
+        if self.coordinator.has_http_api():
+            return self._stored_enabled is not None
+        return self._local_enabled is not None
+
+    @property
+    def available(self) -> bool:
+        """Available only while the capability is known (or mid-write).
+
+        The CLOUD store is the capability probe wherever a cloud client
+        exists — including HYBRID. A device whose family lacks the function
+        never reports the param, so the store's ``enabled`` stays None and
+        the switch is unavailable.
+
+        Register 179 bit 11 CANNOT serve as that probe: it decodes to a bool
+        on any device that answers the register, so an unsupported device
+        yields a confident False. Gating HYBRID on the local value alone
+        therefore published a phantom, toggleable OFF switch on hardware
+        with no AC-coupled input — the local read is a state source, never
+        an existence proof.
+
+        Pure LOCAL has no cloud probe to consult and keeps the documented
+        gap: there the local decode is all there is (see the creation gate).
+        The startup window where the store has not been fetched yet reads
+        unavailable, exactly as it did before #472.
         """
         if not super().available:
             return False
         if self._optimistic_state is not None:
             return True
-        return self._local_enabled is not None or self._stored_enabled is not None
+        return self._capability_known
 
     @property
     def is_on(self) -> bool | None:
-        """Return the AC couple function state (local first, then cloud)."""
+        """Return the AC couple function state (local first, then cloud).
+
+        Unknown capability reads unknown, never a confident OFF — the same
+        guarantee :attr:`available` gives, kept in lockstep with it so the
+        two cannot disagree about an unsupported device.
+        """
         if self._optimistic_state is not None:
             return self._optimistic_state
+        if not self._capability_known:
+            return None
         local = self._local_enabled
-        if local is not None:
-            return local
-        return self._stored_enabled
+        return local if local is not None else self._stored_enabled
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Enable the AC couple function."""
@@ -726,9 +763,7 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
             # Local named write (pylxpweb does the sibling-preserving
             # read-modify-write on reg 179) with cloud function-control
             # fallback — the same route, and the same seeding, every other
-            # reg-179 switch uses. The envelope's post-write parameter
-            # refresh re-reads the register, so a write that never landed
-            # shows up as a state that does not converge.
+            # reg-179 switch uses.
             #
             # Deliberately NOT seeded into the cloud ``ac_couple_soc`` store:
             # while bit 11 is unpinned that store is an INDEPENDENT
@@ -740,6 +775,28 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
                 parameter=PARAM_FUNC_AC_COUPLING_FUNCTION,
                 value=enabled,
             )
+            # READBACK. The shared local-write envelope only mutates the
+            # cached value and runs a coordinator DATA refresh; parameters
+            # live on their own tier, so without this the register is not
+            # re-read until the next scheduled parameter cycle (default 60
+            # min) and nothing would actually verify the write. That is
+            # acceptable for a hardware-pinned bit; bit 11 is inferred, so
+            # the readback is the whole point — it re-reads reg 179 and
+            # republishes, which is also what lets a LOCAL/CLOUD
+            # disagreement become visible within the cycle.
+            #
+            # Forced, but through the same public method the cloud path
+            # uses, so pylxpweb's #282 partial-read carry-forward and retry
+            # floor apply unchanged. Never raises; a False return means the
+            # write was acknowledged and only the verification is pending,
+            # which must not fail an accepted command.
+            if not await self.coordinator.async_refresh_device_parameters(self._serial):
+                _LOGGER.warning(
+                    "AC couple write acknowledged for %s but the verifying "
+                    "parameter re-read did not complete; the state shown is "
+                    "the commanded value until the next parameter refresh",
+                    self._serial,
+                )
             return
 
         client = self.coordinator.require_client()
