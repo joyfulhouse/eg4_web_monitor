@@ -3458,6 +3458,43 @@ class ParameterManagementMixin(_MixinBase):
             _LOGGER.error("Error during all-device parameter refresh: %s", e)
             return False
 
+    def note_parameter_verification_pending(self, serial: str) -> None:
+        """Re-arm a floored parameter re-read after a failed verification (#472).
+
+        The caller is a post-write verification that failed. Without a
+        re-arm, an acknowledged-but-unverified command would keep showing
+        the commanded value for up to the parameter interval (default 60
+        min) — visible-but-unverified for a bounded couple of minutes is
+        acceptable, unbounded is not.
+
+        Re-arms BOTH parameter paths, because they are drained by different
+        modes and the caller can run under either:
+
+        * ``_param_retry_pending`` — the #282 per-device retry, consulted
+          only inside the LOCAL update path. Targeted: re-reads THIS device
+          without dragging healthy siblings along.
+        * ``_last_parameter_refresh`` — the mode-agnostic gate
+          :meth:`_should_refresh_parameters` reads. HYBRID routes through
+          ``_async_update_hybrid_data`` → ``_async_update_http_data``, which
+          NEVER consults the retry set, so a set-only re-arm was inert in
+          HYBRID — the deployment mode this fix exists for. Clearing the
+          stamp makes the next cycle's refresh due there (#501's precedent).
+
+        Both stay floored by ``_last_parameter_attempt``: this deliberately
+        does NOT force an immediate read, because bypassing the ~2-minute
+        floor is how a device with a failing transport gets hammered every
+        cycle. The HYBRID re-read is broader than the LOCAL one (it covers
+        every device), which is the mechanism that path offers; the targeted
+        set is kept so LOCAL keeps its narrower behavior.
+        """
+        self._param_retry_pending.add(serial)
+        self._last_parameter_refresh = None
+        _LOGGER.debug(
+            "Re-armed a floored parameter re-read for %s after a failed "
+            "post-write verification",
+            serial,
+        )
+
     async def async_refresh_device_parameters(self, serial: str) -> bool:
         """Public method to refresh parameters for a specific device.
 

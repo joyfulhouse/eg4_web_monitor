@@ -68,7 +68,12 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
     input_block_size_kwargs,
 )
-from .utils import is_hybrid_family, is_offgrid_family, local_battery_key
+from .utils import (
+    battery_row_is_absent,
+    is_hybrid_family,
+    is_offgrid_family,
+    local_battery_key,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -167,9 +172,10 @@ class LocalTransportMixin(_MixinBase):
 
         for batt in transport_batteries:
             slots_this_poll.add(batt.battery_index)
-            # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
-            # are non-optional (default 0), so an empty slot reads 0/0 not None.
-            if batt.voltage == 0 and batt.soc == 0:
+            # Skip empty register slots only.  A row keeping live current or
+            # temperature after losing its cell block is present-but-degraded
+            # and stays in the bank — see battery_row_is_absent (#506).
+            if battery_row_is_absent(batt):
                 poll_slots_skipped += 1
                 _LOGGER.debug(
                     "RR [%s] slot %d: skipped (no CAN data, voltage=%s soc=%s)",
@@ -2672,30 +2678,72 @@ class LocalTransportMixin(_MixinBase):
         replaces them with raw register values within seconds. Runs in the
         background after the Waveshare drain so the two never interleave on
         the same bus.
+
+        If the reload FAILS, the pre-blank leaves the caches empty, and #497
+        made that visible: switches flagged ``requires_known_state`` (Charge
+        Last, Share Battery, Grid Always On) read unavailable on an empty
+        cache rather than a fake OFF. Waiting the full parameter interval to
+        recover would be an hour of unavailable controls, so a failed reload
+        now re-arms an early parameter refresh — see the retry note below.
         """
         if recovered_modbus:
             await self._drain_modbus_buffers(recovered_modbus)
+        reload_failed = False
         for serial in recovered_serials:
             # Pre-blank BOTH caches before the reload: pylxpweb swallows
             # parameter-read failures inside refresh() and returns with the
             # old (cloud-kW) dict intact, so success must be proven by
             # repopulation — the absence of an exception proves nothing
-            # (codex r4). Unknown beats wrong-by-10x in the meantime; a
-            # successful transport read repopulates raw values seconds later,
-            # and a failed one self-heals at the next parameter refresh.
+            # (codex r4). Unknown beats wrong-by-10x in the meantime.
+            #
+            # Setting ``parameters = None`` also deliberately defeats
+            # pylxpweb's #282 sticky carry-forward (``if failed_ranges and
+            # self.parameters:``) for this one read — that guard exists to
+            # protect last-known values, and here the last-known values are
+            # exactly the mis-scaled ones being discarded. Keeping the
+            # pre-blank is the point; what follows bounds its cost.
             inverter = self.get_inverter_object(serial)
             if inverter is not None:
                 inverter.parameters = None
             if self.data and serial in self.data.get("parameters", {}):
                 self.data["parameters"][serial] = {}
             try:
-                await self._refresh_device_parameters(serial)
+                if not await self._refresh_device_parameters(serial):
+                    # A falsy return is a silent no-op reload (unknown serial,
+                    # no data to write into, empty payload) — indistinguishable
+                    # from a raised failure as far as the blanked cache is
+                    # concerned, so it must count too (#485 contract).
+                    reload_failed = True
+                    _LOGGER.debug(
+                        "Parameter reload after attach recovery updated "
+                        "nothing for %s; scheduling an early retry",
+                        serial,
+                    )
             except Exception as err:
+                reload_failed = True
                 _LOGGER.warning(
                     "Parameter reload after attach recovery failed for %s: %s",
                     serial,
                     err,
                 )
+
+        if reload_failed:
+            # Re-arm the parameter refresh instead of serving blanked caches
+            # for the rest of the interval. Clearing the REFRESH stamp (not
+            # the ATTEMPT stamp) reuses the #282 machinery exactly as the
+            # partial-read path does: _should_refresh_parameters() then reports
+            # due on the next update cycle, still floored by
+            # _PARAMETER_RETRY_INTERVAL, so a persistently dead transport
+            # retries every couple of minutes rather than every ~20-30 s poll.
+            # Coordinator-wide rather than per-serial because that is what the
+            # stamp is — a single timestamp, not a per-device map; the cost of
+            # re-reading the other inverters early is one parameter cycle.
+            self._last_parameter_refresh = None
+            _LOGGER.debug(
+                "Attach-recovery parameter reload incomplete; parameter "
+                "refresh re-armed (floored at ~%d minutes)",
+                int(_PARAMETER_RETRY_INTERVAL.total_seconds() // 60),
+            )
 
     def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
         """Sync Repairs issues and device error keys with transport link state.

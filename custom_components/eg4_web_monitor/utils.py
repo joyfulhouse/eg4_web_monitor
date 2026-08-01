@@ -575,6 +575,35 @@ def cloud_battery_key(inverter_serial: str, battery: Any) -> str:
     return f"{inverter_serial}-{index + 1:02d}"
 
 
+def battery_row_is_absent(battery: Any) -> bool:
+    """Return whether a transport battery row is an empty register slot (#506).
+
+    Delegates to pylxpweb's canonical ``BatteryData.is_absent()``, which treats
+    zero voltage and zero SOC as insufficient on their own: an EG4 master can
+    lose its cell block while still reporting live current, temperature, or
+    topology, and that row is present-but-degraded rather than absent
+    (pylxpweb #249/#248).  Every caller that decides whether a slot is real
+    must route through here so the three sites cannot drift apart again.
+
+    ``is_absent()`` ships in pylxpweb 0.9.39b6; against an older pin the
+    fallback keeps the integration's previous voltage/SOC-only behaviour, so
+    the widened definition takes effect exactly when the pin bump lands.
+    ``getattr`` also tolerates the partial battery stand-ins the HYBRID
+    freshness probe is deliberately defensive about.
+
+    Only a genuine ``bool`` verdict is honoured, matching the ``is True``
+    guard on the cloud-lost blanking check: an unbound ``Mock`` attribute is
+    callable and returns a truthy ``Mock``, which would otherwise classify
+    every row as an empty slot and silently empty the bank.
+    """
+    is_absent = getattr(battery, "is_absent", None)
+    if callable(is_absent):
+        verdict = is_absent()
+        if isinstance(verdict, bool):
+            return verdict
+    return getattr(battery, "voltage", 0) == 0 and getattr(battery, "soc", 0) == 0
+
+
 # ========== CONSOLIDATED UTILITY FUNCTIONS ==========
 # These functions eliminate code duplication across multiple platform files
 
