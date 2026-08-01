@@ -19,6 +19,7 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers.storage import Store
 
 from .const import (
     CONF_CONNECTION_TYPE,
@@ -33,7 +34,11 @@ from .const import (
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
 )
-from .coordinator import EG4DataUpdateCoordinator
+from .coordinator import (
+    PV_STRING_LIFETIME_STORAGE_KEY,
+    PV_STRING_LIFETIME_STORAGE_VERSION,
+    EG4DataUpdateCoordinator,
+)
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     SMART_PORT_VALIDATED_KEY,
@@ -643,6 +648,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
 
     # Initialize the coordinator
     coordinator = EG4DataUpdateCoordinator(hass, entry)
+    await coordinator._async_load_pv_string_lifetime_state()
 
     # Perform initial data fetch
     await coordinator.async_config_entry_first_refresh()
@@ -920,3 +926,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
             _LOGGER.warning("Failed to purge entity statistics: %s", e)
     else:
         _LOGGER.debug("No entities found to purge statistics for")
+
+    await Store(
+        hass,
+        PV_STRING_LIFETIME_STORAGE_VERSION,
+        f"{PV_STRING_LIFETIME_STORAGE_KEY}_{entry.entry_id}",
+    ).async_remove()

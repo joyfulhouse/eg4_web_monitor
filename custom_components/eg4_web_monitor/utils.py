@@ -94,6 +94,17 @@ def _resolve_statistics_timezone(coordinator: _StatisticsTimezoneCoordinator) ->
     return station_tz
 
 
+def _resolve_chart_day_timezone(coordinator: _StatisticsTimezoneCoordinator) -> Any:
+    """Pick the timezone used to select cloud chart calendar dates.
+
+    Unlike the statistics resolver, a fixed station offset defines the plant's
+    calendar day without causing DST row-placement drift, so prefer every valid
+    station timezone and use Home Assistant's timezone only as a fallback.
+    Keep these resolvers separate: they solve different timezone problems.
+    """
+    return _get_station_timezone(coordinator) or dt_util.DEFAULT_TIME_ZONE
+
+
 # Inverter families whose control/config entities (switches, numbers, selects)
 # the integration knows how to drive. The model-name substring gate
 # (SUPPORTED_INVERTER_MODELS) backstops this for devices whose family is

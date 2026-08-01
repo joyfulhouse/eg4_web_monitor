@@ -12,6 +12,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.storage import Store
 
 if TYPE_CHECKING:
     from homeassistant.helpers.update_coordinator import (
@@ -108,6 +109,9 @@ from .const.sensors import SENSOR_TYPES
 from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
+
+PV_STRING_LIFETIME_STORAGE_VERSION = 1
+PV_STRING_LIFETIME_STORAGE_KEY = f"{DOMAIN}_pv_string_lifetime"
 
 # Sensor keys with state_class=total_increasing.  On startup (self.data is
 # None), zeros for these keys are replaced with None in the coordinator cache
@@ -319,11 +323,16 @@ class EG4DataUpdateCoordinator(
         self._firmware_cache: dict[str, str] = {}
 
         # Cloud per-string lifetime totals are reconstructed by summing yearly
-        # chart rows. Track only this coordinator instance's accepted response
-        # shape and floor so incomplete/reordered cloud payloads cannot create
-        # false total_increasing resets in Home Assistant statistics.
+        # chart rows. Persist their accepted response shape and floor so a
+        # truncated payload after an HA restart cannot establish a lower baseline.
         self._pv_string_lifetime_year_counts: dict[tuple[str, int], int] = {}
         self._pv_string_lifetime_floors: dict[tuple[str, int], float] = {}
+        self._pv_string_lifetime_store = Store[dict[str, list[float | int]]](
+            hass,
+            PV_STRING_LIFETIME_STORAGE_VERSION,
+            f"{PV_STRING_LIFETIME_STORAGE_KEY}_{entry.entry_id}",
+        )
+        self._pv_string_lifetime_store_lock = asyncio.Lock()
 
         # Per-serial Quick Charge duration preference (minutes), set via the
         # Quick Charge Duration number entity. Defaults to

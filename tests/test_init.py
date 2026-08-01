@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor import (
     async_migrate_entry,
+    async_remove_entry,
     async_setup,
     async_setup_entry,
     async_unload_entry,
@@ -38,6 +39,7 @@ def mock_coordinator():
     coordinator = MagicMock()
     coordinator.entry = MagicMock()
     coordinator.entry.entry_id = "test_entry_id"
+    coordinator._async_load_pv_string_lifetime_state = AsyncMock()
     coordinator.async_request_refresh = AsyncMock()
     coordinator.async_shutdown = AsyncMock()
     coordinator.client = MagicMock()
@@ -163,6 +165,7 @@ class TestAsyncSetup:
         mock_coord1 = MagicMock()
         mock_coord1.entry = MagicMock()
         mock_coord1.entry.entry_id = "entry_1"
+        mock_coord1._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coord1.async_request_refresh = AsyncMock()
         mock_coord1.async_config_entry_first_refresh = AsyncMock()
         mock_coord1.data = {"devices": {}, "device_info": {}, "parameters": {}}
@@ -172,6 +175,7 @@ class TestAsyncSetup:
         mock_coord2 = MagicMock()
         mock_coord2.entry = MagicMock()
         mock_coord2.entry.entry_id = "entry_2"
+        mock_coord2._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coord2.async_request_refresh = AsyncMock()
         mock_coord2.async_config_entry_first_refresh = AsyncMock()
         mock_coord2.data = {"devices": {}, "device_info": {}, "parameters": {}}
@@ -257,6 +261,7 @@ class TestAsyncSetupEntry:
 
         # Mock coordinator
         mock_coordinator = MagicMock()
+        mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
 
@@ -280,6 +285,7 @@ class TestAsyncSetupEntry:
         mock_config_entry.add_to_hass(hass)
 
         mock_coordinator = MagicMock()
+        mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
 
@@ -299,6 +305,7 @@ class TestAsyncSetupEntry:
         mock_config_entry.add_to_hass(hass)
 
         mock_coordinator = MagicMock()
+        mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
 
@@ -403,6 +410,7 @@ class TestSmartPortCleanupOnReboot:
     async def _setup_with_data(self, hass, entry, data):
         """Run async_setup_entry with a mock coordinator holding given data."""
         mock_coordinator = MagicMock()
+        mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator.data = data
         with (
@@ -649,6 +657,30 @@ class TestAsyncUnloadEntry:
             assert "switch" in [p.value for p in platforms]
             assert "button" in [p.value for p in platforms]
             assert "select" in [p.value for p in platforms]
+
+
+class TestAsyncRemoveEntry:
+    """Test config-entry removal cleanup."""
+
+    async def test_remove_entry_deletes_pv_lifetime_store(
+        self, hass: HomeAssistant, mock_config_entry
+    ):
+        """Deleting an entry removes its persisted cloud lifetime floors."""
+        mock_config_entry.add_to_hass(hass)
+        store = MagicMock()
+        store.async_remove = AsyncMock()
+
+        with patch(
+            "custom_components.eg4_web_monitor.Store", return_value=store
+        ) as store_class:
+            await async_remove_entry(hass, mock_config_entry)
+
+        store_class.assert_called_once_with(
+            hass,
+            1,
+            "eg4_web_monitor_pv_string_lifetime_test_entry_id",
+        )
+        store.async_remove.assert_awaited_once_with()
 
 
 class TestAsyncMigrateEntry:

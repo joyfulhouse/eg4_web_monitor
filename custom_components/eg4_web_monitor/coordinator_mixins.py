@@ -22,6 +22,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
+    from homeassistant.helpers.storage import Store
     from pylxpweb import LuxpowerClient
     from pylxpweb.devices import Battery, BatteryBank, MIDDevice, ParallelGroup, Station
     from pylxpweb.devices.inverters.base import BaseInverter
@@ -61,7 +62,7 @@ from .coordinator_mappings import (
     get_battery_bank_property_map,
 )
 from .utils import (
-    _resolve_statistics_timezone,
+    _resolve_chart_day_timezone,
     clean_battery_display_name,
     is_offgrid_family,
     normalize_event_row,
@@ -538,6 +539,8 @@ if TYPE_CHECKING:
         _firmware_cache: dict[str, str]
         _pv_string_lifetime_year_counts: dict[tuple[str, int], int]
         _pv_string_lifetime_floors: dict[tuple[str, int], float]
+        _pv_string_lifetime_store: Store[dict[str, list[float | int]]]
+        _pv_string_lifetime_store_lock: asyncio.Lock
         _background_tasks: set[asyncio.Task[Any]]
         _api_semaphore: asyncio.Semaphore
         _http_polling_interval: int
@@ -1050,7 +1053,6 @@ class DeviceProcessingMixin(_MixinBase):
         if stamps is None:
             return
         stamps.pop(f"pv_string_daily_{serial}", None)
-        stamps.pop(f"pv_string_lifetime_{serial}", None)
         for string_number in range(1, 4):
             stamps.pop(f"pv_string_lifetime_{serial}_{string_number}", None)
 
@@ -1064,7 +1066,7 @@ class DeviceProcessingMixin(_MixinBase):
     def _apply_pv_string_lifetime_floor(
         self, serial: str, string_number: int, value: float
     ) -> tuple[float, bool]:
-        """Apply the in-memory monotonic floor to one lifetime value."""
+        """Apply the monotonic floor to one cloud lifetime value."""
         state_key = (serial, string_number)
         previous = self._pv_string_lifetime_floors.get(state_key)
         if previous is not None and value < previous:
@@ -1078,11 +1080,44 @@ class DeviceProcessingMixin(_MixinBase):
             return previous, False
 
         # A physical inverter replacement that reuses the same serial remains
-        # pinned until HA restarts. That is the safe trade against permanently
-        # corrupting total_increasing statistics; lifetime counters otherwise
-        # only ever grow.
+        # pinned until the config entry is removed. That is the safe trade
+        # against corrupting total_increasing statistics; a cloud lifetime sum
+        # otherwise only ever grows.
         self._pv_string_lifetime_floors[state_key] = value
         return value, True
+
+    async def _async_load_pv_string_lifetime_state(self) -> None:
+        """Load persisted cloud lifetime floors and accepted year counts."""
+        stored = await self._pv_string_lifetime_store.async_load() or {}
+        for encoded_key, values in stored.items():
+            try:
+                serial, raw_string_number = encoded_key.rsplit(":", 1)
+                floor, year_count = values
+                string_number = int(raw_string_number)
+                if not serial or string_number not in range(1, 4):
+                    raise ValueError("invalid PV string lifetime storage key")
+                state_key = (serial, string_number)
+                self._pv_string_lifetime_floors[state_key] = float(floor)
+                self._pv_string_lifetime_year_counts[state_key] = int(year_count)
+            except (TypeError, ValueError):
+                _LOGGER.warning(
+                    "Ignoring invalid persisted PV string lifetime state for %s",
+                    encoded_key,
+                )
+
+    async def _async_save_pv_string_lifetime_state(self) -> None:
+        """Persist accepted cloud lifetime floors and year counts."""
+        async with self._pv_string_lifetime_store_lock:
+            year_counts = self._pv_string_lifetime_year_counts
+            payload = {
+                f"{state_key[0]}:{state_key[1]}": [floor, year_counts[state_key]]
+                for state_key, floor in self._pv_string_lifetime_floors.items()
+                if state_key in year_counts
+            }
+            try:
+                await self._pv_string_lifetime_store.async_save(payload)
+            except Exception as e:
+                _LOGGER.warning("Could not persist PV string lifetime state: %s", e)
 
     def _accept_cloud_pv_string_lifetime(
         self,
@@ -1232,9 +1267,8 @@ class DeviceProcessingMixin(_MixinBase):
             ):
                 pass
             else:
-                daily_fetch_succeeded = False
                 try:
-                    local_now = dt_util.now(_resolve_statistics_timezone(self))
+                    local_now = dt_util.now(_resolve_chart_day_timezone(self))
                     response = await asyncio.wait_for(
                         fetch_daily(serial, local_now.year, local_now.month),
                         timeout=PV_STRING_ENERGY_CLOUD_TIMEOUT,
@@ -1258,16 +1292,13 @@ class DeviceProcessingMixin(_MixinBase):
                                     float(raw_value) / 10.0
                                 )
                         daily_values = parsed_daily_values
-                        daily_fetch_succeeded = True
+                    self._last_status_fetch[daily_key] = now
                 except Exception as e:
                     _LOGGER.debug(
                         "Could not fetch cloud PV string daily energy for %s: %s",
                         serial,
                         e,
                     )
-                if daily_fetch_succeeded:
-                    self._last_status_fetch[daily_key] = now
-                else:
                     self._stamp_pv_string_energy_retry(
                         daily_key, now, PV_STRING_ENERGY_FETCH_INTERVAL
                     )
@@ -1313,7 +1344,8 @@ class DeviceProcessingMixin(_MixinBase):
                         )
                 else:
                     parsed_lifetime_values: dict[str, float] = {}
-                    current_year = dt_util.now(_resolve_statistics_timezone(self)).year
+                    lifetime_state_changed = False
+                    current_year = dt_util.now(_resolve_chart_day_timezone(self)).year
                     for string_number, response in zip(
                         due_lifetime_strings, responses, strict=True
                     ):
@@ -1362,12 +1394,11 @@ class DeviceProcessingMixin(_MixinBase):
                             ] = value
                         if accepted:
                             self._last_status_fetch[lifetime_key] = now
+                            lifetime_state_changed = True
                         else:
-                            self._stamp_pv_string_energy_retry(
-                                lifetime_key,
-                                now,
-                                PV_STRING_LIFETIME_FETCH_INTERVAL,
-                            )
+                            self._last_status_fetch[lifetime_key] = now
+                    if lifetime_state_changed:
+                        await self._async_save_pv_string_lifetime_state()
                     lifetime_values = parsed_lifetime_values
 
         sensors = target["sensors"]
@@ -2022,12 +2053,6 @@ class DeviceProcessingMixin(_MixinBase):
                         continue
                 value = getattr(transport_energy, energy_attr, None)
                 if value is not None:
-                    if sensor_key.endswith("_yield_lifetime"):
-                        value, _accepted = self._apply_pv_string_lifetime_floor(
-                            inverter.serial_number,
-                            cast(int, string_number),
-                            float(value),
-                        )
                     sensors[sensor_key] = value
 
         # Drop per-inverter grid per-leg voltage when it reads 0/None.  In
