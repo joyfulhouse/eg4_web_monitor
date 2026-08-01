@@ -3649,27 +3649,54 @@ class TestKnownStateWorkingModeParity:
         assert switch.available is True
         assert switch.is_on is True
 
-    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
-    def test_local_register_sourced_state_stays_available(self, mode_key, param):
-        """LOCAL keeps working: both params decode from holding register 110
-        (bits 4 and 3).
+    @pytest.mark.parametrize(
+        "raw_110", [0x0000, 0x0018], ids=["bits-clear", "bits-set"]
+    )
+    def test_local_register_sourced_state_stays_available(self, raw_110):
+        """LOCAL keeps working, driven through pylxpweb's REAL decode.
 
-        A bit-field register yields EVERY one of its names on each successful
-        read, so a local parameter cache carries these keys whatever the bits
-        hold — opting in does not strand the switches on LOCAL/HYBRID. Pinned
-        as a bool, since a local read produces bools rather than the cloud's
-        ints, and 0/False must both survive as a real OFF.
+        This is the load-bearing assumption of #497: opting in is only safe
+        because a local read populates these keys whatever the bits hold. So
+        the parameter dict here is not hand-seeded — it is produced by
+        pylxpweb's own ``read_named_parameters`` against a stub that returns a
+        raw register 110, then handed to the switches exactly as
+        ``_fetch_parameters`` hands it to the coordinator cache.
+
+        Seeding ``{param: False}`` directly (the first version of this test)
+        would assert nothing about the register path at all: it passes even if
+        pylxpweb drops a key or switches to emitting only SET bits, which is
+        precisely the regression that would silently strand both switches as
+        permanently unavailable on LOCAL/HYBRID. Review caught that.
+
+        Both bit polarities are covered: 0x0000 (both clear) is the case that
+        would break under an emit-only-set-bits change, 0x0018 (bits 3 and 4
+        set) confirms the same read reports a real ON.
         """
-        coordinator = _mock_coordinator(
-            has_http=False,
-            has_local=True,
-            local_only=True,
-            parameters={param: False},
-        )
-        switch = self._switch(coordinator, mode_key)
+        import asyncio
 
-        assert switch.available is True
-        assert switch.is_on is False
+        from pylxpweb.transports.protocol import BaseTransport
+
+        class _StubTransport(BaseTransport):
+            """Minimal transport whose register read is fixed."""
+
+            async def read_parameters(self, start_address, count):
+                return {110: raw_110}
+
+        transport = _StubTransport("1234567890")
+        decoded = asyncio.run(transport.read_named_parameters(0, 125))
+
+        expected = bool(raw_110)
+        coordinator = _mock_coordinator(
+            has_http=False, has_local=True, local_only=True, parameters=decoded
+        )
+        for mode_key, param in self.KNOWN_STATE_MODES:
+            assert param in decoded, (
+                f"{param} absent from a decoded register-110 read — the local "
+                "path can no longer supply this switch's state"
+            )
+            switch = self._switch(coordinator, mode_key)
+            assert switch.available is True, mode_key
+            assert switch.is_on is expected, mode_key
 
     @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
     def test_mid_write_optimistic_state_keeps_it_available(self, mode_key, param):
