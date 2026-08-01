@@ -1912,6 +1912,78 @@ class TestSmartLoadSwitch:
         assert EG4SmartLoadSwitch(coordinator, self.SERIAL).is_on is True
         assert EG4ACCoupleSwitch(coordinator, self.SERIAL).is_on is False
 
+    # ── No local path, structurally (GH #472 shares this switch's base) ──
+
+    def test_has_no_local_path_members(self):
+        """Smart Load must not acquire AC Couple's local-first machinery.
+
+        #472 gave the SIBLING switch a reg-179 bit-11 local path, and both now
+        share EG4CloudStoreSwitch. FUNC_SMART_LOAD_ENABLE has NO pinned bit
+        (179 bit 13 is still a FUNC_179_BIT13 placeholder), and a guessed bit
+        is ACKed by the firmware — so a wrong local write would neither fall
+        back nor fail a readback (#476). The exclusion has to be STRUCTURAL:
+        these members live on the AC Couple subclass, never on the shared
+        base. This fails the moment one is hoisted, which is the refactor that
+        would otherwise be caught by nothing (verified: hoisting them leaves
+        every other test in this file green, because the placeholder makes the
+        inherited path inert *today* — an accident, not a guarantee).
+        """
+        local_members = (
+            "_uses_local_param",
+            "_local_enabled",
+            "_capability_known",
+            "_verify_local_write",
+        )
+        leaked = [m for m in local_members if hasattr(EG4SmartLoadSwitch, m)]
+        assert not leaked, (
+            "EG4SmartLoadSwitch has acquired local-path members "
+            f"{leaked} — FUNC_SMART_LOAD_ENABLE has no pinned register bit, "
+            "so a local write would land on an unproven bit that the firmware "
+            "ACKs. Keep these on EG4ACCoupleSwitch."
+        )
+        # The sibling genuinely has them — otherwise this test would pass by
+        # naming members that no longer exist anywhere.
+        missing = [m for m in local_members if not hasattr(EG4ACCoupleSwitch, m)]
+        assert not missing, (
+            f"EG4ACCoupleSwitch is missing {missing} — this test is naming "
+            "members that have been renamed, so it no longer guards anything"
+        )
+        # ...and the per-instance capability flag is likewise AC-Couple-only
+        # (set in its __init__, so it is invisible to a class-level check).
+        coordinator = self._coordinator(store={"enabled": True})
+        assert not hasattr(
+            EG4SmartLoadSwitch(coordinator, self.SERIAL), "_local_param_supported"
+        )
+        assert hasattr(
+            EG4ACCoupleSwitch(coordinator, self.SERIAL), "_local_param_supported"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stays_cloud_routed_even_if_pylxpweb_pins_the_name(self):
+        """The future risk, simulated: pylxpweb pinning a reg-179 bit for
+        FUNC_SMART_LOAD_ENABLE must not silently switch this write local.
+
+        test_hybrid_write_routes_via_cloud passes today for the wrong reason —
+        the capability probe returns False because the name is unresolvable.
+        Here the probe is forced True, so only the structural exclusion keeps
+        the write on the cloud.
+        """
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        write = self._cloud_write_mock(coordinator)
+        switch = EG4SmartLoadSwitch(coordinator, self.SERIAL)
+        _prep(switch)
+
+        with patch.object(switch_module, "_local_params_can_carry", return_value=True):
+            await switch.async_turn_on()
+
+        write.assert_awaited_once_with(self.SERIAL, True)
+        coordinator.client.api.control.write_parameter.assert_not_called()
+        coordinator.note_smart_load_written.assert_called_once_with(
+            self.SERIAL, "enabled", True
+        )
+
     def test_survives_parameter_cache_wipe(self):
         """A HYBRID local parameter refresh hard-replaces the parameter
         cache; this switch never reads it (the #352 P1-A regression shape)."""

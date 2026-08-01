@@ -640,8 +640,22 @@ class EG4CloudStoreSwitch(EG4BaseSwitch):
         return value if isinstance(value, bool) else None
 
     @property
+    def _state_known(self) -> bool:
+        """Whether a real state has been observed for this control.
+
+        The one thing :attr:`available` gates on beyond coordinator health,
+        factored out so a subclass with ADDITIONAL state sources overrides
+        THIS rather than ``available`` itself. A subclass that overrode
+        ``available`` would reach this class through ``super().available``
+        and silently re-acquire the cloud-store gate below — which is how the
+        AC Couple switch lost its pure-LOCAL availability when the two
+        features first merged, caught by #472's own tests.
+        """
+        return self._stored_enabled is not None
+
+    @property
     def available(self) -> bool:
-        """Available only while the store holds a state (or mid-write).
+        """Available only while a state is known (or mid-write).
 
         Absent state — first cloud fetch pending, a pylxpweb predating the
         getter, or a device whose family genuinely lacks the function param —
@@ -651,7 +665,7 @@ class EG4CloudStoreSwitch(EG4BaseSwitch):
             return False
         if self._optimistic_state is not None:
             return True
-        return self._stored_enabled is not None
+        return self._state_known
 
     @property
     def is_on(self) -> bool | None:
@@ -830,7 +844,7 @@ class EG4ACCoupleSwitch(EG4CloudStoreSwitch):
         return self._local_enabled is not None
 
     @property
-    def available(self) -> bool:
+    def _state_known(self) -> bool:
         """Available only while the capability is known (or mid-write).
 
         The CLOUD store is the capability probe wherever a cloud client
@@ -849,11 +863,13 @@ class EG4ACCoupleSwitch(EG4CloudStoreSwitch):
         gap: there the local decode is all there is (see the creation gate).
         The startup window where the store has not been fetched yet reads
         unavailable, exactly as it did before #472.
+
+        Overrides the shared predicate rather than ``available`` itself: the
+        base's ``available`` is unchanged (coordinator health, then optimistic
+        state, then this), but overriding ``available`` here would route
+        through EG4CloudStoreSwitch's cloud-store gate on the way to
+        EG4BaseSwitch and make pure LOCAL permanently unavailable.
         """
-        if not super().available:
-            return False
-        if self._optimistic_state is not None:
-            return True
         return self._capability_known
 
     @property
