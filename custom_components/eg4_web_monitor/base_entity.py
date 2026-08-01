@@ -1715,8 +1715,22 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
             )
             # Reached only when the local write was acknowledged — a failure
             # above raises into the cloud-fallback route instead.
+            #
+            # The hook's own failure must NOT propagate: this runs inside
+            # local_write(), so an exception here is indistinguishable to the
+            # router from a failed local WRITE, and would trigger a redundant
+            # cloud re-write of a command the device already accepted. The
+            # write succeeded; only the follow-up step did not.
             if after_local_write is not None:
-                await after_local_write()
+                try:
+                    await after_local_write()
+                except Exception:  # noqa: BLE001 - see above
+                    _LOGGER.exception(
+                        "Post-write step for %s on device %s failed; the write "
+                        "itself was acknowledged",
+                        action_name,
+                        self._serial,
+                    )
 
         async def cloud_write() -> None:
             # A failed local attempt can mark the link down, so evaluate this

@@ -1474,6 +1474,93 @@ class TestACCoupleSwitch:
         assert coordinator._param_retry_pending == {self.SERIAL}
 
     @pytest.mark.asyncio
+    async def test_rearm_reaches_the_hybrid_refresh_gate(self):
+        """PROD IS HYBRID, so the re-arm must reach the path HYBRID uses.
+
+        _param_retry_pending is consulted ONLY inside the LOCAL update path.
+        HYBRID routes _async_update_hybrid_data -> _async_update_http_data,
+        which re-reads parameters when _should_refresh_parameters() says so
+        and never looks at that set — so a set-only re-arm was inert in the
+        one mode that matters. Clearing the refresh stamp is what re-arms it.
+        """
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        coordinator._param_retry_pending = set()
+        coordinator._last_parameter_refresh = dt_util.utcnow()  # just refreshed
+        coordinator._last_parameter_attempt = None  # no floor in effect
+        coordinator._parameter_refresh_interval = timedelta(minutes=60)
+        coordinator.note_parameter_verification_pending = MagicMock(
+            side_effect=lambda serial: (
+                EG4DataUpdateCoordinator.note_parameter_verification_pending(
+                    coordinator, serial
+                )
+            )
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        # Before: an hour-old interval with a fresh stamp is NOT due.
+        assert EG4DataUpdateCoordinator._should_refresh_parameters(coordinator) is False
+
+        await switch.async_turn_on()
+
+        assert coordinator._last_parameter_refresh is None
+        assert coordinator._param_retry_pending == {self.SERIAL}
+        # After: the real mode-agnostic gate now says a re-read is due.
+        assert EG4DataUpdateCoordinator._should_refresh_parameters(coordinator) is True
+
+    @pytest.mark.asyncio
+    async def test_rearm_still_respects_the_attempt_floor(self):
+        """The re-arm must not bypass the ~2-minute floor.
+
+        Forcing an immediate read is how a device with a failing transport
+        gets hammered every cycle; the fix is meant to bound the unverified
+        window, not to remove the rate limit.
+        """
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        coordinator._param_retry_pending = set()
+        coordinator._last_parameter_refresh = dt_util.utcnow()
+        # An attempt seconds ago: inside the floor.
+        coordinator._last_parameter_attempt = dt_util.utcnow()
+        coordinator._parameter_refresh_interval = timedelta(minutes=60)
+        coordinator.note_parameter_verification_pending = MagicMock(
+            side_effect=lambda serial: (
+                EG4DataUpdateCoordinator.note_parameter_verification_pending(
+                    coordinator, serial
+                )
+            )
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        assert coordinator._last_parameter_refresh is None  # armed
+        # ...but still floored until the attempt interval elapses.
+        assert EG4DataUpdateCoordinator._should_refresh_parameters(coordinator) is False
+
+    @pytest.mark.asyncio
     async def test_successful_reread_does_not_rearm(self):
         """A verified write needs no retry — the re-arm is failure-only."""
         coordinator = self._coordinator(
@@ -1994,6 +2081,32 @@ class TestChargeLastSwitch:
 
         with pytest.raises(HomeAssistantError, match="No transport available"):
             await switch.async_turn_on()
+
+    @pytest.mark.asyncio
+    async def test_raising_after_local_write_hook_does_not_trigger_cloud_rewrite(self):
+        """A raising post-write hook must not look like a failed WRITE.
+
+        after_local_write runs inside local_write(), so an exception there is
+        indistinguishable to the router from a failed local write and would
+        re-write via the cloud a command the device already accepted. Now
+        that the hook is shared API (#472), isolate it.
+        """
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        switch = _make_charge_last_switch(coordinator)
+        _prep(switch)
+
+        async def boom() -> None:
+            raise RuntimeError("post-write step exploded")
+
+        await switch._execute_local_with_fallback(
+            action_name="charge last",
+            parameter=PARAM_FUNC_CHARGE_LAST,
+            value=True,
+            after_local_write=boom,
+        )
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        coordinator.client.api.control.control_function.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_fallback_one_sided_cloud_methods_raises(self):
