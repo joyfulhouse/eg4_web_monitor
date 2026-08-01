@@ -1407,7 +1407,7 @@ value; the `status_code` sensor retains it for diagnosis).
 
 - **Data source**: Cloud API HTTP endpoints
 - **PV1-3 energy**: Chart analytics side-fetch (daily: one request per 5 minutes;
-  lifetime: three requests per 30 minutes; maximum 18 requests/hour/inverter)
+  lifetime: three requests per hour; maximum 15 requests/hour/inverter)
 - **Consumption**: `todayLoad` / `totalLoad` from API (server-computed)
 - **bt_temperature**: NOT available (no API field)
 - **Battery data**: From `getBatteryInfo` API endpoint

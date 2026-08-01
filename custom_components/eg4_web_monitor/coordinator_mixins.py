@@ -87,9 +87,10 @@ EVENT_LOG_CLOUD_TIMEOUT = 10.0
 
 # Per-string PV energy is absent from getInverterEnergyInfo but available from
 # the chart endpoints. Daily values use the 5-minute smart-cache tier; lifetime
-# totals cost three requests and therefore use a 30-minute tier.
+# totals cost three requests each and barely move day to day, so they use an
+# hourly tier.
 PV_STRING_ENERGY_FETCH_INTERVAL = 300.0
-PV_STRING_LIFETIME_FETCH_INTERVAL = 1800.0
+PV_STRING_LIFETIME_FETCH_INTERVAL = 3600.0
 PV_STRING_ENERGY_CLOUD_TIMEOUT = 10.0
 
 # HA caps entity state strings at 255 chars; longer states are rejected
