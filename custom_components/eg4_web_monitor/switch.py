@@ -235,6 +235,18 @@ async def async_setup_entry(
                 # The local half needs the installed pylxpweb to decode the
                 # name from a register (>= 0.9.39b6), the same version guard
                 # the working modes use.
+                #
+                # KNOWN GAP on pure LOCAL: the cloud getter's None WAS the
+                # capability probe — a device whose family lacks the function
+                # simply did not report the param. Reg 179 bit 11 has no such
+                # tell: it decodes to a bool on any device that answers the
+                # register, so a LOCAL-only install shows the switch on every
+                # control-capable inverter, reading OFF where the hardware has
+                # no AC-coupled input. There is no local capability signal to
+                # gate on (pylxpweb's InverterFeatures has no AC-couple or
+                # smart-port flag), and inventing a model-string gate would
+                # repeat the #259 mistake. HYBRID keeps the cloud probe via
+                # the store. Revisit if a real report shows a phantom switch.
                 if coordinator.has_http_api() or (
                     coordinator.has_configured_local_transport(serial)
                     and _local_params_can_carry(PARAM_FUNC_AC_COUPLING_FUNCTION)
