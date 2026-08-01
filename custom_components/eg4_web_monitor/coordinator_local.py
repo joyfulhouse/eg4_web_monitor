@@ -68,7 +68,12 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
     input_block_size_kwargs,
 )
-from .utils import is_hybrid_family, is_offgrid_family, local_battery_key
+from .utils import (
+    battery_row_is_absent,
+    is_hybrid_family,
+    is_offgrid_family,
+    local_battery_key,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -167,9 +172,10 @@ class LocalTransportMixin(_MixinBase):
 
         for batt in transport_batteries:
             slots_this_poll.add(batt.battery_index)
-            # Skip ghost batteries with no CAN bus data — BatteryData voltage/soc
-            # are non-optional (default 0), so an empty slot reads 0/0 not None.
-            if batt.voltage == 0 and batt.soc == 0:
+            # Skip empty register slots only.  A row keeping live current or
+            # temperature after losing its cell block is present-but-degraded
+            # and stays in the bank — see battery_row_is_absent (#506).
+            if battery_row_is_absent(batt):
                 poll_slots_skipped += 1
                 _LOGGER.debug(
                     "RR [%s] slot %d: skipped (no CAN data, voltage=%s soc=%s)",

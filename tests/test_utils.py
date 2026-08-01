@@ -1,6 +1,9 @@
 """Tests for utility functions in EG4 Web Monitor integration."""
 
+from types import SimpleNamespace
+
 from custom_components.eg4_web_monitor.utils import (
+    battery_row_is_absent,
     clean_battery_display_name,
     clean_model_name,
     create_device_info,
@@ -8,6 +11,65 @@ from custom_components.eg4_web_monitor.utils import (
     generate_unique_id,
     is_supported_control_model,
 )
+
+
+class TestBatteryRowIsAbsent:
+    """#506: the single canonical empty-slot predicate for transport rows."""
+
+    def test_delegates_to_pylxpweb_is_absent(self):
+        """A row exposing is_absent() is judged by pylxpweb, not by voltage/SOC."""
+        absent = SimpleNamespace(voltage=0.0, soc=0, is_absent=lambda: True)
+        present = SimpleNamespace(voltage=52.5, soc=90, is_absent=lambda: False)
+        assert battery_row_is_absent(absent) is True
+        assert battery_row_is_absent(present) is False
+
+    def test_present_but_degraded_row_is_not_absent(self):
+        """The behaviour change: 0 V/0 % with live signals stays in the bank.
+
+        The old inline predicate dropped this row; pylxpweb's canonical
+        definition keeps it because the cell block can be lost while current
+        and temperature stay live (pylxpweb #249/#248).
+        """
+        degraded = SimpleNamespace(voltage=0.0, soc=0, is_absent=lambda: False)
+        assert battery_row_is_absent(degraded) is False
+
+    def test_fallback_without_is_absent(self):
+        """Against a pylxpweb without is_absent(), the old predicate applies.
+
+        Pins older than 0.9.39b6 keep the previous behaviour rather than
+        crashing, so the widened definition activates exactly at the bump.
+        """
+        ghost = SimpleNamespace(voltage=0.0, soc=0)
+        live = SimpleNamespace(voltage=52.5, soc=90)
+        half_live_voltage = SimpleNamespace(voltage=52.5, soc=0)
+        half_live_soc = SimpleNamespace(voltage=0.0, soc=90)
+        assert battery_row_is_absent(ghost) is True
+        assert battery_row_is_absent(live) is False
+        assert battery_row_is_absent(half_live_voltage) is False
+        assert battery_row_is_absent(half_live_soc) is False
+
+    def test_non_callable_is_absent_falls_back(self):
+        """A non-callable attribute must not be invoked."""
+        odd = SimpleNamespace(voltage=0.0, soc=0, is_absent=True)
+        assert battery_row_is_absent(odd) is True
+
+    def test_mock_stand_in_does_not_empty_the_bank(self):
+        """An unbound Mock attribute must not classify a live row as absent.
+
+        ``Mock().is_absent()`` is callable and returns a truthy ``Mock``, so
+        honouring a non-bool verdict would silently drop every battery. Same
+        fail-safe rule as the cloud-lost blanking check's ``is True`` guard.
+        """
+        from unittest.mock import MagicMock
+
+        live = MagicMock()
+        live.voltage = 52.5
+        live.soc = 90
+        assert battery_row_is_absent(live) is False
+
+    def test_partial_stand_in_without_fields(self):
+        """Partial objects (the HYBRID freshness probe's case) read as absent."""
+        assert battery_row_is_absent(SimpleNamespace()) is True
 
 
 class TestCleanBatteryDisplayName:
