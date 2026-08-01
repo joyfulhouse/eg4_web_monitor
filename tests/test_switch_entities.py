@@ -3668,9 +3668,31 @@ class TestKnownStateWorkingModeParity:
         precisely the regression that would silently strand both switches as
         permanently unavailable on LOCAL/HYBRID. Review caught that.
 
-        Both bit polarities are covered: 0x0000 (both clear) is the case that
-        would break under an emit-only-set-bits change, 0x0018 (bits 3 and 4
-        set) confirms the same read reports a real ON.
+        Both bit polarities are covered, and which one catches what was
+        established by mutating pylxpweb rather than assumed:
+
+        * Dropping either name from the reg-110 list -> the key-presence
+          assert fires on BOTH polarities.
+        * Emitting only SET bits (the register decodes to a raw int under
+          every name instead of per-bit bools) -> 0x0000 still reads False
+          and PASSES; only 0x0018 catches it, because the raw 24 makes
+          ``is_on`` compute ``24 == 1`` -> False against an expected True.
+
+        So the all-clear case alone would miss the second regression. An
+        earlier revision of this docstring claimed the reverse; it was wrong.
+
+        Scope, and the cross-repo seam: this drives the decode with no family
+        set, so it exercises the base table. Family coverage lives in two
+        other places, neither of them here — ``test_register_contract_harness
+        .test_register_110_contract_holds_for_every_family`` pins both params
+        to reg 110 bits 4 and 3 through ``get_register_to_param_mapping`` for
+        every ``InverterFamily``, and pylxpweb additionally asserts the
+        back-compat off-grid export is the SAME list object
+        (``OFFGRID_REGISTER_110_PARAM_KEYS is REGISTER_110_PARAM_KEYS``,
+        pylxpweb tests/unit/transports/test_named_parameters.py:855). That
+        identity is a pylxpweb-side guarantee: if it were replaced by a
+        divergent copy, this repo would not fail on the identity itself —
+        only on the positions the harness pins.
         """
         import asyncio
 
