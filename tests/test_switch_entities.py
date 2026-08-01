@@ -1416,6 +1416,113 @@ class TestACCoupleSwitch:
         assert "verifying parameter re-read did not complete" in caplog.text
 
     @pytest.mark.asyncio
+    async def test_failed_reread_rearms_a_floored_retry(self):
+        """A failed verification must not leave the command UNVERIFIED
+        indefinitely.
+
+        The cache is already seeded and the optimistic state cleared, so if
+        parameter reads keep failing the commanded value would show for up
+        to the parameter interval (default 60 min) with nothing ever
+        checking it. Re-arm the #282 per-device retry so the read is
+        retried within roughly the 2-minute floor instead.
+        """
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.note_parameter_verification_pending.assert_called_once_with(
+            self.SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_rearm_reaches_the_real_retry_set(self):
+        """Prove the re-arm wires into the REAL #282 retry machinery.
+
+        The other tests use a MagicMock coordinator, on which
+        note_parameter_verification_pending is an auto-mock that records the
+        call and does nothing — a wiring regression (wrong attribute, wrong
+        serial) would still pass. Bind the real method over a real set so the
+        serial genuinely lands where the retry gate reads it (the #471
+        seed-registry precedent).
+        """
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        coordinator._param_retry_pending = set()  # real set, not the auto-mock
+        coordinator.note_parameter_verification_pending = MagicMock(
+            side_effect=lambda serial: (
+                EG4DataUpdateCoordinator.note_parameter_verification_pending(
+                    coordinator, serial
+                )
+            )
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        assert coordinator._param_retry_pending == {self.SERIAL}
+
+    @pytest.mark.asyncio
+    async def test_successful_reread_does_not_rearm(self):
+        """A verified write needs no retry — the re-arm is failure-only."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.note_parameter_verification_pending.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cloud_fallback_write_rereads_exactly_once(self):
+        """One logical write = one forced parameter read.
+
+        When the local write fails and the cloud fallback carries it, the
+        cloud envelope already refreshes parameters. Running the readback
+        too spent TWO forced reads on one write.
+        """
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        # The cloud fallback ran, and its envelope's refresh is the only one.
+        coordinator.client.api.control.control_function.assert_awaited_once()
+        assert coordinator.async_refresh_device_parameters.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_local_success_write_rereads_exactly_once(self):
+        """Same budget on the happy path: one write, one forced read."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        assert coordinator.async_refresh_device_parameters.await_count == 1
+
+    @pytest.mark.asyncio
     async def test_local_only_write_also_rereads(self):
         """Pure LOCAL takes the same readback path (no cloud client)."""
         coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)

@@ -2990,6 +2990,30 @@ class ParameterManagementMixin(_MixinBase):
             _LOGGER.error("Error during all-device parameter refresh: %s", e)
             return False
 
+    def note_parameter_verification_pending(self, serial: str) -> None:
+        """Queue a floored parameter retry for one device (#472).
+
+        Re-arms the #282 per-device retry path: the serial joins
+        ``_param_retry_pending``, so the next cycle past the ~2-minute
+        attempt floor re-reads THIS device's parameters without dragging
+        healthy siblings along, instead of the device waiting out the full
+        hourly window.
+
+        The caller is a post-write verification that failed. Without the
+        re-arm, an acknowledged-but-unverified command would keep showing
+        the commanded value for up to the parameter interval (default 60
+        min) — visible-but-unverified for a bounded couple of minutes is
+        acceptable, unbounded is not. Deliberately does NOT force an
+        immediate read: bypassing the floor is how a device with a failing
+        transport gets hammered every cycle.
+        """
+        self._param_retry_pending.add(serial)
+        _LOGGER.debug(
+            "Queued a floored parameter retry for %s after a failed "
+            "post-write verification",
+            serial,
+        )
+
     async def async_refresh_device_parameters(self, serial: str) -> bool:
         """Public method to refresh parameters for a specific device.
 

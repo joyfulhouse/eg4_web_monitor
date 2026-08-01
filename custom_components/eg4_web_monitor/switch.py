@@ -757,6 +757,39 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
         """Disable the AC couple function."""
         await self._async_set_ac_couple(False)
 
+    async def _verify_local_write(self) -> None:
+        """Re-read register 179 to verify an acknowledged local write.
+
+        The shared local-write envelope only mutates the cached value and
+        runs a coordinator DATA refresh; parameters live on their own tier,
+        so without this the register is not re-read until the next scheduled
+        parameter cycle (default 60 min) and nothing verifies the write.
+        That is tolerable for a hardware-pinned bit — bit 11 is inferred, so
+        the readback is the point. It is also what lets a LOCAL/CLOUD
+        disagreement surface within the cycle.
+
+        Forced, but through the same public method the cloud path uses, so
+        pylxpweb's #282 partial-read carry-forward and retry floor apply
+        unchanged. Never raises: a failed verification must not fail a
+        command the device already acknowledged.
+
+        On failure the commanded value keeps showing — that part is fine —
+        but it must not show UNVERIFIED indefinitely, which is what would
+        happen if parameter reads kept failing (cache already seeded,
+        optimistic state already cleared). So the device is queued for a
+        floored per-device retry: bounded at roughly the #282 two-minute
+        attempt floor rather than the full hourly window.
+        """
+        if await self.coordinator.async_refresh_device_parameters(self._serial):
+            return
+        self.coordinator.note_parameter_verification_pending(self._serial)
+        _LOGGER.warning(
+            "AC couple write acknowledged for %s but the verifying parameter "
+            "re-read did not complete; showing the commanded value and "
+            "retrying the read shortly",
+            self._serial,
+        )
+
     async def _async_set_ac_couple(self, enabled: bool) -> None:
         """Write FUNC_AC_COUPLING_FUNCTION, local-first when reg 179 applies."""
         if self._uses_local_param:
@@ -770,33 +803,16 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
             # observation of the same function, and seeding it would mask a
             # disagreement between what we wrote locally and what the portal
             # reports — the exact signal #472's lockstep capture is after.
+            # The readback runs ONLY on the local route (see
+            # _verify_local_write). A cloud FALLBACK write already refreshes
+            # parameters inside its own envelope, so running both would
+            # spend two forced reads on one logical write.
             await self._execute_local_with_fallback(
                 action_name="AC couple",
                 parameter=PARAM_FUNC_AC_COUPLING_FUNCTION,
                 value=enabled,
+                after_local_write=self._verify_local_write,
             )
-            # READBACK. The shared local-write envelope only mutates the
-            # cached value and runs a coordinator DATA refresh; parameters
-            # live on their own tier, so without this the register is not
-            # re-read until the next scheduled parameter cycle (default 60
-            # min) and nothing would actually verify the write. That is
-            # acceptable for a hardware-pinned bit; bit 11 is inferred, so
-            # the readback is the whole point — it re-reads reg 179 and
-            # republishes, which is also what lets a LOCAL/CLOUD
-            # disagreement become visible within the cycle.
-            #
-            # Forced, but through the same public method the cloud path
-            # uses, so pylxpweb's #282 partial-read carry-forward and retry
-            # floor apply unchanged. Never raises; a False return means the
-            # write was acknowledged and only the verification is pending,
-            # which must not fail an accepted command.
-            if not await self.coordinator.async_refresh_device_parameters(self._serial):
-                _LOGGER.warning(
-                    "AC couple write acknowledged for %s but the verifying "
-                    "parameter re-read did not complete; the state shown is "
-                    "the commanded value until the next parameter refresh",
-                    self._serial,
-                )
             return
 
         client = self.coordinator.require_client()
