@@ -63,8 +63,11 @@ PARAM_FUNC_BATTERY_BACKUP_CTRL = "FUNC_BATTERY_BACKUP_CTRL"
 # whose bits 3/7/9/10 are hardware-proven on EG4 hardware, and the reporter
 # has driven the control through it on his LXP. Shipped on that lineage
 # inference like the #476 green-mode bit; #472 tracks the toggle capture.
-# Local writes resolve through pylxpweb's REGISTER_TO_PARAM_KEYS
-# (>= 0.9.39b6); older installs keep the cloud-only behavior.
+# Local writes resolve through pylxpweb's REGISTER_TO_PARAM_KEYS from the
+# release carrying the bit-11 mapping (0.9.39b6 planned, not yet cut);
+# older installs keep the cloud-only behavior. The runtime guard is
+# _local_params_can_carry(), which probes the map rather than a version, so
+# nothing here depends on that number being right.
 PARAM_FUNC_AC_COUPLING_FUNCTION = "FUNC_AC_COUPLING_FUNCTION"
 
 # PV configuration parameter names (registers 20, 22)

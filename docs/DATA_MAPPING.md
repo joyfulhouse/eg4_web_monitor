@@ -669,7 +669,8 @@ per boundary). Cloud param names take the window suffix
 > the #476 off-grid green-mode bit shipped on. A wrong bit would be ACKed by the
 > firmware, so readback-verify cannot rule it out — a raw reg-179 read before and
 > after toggling the switch would, and #472 asks for exactly that. Requires
-> pylxpweb ≥ 0.9.39b6; older installs keep the cloud-only path via the
+> the pylxpweb release carrying the bit-11 mapping (0.9.39b6 planned); older
+> installs keep the cloud-only path via the
 > `switch._local_params_can_carry` probe. The register contract harness pins the
 > name to (179, 11) on every inverter family.
 >
