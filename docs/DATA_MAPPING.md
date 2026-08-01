@@ -986,6 +986,33 @@ Mapping dict: `INVERTER_RUNTIME_FIELD_MAPPING`
 > sensors are therefore LOCAL/HYBRID-only — see "Fault / Warning Code
 > Registers" in section 2.
 
+### Per-String PV Energy (chart analytics side-fetch)
+
+PV1-3 energy does not come from the inverter property map above. The coordinator
+fetches it separately from the chart analytics endpoints, with independent daily
+and lifetime throttles:
+
+| API Endpoint | Request / Response Field | HA Sensor Key | Scale |
+|--------------|--------------------------|---------------|-------|
+| `/WManage/api/inverterChart/monthColumn` | Current month's today row, `ePv1Day`..`ePv3Day` | `pv1_yield`..`pv3_yield` | Raw 0.1 kWh, ÷10 |
+| `/WManage/api/analyze/energy/totalColumn` | One request per string with `energyType=ePvNDay`; sum every year row's `energy` | `pvN_yield_lifetime` (`N=1..3`) | Raw 0.1 kWh, ÷10 after summing |
+
+The cloud exposes strings 1-3 only; there is no `ePv4Day`. PV4-6 energy is
+therefore LOCAL/HYBRID transport-only. In HYBRID, a local PV1 daily or lifetime
+value suppresses the matching cloud tier for that cycle; local transport is
+authoritative about which strings exist.
+
+Live validation against plant 19147 on 2026-08-01 confirms the fields and scale:
+
+- 18kPV `4512670118`: lifetime strings `1471.8 + 527.5 + 98.4 = 2097.7`
+  kWh, exactly matching `getInverterEnergyInfo.totalYieldingText = "2097.7"`.
+- FlexBOSS21 `52842P0581`: lifetime strings
+  `2731.5 + 4481.4 + 4.8 = 7217.7` kWh versus aggregate raw
+  `totalYielding = 72216` (`7221.6` kWh), a 0.054% difference (approximately
+  0.05%).
+- FlexBOSS21 daily mid-morning: today's raw values `ePv1Day=3`, `ePv2Day=7`,
+  `ePv3Day=0` produce `1.0` kWh versus `todayYieldingText = "1.1"`.
+
 ### GridBOSS Runtime (getMidboxRuntime)
 
 Mapping dict: `GRIDBOSS_FIELD_MAPPING`
@@ -1379,6 +1406,8 @@ value; the `status_code` sensor retains it for diagnosis).
 ### CLOUD Mode
 
 - **Data source**: Cloud API HTTP endpoints
+- **PV1-3 energy**: Chart analytics side-fetch (daily: one request per 5 minutes;
+  lifetime: three requests per 30 minutes; maximum 18 requests/hour/inverter)
 - **Consumption**: `todayLoad` / `totalLoad` from API (server-computed)
 - **bt_temperature**: NOT available (no API field)
 - **Battery data**: From `getBatteryInfo` API endpoint
@@ -1390,6 +1419,9 @@ value; the `status_code` sensor retains it for diagnosis).
 
 - **Data source**: Both LOCAL (Modbus for runtime) and CLOUD (API for supplemental)
 - **Priority**: LOCAL data preferred when available; CLOUD fills gaps
+- **PV1-3 energy**: Local transport suppresses each cloud chart tier it supplies;
+  a healthy local daily+lifetime read makes 0 per-string analytics
+  requests/hour/inverter
 - **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`, `grid_voltage_l1/l2`, `eps_voltage_l1/l2`, `load_power` (reg 170, #197), `fault_code`/`warning_code` (regs 60-63, eg4-23a6)
 - **GridBOSS overlay**: `apply_gridboss_overlay()` merges CT data onto parallel group
 - **Consumption**: Uses GridBOSS CT `load_power` when GridBOSS present
@@ -1415,6 +1447,8 @@ value; the `status_code` sensor retains it for diagnosis).
 | `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
 | `smart_load_power` / `grid_load_power` / `eps_load_power` | No | API (smartLoadPower/gridLoadPower/epsLoadPower) | API (cloud supplemental) | Cloud-only backup-output split; EG4_OFFGRID-only entities (#222/#335); pylxpweb ≥0.9.36 properties. The former `eps_load_power_l1/_l2` (#197) were retired duplicates of `eps_power_l1/l2` (#335) |
 | `fault_code` / `warning_code` | Yes | No | Yes (overlay) | Regs 60-63 (32-bit, BMS fallback merge); no cloud field (eg4-23a6) |
+| `pv1_yield`..`pv3_yield` / lifetime | Yes | Yes (chart side-fetch) | Yes (local preferred) | Cloud exposes `ePv1Day`..`ePv3Day`; not in the inverter property map |
+| `pv4_yield`..`pv6_yield` / lifetime | Yes | No | Yes (overlay) | Local registers only; cloud has no `ePv4Day` |
 
 ---
 

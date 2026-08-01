@@ -30,7 +30,7 @@ if TYPE_CHECKING:
         ModbusSerialTransport,
         ModbusTransport,
     )
-    from pylxpweb.transports.data import BatteryData
+    from pylxpweb.transports.data import BatteryData, InverterEnergyData
 
     # The device objects accepted by the generic property mapper.
     _DeviceObject = BaseInverter | Battery | BatteryBank | MIDDevice | ParallelGroup
@@ -1005,15 +1005,20 @@ class DeviceProcessingMixin(_MixinBase):
                     sensors.setdefault(key, value)
 
     async def _fetch_pv_string_energy(
-        self, serial: str, target: dict[str, Any]
+        self,
+        serial: str,
+        target: dict[str, Any],
+        transport_energy: "InverterEnergyData | None" = None,
     ) -> None:
         """Fetch cloud PV1-3 daily and lifetime energy into ``target``.
 
         The cloud inverter-energy endpoint exposes only aggregate PV energy,
         while the monthColumn and totalColumn chart endpoints expose PV1-3.
-        Each tier is throttled independently and carries the previous cycle's
-        values forward inside its throttle window or after a failed fetch or
-        parse. Missing methods are a silent no-op for older pylxpweb versions.
+        A tier supplied by local transport energy is skipped entirely. Each
+        cloud-backed tier is throttled independently and carries the previous
+        cycle's values forward inside its throttle window or after a failed
+        fetch or parse. Missing methods are a silent no-op for older pylxpweb
+        versions.
 
         Fetching and parsing share one exception boundary per tier. An escaping
         chart-schema error would reach the outer per-device handler and blank
@@ -1039,7 +1044,19 @@ class DeviceProcessingMixin(_MixinBase):
         daily_values: dict[str, float] | None = None
         lifetime_values: dict[str, float] | None = None
 
-        if callable(fetch_daily):
+        # PV1 is the sentinel that local transport supplies per-string energy.
+        # A partial read with PV1 but no PV2/PV3 is not cloud-topped-up: local
+        # transport remains authoritative about which strings exist.
+        has_local_daily = (
+            transport_energy is not None
+            and transport_energy.pv1_energy_today is not None
+        )
+        has_local_lifetime = (
+            transport_energy is not None
+            and transport_energy.pv1_energy_total is not None
+        )
+
+        if callable(fetch_daily) and not has_local_daily:
             daily_key = f"pv_string_daily_{serial}"
             # "Never fetched" is a None sentinel, NOT a 0.0 default:
             # time.monotonic() is host uptime on Linux, so on a freshly booted
@@ -1089,7 +1106,7 @@ class DeviceProcessingMixin(_MixinBase):
                     self._carry_forward_pv_string_energy(serial, target)
                 self._last_status_fetch[daily_key] = now
 
-        if callable(fetch_lifetime):
+        if callable(fetch_lifetime) and not has_local_lifetime:
             lifetime_key = f"pv_string_lifetime_{serial}"
             # Use the same None-sentinel constraint as the daily tier so the
             # first lifetime fetch always runs even early in host uptime.
@@ -1759,13 +1776,16 @@ class DeviceProcessingMixin(_MixinBase):
                 if code_key not in processed["sensors"] and code_key in prev_sensors:
                     processed["sensors"][code_key] = prev_sensors[code_key]
 
-        # Fetch cloud PV1-3 first so the HYBRID local overlay below remains
-        # authoritative (higher resolution and no cloud lag).
-        await self._fetch_pv_string_energy(inverter.serial_number, processed)
+        transport_energy = inverter.transport_energy
+
+        # Fetch any PV1-3 tier not already supplied by local transport. The
+        # overlay below remains authoritative (higher resolution, no cloud lag).
+        await self._fetch_pv_string_energy(
+            inverter.serial_number, processed, transport_energy
+        )
 
         # Overlay local transport energy sensors. Per-leg EPS energy and PV4-6
         # are Modbus-only; PV1-3 replace the cloud chart values in HYBRID.
-        transport_energy = inverter.transport_energy
         if transport_energy is not None:
             sensors = processed["sensors"]
             # Pairs defined at module level (_ENERGY_OVERLAY) so the
