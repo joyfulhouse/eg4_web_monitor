@@ -8285,13 +8285,32 @@ class TestSmartLoadStore:
         self, hass, mock_config_entry
     ):
         """The #471 race: a write acknowledged while a refresh is in flight
-        must not be reverted by that cycle's stale carry-forward."""
+        must not be reverted by that cycle's stale carry-forward.
+
+        The race is reproduced in ORDER, not just asserted at the end (review
+        finding — seeding self.data first and carrying that forward would
+        pass with the seed overlay deleted): the in-flight cycle snapshots
+        the store BEFORE the write, the write lands, and only then does the
+        cycle publish its stale snapshot. Without the persistent registry
+        that publish reverts the UI to 90 until the next 5-minute read.
+        """
         coordinator = self._coordinator(hass, mock_config_entry)
         prev = {"start_soc": 90, "fetched_at": 1.0}
         coordinator.data = {"devices": {self.SERIAL: {"smart_load": prev}}}
 
+        # 1. The in-flight cycle snapshots the store (throttled path).
+        snapshot: dict[str, Any] = {}
+        coordinator._carry_forward_smart_load(self.SERIAL, snapshot)
+        assert snapshot["smart_load"]["start_soc"] == 90
+
+        # 2. The write is acknowledged mid-cycle.
         coordinator.note_smart_load_written(self.SERIAL, "start_soc", 75)
-        # A carry-forward path (throttled cycle) re-applies the pending seed.
+
+        # 3. The cycle completes and publishes its stale snapshot wholesale.
+        coordinator.data = {"devices": {self.SERIAL: snapshot}}
+        assert coordinator.data["devices"][self.SERIAL]["smart_load"]["start_soc"] == 90
+
+        # 4. The next cycle's carry-forward re-applies the pending seed.
         target: dict[str, Any] = {}
         coordinator._carry_forward_smart_load(self.SERIAL, target)
 

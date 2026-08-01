@@ -2836,21 +2836,51 @@ class TestSmartLoadNumbers:
 
     # ── Spec table integrity ──────────────────────────────────────────
 
-    def test_specs_cover_the_five_panel_settings(self):
-        """The five settings the reporter asked for, each mapped to its own
-        store field, cloud writer and unique-id suffix."""
-        assert {s.store_key for s in SMART_LOAD_NUMBER_SPECS} == {
-            "start_soc",
-            "end_soc",
-            "start_pv_power",
-            "start_volt",
-            "end_volt",
+    def test_specs_pin_each_field_to_its_own_writer(self):
+        """The exact store_key -> cloud_method mapping, not just uniqueness.
+
+        Uniqueness alone would let the End SOC and End Voltage writers be
+        SWAPPED with the suite still green: both accept overlapping 0-100
+        inputs, so setting End SOC would silently change End Voltage and the
+        write would still look successful (review finding).
+        """
+        assert {s.store_key: s.cloud_method for s in SMART_LOAD_NUMBER_SPECS} == {
+            "start_soc": "set_inverter_smart_load_start_soc",
+            "end_soc": "set_inverter_smart_load_end_soc",
+            "start_pv_power": "set_inverter_smart_load_start_pv_power",
+            "start_volt": "set_inverter_smart_load_start_volt",
+            "end_volt": "set_inverter_smart_load_end_volt",
         }
         suffixes = [s.unique_id_suffix for s in SMART_LOAD_NUMBER_SPECS]
-        methods = [s.cloud_method for s in SMART_LOAD_NUMBER_SPECS]
         assert len(set(suffixes)) == len(suffixes)
-        assert len(set(methods)) == len(methods)
-        assert all(m.startswith("set_inverter_smart_load_") for m in methods)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("store_key", "method", "value"),
+        [
+            ("start_soc", "set_inverter_smart_load_start_soc", 80),
+            ("end_soc", "set_inverter_smart_load_end_soc", 55),
+            ("start_pv_power", "set_inverter_smart_load_start_pv_power", 1.5),
+            ("start_volt", "set_inverter_smart_load_start_volt", 53.5),
+            ("end_volt", "set_inverter_smart_load_end_volt", 47.5),
+        ],
+    )
+    async def test_every_spec_writes_through_its_own_setter(
+        self, store_key, method, value
+    ):
+        """End-to-end routing for ALL five, not just the three with bespoke
+        write tests — the swap above has to fail here too."""
+        coordinator = self._coordinator(store={store_key: value})
+        write = self._cloud_write_mock(coordinator, method)
+        entity = self._entity(coordinator, self.SERIAL, store_key)
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        write.assert_awaited_once_with(self.SERIAL, value)
+        coordinator.note_smart_load_written.assert_called_once_with(
+            self.SERIAL, store_key, value
+        )
 
     def test_units_match_the_portal(self):
         """SOC in percent, PV power in kW, thresholds in volts — the cloud
@@ -3000,12 +3030,14 @@ class TestSmartLoadNumbers:
         assert entity.native_value == 80
         assert isinstance(entity.native_value, int)
 
-    def test_optimistic_float_keeps_the_wire_resolution(self):
+    def test_optimistic_float_is_shaped_to_the_wire_resolution(self):
+        """Deliberately OFF-resolution: an already-rounded 53.5 would pass
+        with the rounding deleted (review finding)."""
         coordinator = self._coordinator(store={"start_volt": 54.0})
         entity = self._entity(coordinator, self.SERIAL, "start_volt")
-        entity._optimistic_value = 53.5
+        entity._optimistic_value = 53.56
 
-        assert entity.native_value == 53.5
+        assert entity.native_value == 53.6
 
     def test_gridboss_shape_reads_unavailable(self):
         """The live GridBOSS shape: FUNC_SMART_LOAD_ENABLE present, all five
@@ -3169,6 +3201,27 @@ class TestSmartLoadNumbers:
             await entity.async_set_native_value(69.5)
 
         write.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_float_noise_on_a_whole_percent_is_absorbed(self):
+        """The integer check carries a 0.01 tolerance, shared with every
+        other percent control — a template producing 69.000000001 (or the
+        69.009 a review probe used) writes 69 rather than erroring.
+
+        Pinned deliberately rather than tightened to `is_integer()`: the
+        tolerance exists precisely to absorb float noise from templates and
+        HA's own float transport, and an exact check would reject values a
+        user cannot tell apart from a whole number. The boundary is what is
+        documented, so a change to it has to be a deliberate one.
+        """
+        coordinator = self._coordinator(store={"start_soc": 69})
+        write = self._cloud_write_mock(coordinator, "set_inverter_smart_load_start_soc")
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        await entity.async_set_native_value(69.009)
+
+        write.assert_awaited_once_with(self.SERIAL, 69)
 
     @pytest.mark.asyncio
     async def test_float_out_of_range_rejected_before_write(self):
