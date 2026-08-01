@@ -1087,9 +1087,23 @@ class DeviceProcessingMixin(_MixinBase):
         return value, True
 
     async def _async_load_pv_string_lifetime_state(self) -> None:
-        """Load persisted cloud lifetime floors and accepted year counts."""
-        stored = await self._pv_string_lifetime_store.async_load() or {}
-        for encoded_key, values in stored.items():
+        """Load persisted cloud lifetime floors and accepted year counts.
+
+        Runs on the setup path, before the first refresh.  This state is a
+        pure optimisation — it only sharpens the first post-restart validation
+        — so an unreadable or corrupt store must degrade to the in-memory
+        cold start rather than fail the config entry.
+        """
+        # Read AND unpack inside one boundary: the store's generic type is a
+        # promise about what was written, not about what is on disk, so a
+        # payload that is not a mapping must be survivable too.
+        try:
+            stored = await self._pv_string_lifetime_store.async_load() or {}
+            entries = list(stored.items())
+        except Exception as e:
+            _LOGGER.warning("Could not load persisted PV string lifetime state: %s", e)
+            return
+        for encoded_key, values in entries:
             try:
                 serial, raw_string_number = encoded_key.rsplit(":", 1)
                 floor, year_count = values

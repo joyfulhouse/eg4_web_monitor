@@ -7492,6 +7492,34 @@ class TestCloudPVStringEnergy:
         assert analytics.get_energy_total_breakdown.await_count == 3
         assert "pv1_yield_lifetime" not in target["sensors"]
 
+    async def test_unreadable_store_does_not_break_setup(self, hass, mock_config_entry):
+        """A corrupt lifetime store degrades to a cold start, never fails setup.
+
+        The load runs before the first refresh, so a raising store would take
+        the whole config entry down. This state only sharpens the first
+        post-restart validation, so it must fail safe.
+        """
+        coordinator = self._coordinator(hass, mock_config_entry, SimpleNamespace())
+        coordinator._pv_string_lifetime_store.async_load = AsyncMock(
+            side_effect=OSError("corrupt store")
+        )
+
+        await coordinator._async_load_pv_string_lifetime_state()
+
+        assert coordinator._pv_string_lifetime_floors == {}
+        assert coordinator._pv_string_lifetime_year_counts == {}
+
+    async def test_store_of_unexpected_type_is_ignored(self, hass, mock_config_entry):
+        """A store holding a non-mapping payload is discarded, not iterated."""
+        coordinator = self._coordinator(hass, mock_config_entry, SimpleNamespace())
+        coordinator._pv_string_lifetime_store.async_load = AsyncMock(
+            return_value=["not", "a", "mapping"]
+        )
+
+        await coordinator._async_load_pv_string_lifetime_state()
+
+        assert coordinator._pv_string_lifetime_floors == {}
+
     async def test_lifetime_floor_persists_with_new_coordinator(
         self, hass, mock_config_entry
     ):
