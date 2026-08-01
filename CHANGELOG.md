@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Charge Last and Share Battery report unavailable instead of a false Off when their state is unknown** ([#497](https://github.com/joyfulhouse/eg4_web_monitor/issues/497)): both switches read their state from a single function parameter, and when that parameter was missing entirely they displayed a confident, toggleable **Off** — indistinguishable from the inverter actually reporting the function disabled. They now show as unavailable until a real value arrives, the same guarantee AC Couple ([#471](https://github.com/joyfulhouse/eg4_web_monitor/issues/471)) and Grid Always On ([#484](https://github.com/joyfulhouse/eg4_web_monitor/issues/484)) already give. Neither switch is restricted by inverter model or family, so "this device does not report the function" is a real possibility rather than a contradiction, which is what made the false Off reachable. **Known behavior change:** on every connection type there is a brief window at startup, before the first parameter read completes, where these two switches now read unavailable rather than Off. On Local and Hybrid connections both values are decoded from holding register 110 (bits 4 and 3) on every inverter family, so they populate as soon as the first register read lands and stay populated — a later partial read cannot blank them, because previously-read values are carried forward.
+
 ## [3.5.1-beta.4] - 2026-07-27
 
 ### Added

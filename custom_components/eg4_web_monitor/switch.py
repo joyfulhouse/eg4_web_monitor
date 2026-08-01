@@ -963,12 +963,18 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
         Same guarantee the AC Couple switch's override gives (GH #471), which
         is the precedent Grid Always On's family-neutral gate is modelled on.
 
-        OPT-IN, deliberately not applied to every working mode: the other ten
-        would flip from OFF to unavailable during the pre-first-parameter-read
-        window, a user-visible change to long-standing behavior well outside
-        this issue's scope. Charge Last and Share Battery are ungated too and
-        carry the same exposure — a candidate follow-up, not a silent
-        widening here.
+        Charge Last and Share Battery opted in for the same reason (GH #497):
+        both are ungated by family, so they carried the identical exposure.
+        Their state does come from register 110 (bits 4 and 3) on LOCAL and
+        HYBRID, but that narrows the absent window rather than closing it —
+        a bit-field register decodes every one of its names on each
+        successful read, so the keys are present whatever the bits' values,
+        and what remains is the pre-first-read window.
+
+        Still OPT-IN rather than the shared base: the remaining modes are
+        family- or capability-gated, and flipping them would change
+        long-standing behavior during the pre-first-parameter-read window
+        for no established exposure.
         """
         if not super().available:
             return False

@@ -1471,11 +1471,18 @@ class TestChargeLastSwitch:
         switch = _make_charge_last_switch(coordinator)
         assert switch.is_on is True
 
-    def test_is_on_false_default(self):
-        """Default state should be False when param missing."""
+    def test_missing_param_is_unknown_not_off(self):
+        """A missing param is UNKNOWN, not a default OFF (GH #497).
+
+        This test asserted the fake OFF (`is_on is False`) until #497 —
+        the switch is ungated by family, so an absent key is reachable and
+        was indistinguishable from the device reporting the function off.
+        Behavior is pinned in full by TestKnownStateWorkingModeParity.
+        """
         coordinator = _mock_coordinator()
         switch = _make_charge_last_switch(coordinator)
-        assert switch.is_on is False
+        assert switch.is_on is None
+        assert switch.available is False
 
     def test_is_on_optimistic_overrides(self):
         """Optimistic state takes precedence over parameter data."""
@@ -3442,10 +3449,21 @@ class TestGridAlwaysOnSwitchBehavior:
 
         Flipping every working mode to unavailable during the
         pre-first-parameter-read window would be a user-visible change to
-        long-standing behavior, well outside this issue's scope.
+        long-standing behavior, well outside this issue's scope. Charge Last
+        and Share Battery have since opted in (GH #497) and are covered by
+        TestKnownStateWorkingModeParity; the modes here are the ones that
+        deliberately did not.
         """
         coordinator = _mock_coordinator(parameters={})
-        for mode_key in ("ac_charge_mode", "charge_last_mode", "share_battery_mode"):
+        unflagged = [
+            mode_key
+            for mode_key, mode in WORKING_MODES.items()
+            if not mode.get("requires_known_state")
+        ]
+        # Guard against this test silently emptying out if every mode opts in
+        # later: an empty loop would assert nothing at all.
+        assert "ac_charge_mode" in unflagged
+        for mode_key in unflagged:
             switch = EG4WorkingModeSwitch(
                 coordinator=coordinator,
                 serial="1234567890",
@@ -3580,3 +3598,121 @@ class TestGridAlwaysOnSwitchBehavior:
 
         coordinator.write_named_parameter.assert_not_called()
         coordinator.write_raw_parameter.assert_not_called()
+
+
+# ── requires_known_state parity (GH #497) ────────────────────────────
+
+
+class TestKnownStateWorkingModeParity:
+    """Charge Last and Share Battery must not fake an OFF (GH #497).
+
+    Both are ungated by family, so "this device does not report the
+    function" is a live case rather than a contradiction — the exposure
+    #471 identified on AC Couple and #484 fixed on Grid Always On. They opt
+    into ``requires_known_state`` here.
+    """
+
+    KNOWN_STATE_MODES = (
+        ("charge_last_mode", "FUNC_CHARGE_LAST"),
+        ("share_battery_mode", "FUNC_BAT_SHARED"),
+    )
+
+    def _switch(self, coordinator, mode_key: str) -> EG4WorkingModeSwitch:
+        return EG4WorkingModeSwitch(
+            coordinator=coordinator,
+            serial="1234567890",
+            mode_config=WORKING_MODES[mode_key],
+        )
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_absent_param_is_unavailable_not_a_fake_off(self, mode_key, param):
+        """No value has ever arrived -> unavailable/None, never a confident
+        OFF that the user could toggle against an unknown device state."""
+        switch = self._switch(_mock_coordinator(parameters={}), mode_key)
+
+        assert switch.available is False
+        assert switch.is_on is None
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_present_false_is_a_real_off(self, mode_key, param):
+        """A reported False is still a normal, toggleable OFF — the flag
+        must not turn every falsy state into unavailable."""
+        switch = self._switch(_mock_coordinator(parameters={param: False}), mode_key)
+
+        assert switch.available is True
+        assert switch.is_on is False
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_present_true_is_on(self, mode_key, param):
+        switch = self._switch(_mock_coordinator(parameters={param: True}), mode_key)
+
+        assert switch.available is True
+        assert switch.is_on is True
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_local_register_sourced_state_stays_available(self, mode_key, param):
+        """LOCAL keeps working: both params decode from holding register 110
+        (bits 4 and 3).
+
+        A bit-field register yields EVERY one of its names on each successful
+        read, so a local parameter cache carries these keys whatever the bits
+        hold — opting in does not strand the switches on LOCAL/HYBRID. Pinned
+        as a bool, since a local read produces bools rather than the cloud's
+        ints, and 0/False must both survive as a real OFF.
+        """
+        coordinator = _mock_coordinator(
+            has_http=False,
+            has_local=True,
+            local_only=True,
+            parameters={param: False},
+        )
+        switch = self._switch(coordinator, mode_key)
+
+        assert switch.available is True
+        assert switch.is_on is False
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_mid_write_optimistic_state_keeps_it_available(self, mode_key, param):
+        """An in-flight write publishes its value before data lands, so a
+        toggle does not blink to unavailable while it is being confirmed."""
+        switch = self._switch(_mock_coordinator(parameters={}), mode_key)
+        switch._optimistic_state = True
+
+        assert switch.available is True
+        assert switch.is_on is True
+
+    def test_absent_param_matches_the_ac_couple_precedent(self):
+        """Drive every known-state switch off ONE param-less coordinator and
+        assert they agree.
+
+        This is the #484 parity pattern extended: Charge Last and Share
+        Battery diverged from AC Couple for a full release precisely because
+        nothing compared them side by side.
+        """
+        coordinator = _mock_coordinator(parameters={})
+        ac_couple = EG4ACCoupleSwitch(coordinator, "1234567890")
+        reference = (ac_couple.available, ac_couple.is_on)
+
+        for mode_key, _param in self.KNOWN_STATE_MODES:
+            switch = self._switch(coordinator, mode_key)
+            assert (switch.available, switch.is_on) == reference, mode_key
+
+        grid_always_on = _make_grid_always_on_switch(coordinator)
+        assert (grid_always_on.available, grid_always_on.is_on) == reference
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_partial_read_dropping_the_key_stops_reporting_off(self, mode_key, param):
+        """A later read that omits the key reverts to unknown, not to OFF.
+
+        `_refresh_device_parameters` replaces the cache wholesale, so a read
+        that did not cover register 110 leaves the key absent. Same shape the
+        Off-Grid Mode switch is already pinned against.
+        """
+        coordinator = _mock_coordinator(parameters={param: True})
+        switch = self._switch(coordinator, mode_key)
+        assert switch.is_on is True
+
+        coordinator.data["parameters"]["1234567890"] = {"FUNC_BUZZER_EN": True}
+
+        assert switch.available is False
+        assert switch.is_on is None
