@@ -32,6 +32,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
+from custom_components.eg4_web_monitor.coordinator_mixins import (
+    _PARAMETER_RETRY_INTERVAL,
+)
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -1839,6 +1842,50 @@ class TestFinishAttachRecovery:
         assert coordinator.data["parameters"]["1234567890"] == {
             "HOLD_AC_CHARGE_POWER_CMD": 120
         }
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_rearm_is_still_floored_by_the_retry_interval(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """The re-arm asks for "soon", not "every poll".
+
+        The two tests above clear ``_last_parameter_attempt``, which is the
+        field the #282 floor actually keys off — so they prove the re-arm
+        fires but say nothing about its rate, the load-bearing half of the
+        claim. Without the floor a persistently dead transport would queue a
+        full parameter read on every ~20-30 s update cycle, which is the
+        failure mode #282 added the floor to prevent.
+
+        Same failed reload as above, but with a RECENT attempt stamp: the
+        refresh stamp is still cleared (the re-arm happened), and the gate
+        still reports not-due (the floor held). Both halves matter — asserting
+        only the cleared stamp would pass with the floor removed. Review
+        finding.
+        """
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator.data = {
+            "parameters": {"1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12}}
+        }
+        coordinator._last_parameter_refresh = dt_util.utcnow()
+        coordinator._last_parameter_attempt = dt_util.utcnow()
+
+        async def boom(serial):
+            raise RuntimeError("dongle still gone")
+
+        with patch.object(coordinator, "_refresh_device_parameters", side_effect=boom):
+            await coordinator._finish_attach_recovery([], ["1234567890"])
+
+        assert coordinator._last_parameter_refresh is None
+        assert coordinator._should_refresh_parameters() is False
+
+        # ...and it is genuinely the floor holding it back, not a permanent
+        # block: once the interval has elapsed the same state reports due.
+        coordinator._last_parameter_attempt = dt_util.utcnow() - (
+            _PARAMETER_RETRY_INTERVAL + timedelta(seconds=1)
+        )
+        assert coordinator._should_refresh_parameters() is True
 
 
 @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
