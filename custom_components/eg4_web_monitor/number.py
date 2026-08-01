@@ -1861,11 +1861,18 @@ class SmartLoadNumber(EG4BaseNumberEntity):
         that a real setting reaching this branch is a signal worth a bug
         report rather than something to clamp away.
         """
-        if self._optimistic_value is not None:
-            return float(self._optimistic_value)
-        value = self._stored_value
-        if value is None or not self._spec.min_value <= value <= self._spec.max_value:
-            return None
+        value = self._optimistic_value
+        if value is None:
+            value = self._stored_value
+            if (
+                value is None
+                or not self._spec.min_value <= value <= self._spec.max_value
+            ):
+                return None
+        # Shaped identically whether it came from the store or from an
+        # in-flight write: returning a float here and an int once the store
+        # caught up would flip the percent pair's state from "80.0" to "80"
+        # on convergence, breaking exact-string automation conditions.
         return int(value) if self._spec.whole_number else round(value, 1)
 
     async def async_set_native_value(self, value: float) -> None:

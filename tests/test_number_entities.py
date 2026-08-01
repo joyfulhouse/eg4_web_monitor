@@ -2988,6 +2988,25 @@ class TestSmartLoadNumbers:
         assert entity.native_value is None
         assert entity.available is False
 
+    def test_optimistic_percent_keeps_its_int_shape(self):
+        """An in-flight write and the settled store value must render the
+        same shape — a float mid-write and an int after would flip the state
+        from "80.0" to "80" on convergence, breaking exact-string automation
+        conditions."""
+        coordinator = self._coordinator(store={"start_soc": 69})
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        entity._optimistic_value = 80
+
+        assert entity.native_value == 80
+        assert isinstance(entity.native_value, int)
+
+    def test_optimistic_float_keeps_the_wire_resolution(self):
+        coordinator = self._coordinator(store={"start_volt": 54.0})
+        entity = self._entity(coordinator, self.SERIAL, "start_volt")
+        entity._optimistic_value = 53.5
+
+        assert entity.native_value == 53.5
+
     def test_gridboss_shape_reads_unavailable(self):
         """The live GridBOSS shape: FUNC_SMART_LOAD_ENABLE present, all five
         thresholds absent. Every number must be unavailable — never 0."""
