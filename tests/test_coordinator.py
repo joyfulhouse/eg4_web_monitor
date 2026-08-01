@@ -7125,7 +7125,10 @@ class TestCloudPVStringEnergy:
             )
         )
         coordinator = self._coordinator(hass, mock_config_entry, analytics)
-        target: dict[str, Any] = {"sensors": {}}
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
@@ -7137,6 +7140,39 @@ class TestCloudPVStringEnergy:
         assert target["sensors"]["pv1_yield"] == 0.3
         assert target["sensors"]["pv2_yield"] == 0.7
         assert target["sensors"]["pv3_yield"] == 0.0
+
+    async def test_daily_row_uses_genuine_iana_station_timezone_at_month_boundary(
+        self, hass, mock_config_entry
+    ):
+        import zoneinfo
+
+        await hass.config.async_set_time_zone("America/Los_Angeles")
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(
+                return_value=SimpleNamespace(
+                    days=[SimpleNamespace(day=1, ePv1Day=3, ePv2Day=7, ePv3Day=0)]
+                )
+            )
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        coordinator.station = SimpleNamespace(timezone="Pacific/Auckland")
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        instant = datetime(2026, 7, 31, 13, 30, tzinfo=timezone.utc)
+
+        def now_in(tz=None):
+            return instant.astimezone(tz or zoneinfo.ZoneInfo("America/Los_Angeles"))
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            side_effect=now_in,
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        analytics.get_month_daily_energy.assert_awaited_once_with(self.SERIAL, 2026, 8)
+        assert target["sensors"]["pv1_yield"] == 0.3
 
     async def test_lifetime_sums_data_and_data_points_shapes(
         self, hass, mock_config_entry
@@ -7151,8 +7187,8 @@ class TestCloudPVStringEnergy:
                 },
                 "ePv2Day": {
                     "dataPoints": [
-                        {"year": 2025, "energy": 15},
-                        {"year": 2026, "energy": 25},
+                        {"period": 2025, "value": 15},
+                        {"period": 2026, "value": 25},
                     ]
                 },
                 "ePv3Day": {"data": [{"year": 2026, "energy": 0}]},
@@ -7163,7 +7199,10 @@ class TestCloudPVStringEnergy:
             get_energy_total_breakdown=AsyncMock(side_effect=get_total)
         )
         coordinator = self._coordinator(hass, mock_config_entry, analytics)
-        target: dict[str, Any] = {"sensors": {}}
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
 
         await coordinator._fetch_pv_string_energy(self.SERIAL, target)
 
@@ -7171,6 +7210,242 @@ class TestCloudPVStringEnergy:
         assert target["sensors"]["pv1_yield_lifetime"] == 3.0
         assert target["sensors"]["pv2_yield_lifetime"] == 4.0
         assert target["sensors"]["pv3_yield_lifetime"] == 0.0
+
+    async def test_lifetime_omitted_year_carries_previous_value(
+        self, hass, mock_config_entry
+    ):
+        calls_by_type: dict[str, int] = {}
+
+        async def get_total(_serial: str, energy_type: str) -> dict[str, Any]:
+            call_number = calls_by_type.get(energy_type, 0)
+            calls_by_type[energy_type] = call_number + 1
+            if energy_type == "ePv1Day" and call_number == 1:
+                return {"data": [{"year": 2026, "energy": 30}]}
+            return {
+                "data": [
+                    {"year": 2025, "energy": 10},
+                    {"year": 2026, "energy": 30},
+                ]
+            }
+
+        analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(side_effect=get_total)
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+
+        first_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=100.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, first_target)
+        assert first_target["sensors"]["pv1_yield_lifetime"] == 4.0
+
+        coordinator.data = {"devices": {self.SERIAL: first_target}}
+        second_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=3701.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, second_target)
+
+        assert second_target["sensors"]["pv1_yield_lifetime"] == 4.0
+
+    async def test_lifetime_complete_growing_sum_is_accepted(
+        self, hass, mock_config_entry
+    ):
+        call_count = 0
+
+        async def get_total(_serial: str, _energy_type: str) -> dict[str, Any]:
+            nonlocal call_count
+            cycle = call_count // 3
+            call_count += 1
+            current_energy = 20 if cycle == 0 else 25
+            return {
+                "data": [
+                    {"year": 2025, "energy": 10},
+                    {"year": 2026, "energy": current_energy},
+                ]
+            }
+
+        analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(side_effect=get_total)
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        first_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=100.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, first_target)
+
+        coordinator.data = {"devices": {self.SERIAL: first_target}}
+        second_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=3701.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, second_target)
+
+        assert second_target["sensors"]["pv1_yield_lifetime"] == 3.5
+
+    async def test_lifetime_shrunk_complete_sum_is_rejected_by_floor(
+        self, hass, mock_config_entry
+    ):
+        call_count = 0
+
+        async def get_total(_serial: str, _energy_type: str) -> dict[str, Any]:
+            nonlocal call_count
+            cycle = call_count // 3
+            call_count += 1
+            current_energy = 30 if cycle == 0 else 10
+            return {
+                "data": [
+                    {"year": 2025, "energy": 10},
+                    {"year": 2026, "energy": current_energy},
+                ]
+            }
+
+        analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(side_effect=get_total)
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        first_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=100.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, first_target)
+
+        coordinator.data = {"devices": {self.SERIAL: first_target}}
+        second_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=3701.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, second_target)
+
+        assert second_target["sensors"]["pv1_yield_lifetime"] == 4.0
+
+    async def test_lifetime_non_contiguous_years_are_rejected(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(
+                return_value={
+                    "data": [
+                        {"year": 2024, "energy": 10},
+                        {"year": 2026, "energy": 20},
+                    ]
+                }
+            )
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        assert "pv1_yield_lifetime" not in target["sensors"]
+
+    async def test_lifetime_floor_resets_with_new_coordinator(
+        self, hass, mock_config_entry
+    ):
+        high_analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 100}]}
+            )
+        )
+        first_coordinator = self._coordinator(hass, mock_config_entry, high_analytics)
+        first_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await first_coordinator._fetch_pv_string_energy(self.SERIAL, first_target)
+        assert first_target["sensors"]["pv1_yield_lifetime"] == 10.0
+
+        low_analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 50}]}
+            )
+        )
+        second_coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        second_coordinator.client = SimpleNamespace(analytics=low_analytics)
+        second_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await second_coordinator._fetch_pv_string_energy(self.SERIAL, second_target)
+
+        assert second_target["sensors"]["pv1_yield_lifetime"] == 5.0
 
     async def test_first_fetch_fires_at_low_host_uptime(self, hass, mock_config_entry):
         analytics = SimpleNamespace(
@@ -7184,7 +7459,10 @@ class TestCloudPVStringEnergy:
             ),
         )
         coordinator = self._coordinator(hass, mock_config_entry, analytics)
-        target: dict[str, Any] = {"sensors": {}}
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
 
         with (
             patch(
@@ -7226,7 +7504,178 @@ class TestCloudPVStringEnergy:
 
         assert target["sensors"] == previous
         assert f"pv_string_daily_{self.SERIAL}" in coordinator._last_status_fetch
-        assert f"pv_string_lifetime_{self.SERIAL}" in coordinator._last_status_fetch
+        for string_number in range(1, 4):
+            assert (
+                f"pv_string_lifetime_{self.SERIAL}_{string_number}"
+                in coordinator._last_status_fetch
+            )
+
+    async def test_one_lifetime_failure_preserves_it_and_publishes_other_strings(
+        self, hass, mock_config_entry
+    ):
+        async def get_total(_serial: str, energy_type: str) -> dict[str, Any]:
+            if energy_type == "ePv2Day":
+                raise OSError("PV2 total unavailable")
+            raw_energy = 10 if energy_type == "ePv1Day" else 30
+            return {"data": [{"year": 2026, "energy": raw_energy}]}
+
+        analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(side_effect=get_total)
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        coordinator.data = {
+            "devices": {self.SERIAL: {"sensors": {"pv2_yield_lifetime": 2.2}}}
+        }
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        assert target["sensors"]["pv1_yield_lifetime"] == 1.0
+        assert target["sensors"]["pv2_yield_lifetime"] == 2.2
+        assert target["sensors"]["pv3_yield_lifetime"] == 3.0
+
+    async def test_lifetime_retry_only_refetches_the_failed_string(
+        self, hass, mock_config_entry
+    ):
+        calls_by_type: dict[str, int] = {}
+
+        async def get_total(_serial: str, energy_type: str) -> dict[str, Any]:
+            call_number = calls_by_type.get(energy_type, 0)
+            calls_by_type[energy_type] = call_number + 1
+            if energy_type == "ePv2Day" and call_number == 0:
+                raise OSError("PV2 total unavailable")
+            return {"data": [{"year": 2026, "energy": 10}]}
+
+        analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(side_effect=get_total)
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        first_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=100.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, first_target)
+
+        coordinator.data = {"devices": {self.SERIAL: first_target}}
+        second_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=221.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, second_target)
+
+        requested_types = [
+            call.args[1]
+            for call in analytics.get_energy_total_breakdown.await_args_list
+        ]
+        assert requested_types == ["ePv1Day", "ePv2Day", "ePv3Day", "ePv2Day"]
+
+    async def test_newly_missing_local_lifetime_string_ignores_other_string_stamp(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 10}]}
+            )
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+        first_transport = InverterEnergyData(
+            pv1_energy_total=91.0,
+            pv2_energy_total=92.0,
+            pv3_energy_total=None,
+        )
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=100.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(
+                self.SERIAL, target, first_transport
+            )
+
+        second_transport = InverterEnergyData(
+            pv1_energy_total=None,
+            pv2_energy_total=92.0,
+            pv3_energy_total=93.0,
+        )
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=self.TODAY,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=101.0,
+            ),
+        ):
+            await coordinator._fetch_pv_string_energy(
+                self.SERIAL, target, second_transport
+            )
+
+        requested_types = [
+            call.args[1]
+            for call in analytics.get_energy_total_breakdown.await_args_list
+        ]
+        assert requested_types == ["ePv3Day", "ePv1Day"]
+
+    async def test_failed_tiers_retry_after_short_floor(self, hass, mock_config_entry):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(side_effect=OSError("month down")),
+            get_energy_total_breakdown=AsyncMock(side_effect=OSError("totals down")),
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+
+        for monotonic_now in (100.0, 219.0, 221.0):
+            target: dict[str, Any] = {
+                "features": {"pv_string_count": 3},
+                "sensors": {},
+            }
+            with patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=monotonic_now,
+            ):
+                await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+            expected_cycles = 1 if monotonic_now < 221.0 else 2
+            assert analytics.get_month_daily_energy.await_count == expected_cycles
+            assert analytics.get_energy_total_breakdown.await_count == (
+                3 * expected_cycles
+            )
 
     async def test_parse_failures_are_contained_and_carry_forward(
         self, hass, mock_config_entry
@@ -7285,7 +7734,10 @@ class TestCloudPVStringEnergy:
         coordinator.data = {"devices": {self.SERIAL: {"sensors": previous}}}
         coordinator._last_status_fetch = {
             f"pv_string_daily_{self.SERIAL}": 100.0,
-            f"pv_string_lifetime_{self.SERIAL}": 100.0,
+            **{
+                f"pv_string_lifetime_{self.SERIAL}_{string_number}": 100.0
+                for string_number in range(1, 4)
+            },
         }
         target: dict[str, Any] = {"sensors": {}}
 
@@ -7299,7 +7751,9 @@ class TestCloudPVStringEnergy:
         analytics.get_energy_total_breakdown.assert_not_awaited()
         assert target["sensors"] == previous
 
-    async def test_missing_daily_field_is_not_published(self, hass, mock_config_entry):
+    async def test_successful_partial_daily_response_preserves_previous_fields(
+        self, hass, mock_config_entry
+    ):
         analytics = SimpleNamespace(
             get_month_daily_energy=AsyncMock(
                 return_value=SimpleNamespace(
@@ -7308,7 +7762,38 @@ class TestCloudPVStringEnergy:
             )
         )
         coordinator = self._coordinator(hass, mock_config_entry, analytics)
-        target: dict[str, Any] = {"sensors": {}}
+        previous = {"pv2_yield": 2.2, "pv3_yield": 3.3}
+        coordinator.data = {"devices": {self.SERIAL: {"sensors": previous}}}
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        assert target["sensors"]["pv1_yield"] == 0.3
+        assert target["sensors"]["pv2_yield"] == 2.2
+        assert target["sensors"]["pv3_yield"] == 3.3
+
+    async def test_missing_daily_field_without_previous_value_is_not_published(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(
+                return_value=SimpleNamespace(
+                    days=[SimpleNamespace(day=1, ePv1Day=3, ePv2Day=None)]
+                )
+            )
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
@@ -7398,7 +7883,51 @@ class TestCloudPVStringEnergy:
         analytics.get_month_daily_energy.assert_not_awaited()
         analytics.get_energy_total_breakdown.assert_not_awaited()
 
-    async def test_hybrid_missing_local_daily_sentinel_fetches_daily_tier(
+    async def test_local_lifetime_overlay_uses_same_monotonic_floor(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(),
+            get_energy_total_breakdown=AsyncMock(),
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        coordinator._fetch_quick_charge_status = AsyncMock()
+        coordinator._fetch_last_event = AsyncMock()
+        coordinator._fetch_ac_couple_soc = AsyncMock()
+        inverter = make_real_inverter(
+            self.SERIAL,
+            "FlexBOSS21",
+            runtime=InverterRuntimeData(pv_total_power=1000),
+            energy=InverterEnergyData(
+                pv1_energy_today=9.1,
+                pv2_energy_today=9.2,
+                pv3_energy_today=9.3,
+                pv1_energy_total=91.0,
+                pv2_energy_total=92.0,
+                pv3_energy_total=93.0,
+            ),
+        )
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+
+        first_result = await coordinator._process_inverter_object(inverter)
+        assert first_result["sensors"]["pv1_yield_lifetime"] == 91.0
+
+        coordinator.data = {"devices": {self.SERIAL: first_result}}
+        inverter._transport_energy = InverterEnergyData(
+            pv1_energy_today=9.1,
+            pv2_energy_today=9.2,
+            pv3_energy_today=9.3,
+            pv1_energy_total=50.0,
+            pv2_energy_total=92.0,
+            pv3_energy_total=93.0,
+        )
+        second_result = await coordinator._process_inverter_object(inverter)
+
+        assert second_result["sensors"]["pv1_yield_lifetime"] == 91.0
+
+    async def test_hybrid_partial_local_daily_fetches_and_keeps_local_values(
         self, hass, mock_config_entry
     ):
         analytics = SimpleNamespace(
@@ -7410,11 +7939,60 @@ class TestCloudPVStringEnergy:
             get_energy_total_breakdown=AsyncMock(),
         )
         coordinator = self._coordinator(hass, mock_config_entry, analytics)
-        transport_energy = InverterEnergyData(
-            pv1_energy_today=None,
-            pv1_energy_total=91.0,
+        coordinator._fetch_quick_charge_status = AsyncMock()
+        coordinator._fetch_last_event = AsyncMock()
+        coordinator._fetch_ac_couple_soc = AsyncMock()
+        inverter = make_real_inverter(
+            self.SERIAL,
+            "FlexBOSS21",
+            runtime=InverterRuntimeData(pv_total_power=1000),
+            energy=InverterEnergyData(
+                pv1_energy_today=9.1,
+                pv2_energy_today=None,
+                pv3_energy_today=9.3,
+                pv1_energy_total=91.0,
+                pv2_energy_total=92.0,
+                pv3_energy_total=93.0,
+            ),
         )
-        target: dict[str, Any] = {"sensors": {}}
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+
+        analytics.get_month_daily_energy.assert_awaited_once_with(self.SERIAL, 2026, 8)
+        analytics.get_energy_total_breakdown.assert_not_awaited()
+        assert result["sensors"]["pv1_yield"] == 9.1
+        assert result["sensors"]["pv2_yield"] == 0.7
+        assert result["sensors"]["pv3_yield"] == 9.3
+
+    async def test_hybrid_lifetime_requests_only_missing_local_strings(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(),
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 20}]}
+            ),
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        transport_energy = InverterEnergyData(
+            pv1_energy_today=9.1,
+            pv2_energy_today=9.2,
+            pv3_energy_today=9.3,
+            pv1_energy_total=91.0,
+            pv2_energy_total=None,
+            pv3_energy_total=93.0,
+        )
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
@@ -7424,13 +8002,127 @@ class TestCloudPVStringEnergy:
                 self.SERIAL, target, transport_energy
             )
 
-        analytics.get_month_daily_energy.assert_awaited_once_with(self.SERIAL, 2026, 8)
-        analytics.get_energy_total_breakdown.assert_not_awaited()
-        assert target["sensors"] == {
-            "pv1_yield": 0.3,
-            "pv2_yield": 0.7,
-            "pv3_yield": 0.0,
+        analytics.get_month_daily_energy.assert_not_awaited()
+        analytics.get_energy_total_breakdown.assert_awaited_once_with(
+            self.SERIAL, "ePv2Day"
+        )
+        assert target["sensors"] == {"pv2_yield_lifetime": 2.0}
+
+    async def test_two_string_model_never_publishes_pv3_energy(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(
+                return_value=SimpleNamespace(
+                    days=[SimpleNamespace(day=1, ePv1Day=3, ePv2Day=7, ePv3Day=9)]
+                )
+            ),
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 10}]}
+            ),
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 2},
+            "sensors": {},
         }
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        assert target["sensors"]["pv1_yield"] == 0.3
+        assert target["sensors"]["pv2_yield"] == 0.7
+        assert "pv3_yield" not in target["sensors"]
+        assert "pv3_yield_lifetime" not in target["sensors"]
+
+    async def test_unknown_string_count_does_not_mint_energy_keys(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(
+                return_value=SimpleNamespace(
+                    days=[SimpleNamespace(day=1, ePv1Day=3, ePv2Day=7, ePv3Day=9)]
+                )
+            ),
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 10}]}
+            ),
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        target: dict[str, Any] = {"features": {}, "sensors": {}}
+
+        await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        analytics.get_month_daily_energy.assert_not_awaited()
+        analytics.get_energy_total_breakdown.assert_not_awaited()
+        assert target["sensors"] == {}
+
+    async def test_unknown_string_count_refreshes_only_previously_published_keys(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(
+                return_value=SimpleNamespace(
+                    days=[SimpleNamespace(day=1, ePv1Day=4, ePv2Day=8, ePv3Day=9)]
+                )
+            ),
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 10}]}
+            ),
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "sensors": {
+                        "pv1_yield": 0.3,
+                        "pv2_yield": 0.7,
+                        "pv1_yield_lifetime": 0.9,
+                        "pv2_yield_lifetime": 0.9,
+                    }
+                }
+            }
+        }
+        target: dict[str, Any] = {"features": {}, "sensors": {}}
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        assert target["sensors"]["pv1_yield"] == 0.4
+        assert target["sensors"]["pv2_yield"] == 0.8
+        assert "pv3_yield" not in target["sensors"]
+        assert "pv3_yield_lifetime" not in target["sensors"]
+
+    async def test_unknown_string_count_does_not_mint_other_tier_for_known_string(
+        self, hass, mock_config_entry
+    ):
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(
+                return_value=SimpleNamespace(days=[SimpleNamespace(day=1, ePv3Day=9)])
+            ),
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 10}]}
+            ),
+        )
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        coordinator.data = {"devices": {self.SERIAL: {"sensors": {"pv3_yield": 0.8}}}}
+        target: dict[str, Any] = {"features": {}, "sensors": {}}
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+            return_value=self.TODAY,
+        ):
+            await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        assert target["sensors"]["pv3_yield"] == 0.9
+        assert "pv3_yield_lifetime" not in target["sensors"]
+        analytics.get_energy_total_breakdown.assert_not_awaited()
 
     async def test_skipped_tiers_fetch_immediately_after_local_link_drop(
         self, hass, mock_config_entry
@@ -7453,9 +8145,16 @@ class TestCloudPVStringEnergy:
         coordinator.data = {"devices": {self.SERIAL: {"sensors": previous}}}
         transport_energy = InverterEnergyData(
             pv1_energy_today=9.1,
+            pv2_energy_today=9.2,
+            pv3_energy_today=9.3,
             pv1_energy_total=91.0,
+            pv2_energy_total=92.0,
+            pv3_energy_total=93.0,
         )
-        hybrid_target: dict[str, Any] = {"sensors": {}}
+        hybrid_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
@@ -7467,9 +8166,16 @@ class TestCloudPVStringEnergy:
 
         assert hybrid_target["sensors"] == {}
         assert f"pv_string_daily_{self.SERIAL}" not in coordinator._last_status_fetch
-        assert f"pv_string_lifetime_{self.SERIAL}" not in coordinator._last_status_fetch
+        for string_number in range(1, 4):
+            assert (
+                f"pv_string_lifetime_{self.SERIAL}_{string_number}"
+                not in coordinator._last_status_fetch
+            )
 
-        cloud_target: dict[str, Any] = {"sensors": {}}
+        cloud_target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
         with (
             patch(
                 "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",

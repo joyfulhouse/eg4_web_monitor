@@ -60,7 +60,12 @@ from .coordinator_mappings import (
     drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
 )
-from .utils import clean_battery_display_name, is_offgrid_family, normalize_event_row
+from .utils import (
+    _resolve_statistics_timezone,
+    clean_battery_display_name,
+    is_offgrid_family,
+    normalize_event_row,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -531,6 +536,8 @@ if TYPE_CHECKING:
         _inverter_cache: dict[str, BaseInverter]
         _mid_device_cache: dict[str, Any]
         _firmware_cache: dict[str, str]
+        _pv_string_lifetime_year_counts: dict[tuple[str, int], int]
+        _pv_string_lifetime_floors: dict[tuple[str, int], float]
         _background_tasks: set[asyncio.Task[Any]]
         _api_semaphore: asyncio.Semaphore
         _http_polling_interval: int
@@ -991,19 +998,150 @@ class DeviceProcessingMixin(_MixinBase):
         target["last_event_detail"] = prev.get("last_event_detail")
 
     def _carry_forward_pv_string_energy(
-        self, serial: str, target: dict[str, Any]
+        self,
+        serial: str,
+        target: dict[str, Any],
+        string_numbers: Collection[int] | None = None,
+        suffixes: Collection[str] = ("yield", "yield_lifetime"),
     ) -> None:
         """Copy the previous cycle's cloud-capable PV string energy values."""
         prev_sensors = (
             (self.data or {}).get("devices", {}).get(serial, {}).get("sensors", {})
         )
         sensors = target["sensors"]
-        for string_number in range(1, 4):
-            for suffix in ("yield", "yield_lifetime"):
+        if string_numbers is None:
+            string_numbers = range(1, 7)
+        for string_number in string_numbers:
+            for suffix in suffixes:
+                if not self._pv_string_energy_key_is_publishable(
+                    serial, target, string_number, suffix
+                ):
+                    continue
                 key = f"pv{string_number}_{suffix}"
                 value = prev_sensors.get(key)
                 if value is not None:
                     sensors.setdefault(key, value)
+
+    def _pv_string_energy_key_is_publishable(
+        self,
+        serial: str,
+        target: dict[str, Any],
+        string_number: int,
+        suffix: str,
+    ) -> bool:
+        """Return whether one exact PV-string energy key is safe to publish."""
+        features = target.get("features") or {}
+        detected_count = features.get("pv_string_count")
+        if isinstance(detected_count, int) and not isinstance(detected_count, bool):
+            return 1 <= string_number <= min(max(detected_count, 0), 6)
+
+        prev_sensors = (
+            (self.data or {}).get("devices", {}).get(serial, {}).get("sensors", {})
+        )
+        # When detection is genuinely unknown, retain only the exact keys that
+        # already exist but do not mint new ones: brief feature-probe failures
+        # must not make a bogus key permanent in HA's entity registry, including
+        # the other energy tier for an otherwise known string.
+        return f"pv{string_number}_{suffix}" in prev_sensors
+
+    def _clear_pv_string_energy_fetch_stamps(self, serial: str) -> None:
+        """Clear PV-string tier stamps so the next healthy cycle refetches."""
+        stamps = getattr(self, "_last_status_fetch", None)
+        if stamps is None:
+            return
+        stamps.pop(f"pv_string_daily_{serial}", None)
+        stamps.pop(f"pv_string_lifetime_{serial}", None)
+        for string_number in range(1, 4):
+            stamps.pop(f"pv_string_lifetime_{serial}_{string_number}", None)
+
+    def _stamp_pv_string_energy_retry(
+        self, key: str, now: float, full_interval: float
+    ) -> None:
+        """Stamp a failed tier so it retries after the shared two-minute floor."""
+        retry_seconds = _PARAMETER_RETRY_INTERVAL.total_seconds()
+        self._last_status_fetch[key] = now - full_interval + retry_seconds
+
+    def _apply_pv_string_lifetime_floor(
+        self, serial: str, string_number: int, value: float
+    ) -> tuple[float, bool]:
+        """Apply the in-memory monotonic floor to one lifetime value."""
+        state_key = (serial, string_number)
+        previous = self._pv_string_lifetime_floors.get(state_key)
+        if previous is not None and value < previous:
+            _LOGGER.debug(
+                "Rejecting decreased PV%d lifetime energy for %s: new=%s, floor=%s",
+                string_number,
+                serial,
+                value,
+                previous,
+            )
+            return previous, False
+
+        # A physical inverter replacement that reuses the same serial remains
+        # pinned until HA restarts. That is the safe trade against permanently
+        # corrupting total_increasing statistics; lifetime counters otherwise
+        # only ever grow.
+        self._pv_string_lifetime_floors[state_key] = value
+        return value, True
+
+    def _accept_cloud_pv_string_lifetime(
+        self,
+        serial: str,
+        string_number: int,
+        rows: Any,
+        current_year: int,
+    ) -> tuple[float | None, bool]:
+        """Validate and total one cloud lifetime response."""
+        state_key = (serial, string_number)
+        previous_floor = self._pv_string_lifetime_floors.get(state_key)
+        if not rows:
+            return previous_floor, False
+
+        years: list[int] = []
+        raw_total = 0.0
+        has_energy = False
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError("PV string lifetime row is not a mapping")
+            raw_year = row.get("year")
+            if raw_year is None:
+                raw_year = row.get("period")
+            if raw_year is None:
+                raise ValueError("PV string lifetime row has no year or period")
+            years.append(int(raw_year))
+            raw_energy = row.get("energy")
+            if raw_energy is None:
+                raw_energy = row.get("value")
+            if raw_energy is not None:
+                raw_total += float(raw_energy)
+                has_energy = True
+
+        years.sort()
+        expected_years = list(range(years[0], current_year + 1))
+        previous_count = self._pv_string_lifetime_year_counts.get(state_key)
+        if years != expected_years or (
+            previous_count is not None and len(years) < previous_count
+        ):
+            _LOGGER.debug(
+                "Rejecting incomplete PV%d lifetime energy for %s: years=%s, "
+                "current_year=%d, previous_count=%s",
+                string_number,
+                serial,
+                years,
+                current_year,
+                previous_count,
+            )
+            return previous_floor, False
+
+        if not has_energy:
+            return previous_floor, False
+
+        value, accepted = self._apply_pv_string_lifetime_floor(
+            serial, string_number, raw_total / 10.0
+        )
+        if accepted:
+            self._pv_string_lifetime_year_counts[state_key] = len(years)
+        return value, accepted
 
     async def _fetch_pv_string_energy(
         self,
@@ -1015,15 +1153,16 @@ class DeviceProcessingMixin(_MixinBase):
 
         The cloud inverter-energy endpoint exposes only aggregate PV energy,
         while the monthColumn and totalColumn chart endpoints expose PV1-3.
-        A tier supplied by local transport energy is skipped entirely. Each
-        cloud-backed tier is throttled independently and carries the previous
-        cycle's values forward inside its throttle window or after a failed
-        fetch or parse. Missing methods are a silent no-op for older pylxpweb
-        versions.
+        The daily tier is fetched when any detected string is absent locally;
+        the lifetime tier requests only the absent strings. Each cloud-backed
+        tier is throttled independently and carries each missing response field
+        forward inside its throttle window, after a failed fetch or parse, and
+        after a successful partial response. Missing methods are a silent no-op
+        for older pylxpweb versions.
 
-        Fetching and parsing share one exception boundary per tier. An escaping
-        chart-schema error would reach the outer per-device handler and blank
-        every sensor on the inverter for that cycle.
+        Daily fetching and parsing share one exception boundary; lifetime
+        parsing and ordinary fetch errors are isolated per string. Nothing from
+        these chart endpoints escapes to the outer per-device handler.
         """
         client = self.client
         if client is None:
@@ -1044,20 +1183,42 @@ class DeviceProcessingMixin(_MixinBase):
         now = time.monotonic()
         daily_values: dict[str, float] | None = None
         lifetime_values: dict[str, float] | None = None
-
-        # PV1 is the sentinel that local transport supplies per-string energy.
-        # A partial read with PV1 but no PV2/PV3 is not cloud-topped-up: local
-        # transport remains authoritative about which strings exist.
-        has_local_daily = (
-            transport_energy is not None
-            and transport_energy.pv1_energy_today is not None
+        daily_strings = tuple(
+            string_number
+            for string_number in range(1, 4)
+            if self._pv_string_energy_key_is_publishable(
+                serial, target, string_number, "yield"
+            )
         )
-        has_local_lifetime = (
-            transport_energy is not None
-            and transport_energy.pv1_energy_total is not None
+        lifetime_strings = tuple(
+            string_number
+            for string_number in range(1, 4)
+            if self._pv_string_energy_key_is_publishable(
+                serial, target, string_number, "yield_lifetime"
+            )
+        )
+        if not daily_strings and not lifetime_strings:
+            return
+
+        missing_daily_strings = tuple(
+            string_number
+            for string_number in daily_strings
+            if transport_energy is None
+            or getattr(transport_energy, f"pv{string_number}_energy_today", None)
+            is None
+        )
+        missing_lifetime_strings = tuple(
+            string_number
+            for string_number in lifetime_strings
+            if transport_energy is None
+            or getattr(transport_energy, f"pv{string_number}_energy_total", None)
+            is None
         )
 
-        if callable(fetch_daily) and not has_local_daily:
+        if callable(fetch_daily) and missing_daily_strings:
+            self._carry_forward_pv_string_energy(
+                serial, target, daily_strings, ("yield",)
+            )
             daily_key = f"pv_string_daily_{serial}"
             # "Never fetched" is a None sentinel, NOT a 0.0 default:
             # time.monotonic() is host uptime on Linux, so on a freshly booted
@@ -1069,10 +1230,11 @@ class DeviceProcessingMixin(_MixinBase):
                 last_daily_fetch is not None
                 and now - last_daily_fetch < PV_STRING_ENERGY_FETCH_INTERVAL
             ):
-                self._carry_forward_pv_string_energy(serial, target)
+                pass
             else:
+                daily_fetch_succeeded = False
                 try:
-                    local_now = dt_util.now()
+                    local_now = dt_util.now(_resolve_statistics_timezone(self))
                     response = await asyncio.wait_for(
                         fetch_daily(serial, local_now.year, local_now.month),
                         timeout=PV_STRING_ENERGY_CLOUD_TIMEOUT,
@@ -1085,11 +1247,9 @@ class DeviceProcessingMixin(_MixinBase):
                         ),
                         None,
                     )
-                    if today_entry is None:
-                        self._carry_forward_pv_string_energy(serial, target)
-                    else:
+                    if today_entry is not None:
                         parsed_daily_values: dict[str, float] = {}
-                        for string_number in range(1, 4):
+                        for string_number in daily_strings:
                             raw_value = getattr(
                                 today_entry, f"ePv{string_number}Day", None
                             )
@@ -1098,70 +1258,122 @@ class DeviceProcessingMixin(_MixinBase):
                                     float(raw_value) / 10.0
                                 )
                         daily_values = parsed_daily_values
+                        daily_fetch_succeeded = True
                 except Exception as e:
                     _LOGGER.debug(
                         "Could not fetch cloud PV string daily energy for %s: %s",
                         serial,
                         e,
                     )
-                    self._carry_forward_pv_string_energy(serial, target)
-                self._last_status_fetch[daily_key] = now
+                if daily_fetch_succeeded:
+                    self._last_status_fetch[daily_key] = now
+                else:
+                    self._stamp_pv_string_energy_retry(
+                        daily_key, now, PV_STRING_ENERGY_FETCH_INTERVAL
+                    )
 
-        if callable(fetch_lifetime) and not has_local_lifetime:
-            lifetime_key = f"pv_string_lifetime_{serial}"
-            # Use the same None-sentinel constraint as the daily tier so the
-            # first lifetime fetch always runs even early in host uptime.
-            last_lifetime_fetch = self._last_status_fetch.get(lifetime_key)
-            if (
-                last_lifetime_fetch is not None
-                and now - last_lifetime_fetch < PV_STRING_LIFETIME_FETCH_INTERVAL
-            ):
-                self._carry_forward_pv_string_energy(serial, target)
-            else:
+        if callable(fetch_lifetime) and missing_lifetime_strings:
+            self._carry_forward_pv_string_energy(
+                serial, target, missing_lifetime_strings, ("yield_lifetime",)
+            )
+            due_lifetime_strings: list[int] = []
+            for string_number in missing_lifetime_strings:
+                lifetime_key = f"pv_string_lifetime_{serial}_{string_number}"
+                # Use the same None-sentinel constraint as the daily tier so
+                # every string's first lifetime fetch runs early in host uptime.
+                last_lifetime_fetch = self._last_status_fetch.get(lifetime_key)
+                if (
+                    last_lifetime_fetch is None
+                    or now - last_lifetime_fetch >= PV_STRING_LIFETIME_FETCH_INTERVAL
+                ):
+                    due_lifetime_strings.append(string_number)
+
+            if due_lifetime_strings:
                 try:
                     responses = await asyncio.wait_for(
                         asyncio.gather(
                             *(
                                 fetch_lifetime(serial, f"ePv{string_number}Day")
-                                for string_number in range(1, 4)
-                            )
+                                for string_number in due_lifetime_strings
+                            ),
+                            return_exceptions=True,
                         ),
                         timeout=PV_STRING_ENERGY_CLOUD_TIMEOUT,
                     )
-                    parsed_lifetime_values: dict[str, float] = {}
-                    for string_number, response in enumerate(responses, start=1):
-                        rows = response.get("data")
-                        if rows is None:
-                            rows = response.get("dataPoints")
-                        raw_total = 0.0
-                        has_energy = False
-                        for row in rows or []:
-                            raw_energy = row.get("energy")
-                            if raw_energy is not None:
-                                raw_total += float(raw_energy)
-                                has_energy = True
-                        if has_energy:
-                            parsed_lifetime_values[
-                                f"pv{string_number}_yield_lifetime"
-                            ] = raw_total / 10.0
-                    lifetime_values = parsed_lifetime_values
                 except Exception as e:
                     _LOGGER.debug(
                         "Could not fetch cloud PV string lifetime energy for %s: %s",
                         serial,
                         e,
                     )
-                    self._carry_forward_pv_string_energy(serial, target)
-                self._last_status_fetch[lifetime_key] = now
+                    for string_number in due_lifetime_strings:
+                        lifetime_key = f"pv_string_lifetime_{serial}_{string_number}"
+                        self._stamp_pv_string_energy_retry(
+                            lifetime_key, now, PV_STRING_LIFETIME_FETCH_INTERVAL
+                        )
+                else:
+                    parsed_lifetime_values: dict[str, float] = {}
+                    current_year = dt_util.now(_resolve_statistics_timezone(self)).year
+                    for string_number, response in zip(
+                        due_lifetime_strings, responses, strict=True
+                    ):
+                        lifetime_key = f"pv_string_lifetime_{serial}_{string_number}"
+                        if isinstance(response, asyncio.CancelledError):
+                            raise response
+                        if isinstance(response, BaseException):
+                            _LOGGER.debug(
+                                "Could not fetch cloud PV%d lifetime energy for %s: %s",
+                                string_number,
+                                serial,
+                                response,
+                            )
+                            self._stamp_pv_string_energy_retry(
+                                lifetime_key,
+                                now,
+                                PV_STRING_LIFETIME_FETCH_INTERVAL,
+                            )
+                            continue
+                        try:
+                            # ``data``/{year,energy} is the live-verified shape;
+                            # dataPoints/{period,value} is pylxpweb's documented
+                            # fallback shape.
+                            rows = response.get("data")
+                            if rows is None:
+                                rows = response.get("dataPoints")
+                            value, accepted = self._accept_cloud_pv_string_lifetime(
+                                serial, string_number, rows, current_year
+                            )
+                        except Exception as e:
+                            _LOGGER.debug(
+                                "Could not parse cloud PV%d lifetime energy for %s: %s",
+                                string_number,
+                                serial,
+                                e,
+                            )
+                            self._stamp_pv_string_energy_retry(
+                                lifetime_key,
+                                now,
+                                PV_STRING_LIFETIME_FETCH_INTERVAL,
+                            )
+                            continue
+                        if value is not None:
+                            parsed_lifetime_values[
+                                f"pv{string_number}_yield_lifetime"
+                            ] = value
+                        if accepted:
+                            self._last_status_fetch[lifetime_key] = now
+                        else:
+                            self._stamp_pv_string_energy_retry(
+                                lifetime_key,
+                                now,
+                                PV_STRING_LIFETIME_FETCH_INTERVAL,
+                            )
+                    lifetime_values = parsed_lifetime_values
 
         sensors = target["sensors"]
         if daily_values is not None:
-            for string_number in range(1, 4):
-                sensors.pop(f"pv{string_number}_yield", None)
             sensors.update(daily_values)
         if lifetime_values is not None:
-            for string_number in range(1, 4):
-                sensors.pop(f"pv{string_number}_yield_lifetime", None)
             sensors.update(lifetime_values)
 
     async def _fetch_last_event(self, serial: str, target: dict[str, Any]) -> None:
@@ -1793,8 +2005,29 @@ class DeviceProcessingMixin(_MixinBase):
             # register contract harness can verify them against the
             # canonical register tables.
             for sensor_key, energy_attr in _ENERGY_OVERLAY:
+                string_number: int | None = None
+                if sensor_key.startswith("pv") and "_yield" in sensor_key:
+                    string_number = int(sensor_key[2 : sensor_key.index("_")])
+                    suffix = (
+                        "yield_lifetime"
+                        if sensor_key.endswith("_yield_lifetime")
+                        else "yield"
+                    )
+                    if not self._pv_string_energy_key_is_publishable(
+                        inverter.serial_number,
+                        processed,
+                        string_number,
+                        suffix,
+                    ):
+                        continue
                 value = getattr(transport_energy, energy_attr, None)
                 if value is not None:
+                    if sensor_key.endswith("_yield_lifetime"):
+                        value, _accepted = self._apply_pv_string_lifetime_floor(
+                            inverter.serial_number,
+                            cast(int, string_number),
+                            float(value),
+                        )
                     sensors[sensor_key] = value
 
         # Drop per-inverter grid per-leg voltage when it reads 0/None.  In
@@ -1956,6 +2189,10 @@ class DeviceProcessingMixin(_MixinBase):
             inverter, "has_runtime_data", False
         ):
             blank_lost_inverter_measurements(processed)
+            # PV-string chart values were blanked with the other measurements.
+            # Clear both tier stamps here so the first healthy cycle refetches
+            # instead of carrying None until the 5/60-minute window expires.
+            self._clear_pv_string_energy_fetch_stamps(inverter.serial_number)
         elif transport_runtime is not None and getattr(
             getattr(inverter, "_runtime", None), "lost", False
         ):

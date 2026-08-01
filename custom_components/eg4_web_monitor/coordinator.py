@@ -318,6 +318,13 @@ class EG4DataUpdateCoordinator(
         self._inverter_cache: dict[str, BaseInverter] = {}
         self._firmware_cache: dict[str, str] = {}
 
+        # Cloud per-string lifetime totals are reconstructed by summing yearly
+        # chart rows. Track only this coordinator instance's accepted response
+        # shape and floor so incomplete/reordered cloud payloads cannot create
+        # false total_increasing resets in Home Assistant statistics.
+        self._pv_string_lifetime_year_counts: dict[tuple[str, int], int] = {}
+        self._pv_string_lifetime_floors: dict[tuple[str, int], float] = {}
+
         # Per-serial Quick Charge duration preference (minutes), set via the
         # Quick Charge Duration number entity. Defaults to
         # QUICK_CHARGE_DURATION_DEFAULT when a serial has no stored value.

@@ -1419,9 +1419,9 @@ value; the `status_code` sensor retains it for diagnosis).
 
 - **Data source**: Both LOCAL (Modbus for runtime) and CLOUD (API for supplemental)
 - **Priority**: LOCAL data preferred when available; CLOUD fills gaps
-- **PV1-3 energy**: Local transport suppresses each cloud chart tier it supplies;
-  a healthy local daily+lifetime read makes 0 per-string analytics
-  requests/hour/inverter
+- **PV1-3 energy**: 0 analytics requests/hour when local supplies every string
+  in both tiers. Otherwise the shared daily request runs when any daily string
+  is missing, and lifetime requests run only for the missing lifetime strings.
 - **Transport-exclusive overlay**: When local transport is attached, Modbus-only sensors are overlaid onto cloud data via `_TRANSPORT_OVERLAY` in `coordinator_mixins.py`: `bt_temperature`, `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`, `grid_voltage_l1/l2`, `eps_voltage_l1/l2`, `load_power` (reg 170, #197), `fault_code`/`warning_code` (regs 60-63, eg4-23a6)
 - **GridBOSS overlay**: `apply_gridboss_overlay()` merges CT data onto parallel group
 - **Consumption**: Uses GridBOSS CT `load_power` when GridBOSS present

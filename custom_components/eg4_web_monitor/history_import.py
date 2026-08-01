@@ -90,7 +90,7 @@ from .const import (
     CONNECTION_TYPE_HYBRID,
     DOMAIN,
 )
-from .services import _get_station_timezone
+from .utils import _resolve_statistics_timezone
 
 if TYPE_CHECKING:
     from .coordinator import EG4DataUpdateCoordinator
@@ -542,35 +542,6 @@ async def _fetch_daily_values(
             await asyncio.sleep(FETCH_DELAY_SECONDS)
 
     return accumulated, api_calls
-
-
-def _is_fixed_offset_timezone(tz: Any) -> bool:
-    """Return True for zones without DST rules.
-
-    ``_get_station_timezone()`` parses cloud strings like "GMT -8" into
-    ``Etc/GMT±N`` zoneinfo zones; plain ``datetime.timezone`` offsets have
-    no ``key`` attribute at all. Genuine IANA zones (e.g.
-    "America/Los_Angeles", "Asia/Kathmandu") keep their own key and are
-    not considered fixed.
-    """
-    key = getattr(tz, "key", None)
-    return key is None or str(key).startswith("Etc/")
-
-
-def _resolve_statistics_timezone(coordinator: EG4DataUpdateCoordinator) -> Any:
-    """Pick the timezone used to place daily statistics rows.
-
-    Prefer Home Assistant's configured (IANA, DST-aware) timezone whenever
-    the station timezone is unknown, unparsable (e.g. "GMT +5:30"), or a
-    fixed offset — fixed offsets would drift daily rows to 01:00 local
-    for half the year under DST. The HA instance lives at the plant in
-    essentially all deployments, so its timezone is the best DST-aware
-    proxy. A genuine IANA station timezone is used as-is.
-    """
-    station_tz = _get_station_timezone(coordinator)
-    if station_tz is None or _is_fixed_offset_timezone(station_tz):
-        return dt_util.DEFAULT_TIME_ZONE
-    return station_tz
 
 
 def _resolve_stored_tz(tz_key: str) -> Any:
