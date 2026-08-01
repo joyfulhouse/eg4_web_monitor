@@ -1290,9 +1290,13 @@ class DeviceProcessingMixin(_MixinBase):
         ints; ``start_pv_power`` is kW and ``start_volt``/``end_volt`` are
         volts, both floats at the portal's 0.1 resolution; ``enabled`` is the
         FUNC_SMART_LOAD_ENABLE state. Every field is ``None`` on a device that
-        does not carry the param — a GridBOSS exposes FUNC_SMART_LOAD_ENABLE
-        but none of the five ``_12K_HOLD_*`` holdParams (live probe 2026-08-01),
-        so a partly-populated store is the expected shape, not an anomaly.
+        does not carry the param, so a partly-populated store is an expected
+        shape rather than an anomaly: the cloud demonstrably answers with the
+        function param present and all five ``_12K_HOLD_*`` holdParams missing
+        — that is what a GridBOSS returns (live probe 2026-08-01). This store
+        is only ever built for inverters (it is fetched from the inverter
+        processing path), so the shape matters here for an inverter whose read
+        comes back partial, not for a GridBOSS.
         """
         await self._fetch_cloud_param_store(SMART_LOAD_STORE, inverter, target)
 

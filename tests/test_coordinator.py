@@ -8153,9 +8153,12 @@ class TestSmartLoadStore:
         assert second["smart_load"] is first["smart_load"]
 
     async def test_gridboss_shape_stored_as_none(self, hass, mock_config_entry):
-        """The live GridBOSS answer: the function param present, all five
-        thresholds absent. The Nones must be stored, not dropped or zeroed —
-        the entities key their availability off exactly this."""
+        """A getter answer in the partial shape the cloud is known to produce
+        — function param present, all five thresholds absent (what a GridBOSS
+        returns; the store itself is only ever built for inverters, so this
+        stands in for an inverter answering the same way). The Nones must be
+        stored, not dropped or zeroed — the entities key their availability
+        off exactly this."""
         coordinator = self._coordinator(
             hass,
             mock_config_entry,

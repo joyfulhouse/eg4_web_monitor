@@ -640,8 +640,9 @@ async def async_setup_entry(
                 # entities exist only where a cloud client can read and write
                 # them. NOT family-gated: the params answered on an 18kPV and
                 # a FlexBOSS21 in the maintainer's own plant and the reporter
-                # runs them on a 12000XP (EG4_OFFGRID). A device that lacks
-                # them (a GridBOSS does) reads None and goes unavailable.
+                # runs them on a 12000XP (EG4_OFFGRID). An INVERTER whose read
+                # omits them reads None and goes unavailable — this block is
+                # inverter-only, so a GridBOSS never reaches it at all.
                 if coordinator.has_http_api():
                     entities.extend(
                         SmartLoadNumber(coordinator, serial, spec)
@@ -1799,10 +1800,13 @@ class SmartLoadNumber(EG4BaseNumberEntity):
     carry-forward + post-write seeding) in every mode, and writes always route
     through the cloud client.
 
-    Unavailable while the value is absent from the store. That is a live case,
-    not a theoretical one: a GridBOSS reports FUNC_SMART_LOAD_ENABLE but none
-    of the five holdParams (live probe 2026-08-01), so these must never render
-    a confident 0 on a device that simply does not carry the param.
+    Unavailable while the value is absent from the store — never a confident 0
+    on an inverter that does not carry the param. That the cloud really does
+    answer with FUNC_SMART_LOAD_ENABLE present and all five holdParams missing
+    is established, not assumed: it is what a GridBOSS returns (live probe
+    2026-08-01). A GridBOSS itself never gets these entities — setup creates
+    them only for inverters — so the case this guards is an INVERTER whose
+    portal read comes back in that same partial shape.
 
     Disabled by default: niche, and the WRITE path is unverified on hardware
     (#484's read-verified/write-unverified position, awaiting the reporter).

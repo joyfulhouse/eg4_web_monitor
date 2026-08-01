@@ -3040,8 +3040,11 @@ class TestSmartLoadNumbers:
         assert entity.native_value == 53.6
 
     def test_gridboss_shape_reads_unavailable(self):
-        """The live GridBOSS shape: FUNC_SMART_LOAD_ENABLE present, all five
-        thresholds absent. Every number must be unavailable — never 0."""
+        """An inverter read that comes back in the partial shape the cloud is
+        known to produce — FUNC_SMART_LOAD_ENABLE present, all five thresholds
+        absent (what a GridBOSS returns; a GridBOSS never gets these entities,
+        so the case that matters is an inverter answering the same way). Every
+        number must be unavailable — never 0."""
         coordinator = self._coordinator(
             store={
                 "enabled": False,
