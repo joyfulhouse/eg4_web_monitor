@@ -50,7 +50,7 @@ from .coordinator_mixins import (
     compute_total_inverter_power_kw,
     is_transport_link_down,
 )
-from .utils import cloud_battery_key
+from .utils import battery_row_is_absent, cloud_battery_key
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1078,11 +1078,10 @@ class HTTPUpdateMixin(_MixinBase):
                 # Overlay transport real-time data matched by serial
                 transport_matched = 0
                 for batt in transport_batteries or []:
-                    # Skip ghost batteries (no real data) — matches pylxpweb's
-                    # canonical ghost definition (BatteryData voltage/soc are
-                    # non-optional, defaulting to 0, so an empty 5002+ slot reads
-                    # 0/0 rather than None).
-                    if batt.voltage == 0 and batt.soc == 0:
+                    # Skip empty register slots only, via pylxpweb's canonical
+                    # definition — a row that kept live current or temperature
+                    # after losing its cell block still overlays (#506).
+                    if battery_row_is_absent(batt):
                         continue
                     bat_serial: str = getattr(batt, "serial_number", "") or ""
                     if not bat_serial or bat_serial not in cloud_by_serial:
@@ -1300,11 +1299,12 @@ class HTTPUpdateMixin(_MixinBase):
             # cloud baseline.  Only a block read within the window exempts.
             cloud_bank = getattr(inverter, "_battery_bank", None)
             transport_battery = getattr(inverter, "transport_battery", None)
-            # Ghost predicate mirrors the rr merge: an empty 5002+ slot reads
-            # 0 V/0 % (BatteryData fields are non-optional) — a fresh ghost
-            # carries no data and must not exempt either.
+            # Ghost predicate mirrors the rr merge through the same shared
+            # helper (#506) so the two cannot drift: an empty 5002+ slot
+            # carries no data and must not exempt either, while a
+            # present-but-degraded row is real transport data and does.
             has_fresh_transport_batt = any(
-                not (getattr(batt, "voltage", 0) == 0 and getattr(batt, "soc", 0) == 0)
+                not battery_row_is_absent(batt)
                 and (last_seen := getattr(batt, "last_seen", None)) is not None
                 and dt_util.utcnow() - dt_util.as_utc(last_seen)
                 <= HYBRID_TRANSPORT_FRESHNESS

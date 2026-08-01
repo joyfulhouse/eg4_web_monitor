@@ -3353,6 +3353,100 @@ class TestBatteryRRCacheFallback:
         )
 
 
+class TestCanonicalAbsentPredicateInRRMerge:
+    """#506: the round-robin merge honours pylxpweb's canonical empty-slot rule.
+
+    A master that loses its cell block but keeps live current/temperature is
+    present-but-degraded.  pylxpweb's bank keeps it (#249/#248); before #506
+    the merge's inline 0 V/0 % predicate dropped it again, so the sentinel work
+    delivered no user-visible benefit.
+    """
+
+    @staticmethod
+    def _make_config_entry(hass: Any, serial: str) -> MockConfigEntry:
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Absent Predicate Test",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": serial,
+                        "host": "192.168.1.100",
+                        "port": 8899,
+                        "transport_type": "wifi_dongle",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                        "parallel_number": 0,
+                        "parallel_master_slave": 0,
+                    },
+                ],
+            },
+            options={},
+            entry_id="absent_predicate_test",
+        )
+        entry.add_to_hass(hass)
+        return entry
+
+    async def test_degraded_row_retained_when_is_absent_available(self, hass):
+        """With pylxpweb >= 0.9.39b6 the degraded row survives the merge."""
+        from custom_components.eg4_web_monitor.utils import local_battery_key
+
+        class _DegradedBattery(BatteryData):
+            """Row whose cell block is gone but whose current is still live."""
+
+            def is_absent(self) -> bool:
+                return False
+
+        class _EmptySlot(BatteryData):
+            """Genuinely empty 5002+ slot."""
+
+            def is_absent(self) -> bool:
+                return True
+
+        serial = "DONGLE506"
+        coordinator = EG4DataUpdateCoordinator(
+            hass, self._make_config_entry(hass, serial)
+        )
+
+        degraded = _DegradedBattery(
+            battery_index=0, serial_number="BATDEGRADED1", voltage=0.0, soc=0
+        )
+        empty = _EmptySlot(
+            battery_index=1, serial_number="BATEMPTY00001", voltage=0.0, soc=0
+        )
+
+        merged = coordinator._merge_round_robin_batteries(serial, [degraded, empty])
+
+        key_degraded = local_battery_key(serial, "BATDEGRADED1", 0)
+        assert key_degraded in merged, "present-but-degraded battery was dropped"
+        assert local_battery_key(serial, "BATEMPTY00001", 1) not in merged
+
+    async def test_degraded_row_dropped_on_older_pylxpweb(self, hass):
+        """Without is_absent() the pre-#506 voltage/SOC behaviour is preserved.
+
+        This pins the pin-gated rollout: CI runs against a pylxpweb that has no
+        is_absent(), so this is the path CI actually exercises today.
+        """
+        serial = "DONGLE506OLD"
+        coordinator = EG4DataUpdateCoordinator(
+            hass, self._make_config_entry(hass, serial)
+        )
+
+        degraded = BatteryData(
+            battery_index=0, serial_number="BATDEGRADED1", voltage=0.0, soc=0
+        )
+        assert not hasattr(degraded, "is_absent"), (
+            "pylxpweb now ships is_absent(); this test's premise needs revisiting"
+        )
+
+        merged = coordinator._merge_round_robin_batteries(serial, [degraded])
+
+        assert merged == {}
+
+
 class TestBatteryControlModeMethods:
     """Coordinator helpers for the battery control regime (SOC vs Voltage)."""
 
