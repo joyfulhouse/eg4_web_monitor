@@ -1746,6 +1746,100 @@ class TestFinishAttachRecovery:
 
         assert coordinator.data["parameters"]["1234567890"] == {}
 
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_failed_reload_rearms_an_early_parameter_refresh(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """A failed reload must not strand blanked caches for the interval.
+
+        The pre-blank is deliberate (unknown beats wrong-by-10x) and stays.
+        But #497 made its cost visible: switches flagged requires_known_state
+        read UNAVAILABLE on an empty cache instead of a fake OFF, so without
+        this the controls would sit unavailable until the hourly refresh.
+        Clearing the refresh stamp makes _should_refresh_parameters() report
+        due on the next update cycle, still floored at ~2 minutes by the #282
+        attempt floor.
+        """
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator.data = {
+            "parameters": {"1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12}}
+        }
+        coordinator._last_parameter_refresh = dt_util.utcnow()
+        coordinator._last_parameter_attempt = None
+
+        async def boom(serial):
+            raise RuntimeError("dongle went away mid-reload")
+
+        with patch.object(coordinator, "_refresh_device_parameters", side_effect=boom):
+            await coordinator._finish_attach_recovery([], ["1234567890"])
+
+        assert coordinator.data["parameters"]["1234567890"] == {}
+        assert coordinator._last_parameter_refresh is None
+        # ...and that actually translates into a due refresh, rather than
+        # merely a cleared attribute nothing consults.
+        assert coordinator._should_refresh_parameters() is True
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_silently_failed_reload_also_rearms(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """The swallowed-failure mode re-arms too.
+
+        pylxpweb raises nothing when a parameter read fails inside refresh(),
+        so keying the retry off exceptions alone would miss the exact case
+        that motivated pre-blanking in the first place. A falsy return means
+        the cache was not repopulated, which is all that matters here.
+        """
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator.data = {
+            "parameters": {"1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12}}
+        }
+        coordinator._last_parameter_refresh = dt_util.utcnow()
+        coordinator._last_parameter_attempt = None
+
+        async def silent_noop(serial):
+            return False
+
+        with patch.object(
+            coordinator, "_refresh_device_parameters", side_effect=silent_noop
+        ):
+            await coordinator._finish_attach_recovery([], ["1234567890"])
+
+        assert coordinator._last_parameter_refresh is None
+        assert coordinator._should_refresh_parameters() is True
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_successful_reload_does_not_rearm(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ):
+        """The re-arm is scoped to failure — a good reload leaves the
+        schedule alone, so recovery does not drag every inverter's parameter
+        read forward on every successful attach."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator.data = {
+            "parameters": {"1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12}}
+        }
+        stamped = dt_util.utcnow()
+        coordinator._last_parameter_refresh = stamped
+
+        async def good(serial):
+            coordinator.data["parameters"][serial] = {"HOLD_AC_CHARGE_POWER_CMD": 120}
+            return True
+
+        with patch.object(coordinator, "_refresh_device_parameters", side_effect=good):
+            await coordinator._finish_attach_recovery([], ["1234567890"])
+
+        assert coordinator._last_parameter_refresh == stamped
+        assert coordinator.data["parameters"]["1234567890"] == {
+            "HOLD_AC_CHARGE_POWER_CMD": 120
+        }
+
 
 @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
 @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")

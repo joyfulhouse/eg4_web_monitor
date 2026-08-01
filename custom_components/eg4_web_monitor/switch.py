@@ -1058,6 +1058,26 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
                 legacy_attributes["optimistic_state"] = self._optimistic_state
             return legacy_attributes if legacy_attributes else None
 
+        # A known-state mode with no known state publishes nothing, matching
+        # the legacy branch above, which returns None when it has no value
+        # (GH #497 review: Charge Last returned None on an absent key while
+        # Share Battery still returned a full metadata dict — two switches of
+        # the same class disagreeing on the same input). The entity is
+        # unavailable in this state, so a dict here is decoration on a control
+        # that is reporting "I do not know".
+        #
+        # Scoped to requires_known_state deliberately. Unflagged modes keep
+        # publishing their metadata unconditionally (pinned for ac_charge_mode),
+        # and the reverse alignment — giving Charge Last the generic attrs — is
+        # prohibited: legacy_attrs exists to preserve its exact pre-fold
+        # attribute shape, which is pinned to EXCLUDE them.
+        if (
+            self._mode_config.get("requires_known_state")
+            and not self._state_key_present
+            and self._optimistic_state is None
+        ):
+            return None
+
         attributes: dict[str, Any] = {
             "description": self._mode_config["description"],
             "function_parameter": self._mode_config["param"],

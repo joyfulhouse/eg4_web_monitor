@@ -19,6 +19,7 @@ from custom_components.eg4_web_monitor.const import (
     WORKING_MODES,
 )
 import custom_components.eg4_web_monitor.switch as switch_module
+from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.utils import is_family_control_supported
 from custom_components.eg4_web_monitor.switch import (
     _supports_eps_battery_backup,
@@ -3749,19 +3750,73 @@ class TestKnownStateWorkingModeParity:
         grid_always_on = _make_grid_always_on_switch(coordinator)
         assert (grid_always_on.available, grid_always_on.is_on) == reference
 
-    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
-    def test_partial_read_dropping_the_key_stops_reporting_off(self, mode_key, param):
-        """A later read that omits the key reverts to unknown, not to OFF.
+    @pytest.mark.asyncio
+    async def test_partial_read_dropping_the_key_stops_reporting_off(self):
+        """A refresh whose result omits the key reverts to unknown, not OFF.
 
-        `_refresh_device_parameters` replaces the cache wholesale, so a read
-        that did not cover register 110 leaves the key absent. Same shape the
-        Off-Grid Mode switch is already pinned against.
+        Driven through the REAL write path — the coordinator's own
+        ``_refresh_device_parameters``, with pylxpweb's inverter object
+        supplying the post-read ``parameters`` — rather than by assigning the
+        end state into ``coordinator.data``. Injecting the end state asserts
+        only that the entity reads a dict it was handed; a regression in how
+        the refresh merges or replaces the cache would not fail it. Review
+        finding.
+
+        Note this is the LOCAL wholesale-replace case: pylxpweb's #282 sticky
+        carry-forward protects a PARTIAL read (some ranges failed) by merging
+        over last-known values, so it does not fire for a read that succeeds
+        while genuinely no longer reporting the function.
         """
-        coordinator = _mock_coordinator(parameters={param: True})
-        switch = self._switch(coordinator, mode_key)
-        assert switch.is_on is True
+        coordinator = EG4DataUpdateCoordinator.__new__(EG4DataUpdateCoordinator)
+        coordinator.data = {
+            "devices": {"1234567890": {"type": "inverter", "model": "FlexBOSS21"}},
+            "parameters": {
+                "1234567890": {"FUNC_CHARGE_LAST": True, "FUNC_BAT_SHARED": True}
+            },
+        }
+        inverter = MagicMock()
+        inverter.refresh = AsyncMock()
+        inverter.parameters = {"FUNC_BUZZER_EN": True}
+        coordinator.get_inverter_object = MagicMock(return_value=inverter)
 
-        coordinator.data["parameters"]["1234567890"] = {"FUNC_BUZZER_EN": True}
+        entity_coordinator = _mock_coordinator(
+            parameters=coordinator.data["parameters"]["1234567890"]
+        )
+        switches = {
+            mode_key: self._switch(entity_coordinator, mode_key)
+            for mode_key, _ in self.KNOWN_STATE_MODES
+        }
+        for mode_key, switch in switches.items():
+            assert switch.is_on is True, mode_key
 
-        assert switch.available is False
-        assert switch.is_on is None
+        assert await coordinator._refresh_device_parameters("1234567890") is True
+        inverter.refresh.assert_awaited_once()
+        entity_coordinator.data["parameters"]["1234567890"] = coordinator.data[
+            "parameters"
+        ]["1234567890"]
+
+        for mode_key, switch in switches.items():
+            assert switch.available is False, mode_key
+            assert switch.is_on is None, mode_key
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_absent_state_publishes_no_attributes(self, mode_key, param):
+        """Unknown state publishes no attributes, on BOTH switches.
+
+        Charge Last (legacy_attrs) returned None on an absent key while Share
+        Battery returned a full static metadata dict — two switches of the
+        same class disagreeing on the same input. Review finding; aligned on
+        the None side, because the reverse would violate the pinned pre-fold
+        attribute shape of Charge Last.
+        """
+        switch = self._switch(_mock_coordinator(parameters={}), mode_key)
+
+        assert switch.extra_state_attributes is None
+
+    @pytest.mark.parametrize("mode_key,param", KNOWN_STATE_MODES)
+    def test_known_state_still_publishes_attributes(self, mode_key, param):
+        """The suppression above is scoped to UNKNOWN state, not to these
+        modes wholesale — a real value restores normal attributes."""
+        switch = self._switch(_mock_coordinator(parameters={param: True}), mode_key)
+
+        assert switch.extra_state_attributes
