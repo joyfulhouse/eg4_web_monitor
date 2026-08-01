@@ -1021,8 +1021,8 @@ class TestACCoupleSwitch:
     def _switch(cls, coordinator, *, local_capable: bool = True):
         """Build the switch with the pylxpweb version guard forced.
 
-        The reg-179 bit-11 mapping lands in the next pylxpweb release (GH
-        #472; 0.9.39b6 planned), so
+        The reg-179 bit-11 mapping ships in pylxpweb 0.9.39b6 (GH #472), the
+        manifest floor, so
         the guard's answer depends on the pylxpweb the test env happens to
         have installed. Pinning that mapping is the register contract
         harness's job (``_CONTROL_REGISTER_CONTRACT``); these behavioral

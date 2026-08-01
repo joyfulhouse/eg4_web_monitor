@@ -233,8 +233,8 @@ async def async_setup_entry(
                 # family-gated. Devices that truly lack the param read None
                 # from both routes and the switch goes unavailable instead.
                 # The local half needs the installed pylxpweb to decode the
-                # name from a register — the release carrying the bit-11
-                # mapping (0.9.39b6 planned) — probed the same way the working
+                # name from a register — 0.9.39b6 carries the bit-11 mapping
+                # and is the manifest floor — probed the same way the working
                 # modes probe theirs, by asking the map rather than trusting a
                 # version string.
                 #

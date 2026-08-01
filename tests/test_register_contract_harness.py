@@ -1325,9 +1325,9 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # on some other function with nothing to fall back to. Wired bespoke in
     # switch.EG4ACCoupleSwitch (not _WORKING_MODE_PARAMETERS), so the
     # register-scoped guard below cannot see it — this pin and the switch's
-    # behavioral tests are the coverage. Resolvable from the pylxpweb release
-    # carrying the bit-11 mapping (0.9.39b6 planned); DELIBERATELY RED against
-    # any older pylxpweb, like bit 3 was against 0.9.36b6.
+    # behavioral tests are the coverage. Resolves from pylxpweb 0.9.39b6, the
+    # manifest floor; this entry was DELIBERATELY RED until that release
+    # landed, like bit 3 was against 0.9.36b6.
     PARAM_FUNC_AC_COUPLING_FUNCTION: (179, 11),
     # Reg 233 bit 1 is live-verified; known to BOTH pylxpweb tables (canonical
     # holding entry added in eg4-6ag2), so the inter-table check below covers it.
