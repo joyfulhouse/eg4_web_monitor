@@ -8063,6 +8063,304 @@ class TestACCoupleSOCStore:
         assert store["fetched_at"] > 1.0
 
 
+class TestSmartLoadStore:
+    """Dedicated smart_load device-data store (GH #499).
+
+    Rides the same spec-driven cloud-only store machinery as the AC Couple
+    SOC window above (CloudParamStoreSpec): throttled 5-minute
+    get_inverter_smart_load_limits reads, carry-forward on throttle/failure,
+    per-field partial-read protection, and sibling-preserving write seeding.
+    These tests pin what is SPECIFIC to this store — its own throttle key,
+    its own seed registry, its float fields, and the live GridBOSS shape
+    where the function param answers but no threshold does.
+    """
+
+    SERIAL = "1234567890"
+
+    # The live 2026-08-01 probe values from the maintainer's 18kPV.
+    LIMITS = {
+        "start_soc": 90,
+        "end_soc": 60,
+        "start_pv_power": 0.5,
+        "start_volt": 54.0,
+        "end_volt": 48.0,
+        "enabled": False,
+    }
+
+    def _coordinator(
+        self, hass, mock_config_entry, *, limits=None
+    ) -> EG4DataUpdateCoordinator:
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        client = MagicMock()
+        client.api.control.get_inverter_smart_load_limits = AsyncMock(
+            return_value=dict(self.LIMITS) if limits is None else limits
+        )
+        coordinator.client = client
+        return coordinator
+
+    @staticmethod
+    def _inverter(serial: str = "1234567890") -> MagicMock:
+        inverter = MagicMock()
+        inverter.serial_number = serial
+        return inverter
+
+    async def test_fetch_stores_all_six_fields(self, hass, mock_config_entry):
+        coordinator = self._coordinator(hass, mock_config_entry)
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_smart_load(self._inverter(), target)
+
+        getter = coordinator.client.api.control.get_inverter_smart_load_limits
+        getter.assert_awaited_once_with(self.SERIAL)
+        store = target["smart_load"]
+        assert {k: store[k] for k in self.LIMITS} == self.LIMITS
+        assert store["fetched_at"] <= time.monotonic()
+
+    async def test_uses_its_own_throttle_key(self, hass, mock_config_entry):
+        """A shared throttle key would let an AC-couple fetch suppress this
+        one for five minutes (and vice versa)."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        coordinator.client.api.control.get_inverter_ac_couple_soc_limits = AsyncMock(
+            return_value={"start_soc": 85, "end_soc": 95, "enabled": True}
+        )
+        inverter = self._inverter()
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_ac_couple_soc(inverter, target)
+        await coordinator._fetch_smart_load(inverter, target)
+
+        coordinator.client.api.control.get_inverter_smart_load_limits.assert_awaited_once()
+        assert set(coordinator._last_status_fetch) == {
+            f"ac_couple_{self.SERIAL}",
+            f"smart_load_{self.SERIAL}",
+        }
+        # Both stores present and distinct.
+        assert target["smart_load"]["start_soc"] == 90
+        assert target["ac_couple_soc"]["start_soc"] == 85
+
+    async def test_throttled_carries_forward(self, hass, mock_config_entry):
+        coordinator = self._coordinator(hass, mock_config_entry)
+        inverter = self._inverter()
+        first: dict[str, Any] = {}
+        await coordinator._fetch_smart_load(inverter, first)
+        coordinator.data = {"devices": {self.SERIAL: first}}
+
+        second: dict[str, Any] = {}
+        await coordinator._fetch_smart_load(inverter, second)
+
+        coordinator.client.api.control.get_inverter_smart_load_limits.assert_awaited_once()
+        assert second["smart_load"] is first["smart_load"]
+
+    async def test_gridboss_shape_stored_as_none(self, hass, mock_config_entry):
+        """The live GridBOSS answer: the function param present, all five
+        thresholds absent. The Nones must be stored, not dropped or zeroed —
+        the entities key their availability off exactly this."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={
+                "start_soc": None,
+                "end_soc": None,
+                "start_pv_power": None,
+                "start_volt": None,
+                "end_volt": None,
+                "enabled": False,
+            },
+        )
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_smart_load(self._inverter(), target)
+
+        store = target["smart_load"]
+        assert store["enabled"] is False
+        assert all(
+            store[k] is None
+            for k in (
+                "start_soc",
+                "end_soc",
+                "start_pv_power",
+                "start_volt",
+                "end_volt",
+            )
+        )
+
+    async def test_partial_read_carries_float_fields_forward(
+        self, hass, mock_config_entry
+    ):
+        """A None FIELD on an otherwise-successful read is indistinguishable
+        from a partial range-read failure — known values are never
+        overwritten with None (the #471 per-field rule, floats included)."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits={
+                "start_soc": 90,
+                "end_soc": None,
+                "start_pv_power": None,
+                "start_volt": None,
+                "end_volt": None,
+                "enabled": None,
+            },
+        )
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "smart_load": {
+                        "start_soc": 80,
+                        "end_soc": 60,
+                        "start_pv_power": 0.5,
+                        "start_volt": 54.0,
+                        "end_volt": 48.0,
+                        "enabled": True,
+                        "fetched_at": 1.0,
+                    }
+                }
+            }
+        }
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_smart_load(self._inverter(), target)
+
+        store = target["smart_load"]
+        assert store["start_soc"] == 90  # the fresh read wins
+        assert store["end_soc"] == 60
+        assert store["start_pv_power"] == 0.5
+        assert store["start_volt"] == 54.0
+        assert store["end_volt"] == 48.0
+        assert store["enabled"] is True
+
+    async def test_all_none_read_preserves_known_values(self, hass, mock_config_entry):
+        """An all-None read is indistinguishable from a total range-read
+        failure — never wipe known values on what may be a blip."""
+        coordinator = self._coordinator(
+            hass,
+            mock_config_entry,
+            limits=dict.fromkeys(self.LIMITS, None),
+        )
+        prev = {"start_soc": 90, "enabled": True, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"smart_load": prev}}}
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_smart_load(self._inverter(), target)
+
+        assert target["smart_load"] is prev
+
+    async def test_getter_failure_carries_forward(self, hass, mock_config_entry):
+        coordinator = self._coordinator(hass, mock_config_entry)
+        coordinator.client.api.control.get_inverter_smart_load_limits = AsyncMock(
+            side_effect=OSError("cloud down")
+        )
+        prev = {"start_soc": 90, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"smart_load": prev}}}
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_smart_load(self._inverter(), target)  # must not raise
+
+        assert target["smart_load"] is prev
+
+    async def test_missing_getter_leaves_no_store(self, hass, mock_config_entry):
+        """A pylxpweb predating get_inverter_smart_load_limits degrades to no
+        store (entities unavailable), never to an exception."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        coordinator.client.api.control = MagicMock(spec=[])
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_smart_load(self._inverter(), target)
+
+        assert "smart_load" not in target
+
+    async def test_pure_local_skips_the_fetch(self, hass, mock_config_entry):
+        """No cloud client: the params are unreachable by design."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = None
+        target: dict[str, Any] = {}
+
+        await coordinator._fetch_smart_load(self._inverter(), target)
+
+        assert "smart_load" not in target
+
+    async def test_write_seed_survives_an_inflight_cycles_snapshot(
+        self, hass, mock_config_entry
+    ):
+        """The #471 race: a write acknowledged while a refresh is in flight
+        must not be reverted by that cycle's stale carry-forward."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        prev = {"start_soc": 90, "fetched_at": 1.0}
+        coordinator.data = {"devices": {self.SERIAL: {"smart_load": prev}}}
+
+        coordinator.note_smart_load_written(self.SERIAL, "start_soc", 75)
+        # A carry-forward path (throttled cycle) re-applies the pending seed.
+        target: dict[str, Any] = {}
+        coordinator._carry_forward_smart_load(self.SERIAL, target)
+
+        assert target["smart_load"]["start_soc"] == 75
+
+    async def test_seeds_use_their_own_registry(self, hass, mock_config_entry):
+        """Sharing one registry across stores would let a Smart Load write
+        overwrite an AC Couple field of the same name (both have start_soc)."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "smart_load": {"start_soc": 90},
+                    "ac_couple_soc": {"start_soc": 85},
+                }
+            }
+        }
+
+        coordinator.note_smart_load_written(self.SERIAL, "start_soc", 75)
+
+        assert coordinator._smart_load_seeds[self.SERIAL]["start_soc"]["value"] == 75
+        assert not getattr(coordinator, "_ac_couple_soc_seeds", {})
+        devices = coordinator.data["devices"][self.SERIAL]
+        assert devices["smart_load"]["start_soc"] == 75
+        assert devices["ac_couple_soc"]["start_soc"] == 85
+
+    async def test_fresh_read_supersedes_a_confirmed_seed(
+        self, hass, mock_config_entry
+    ):
+        """Once a read initiated after the write OBSERVES the field, the seed
+        is dropped — otherwise a later portal-side change could never win."""
+        coordinator = self._coordinator(hass, mock_config_entry)
+        coordinator.data = {"devices": {self.SERIAL: {"smart_load": {}}}}
+        coordinator.note_smart_load_written(self.SERIAL, "start_soc", 75)
+
+        target: dict[str, Any] = {}
+        await coordinator._fetch_smart_load(self._inverter(), target)
+
+        assert target["smart_load"]["start_soc"] == 90  # the read wins
+        assert self.SERIAL not in coordinator._smart_load_seeds
+
+    async def test_write_seeds_are_sibling_preserving(self, hass, mock_config_entry):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                self.SERIAL: {
+                    "type": "inverter",
+                    "smart_load": {
+                        "start_soc": 90,
+                        "end_soc": 60,
+                        "start_volt": 54.0,
+                        "enabled": True,
+                        "fetched_at": 1.0,
+                    },
+                }
+            }
+        }
+
+        coordinator.note_smart_load_written(self.SERIAL, "start_volt", 53.5)
+
+        store = coordinator.data["devices"][self.SERIAL]["smart_load"]
+        assert store["start_volt"] == 53.5
+        assert store["start_soc"] == 90
+        assert store["end_soc"] == 60
+        assert store["enabled"] is True
+        assert store["fetched_at"] > 1.0
+
+
 class TestFirmwarePollCarryForward:
     """_poll_firmware_update_info must not blank in-progress state on a
     transient poll error (issue #353): an active firmware update would

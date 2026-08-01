@@ -725,6 +725,9 @@
       },
       "grid_always_on": {
         "name": "系統常時オン"
+      },
+      "smart_load": {
+        "name": "スマートロード"
       }
     },
     "number": {
@@ -763,6 +766,21 @@
       },
       "start_charge_power_threshold": {
         "name": "充電開始電力しきい値"
+      },
+      "smart_load_start_soc": {
+        "name": "スマートロード開始SOC"
+      },
+      "smart_load_end_soc": {
+        "name": "スマートロード終了SOC"
+      },
+      "smart_load_start_pv_power": {
+        "name": "スマートロード開始PV電力"
+      },
+      "smart_load_start_volt": {
+        "name": "スマートロード開始電圧"
+      },
+      "smart_load_end_volt": {
+        "name": "スマートロード終了電圧"
       }
     },
     "button": {

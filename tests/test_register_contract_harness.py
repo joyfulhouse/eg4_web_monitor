@@ -130,6 +130,11 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
     PARAM_RAW_PTOUSER_START_CHARGE,
+    PARAM_SMART_LOAD_END_SOC,
+    PARAM_SMART_LOAD_END_VOLT,
+    PARAM_SMART_LOAD_START_PV_POWER,
+    PARAM_SMART_LOAD_START_SOC,
+    PARAM_SMART_LOAD_START_VOLT,
     PARAM_SNA_QUICK_CHARGE_MINUTE,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
@@ -1612,6 +1617,55 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
         179,
         "Cloud-only function param for the smart load port's Grid Always On "
         "enable — reg 179 membership is confirmed but the BIT is unpinned; "
+        "never write it through the local transport name map.",
+    ),
+    # Smart Load panel (GH #499): the rest of the same portal tab Grid Always
+    # On came from. A READ-ONLY cloud probe 2026-08-01 found all five
+    # threshold holdParams plus FUNC_SMART_LOAD_ENABLE in the 127-253 range
+    # read on an 18kPV and a FlexBOSS21; the GridBOSS returned the function
+    # param but NONE of the five (it carries the per-port MIDBOX_HOLD_SL_*
+    # family instead), which is exactly why the entities must go unavailable
+    # rather than render a zero. No local register is pinned for any of them
+    # — for the function param the reg-179 bit is unpinned like Grid Always
+    # On's, and for the five holdParams no register is claimed at all. Reads
+    # come from the coordinator's dedicated smart_load store (throttled
+    # get_inverter_smart_load_limits); writes route exclusively through
+    # client.api.control.set_inverter_smart_load_*.
+    "FUNC_SMART_LOAD_ENABLE": (
+        179,
+        "Cloud-only function param for the smart load port's parent enable "
+        "(GH #499) — reg 179 membership is confirmed but the BIT is "
+        "unpinned; never write it through the local transport name map. "
+        "Distinct from the GridBOSS per-port FUNC_SMART_LOAD_EN_{n}.",
+    ),
+    PARAM_SMART_LOAD_START_SOC: (
+        None,
+        "Cloud-only holdParam for the Smart Load START SOC threshold — no "
+        "pinned local register; never write it through the local transport "
+        "name map.",
+    ),
+    PARAM_SMART_LOAD_END_SOC: (
+        None,
+        "Cloud-only holdParam for the Smart Load END SOC threshold — no "
+        "pinned local register; never write it through the local transport "
+        "name map.",
+    ),
+    PARAM_SMART_LOAD_START_PV_POWER: (
+        None,
+        "Cloud-only holdParam for the Smart Load START PV power threshold "
+        "(kW on the wire, not a raw register scaling) — no pinned local "
+        "register; never write it through the local transport name map.",
+    ),
+    PARAM_SMART_LOAD_START_VOLT: (
+        None,
+        "Cloud-only holdParam for the Smart Load START voltage threshold "
+        "(volts on the wire, not decivolts) — no pinned local register; "
+        "never write it through the local transport name map.",
+    ),
+    PARAM_SMART_LOAD_END_VOLT: (
+        None,
+        "Cloud-only holdParam for the Smart Load END voltage threshold "
+        "(volts on the wire, not decivolts) — no pinned local register; "
         "never write it through the local transport name map.",
     ),
 }

@@ -725,6 +725,9 @@
       },
       "grid_always_on": {
         "name": "Rete sempre attiva"
+      },
+      "smart_load": {
+        "name": "Carico intelligente"
       }
     },
     "number": {
@@ -763,6 +766,21 @@
       },
       "start_charge_power_threshold": {
         "name": "Soglia di potenza di avvio carica"
+      },
+      "smart_load_start_soc": {
+        "name": "SOC di avvio del carico intelligente"
+      },
+      "smart_load_end_soc": {
+        "name": "SOC di fine del carico intelligente"
+      },
+      "smart_load_start_pv_power": {
+        "name": "Potenza FV di avvio del carico intelligente"
+      },
+      "smart_load_start_volt": {
+        "name": "Tensione di avvio del carico intelligente"
+      },
+      "smart_load_end_volt": {
+        "name": "Tensione di fine del carico intelligente"
       }
     },
     "button": {

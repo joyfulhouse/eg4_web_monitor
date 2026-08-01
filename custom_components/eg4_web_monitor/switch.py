@@ -261,6 +261,18 @@ async def async_setup_entry(
                 ):
                     entities.append(EG4ACCoupleSwitch(coordinator, serial))
 
+                # Smart Load enable (GH #499). CLOUD-ONLY, and deliberately
+                # NOT sharing the local-first gate above: #472 pinned reg 179
+                # bit 11 for AC Couple, but FUNC_SMART_LOAD_ENABLE has no
+                # pinned bit at all (179 bit 13 is still a FUNC_179_BIT13
+                # placeholder in pylxpweb's table). A guessed bit is ACKed by
+                # the firmware, so a wrong local write would neither fall back
+                # nor fail a readback — the #476 lesson. Read through the
+                # smart_load store; a device without the param goes
+                # unavailable rather than showing a fake OFF.
+                if coordinator.has_http_api():
+                    entities.append(EG4SmartLoadSwitch(coordinator, serial))
+
                 # Add battery backup switch (EPS) based on feature detection
                 eps_supported = _supports_eps_battery_backup(device_data)
                 _LOGGER.debug(
@@ -595,7 +607,109 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         self.async_write_ha_state()
 
 
-class EG4ACCoupleSwitch(EG4BaseSwitch):
+class EG4CloudStoreSwitch(EG4BaseSwitch):
+    """Switch whose state lives in a cloud-only device-data store.
+
+    CLOUD-ONLY controls: the portal writes a function param for which no local
+    register is pinned, so writes route through the cloud client in every mode
+    and state reads from the coordinator's dedicated store (throttled 5-minute
+    getter + carry-forward + post-write seeding), never the parameter cache — a
+    HYBRID parameter refresh rebuilds the cache from local registers alone and
+    would wipe any cloud-seeded value (PR #380 review P1).
+
+    The base class's full-refresh write envelope is deliberately NOT used: the
+    store IS the state source and the acknowledged write seeds it directly, so
+    a full coordinator refresh would burn API calls without re-reading the
+    throttled store.
+    """
+
+    #: Store key under the device data holding this switch's ``enabled`` field.
+    _store_key: str
+    #: pylxpweb control-endpoint writer method.
+    _cloud_method: str
+    #: Minimum pylxpweb version providing ``_cloud_method``.
+    _min_pylxpweb: str
+    #: Human label used in log and error messages.
+    _label: str
+
+    @property
+    def _stored_enabled(self) -> bool | None:
+        """The function-param state from the dedicated store."""
+        store = self._device_data.get(self._store_key) or {}
+        value = store.get("enabled")
+        return value if isinstance(value, bool) else None
+
+    @property
+    def available(self) -> bool:
+        """Available only while the store holds a state (or mid-write).
+
+        Absent state — first cloud fetch pending, a pylxpweb predating the
+        getter, or a device whose family genuinely lacks the function param —
+        must show unavailable, never a fake OFF.
+        """
+        if not super().available:
+            return False
+        if self._optimistic_state is not None:
+            return True
+        return self._stored_enabled is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the function state."""
+        if self._optimistic_state is not None:
+            return self._optimistic_state
+        return self._stored_enabled
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Enable the function."""
+        await self._async_set_enabled(True)
+
+    async def async_turn_off(self, **kwargs: Any) -> None:
+        """Disable the function."""
+        await self._async_set_enabled(False)
+
+    def _note_written(self, enabled: bool) -> None:
+        """Seed the acknowledged state into this switch's store."""
+        raise NotImplementedError
+
+    async def _async_set_enabled(self, enabled: bool) -> None:
+        """Write the function param through the cloud client."""
+        client = self.coordinator.require_client()
+        method = getattr(client.api.control, self._cloud_method, None)
+        if method is None:
+            raise HomeAssistantError(
+                f"Failed to set {self._label}: pylxpweb is missing "
+                f"{self._cloud_method} (requires >= {self._min_pylxpweb})"
+            )
+        action = "enable" if enabled else "disable"
+        _LOGGER.info("Setting %s to %sd for %s", self._label, action, self._serial)
+        self._optimistic_state = enabled
+        self.async_write_ha_state()
+        try:
+            result = await method(self._serial, enabled)
+            if not result.success:
+                raise HomeAssistantError(
+                    f"Failed to {action} {self._label} for {self._serial}"
+                )
+        except HomeAssistantError:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise
+        except Exception as e:
+            self._optimistic_state = None
+            self.async_write_ha_state()
+            raise HomeAssistantError(
+                f"Failed to {action} {self._label} for {self._serial}: {e}"
+            ) from e
+        # Seed the dedicated store (sibling-preserving) with the acknowledged
+        # state; the next throttled getter read confirms. Clear the
+        # optimistic state first — the seed fires listeners, which publish
+        # the store value.
+        self._optimistic_state = None
+        self._note_written(enabled)
+
+
+class EG4ACCoupleSwitch(EG4CloudStoreSwitch):
     """AC Couple function switch (GH #471/#472), family-neutral.
 
     Toggles the inverter-level ``FUNC_AC_COUPLING_FUNCTION`` — enabling or
@@ -644,7 +758,19 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
     acknowledged write seeds it directly (``note_ac_couple_soc_written``),
     so a full coordinator refresh would burn API calls without re-reading
     the throttled store.
+
+    The cloud half of all this — the store read, availability on a known
+    state, and the cloud write envelope — lives in EG4CloudStoreSwitch,
+    shared with EG4SmartLoadSwitch (GH #499). Everything LOCAL-first is
+    overridden here and must stay here: Smart Load's function param has no
+    pinned bit at all, so a local path on the shared base would hand it a
+    guessed-bit write that the firmware ACKs.
     """
+
+    _store_key = "ac_couple_soc"
+    _cloud_method = "set_inverter_ac_couple_enabled"
+    _min_pylxpweb = "0.9.39b3"
+    _label = "AC couple"
 
     def __init__(
         self,
@@ -689,12 +815,8 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
             return value
         return bool(value) if isinstance(value, int) else None
 
-    @property
-    def _stored_enabled(self) -> bool | None:
-        """FUNC_AC_COUPLING_FUNCTION state from the dedicated cloud store."""
-        store = self._device_data.get("ac_couple_soc") or {}
-        value = store.get("enabled")
-        return value if isinstance(value, bool) else None
+    # _stored_enabled (the cloud-store read) comes from EG4CloudStoreSwitch
+    # via _store_key — byte-identical to the copy this class used to carry.
 
     @property
     def _capability_known(self) -> bool:
@@ -749,13 +871,8 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
         local = self._local_enabled
         return local if local is not None else self._stored_enabled
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        """Enable the AC couple function."""
-        await self._async_set_ac_couple(True)
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        """Disable the AC couple function."""
-        await self._async_set_ac_couple(False)
+    # async_turn_on/off come from EG4CloudStoreSwitch, which delegates to
+    # _async_set_enabled below (this class's local-first override).
 
     async def _verify_local_write(self) -> None:
         """Re-read register 179 to verify an acknowledged local write.
@@ -790,8 +907,13 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
             self._serial,
         )
 
-    async def _async_set_ac_couple(self, enabled: bool) -> None:
-        """Write FUNC_AC_COUPLING_FUNCTION, local-first when reg 179 applies."""
+    async def _async_set_enabled(self, enabled: bool) -> None:
+        """Write FUNC_AC_COUPLING_FUNCTION, local-first when reg 179 applies.
+
+        Overrides the shared cloud-only writer: EG4CloudStoreSwitch's version
+        always routes through the cloud client, which is correct for Smart
+        Load and correct here ONLY once the local route is ruled out below.
+        """
         if self._uses_local_param:
             # Local named write (pylxpweb does the sibling-preserving
             # read-modify-write on reg 179) with cloud function-control
@@ -815,39 +937,58 @@ class EG4ACCoupleSwitch(EG4BaseSwitch):
             )
             return
 
-        client = self.coordinator.require_client()
-        method = getattr(client.api.control, "set_inverter_ac_couple_enabled", None)
-        if method is None:
-            raise HomeAssistantError(
-                "Failed to set AC couple: pylxpweb is missing "
-                "set_inverter_ac_couple_enabled (requires >= 0.9.39b3)"
-            )
-        action = "enable" if enabled else "disable"
-        _LOGGER.info("Setting AC couple to %sd for %s", action, self._serial)
-        self._optimistic_state = enabled
-        self.async_write_ha_state()
-        try:
-            result = await method(self._serial, enabled)
-            if not result.success:
-                raise HomeAssistantError(
-                    f"Failed to {action} AC couple for {self._serial}"
-                )
-        except HomeAssistantError:
-            self._optimistic_state = None
-            self.async_write_ha_state()
-            raise
-        except Exception as e:
-            self._optimistic_state = None
-            self.async_write_ha_state()
-            raise HomeAssistantError(
-                f"Failed to {action} AC couple for {self._serial}: {e}"
-            ) from e
-        # Seed the dedicated store (sibling-preserving) with the acknowledged
-        # state; the next throttled getter read confirms. Clear the
-        # optimistic state first — the seed fires listeners, which publish
-        # the store value.
-        self._optimistic_state = None
+        # Pure-cloud route: identical to the shared implementation, down to
+        # every message string — the class attributes above reproduce them
+        # exactly — so it is delegated rather than duplicated. The store seed
+        # lands through _note_written below.
+        await super()._async_set_enabled(enabled)
+
+    def _note_written(self, enabled: bool) -> None:
+        """Seed the acknowledged cloud state into the ac_couple_soc store."""
         self.coordinator.note_ac_couple_soc_written(self._serial, "enabled", enabled)
+
+
+class EG4SmartLoadSwitch(EG4CloudStoreSwitch):
+    """Smart Load enable switch (GH #499, cloud client required).
+
+    Toggles the inverter-level ``FUNC_SMART_LOAD_ENABLE`` — the parent
+    enable/disable of the smart load port, above the Start/End SOC, PV-power
+    and voltage thresholds that decide WHEN it energizes within that. Same
+    portal panel as Grid Always On (#484), which shipped first.
+
+    Distinct from the GridBOSS/MID per-port ``FUNC_SMART_LOAD_EN_{n}``
+    functions, which address different hardware.
+
+    The WRITE path is unverified on hardware (the read side is verified on an
+    18kPV, a FlexBOSS21 and a GridBOSS by a 2026-08-01 cloud probe); #499 stays
+    open pending the reporter's confirmation. Disabled by default for that
+    reason and because it only matters once the smart load port is configured.
+    """
+
+    _attr_entity_registry_enabled_default = False
+
+    _store_key = "smart_load"
+    _cloud_method = "set_inverter_smart_load_enabled"
+    _min_pylxpweb = "0.9.39b6"
+    _label = "Smart Load"
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+    ) -> None:
+        """Initialize the Smart Load switch."""
+        super().__init__(
+            coordinator=coordinator,
+            serial=serial,
+            entity_key="smart_load",
+            name="Smart Load",
+            icon="mdi:home-lightning-bolt",
+            translation_key="smart_load",
+        )
+
+    def _note_written(self, enabled: bool) -> None:
+        self.coordinator.note_smart_load_written(self._serial, "enabled", enabled)
 
 
 class EG4BatteryBackupSwitch(EG4BaseSwitch):

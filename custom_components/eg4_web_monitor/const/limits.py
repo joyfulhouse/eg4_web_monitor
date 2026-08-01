@@ -86,6 +86,32 @@ AC_COUPLE_SOC_STEP = 1
 AC_COUPLE_END_SOC_DISABLED_SENTINEL = 255
 
 # =============================================================================
+# Smart Load panel (GH #499, cloud-only holdParams — no pinned local register)
+# Maintenance -> Remote Set -> Smart Load Port -> "Smart Load" tab. The port is
+# energized once the start condition is met and dropped at the end condition;
+# the firmware honors either the SOC pair or the voltage pair depending on the
+# configured mode (the reporter's 12000XP shows the Volt pair greyed out while
+# SOC mode is active), so both pairs are exposed and both are writable.
+# =============================================================================
+SMART_LOAD_SOC_MIN = 0
+SMART_LOAD_SOC_MAX = 100
+SMART_LOAD_SOC_STEP = 1
+# Battery-bank thresholds. The bounds are deliberately WIDER than a 48 V bank's
+# working range (our own units read 54/48 V, and the sibling AC-couple
+# holdParam reads as high as 80 V): the wire carries volts at 0.1 resolution
+# with no documented ceiling, and a too-narrow range would render a legal
+# portal value as unknown. No sentinel is known for this pair.
+SMART_LOAD_VOLT_MIN = 0.0
+SMART_LOAD_VOLT_MAX = 100.0
+SMART_LOAD_VOLT_STEP = 0.1
+# PV power above which the smart load port starts. Portal unit is kW at 0.1
+# resolution (our units read 0.5). The ceiling is a defensive sanity bound, not
+# a firmware-confirmed maximum.
+SMART_LOAD_PV_POWER_MIN = 0.0
+SMART_LOAD_PV_POWER_MAX = 100.0
+SMART_LOAD_PV_POWER_STEP = 0.1
+
+# =============================================================================
 # Forced Discharge (regs 82/83, GH #207 / PR #249)
 # Reg 82 is kW (raw 100W units, 0-255 = 0-25.5 kW — hardware-verified in
 # PR #249: panel 2.5 kW reads raw 25; cloud UI takes float kW [0, 25.5]).

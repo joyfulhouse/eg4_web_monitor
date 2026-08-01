@@ -13,6 +13,7 @@ import asyncio
 import logging
 import time
 from collections.abc import Callable, Collection
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -89,16 +90,85 @@ EVENT_LOG_CLOUD_TIMEOUT = 10.0
 # outright. The Last Event sensor state (event text) is truncated defensively.
 _MAX_STATE_LENGTH = 255
 
-# AC Couple SOC window (GH #352): cloud-only holdParams with no pinned local
-# register, refreshed through pylxpweb's get_inverter_ac_couple_soc_limits —
-# which costs THREE cloud parameter-range reads per inverter per fetch, so it
-# sits on the 5-minute tier (matching the battery-info class volatility of a
-# working-mode setpoint) with carry-forward between fetches.
-AC_COUPLE_SOC_FETCH_INTERVAL = 300.0
+# Cloud-only param stores (AC Couple SOC window GH #352, Smart Load panel
+# GH #499): holdParams with no pinned local register, refreshed through a
+# pylxpweb getter that costs THREE cloud parameter-range reads per inverter per
+# fetch, so they sit on the 5-minute tier (matching the battery-info class
+# volatility of a working-mode setpoint) with carry-forward between fetches.
+CLOUD_PARAM_STORE_FETCH_INTERVAL = 300.0
 # The getter's three range reads run concurrently, but each is a remoteRead
 # relayed through the dongle — bound the whole call so a backoff-stalled cloud
 # session cannot hold a coordinator slot (the quick-charge timeout precedent).
-AC_COUPLE_SOC_FETCH_TIMEOUT = 30.0
+CLOUD_PARAM_STORE_FETCH_TIMEOUT = 30.0
+
+# Historical names, kept because they are the ones the AC-couple tests and
+# earlier review threads refer to.
+AC_COUPLE_SOC_FETCH_INTERVAL = CLOUD_PARAM_STORE_FETCH_INTERVAL
+AC_COUPLE_SOC_FETCH_TIMEOUT = CLOUD_PARAM_STORE_FETCH_TIMEOUT
+
+
+@dataclass(frozen=True)
+class CloudParamStoreSpec:
+    """Declarative description of one cloud-only device-data store.
+
+    Some portal controls are backed by holdParams / function params with NO
+    pinned local Modbus register. Their values cannot live in the parameter
+    cache: with an attached local transport pylxpweb rebuilds
+    ``inverter.parameters`` from local register reads alone, wiping anything
+    cloud-seeded there (PR #380 review P1). Each such control family instead
+    gets its own device-data store, refreshed by a throttled cloud getter with
+    carry-forward and post-write seeding.
+
+    That machinery is intricate (partial-read carry-forward, per-field write
+    seeds surviving a ``self.data`` swap, apply-vs-supersede) and was settled
+    over three review rounds on GH #352/#471; this spec is what lets GH #499's
+    Smart Load panel reuse it line for line instead of growing a second copy.
+    """
+
+    #: Key under ``data["devices"][serial]`` holding the store dict.
+    store_key: str
+    #: pylxpweb control-endpoint getter name. Looked up with ``getattr`` so an
+    #: older installed pylxpweb degrades to "no store" instead of raising.
+    getter_name: str
+    #: Store fields the getter supplies, in log/merge order.
+    fields: tuple[str, ...]
+    #: Subset of ``fields`` whose values must be real booleans; anything else
+    #: reads as ``None``, so a fake OFF never reaches a switch.
+    bool_fields: frozenset[str]
+    #: Coordinator attribute holding this store's write-seed registry.
+    seeds_attr: str
+    #: Prefix for the per-serial throttle key in ``_last_status_fetch``.
+    throttle_prefix: str
+    #: Human label used in debug logs.
+    log_label: str
+
+
+AC_COUPLE_SOC_STORE = CloudParamStoreSpec(
+    store_key="ac_couple_soc",
+    getter_name="get_inverter_ac_couple_soc_limits",
+    fields=("start_soc", "end_soc", "enabled"),
+    bool_fields=frozenset({"enabled"}),
+    seeds_attr="_ac_couple_soc_seeds",
+    throttle_prefix="ac_couple",
+    log_label="AC couple SOC limits",
+)
+
+SMART_LOAD_STORE = CloudParamStoreSpec(
+    store_key="smart_load",
+    getter_name="get_inverter_smart_load_limits",
+    fields=(
+        "start_soc",
+        "end_soc",
+        "start_pv_power",
+        "start_volt",
+        "end_volt",
+        "enabled",
+    ),
+    bool_fields=frozenset({"enabled"}),
+    seeds_attr="_smart_load_seeds",
+    throttle_prefix="smart_load",
+    log_label="Smart Load settings",
+)
 
 # Rate floor between parameter refresh ATTEMPTS (#282).  A failed/partial
 # parameter read no longer stamps _last_parameter_refresh, so the refresh
@@ -547,11 +617,13 @@ if TYPE_CHECKING:
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta
         _last_status_fetch: dict[str, float]
-        # AC couple write-seed registry (GH #471): {serial: {store_key:
-        # {"value": int|bool, "at": monotonic}}} — survives self.data
-        # replacement so a mid-cycle write is not reverted; per-field
-        # timestamps keep each key's seed lifecycle independent (round-2).
+        # Cloud-only store write-seed registries (GH #471, #499): {serial:
+        # {store_key: {"value": float|bool, "at": monotonic}}} — survives
+        # self.data replacement so a mid-cycle write is not reverted;
+        # per-field timestamps keep each key's seed lifecycle independent
+        # (round-2). One registry per CloudParamStoreSpec.seeds_attr.
         _ac_couple_soc_seeds: dict[str, dict[str, dict[str, Any]]]
+        _smart_load_seeds: dict[str, dict[str, dict[str, Any]]]
         _daily_api_offset: int
         _daily_api_ymd: tuple[int, int, int]
         _modbus_transport: ModbusTransport | ModbusSerialTransport | None
@@ -1126,40 +1198,56 @@ class DeviceProcessingMixin(_MixinBase):
             return None
         return None  # neither read method available -> unknown
 
-    def _carry_forward_ac_couple_soc(self, serial: str, target: dict[str, Any]) -> None:
-        """Copy the previous cycle's AC couple SOC store into ``target``.
+    def cloud_param_store_seeds(
+        self, spec: CloudParamStoreSpec
+    ) -> dict[str, dict[str, dict[str, Any]]]:
+        """Return (creating on first use) this store's write-seed registry."""
+        seeds: dict[str, dict[str, dict[str, Any]]] | None = getattr(
+            self, spec.seeds_attr, None
+        )
+        if seeds is None:
+            seeds = {}
+            setattr(self, spec.seeds_attr, seeds)
+        return seeds
+
+    def _carry_forward_cloud_param_store(
+        self, spec: CloudParamStoreSpec, serial: str, target: dict[str, Any]
+    ) -> None:
+        """Copy the previous cycle's store for ``spec`` into ``target``.
 
         The carried dict keeps its original ``fetched_at`` stamp so staleness
         stays visible; the throttle window and transient fetch failures must
         not blank the entities (quick-charge carry-forward precedent).
         """
         if self.data and serial in self.data.get("devices", {}):
-            prev = self.data["devices"][serial].get("ac_couple_soc")
+            prev = self.data["devices"][serial].get(spec.store_key)
             if prev is not None:
-                target["ac_couple_soc"] = self._overlay_ac_couple_seeds(serial, prev)
+                target[spec.store_key] = self._overlay_cloud_param_store_seeds(
+                    spec, serial, prev
+                )
 
-    def _overlay_ac_couple_seeds(
-        self, serial: str, store: dict[str, Any]
+    def _overlay_cloud_param_store_seeds(
+        self, spec: CloudParamStoreSpec, serial: str, store: dict[str, Any]
     ) -> dict[str, Any]:
         """Re-apply acknowledged-write seeds on top of a store dict.
 
         Closes the mid-cycle race (PR #471 review): a refresh cycle snapshots
         the store early (throttled carry-forward), so a write acknowledged
-        while that cycle is in flight lands its ``note_ac_couple_soc_written``
+        while that cycle is in flight lands its ``note_cloud_param_store_written``
         seed in the CURRENT ``self.data`` — which the cycle's stale snapshot
         then replaces on publish, silently reverting the UI until the next
         5-minute cloud read. The seed registry survives cycles; every carried
-        store re-applies it here, and ``_fetch_ac_couple_soc`` clears it once
-        a cloud read initiated after the write confirms. Identity is
-        preserved when no seed is pending (the carried-dict staleness
-        provenance and the existing identity assertions rely on that).
+        store re-applies it here, and the fetch path clears it once a cloud
+        read initiated after the write confirms. Identity is preserved when no
+        seed is pending (the carried-dict staleness provenance and the existing
+        identity assertions rely on that).
 
         A carry-forward cycle never initiated a cloud read, so every pending
         per-field seed still wins here (no timestamp comparison — that lives
         in the fetch path, which is the only place a fresh read can supersede
         a seed).
         """
-        seeds = getattr(self, "_ac_couple_soc_seeds", {}).get(serial)
+        seeds = self.cloud_param_store_seeds(spec).get(serial)
         if not seeds:
             return store
         merged = dict(store)
@@ -1170,49 +1258,84 @@ class DeviceProcessingMixin(_MixinBase):
         merged["fetched_at"] = latest
         return merged
 
+    def _carry_forward_ac_couple_soc(self, serial: str, target: dict[str, Any]) -> None:
+        """Carry the AC Couple SOC store forward (GH #352 binding)."""
+        self._carry_forward_cloud_param_store(AC_COUPLE_SOC_STORE, serial, target)
+
+    def _carry_forward_smart_load(self, serial: str, target: dict[str, Any]) -> None:
+        """Carry the Smart Load store forward (GH #499 binding)."""
+        self._carry_forward_cloud_param_store(SMART_LOAD_STORE, serial, target)
+
     async def _fetch_ac_couple_soc(
         self, inverter: "BaseInverter", target: dict[str, Any]
     ) -> None:
-        """Fetch + store ``ac_couple_soc`` into ``target`` (throttled, cloud).
+        """Fetch the AC Couple SOC store (GH #352/#471 binding).
 
-        The AC Couple Start/End SOC window (GH #352) is CLOUD-ONLY — the
-        ``_12K_HOLD_AC_COUPLE_{START,END}_SOC`` holdParams have no pinned
+        Values are whole percent ints, ``None`` when the device does not carry
+        the param (models without AC couple support), and the END value 255 is
+        the factory disabled/"never stop" sentinel. ``enabled`` is the
+        FUNC_AC_COUPLING_FUNCTION state backing the AC Couple switch (GH #471),
+        ``None`` when the param is absent or the installed pylxpweb getter
+        predates it (< 0.9.39b3).
+        """
+        await self._fetch_cloud_param_store(AC_COUPLE_SOC_STORE, inverter, target)
+
+    async def _fetch_smart_load(
+        self, inverter: "BaseInverter", target: dict[str, Any]
+    ) -> None:
+        """Fetch the Smart Load store (GH #499 binding).
+
+        Backs the Smart Load switch and the five Start/End SOC, Start PV Power
+        and Start/End Volt numbers. ``start_soc``/``end_soc`` are whole percent
+        ints; ``start_pv_power`` is kW and ``start_volt``/``end_volt`` are
+        volts, both floats at the portal's 0.1 resolution; ``enabled`` is the
+        FUNC_SMART_LOAD_ENABLE state. Every field is ``None`` on a device that
+        does not carry the param — a GridBOSS exposes FUNC_SMART_LOAD_ENABLE
+        but none of the five ``_12K_HOLD_*`` holdParams (live probe 2026-08-01),
+        so a partly-populated store is the expected shape, not an anomaly.
+        """
+        await self._fetch_cloud_param_store(SMART_LOAD_STORE, inverter, target)
+
+    async def _fetch_cloud_param_store(
+        self,
+        spec: CloudParamStoreSpec,
+        inverter: "BaseInverter",
+        target: dict[str, Any],
+    ) -> None:
+        """Fetch + store ``spec.store_key`` into ``target`` (throttled, cloud).
+
+        The params behind these stores are CLOUD-ONLY — they have no pinned
         local register, so the parameter cache CANNOT serve them: with an
-        attached local transport pylxpweb rebuilds ``inverter.parameters``
-        from local register reads alone, wiping anything cloud-seeded there
-        (PR #380 review P1). This dedicated device-data store is refreshed
-        through pylxpweb's ``get_inverter_ac_couple_soc_limits`` on the
-        5-minute tier — the periodic read is also what picks up portal-side
-        edits in HYBRID — and carried forward between fetches and on
-        failures. Values are whole percent ints, ``None`` when the device
-        does not carry the param (models without AC couple support), and
-        the END value 255 is the factory disabled/"never stop" sentinel.
-
-        The store also carries ``enabled`` — the FUNC_AC_COUPLING_FUNCTION
-        state backing the AC Couple switch (GH #471), same cloud-only
-        rationale and same getter read. ``None`` when the param is absent
-        or the installed pylxpweb getter predates it (< 0.9.39b3).
+        attached local transport pylxpweb rebuilds ``inverter.parameters`` from
+        local register reads alone, wiping anything cloud-seeded there (PR #380
+        review P1). The dedicated device-data store is refreshed through the
+        spec's pylxpweb getter on the 5-minute tier — the periodic read is also
+        what picks up portal-side edits in HYBRID — and carried forward between
+        fetches and on failures.
         """
         client = self.client
         if client is None:
             return  # pure-LOCAL: the params are unreachable by design
-        getter = getattr(client.api.control, "get_inverter_ac_couple_soc_limits", None)
+        getter = getattr(client.api.control, spec.getter_name, None)
         if getter is None:
-            return  # pylxpweb < 0.9.39b2
+            return  # installed pylxpweb predates this getter
         if not hasattr(self, "_last_status_fetch"):
             self._last_status_fetch = {}
         serial = inverter.serial_number
-        key = f"ac_couple_{serial}"
+        key = f"{spec.throttle_prefix}_{serial}"
         now = time.monotonic()
         # "Never fetched" is a None sentinel, NOT a 0.0 default (the d66cc92
         # / #327-CI bug class): time.monotonic() is host uptime on Linux, so
         # on a freshly booted host (HAOS reboot, container host, CI runner)
         # `now` is smaller than the interval and a 0.0 default would classify
         # the FIRST-EVER fetch as inside the throttle window — silently
-        # skipping the AC couple SOC read for the first 5 minutes of uptime.
+        # skipping the read for the first 5 minutes of uptime.
         last_fetch = self._last_status_fetch.get(key)
-        if last_fetch is not None and now - last_fetch < AC_COUPLE_SOC_FETCH_INTERVAL:
-            self._carry_forward_ac_couple_soc(serial, target)
+        if (
+            last_fetch is not None
+            and now - last_fetch < CLOUD_PARAM_STORE_FETCH_INTERVAL
+        ):
+            self._carry_forward_cloud_param_store(spec, serial, target)
             return
         self._last_status_fetch[key] = now
         try:
@@ -1222,32 +1345,29 @@ class DeviceProcessingMixin(_MixinBase):
             # carry-forward here, not escape to the per-device handler and
             # blank the whole inverter for the cycle (the #378 round-2 bug
             # class).
-            limits: dict[str, int | bool | None] = await asyncio.wait_for(
-                getter(serial), timeout=AC_COUPLE_SOC_FETCH_TIMEOUT
+            limits: dict[str, float | bool | None] = await asyncio.wait_for(
+                getter(serial), timeout=CLOUD_PARAM_STORE_FETCH_TIMEOUT
             )
-            start_soc = limits.get("start_soc")
-            end_soc = limits.get("end_soc")
-            enabled = limits.get("enabled")
-            if not isinstance(enabled, bool):
-                # Absent key (pylxpweb < 0.9.39b3 getter) or unparseable —
-                # never let a fake truthy/falsy value reach the switch.
-                enabled = None
+            values: dict[str, Any] = {}
+            for field in spec.fields:
+                raw = limits.get(field)
+                if field in spec.bool_fields and not isinstance(raw, bool):
+                    # Absent key (older pylxpweb getter) or unparseable —
+                    # never let a fake truthy/falsy value reach the switch.
+                    raw = None
+                values[field] = raw
             # What this read actually OBSERVED per field, BEFORE carry-forward
             # substitutes prior values — the seed-clear step below needs to
             # distinguish "read saw a concrete value" from "read failed/absent
             # for this field" (post-#473 review).
-            observed = {"start_soc": start_soc, "end_soc": end_soc, "enabled": enabled}
+            observed = dict(values)
             prev = (
-                self.data["devices"][serial].get("ac_couple_soc")
+                self.data["devices"][serial].get(spec.store_key)
                 if self.data and serial in self.data.get("devices", {})
                 else None
             ) or {}
-            if start_soc is None and end_soc is None and enabled is None:
-                if (
-                    prev.get("start_soc") is not None
-                    or prev.get("end_soc") is not None
-                    or prev.get("enabled") is not None
-                ):
+            if all(values[field] is None for field in spec.fields):
+                if any(prev.get(field) is not None for field in spec.fields):
                     # An all-None read is indistinguishable from a total cloud
                     # range-read failure (pylxpweb's range gather swallows
                     # per-range errors and returns an empty dict) — never wipe
@@ -1257,8 +1377,8 @@ class DeviceProcessingMixin(_MixinBase):
                     # permanently vanished would pin the last-known values
                     # forever — accepted (the capability is static in
                     # practice); revisit if a real report shows otherwise.
-                    target["ac_couple_soc"] = self._overlay_ac_couple_seeds(
-                        serial, prev
+                    target[spec.store_key] = self._overlay_cloud_param_store_seeds(
+                        spec, serial, prev
                     )
                     return
             else:
@@ -1270,18 +1390,16 @@ class DeviceProcessingMixin(_MixinBase):
                 # while another succeeds. A known value is never overwritten
                 # with None; genuinely-lacking devices never had one to keep
                 # (same static-capability trade as the all-None branch).
-                if start_soc is None:
-                    start_soc = prev.get("start_soc")
-                if end_soc is None:
-                    end_soc = prev.get("end_soc")
-                if enabled is None:
-                    prev_enabled = prev.get("enabled")
-                    if isinstance(prev_enabled, bool):
-                        enabled = prev_enabled
+                for field in spec.fields:
+                    if values[field] is not None:
+                        continue
+                    carried = prev.get(field)
+                    if field in spec.bool_fields and not isinstance(carried, bool):
+                        continue
+                    if carried is not None:
+                        values[field] = carried
             store = {
-                "start_soc": start_soc,
-                "end_soc": end_soc,
-                "enabled": enabled,
+                **values,
                 "fetched_at": now,
             }
             # Acknowledged-write seeds, evaluated PER FIELD. A field's seed is
@@ -1299,11 +1417,13 @@ class DeviceProcessingMixin(_MixinBase):
             # from renewing this one and clobbering an external change.
             #
             # This apply-or-clear is DELIBERATELY separate from
-            # _overlay_ac_couple_seeds (used by the carry-forward paths), which
-            # applies every pending seed unconditionally: only this path has a
-            # fresh read to compare a seed against and thus to supersede it. Do
-            # NOT merge the two into one helper (PR #471 review LOW).
-            serial_seeds = getattr(self, "_ac_couple_soc_seeds", {}).get(serial)
+            # _overlay_cloud_param_store_seeds (used by the carry-forward
+            # paths), which applies every pending seed unconditionally: only
+            # this path has a fresh read to compare a seed against and thus to
+            # supersede it. Do NOT merge the two into one helper (PR #471
+            # review LOW).
+            all_seeds = self.cloud_param_store_seeds(spec)
+            serial_seeds = all_seeds.get(serial)
             if serial_seeds:
                 for field in list(serial_seeds):
                     superseded = (
@@ -1315,18 +1435,19 @@ class DeviceProcessingMixin(_MixinBase):
                     else:
                         store[field] = serial_seeds[field]["value"]
                 if not serial_seeds:
-                    self._ac_couple_soc_seeds.pop(serial, None)
-            target["ac_couple_soc"] = store
+                    all_seeds.pop(serial, None)
+            target[spec.store_key] = store
             _LOGGER.debug(
-                "AC couple SOC limits for %s: start=%s end=%s enabled=%s",
+                "%s for %s: %s",
+                spec.log_label,
                 serial,
-                store["start_soc"],
-                store["end_soc"],
-                store["enabled"],
+                {field: store[field] for field in spec.fields},
             )
         except Exception as e:
-            _LOGGER.debug("Could not fetch AC couple SOC limits for %s: %s", serial, e)
-            self._carry_forward_ac_couple_soc(serial, target)
+            _LOGGER.debug(
+                "Could not fetch %s for %s: %s", spec.log_label.lower(), serial, e
+            )
+            self._carry_forward_cloud_param_store(spec, serial, target)
 
     async def _poll_firmware_update_info(self, device: Any) -> dict[str, Any] | None:
         """Poll and extract firmware update information for a device.
@@ -1462,6 +1583,7 @@ class DeviceProcessingMixin(_MixinBase):
             # learn from the cloud while the device is down that the next
             # healthy cycle's throttled fetch won't pick up.
             self._carry_forward_ac_couple_soc(inverter.serial_number, processed)
+            self._carry_forward_smart_load(inverter.serial_number, processed)
             return processed
 
         # Map inverter properties to sensor keys
@@ -1798,6 +1920,10 @@ class DeviceProcessingMixin(_MixinBase):
         # register), so this is the entities' single read source in both
         # CLOUD and HYBRID.
         await self._fetch_ac_couple_soc(inverter, processed)
+
+        # Smart Load panel (GH #499): same cloud-only store machinery, its own
+        # 5-minute throttle and getter.
+        await self._fetch_smart_load(inverter, processed)
 
         # Battery backup (EPS) status
         # Skip cloud API call when local transport is attached — the parameter
