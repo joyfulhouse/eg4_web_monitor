@@ -505,7 +505,8 @@ INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
         "eps_energy_total_l1",
         "eps_energy_total_l2",
         # Granular per-string / per-component energy (regs 28-37 / 40+),
-        # disabled-by-default, LOCAL/HYBRID only.
+        # disabled-by-default. PV1-3 also have a cloud chart source; PV4-6
+        # remain LOCAL/HYBRID-only.
         "pv1_yield",
         "pv2_yield",
         "pv3_yield",
@@ -1068,8 +1069,9 @@ def _build_energy_sensor_mapping(energy_data: "InverterEnergyData") -> dict[str,
         "eps_energy_total_l1": energy_data.eps_l1_energy_total,
         "eps_energy_total_l2": energy_data.eps_l2_energy_total,
         # Granular per-string / per-component energy (regs 28-37 daily, 40+
-        # lifetime).  Disabled-by-default sensors; LOCAL/HYBRID only (the cloud
-        # energy endpoint returns only aggregates).  pv4-6 gated by string count.
+        # lifetime). This mapping is the LOCAL path; the HTTP path separately
+        # sources PV1-3 from cloud charts. PV4-6 remain LOCAL/HYBRID-only and
+        # are gated by string count.
         "pv1_yield": energy_data.pv1_energy_today,
         "pv2_yield": energy_data.pv2_energy_today,
         "pv3_yield": energy_data.pv3_energy_today,

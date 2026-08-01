@@ -130,6 +130,19 @@ class TestShouldCreateSensor:
         for key in ("pv4_voltage", "pv5_power", "pv6_voltage"):
             assert _should_create_sensor(key, features) is False
 
+    def test_pv_two_string_model_skips_pv3_energy_sensors(self):
+        """A 2-string model creates PV1/2 energy sensors, never PV3."""
+        features = {"pv_string_count": 2}
+        for key in (
+            "pv1_yield",
+            "pv1_yield_lifetime",
+            "pv2_yield",
+            "pv2_yield_lifetime",
+        ):
+            assert _should_create_sensor(key, features) is True
+        assert _should_create_sensor("pv3_yield", features) is False
+        assert _should_create_sensor("pv3_yield_lifetime", features) is False
+
     def test_pv_zero_string_model_creates_none(self):
         """A 0-string model (battery-only / AC-coupled-only) -> no PV sensors."""
         features = {"pv_string_count": 0}

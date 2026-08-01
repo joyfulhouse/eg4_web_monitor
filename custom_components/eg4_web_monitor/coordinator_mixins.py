@@ -85,6 +85,13 @@ EVENT_LOG_FETCH_INTERVAL = 300.0
 # backoff sleep. A timeout is a failed read (carry-forward).
 EVENT_LOG_CLOUD_TIMEOUT = 10.0
 
+# Per-string PV energy is absent from getInverterEnergyInfo but available from
+# the chart endpoints. Daily values use the 5-minute smart-cache tier; lifetime
+# totals cost three requests and therefore use a 30-minute tier.
+PV_STRING_ENERGY_FETCH_INTERVAL = 300.0
+PV_STRING_LIFETIME_FETCH_INTERVAL = 1800.0
+PV_STRING_ENERGY_CLOUD_TIMEOUT = 10.0
+
 # HA caps entity state strings at 255 chars; longer states are rejected
 # outright. The Last Event sensor state (event text) is truncated defensively.
 _MAX_STATE_LENGTH = 255
@@ -210,20 +217,20 @@ _TRANSPORT_OVERLAY: tuple[tuple[str, str], ...] = (
     ("warning_code", "warning_code"),
 )
 
-# Transport-exclusive energy sensor overlay (HYBRID mode).
+# Local transport energy sensor overlay (HYBRID mode).
 # (sensor_key, InverterEnergyData attribute) pairs applied in
 # _process_inverter_object(): per-leg EPS energy (regs 133-138) and the
-# granular per-string / per-component energy registers, none of which the
-# cloud energy endpoint provides (#243).  Module-level for the same
-# contract-harness reason as _TRANSPORT_OVERLAY above.
+# granular per-string / per-component energy registers. PV1-3 energy also
+# comes from cloud chart endpoints, but this overlay keeps the higher-resolution
+# local registers authoritative; PV4-6 remain local-only. Module-level for the
+# same contract-harness reason as _TRANSPORT_OVERLAY above.
 _ENERGY_OVERLAY: tuple[tuple[str, str], ...] = (
     ("eps_energy_today_l1", "eps_l1_energy_today"),
     ("eps_energy_today_l2", "eps_l2_energy_today"),
     ("eps_energy_total_l1", "eps_l1_energy_total"),
     ("eps_energy_total_l2", "eps_l2_energy_total"),
-    # Granular per-string / per-component energy — register-backed,
-    # absent from the cloud energy endpoint, so overlaid from the
-    # local transport in HYBRID (disabled-by-default sensors, #243).
+    # Granular per-string / per-component energy. The cloud chart endpoints
+    # provide PV1-3; the local overlay wins in HYBRID and supplies PV4-6.
     ("pv1_yield", "pv1_energy_today"),
     ("pv2_yield", "pv2_energy_today"),
     ("pv3_yield", "pv3_energy_today"),
@@ -982,6 +989,163 @@ class DeviceProcessingMixin(_MixinBase):
         target["sensors"]["last_event"] = prev_sensors.get("last_event")
         target["last_event_detail"] = prev.get("last_event_detail")
 
+    def _carry_forward_pv_string_energy(
+        self, serial: str, target: dict[str, Any]
+    ) -> None:
+        """Copy the previous cycle's cloud-capable PV string energy values."""
+        prev_sensors = (
+            (self.data or {}).get("devices", {}).get(serial, {}).get("sensors", {})
+        )
+        sensors = target["sensors"]
+        for string_number in range(1, 4):
+            for suffix in ("yield", "yield_lifetime"):
+                key = f"pv{string_number}_{suffix}"
+                value = prev_sensors.get(key)
+                if value is not None:
+                    sensors.setdefault(key, value)
+
+    async def _fetch_pv_string_energy(
+        self, serial: str, target: dict[str, Any]
+    ) -> None:
+        """Fetch cloud PV1-3 daily and lifetime energy into ``target``.
+
+        The cloud inverter-energy endpoint exposes only aggregate PV energy,
+        while the monthColumn and totalColumn chart endpoints expose PV1-3.
+        Each tier is throttled independently and carries the previous cycle's
+        values forward inside its throttle window or after a failed fetch or
+        parse. Missing methods are a silent no-op for older pylxpweb versions.
+
+        Fetching and parsing share one exception boundary per tier. An escaping
+        chart-schema error would reach the outer per-device handler and blank
+        every sensor on the inverter for that cycle.
+        """
+        client = self.client
+        if client is None:
+            return
+        analytics = getattr(client, "analytics", None)
+        fetch_daily = getattr(analytics, "get_month_daily_energy", None)
+        fetch_lifetime = getattr(analytics, "get_energy_total_breakdown", None)
+        if not callable(fetch_daily) and not callable(fetch_lifetime):
+            _LOGGER.debug(
+                "pylxpweb PV string analytics methods unavailable; "
+                "skipping cloud PV string energy for %s",
+                serial,
+            )
+            return
+
+        if not hasattr(self, "_last_status_fetch"):
+            self._last_status_fetch = {}
+        now = time.monotonic()
+        daily_values: dict[str, float] | None = None
+        lifetime_values: dict[str, float] | None = None
+
+        if callable(fetch_daily):
+            daily_key = f"pv_string_daily_{serial}"
+            # "Never fetched" is a None sentinel, NOT a 0.0 default:
+            # time.monotonic() is host uptime on Linux, so on a freshly booted
+            # host (HAOS reboot, container host, CI runner) `now` can be smaller
+            # than the interval and a 0.0 default would classify the FIRST-EVER
+            # fetch as inside the throttle window — silently skipping it.
+            last_daily_fetch = self._last_status_fetch.get(daily_key)
+            if (
+                last_daily_fetch is not None
+                and now - last_daily_fetch < PV_STRING_ENERGY_FETCH_INTERVAL
+            ):
+                self._carry_forward_pv_string_energy(serial, target)
+            else:
+                try:
+                    local_now = dt_util.now()
+                    response = await asyncio.wait_for(
+                        fetch_daily(serial, local_now.year, local_now.month),
+                        timeout=PV_STRING_ENERGY_CLOUD_TIMEOUT,
+                    )
+                    today_entry = next(
+                        (
+                            entry
+                            for entry in response.days
+                            if entry.day == local_now.day
+                        ),
+                        None,
+                    )
+                    if today_entry is None:
+                        self._carry_forward_pv_string_energy(serial, target)
+                    else:
+                        parsed_daily_values: dict[str, float] = {}
+                        for string_number in range(1, 4):
+                            raw_value = getattr(
+                                today_entry, f"ePv{string_number}Day", None
+                            )
+                            if raw_value is not None:
+                                parsed_daily_values[f"pv{string_number}_yield"] = (
+                                    float(raw_value) / 10.0
+                                )
+                        daily_values = parsed_daily_values
+                except Exception as e:
+                    _LOGGER.debug(
+                        "Could not fetch cloud PV string daily energy for %s: %s",
+                        serial,
+                        e,
+                    )
+                    self._carry_forward_pv_string_energy(serial, target)
+                self._last_status_fetch[daily_key] = now
+
+        if callable(fetch_lifetime):
+            lifetime_key = f"pv_string_lifetime_{serial}"
+            # Use the same None-sentinel constraint as the daily tier so the
+            # first lifetime fetch always runs even early in host uptime.
+            last_lifetime_fetch = self._last_status_fetch.get(lifetime_key)
+            if (
+                last_lifetime_fetch is not None
+                and now - last_lifetime_fetch < PV_STRING_LIFETIME_FETCH_INTERVAL
+            ):
+                self._carry_forward_pv_string_energy(serial, target)
+            else:
+                try:
+                    responses = await asyncio.wait_for(
+                        asyncio.gather(
+                            *(
+                                fetch_lifetime(serial, f"ePv{string_number}Day")
+                                for string_number in range(1, 4)
+                            )
+                        ),
+                        timeout=PV_STRING_ENERGY_CLOUD_TIMEOUT,
+                    )
+                    parsed_lifetime_values: dict[str, float] = {}
+                    for string_number, response in enumerate(responses, start=1):
+                        rows = response.get("data")
+                        if rows is None:
+                            rows = response.get("dataPoints")
+                        raw_total = 0.0
+                        has_energy = False
+                        for row in rows or []:
+                            raw_energy = row.get("energy")
+                            if raw_energy is not None:
+                                raw_total += float(raw_energy)
+                                has_energy = True
+                        if has_energy:
+                            parsed_lifetime_values[
+                                f"pv{string_number}_yield_lifetime"
+                            ] = raw_total / 10.0
+                    lifetime_values = parsed_lifetime_values
+                except Exception as e:
+                    _LOGGER.debug(
+                        "Could not fetch cloud PV string lifetime energy for %s: %s",
+                        serial,
+                        e,
+                    )
+                    self._carry_forward_pv_string_energy(serial, target)
+                self._last_status_fetch[lifetime_key] = now
+
+        sensors = target["sensors"]
+        if daily_values is not None:
+            for string_number in range(1, 4):
+                sensors.pop(f"pv{string_number}_yield", None)
+            sensors.update(daily_values)
+        if lifetime_values is not None:
+            for string_number in range(1, 4):
+                sensors.pop(f"pv{string_number}_yield_lifetime", None)
+            sensors.update(lifetime_values)
+
     async def _fetch_last_event(self, serial: str, target: dict[str, Any]) -> None:
         """Fetch the newest portal event-log entry into ``target`` (throttled).
 
@@ -1455,6 +1619,9 @@ class DeviceProcessingMixin(_MixinBase):
             # Portal event log (#327) — fetched even without runtime data: an
             # offline/faulted inverter is exactly when the event log matters.
             await self._fetch_last_event(inverter.serial_number, processed)
+            # The chart endpoints cannot improve an offline/no-data cycle;
+            # preserve the prior PV1-3 energy values through the transient.
+            self._carry_forward_pv_string_energy(inverter.serial_number, processed)
             # AC couple SOC store (#352, PR #380 round-3 P2-2): cheap
             # no-network carry-forward so a no-data cycle does not blank the
             # entities (#256/#258 philosophy — transient blips must not wipe
@@ -1592,8 +1759,12 @@ class DeviceProcessingMixin(_MixinBase):
                 if code_key not in processed["sensors"] and code_key in prev_sensors:
                     processed["sensors"][code_key] = prev_sensors[code_key]
 
-        # Overlay transport-exclusive energy sensors (Modbus-only, regs 133-138).
-        # Cloud API does not provide per-leg EPS energy; only available via Modbus.
+        # Fetch cloud PV1-3 first so the HYBRID local overlay below remains
+        # authoritative (higher resolution and no cloud lag).
+        await self._fetch_pv_string_energy(inverter.serial_number, processed)
+
+        # Overlay local transport energy sensors. Per-leg EPS energy and PV4-6
+        # are Modbus-only; PV1-3 replace the cloud chart values in HYBRID.
         transport_energy = inverter.transport_energy
         if transport_energy is not None:
             sensors = processed["sensors"]
