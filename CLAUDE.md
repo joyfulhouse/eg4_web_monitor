@@ -464,6 +464,7 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 | On-Grid SOC Cutoff | 105 | 10-90% |
 | Off-Grid SOC Cutoff | 125 | 0-100% |
 | Battery Charge / Discharge Control | 179, bit 9 / bit 10 | Bit field (0=SOC, 1=Voltage; #48) |
+| AC Couple | 179, bit 11 | Bit field (#471/#472; lineage-inferred, not toggle-pinned) |
 | System Charge Voltage Limit | 228 | Decivolts |
 | On-Grid / Off-Grid Cut-Off Voltage | 169 / 100 | Decivolts |
 | AC Charge Start / End Voltage | 158 / 159 | Decivolts |

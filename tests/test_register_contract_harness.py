@@ -90,6 +90,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_AC_COUPLE_END_SOC,
     PARAM_AC_COUPLE_START_SOC,
     PARAM_FUNC_AC_CHARGE,
+    PARAM_FUNC_AC_COUPLING_FUNCTION,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     PARAM_FUNC_BAT_SHARED,
@@ -1314,6 +1315,20 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_PV_SELL_TO_GRID_EN: (179, 3),
     PARAM_FUNC_BAT_CHARGE_CONTROL: (179, 9),
     PARAM_FUNC_BAT_DISCHARGE_CONTROL: (179, 10),
+    # AC Couple function (GH #471/#472): reg 179 bit 11. NOT pinned by this
+    # project's raw<->named lockstep toggle — it ships on lineage inference
+    # (the Luxpower Modbus doc and ant0nkr/luxpower-ha-integration both place
+    # ubACcoupling at bit 11, and that same reg-179 layout is the one whose
+    # bits 3/7/9/10 are hardware-proven above), the #476 green-mode
+    # precedent. That is exactly why it is contracted HERE: a silent bit
+    # drift in pylxpweb's table would otherwise land a firmware-ACKed write
+    # on some other function with nothing to fall back to. Wired bespoke in
+    # switch.EG4ACCoupleSwitch (not _WORKING_MODE_PARAMETERS), so the
+    # register-scoped guard below cannot see it — this pin and the switch's
+    # behavioral tests are the coverage. Resolves from pylxpweb 0.9.39b6, the
+    # manifest floor; this entry was DELIBERATELY RED until that release
+    # landed, like bit 3 was against 0.9.36b6.
+    PARAM_FUNC_AC_COUPLING_FUNCTION: (179, 11),
     # Reg 233 bit 1 is live-verified; known to BOTH pylxpweb tables (canonical
     # holding entry added in eg4-6ag2), so the inter-table check below covers it.
     PARAM_FUNC_BATTERY_BACKUP_CTRL: (233, 1),
@@ -1480,6 +1495,47 @@ def test_register_110_contract_holds_for_every_family(family: str | None) -> Non
         "green mode was not checked against register 110 — it is the bit "
         "the off-grid family's local writes depend on, so it must be "
         "pinned here or this test is not doing its job"
+    )
+
+
+@pytest.mark.parametrize(
+    "family",
+    [*(f.value for f in InverterFamily), None],
+    ids=lambda f: f if f else "no-family",
+)
+def test_register_179_contract_holds_for_every_family(family: str | None) -> None:
+    """Register-179 controls resolve identically on every family's mapping.
+
+    The register-110 sibling above exists because that register once carried
+    a family override that put a locally-written bit in the wrong place
+    (#476).  Register 179 has never had one — and this test is what makes
+    "never" checkable, because AC Couple (bit 11, GH #472) is now written
+    locally on the strength of lineage inference rather than a toggle test,
+    the same standing that made green mode worth pinning per family.  A
+    wrong-bit write is ACKed by the firmware, so nothing else would notice.
+    """
+    mapping = get_register_to_param_mapping(family)
+    keys = mapping.get(179, [])
+    assert keys, f"{family}: register 179 missing from the mapping entirely"
+
+    checked: list[str] = []
+    for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
+        if expected_addr != 179:
+            continue
+        checked.append(name)
+        assert name in keys, f"{family}: {name} absent from register 179 — writes fail"
+        assert keys.index(name) == expected_bit, (
+            f"{family}: {name} sits at bit {keys.index(name)}, contract says "
+            f"bit {expected_bit} — a wrong-bit write ACKs and never falls back"
+        )
+
+    # Guard the guard, as on register 110: prove the unpinned-by-toggle bit
+    # this test was added for is actually among the names checked, not just
+    # present somewhere in the contract.
+    assert PARAM_FUNC_AC_COUPLING_FUNCTION in checked, (
+        "AC Couple was not checked against register 179 — it is the bit the "
+        "local AC Couple writes depend on and the one resting on lineage "
+        "inference, so it must be pinned here or this test is not doing its job"
     )
 
 

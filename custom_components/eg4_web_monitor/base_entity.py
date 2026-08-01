@@ -1651,6 +1651,7 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
         value: bool,
         cloud_enable_method: str | None = None,
         cloud_disable_method: str | None = None,
+        after_local_write: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Execute a switch action preferring local transport, falling back to cloud.
 
@@ -1671,6 +1672,13 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
                 When omitted, the cloud path writes ``parameter`` directly via
                 the function-control API instead.
             cloud_disable_method: Inverter method name to call when disabling.
+            after_local_write: Optional coroutine run ONLY when the local
+                route succeeded, before this method returns. Exists so a
+                caller that needs an extra post-write step (e.g. the AC
+                Couple readback, #472) does not also run it after a cloud
+                FALLBACK write — the cloud envelope already refreshes
+                parameters, and running both coalesces to two forced reads
+                for one logical write. Never invoked on the cloud route.
 
         Raises:
             ValueError: If exactly one of ``cloud_enable_method`` /
@@ -1705,6 +1713,24 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
                 value=value,
                 clear_optimistic_on_error=not cloud_available,
             )
+            # Reached only when the local write was acknowledged — a failure
+            # above raises into the cloud-fallback route instead.
+            #
+            # The hook's own failure must NOT propagate: this runs inside
+            # local_write(), so an exception here is indistinguishable to the
+            # router from a failed local WRITE, and would trigger a redundant
+            # cloud re-write of a command the device already accepted. The
+            # write succeeded; only the follow-up step did not.
+            if after_local_write is not None:
+                try:
+                    await after_local_write()
+                except Exception:  # noqa: BLE001 - see above
+                    _LOGGER.exception(
+                        "Post-write step for %s on device %s failed; the write "
+                        "itself was acknowledged",
+                        action_name,
+                        self._serial,
+                    )
 
         async def cloud_write() -> None:
             # A failed local attempt can mark the link down, so evaluate this

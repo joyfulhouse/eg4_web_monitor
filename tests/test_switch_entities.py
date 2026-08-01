@@ -4,7 +4,7 @@ import logging
 import time
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.exceptions import HomeAssistantError
 
@@ -983,13 +983,15 @@ class TestQuickChargeCacheStatePeek:
 
 
 class TestACCoupleSwitch:
-    """AC Couple function switch — cloud client required, family-neutral.
+    """AC Couple function switch — family-neutral, local-first (GH #471/#472).
 
-    Toggles FUNC_AC_COUPLING_FUNCTION (GH #471): cloud-only like the #352
-    SOC number pair, state from the coordinator's dedicated ``ac_couple_soc``
-    store (``enabled`` key), writes cloud-routed in every mode. A device
-    that truly lacks the param (or a pre-0.9.39b3 pylxpweb getter) stores
-    ``enabled=None`` and the switch goes unavailable — never a fake OFF.
+    Toggles FUNC_AC_COUPLING_FUNCTION. With a local transport the param
+    resolves from reg 179 bit 11 and rides the ordinary parameter cache
+    (#472); pure CLOUD keeps the #471 behavior exactly — state from the
+    coordinator's dedicated ``ac_couple_soc`` store (``enabled`` key), write
+    through ``set_inverter_ac_couple_enabled``. A device that truly lacks
+    the param reads None from both sources and the switch goes unavailable
+    — never a fake OFF.
     """
 
     SERIAL = "1234567890"
@@ -1014,6 +1016,24 @@ class TestACCoupleSwitch:
         mock = AsyncMock(return_value=MagicMock(success=success))
         coordinator.client.api.control.set_inverter_ac_couple_enabled = mock
         return mock
+
+    @classmethod
+    def _switch(cls, coordinator, *, local_capable: bool = True):
+        """Build the switch with the pylxpweb version guard forced.
+
+        The reg-179 bit-11 mapping ships in pylxpweb 0.9.39b6 (GH #472), the
+        manifest floor, so
+        the guard's answer depends on the pylxpweb the test env happens to
+        have installed. Pinning that mapping is the register contract
+        harness's job (``_CONTROL_REGISTER_CONTRACT``); these behavioral
+        tests fix the guard explicitly so they exercise the integration's
+        own routing either way.
+        """
+        with patch(
+            "custom_components.eg4_web_monitor.switch._local_params_can_carry",
+            return_value=local_capable,
+        ):
+            return EG4ACCoupleSwitch(coordinator, cls.SERIAL)
 
     # ── Entity creation gating (cloud client only — no family gate) ───
 
@@ -1041,15 +1061,38 @@ class TestACCoupleSwitch:
         assert any(isinstance(e, EG4ACCoupleSwitch) for e in entities)
 
     @pytest.mark.asyncio
-    async def test_not_created_in_pure_local(self, hass):
-        """Pure LOCAL has no cloud client — the function param can never be
-        read or written, so the switch is not created."""
+    async def test_created_in_pure_local(self, hass):
+        """Pure LOCAL gains the switch (#472): reg 179 bit 11 makes the
+        function param readable and writable without a cloud client."""
         coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)
         entry = MagicMock()
         entry.runtime_data = coordinator
 
         entities = []
-        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+        with patch(
+            "custom_components.eg4_web_monitor.switch._local_params_can_carry",
+            return_value=True,
+        ):
+            await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        assert any(isinstance(e, EG4ACCoupleSwitch) for e in entities)
+
+    @pytest.mark.asyncio
+    async def test_not_created_in_pure_local_on_old_pylxpweb(self, hass):
+        """Version guard: an installed pylxpweb that cannot decode
+        FUNC_AC_COUPLING_FUNCTION from a register leaves pure-LOCAL with no
+        route at all, so the switch is not created (rather than created and
+        permanently unavailable)."""
+        coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        with patch(
+            "custom_components.eg4_web_monitor.switch._local_params_can_carry",
+            return_value=False,
+        ):
+            await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert not any(isinstance(e, EG4ACCoupleSwitch) for e in entities)
 
@@ -1095,6 +1138,129 @@ class TestACCoupleSwitch:
         switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
         assert switch.is_on is None
         assert switch.available is False
+
+    # ── Reads (reg 179 bit 11 parameter cache, #472) ──────────────────
+
+    def test_local_param_drives_state(self):
+        """LOCAL: the reg-179 bit-11 parameter is the state source."""
+        for value, expected in ((True, True), (False, False)):
+            coordinator = self._coordinator(
+                has_http=False,
+                has_local=True,
+                local_only=True,
+                parameters={"FUNC_AC_COUPLING_FUNCTION": value},
+            )
+            switch = self._switch(coordinator)
+            assert switch.is_on is expected
+            assert switch.available is True
+
+    def test_local_param_absent_reads_unavailable(self):
+        """LOCAL with the key not yet read -> unknown, never a fake OFF."""
+        coordinator = self._coordinator(
+            has_http=False, has_local=True, local_only=True, parameters={}
+        )
+        switch = self._switch(coordinator)
+        assert switch.is_on is None
+        assert switch.available is False
+
+    def test_hybrid_prefers_local_param_over_store(self):
+        """HYBRID: a fresh local read wins over the throttled cloud store."""
+        coordinator = self._coordinator(
+            store={"enabled": False},
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": True},
+        )
+        switch = self._switch(coordinator)
+        assert switch.is_on is True
+
+    def test_hybrid_falls_back_to_store_when_param_absent(self):
+        """HYBRID: no local value yet -> the cloud store still answers."""
+        coordinator = self._coordinator(
+            store={"enabled": True}, has_http=True, has_local=True, parameters={}
+        )
+        switch = self._switch(coordinator)
+        assert switch.is_on is True
+        assert switch.available is True
+
+    def test_hybrid_unavailable_when_cloud_never_reported_the_param(self):
+        """HYBRID capability probe (codex P2): reg 179 bit 11 decodes to a
+        bool on ANY device that answers the register, so a device with no
+        AC-coupled input yields a confident local False. The cloud store's
+        absence of the param is the only existence proof available, and it
+        must win — otherwise HYBRID publishes a phantom, toggleable OFF
+        switch on unsupported hardware."""
+        coordinator = self._coordinator(
+            store={"start_soc": None, "end_soc": None, "enabled": None},
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": False},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is False
+        assert switch.is_on is None
+
+    def test_hybrid_unavailable_before_the_first_cloud_fetch(self):
+        """Same gate during the startup window: no store yet -> unavailable,
+        even though the local register already decodes."""
+        coordinator = self._coordinator(
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": True},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is False
+
+    def test_hybrid_available_and_local_wins_once_cloud_confirms_support(self):
+        """Cloud bool present -> supported; the fresher local read is the
+        state, so the capability gate costs nothing on real hardware."""
+        coordinator = self._coordinator(
+            store={"enabled": False},
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": True},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is True
+        assert switch.is_on is True
+
+    def test_pure_local_keeps_the_documented_no_probe_gap(self):
+        """Pure LOCAL has no cloud probe to consult, so the local decode is
+        all there is — the accepted gap, asserted so a future change to the
+        availability gate cannot silently widen or close it unnoticed."""
+        coordinator = self._coordinator(
+            has_http=False,
+            has_local=True,
+            local_only=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": False},
+        )
+        switch = self._switch(coordinator)
+        assert switch.available is True
+        assert switch.is_on is False
+
+    def test_cloud_only_ignores_parameter_cache(self):
+        """Pure CLOUD is unchanged by #472: the store is the only source,
+        even if the cloud-fed parameter cache happens to carry the key."""
+        coordinator = self._coordinator(
+            store={"enabled": False},
+            has_http=True,
+            has_local=False,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": True},
+        )
+        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        assert switch.is_on is False
+
+    def test_old_pylxpweb_ignores_parameter_cache(self):
+        """A pylxpweb that cannot decode the name from a register can never
+        have produced that key locally — stay on the store."""
+        coordinator = self._coordinator(
+            store={"enabled": False},
+            has_http=True,
+            has_local=True,
+            parameters={"FUNC_AC_COUPLING_FUNCTION": True},
+        )
+        switch = self._switch(coordinator, local_capable=False)
+        assert switch.is_on is False
 
     def test_survives_parameter_cache_wipe(self):
         """The #352 P1-A regression shape: hard-replacing the parameter
@@ -1142,22 +1308,335 @@ class TestACCoupleSwitch:
             self.SERIAL, "enabled", False
         )
 
+    # ── Writes (local-first once reg 179 bit 11 applies, #472) ────────
+
     @pytest.mark.asyncio
-    async def test_hybrid_write_routes_via_cloud(self):
-        """HYBRID (attached local transport): the write STILL goes through
-        the cloud client — no pinned local register exists (the #352
-        precedent)."""
+    async def test_hybrid_write_routes_local_first(self):
+        """HYBRID: the write goes out as a local named parameter, not
+        through the cloud AC-couple helper."""
         coordinator = self._coordinator(
             store={"enabled": False}, has_http=True, has_local=True
         )
         write = self._cloud_write_mock(coordinator)
-        switch = EG4ACCoupleSwitch(coordinator, self.SERIAL)
+        switch = self._switch(coordinator)
         _prep(switch)
 
         await switch.async_turn_on()
 
-        write.assert_awaited_once_with(self.SERIAL, True)
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "FUNC_AC_COUPLING_FUNCTION", True, serial=self.SERIAL
+        )
+        write.assert_not_awaited()
         coordinator.client.api.control.control_function.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_local_only_write(self):
+        """Pure LOCAL: the write lands with no cloud client at all."""
+        coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)
+        coordinator.client = None
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "FUNC_AC_COUPLING_FUNCTION", False, serial=self.SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_hybrid_local_failure_falls_back_to_cloud(self):
+        """HYBRID: a failed local write retries via the generic
+        function-control API — the same call the portal makes."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.client.api.control.control_function.assert_awaited_once_with(
+            self.SERIAL, "FUNC_AC_COUPLING_FUNCTION", True
+        )
+
+    @pytest.mark.asyncio
+    async def test_local_write_does_not_seed_cloud_store(self):
+        """While bit 11 is unpinned the cloud store stays an INDEPENDENT
+        observation: a local write must not seed it, or a disagreement
+        between the written bit and the portal's view would be masked."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.note_ac_couple_soc_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_local_write_forces_a_verifying_parameter_reread(self):
+        """codex P2: the promised readback must actually happen.
+
+        The shared local-write envelope only mutates the cached value and
+        runs a coordinator DATA refresh; parameters live on their own tier,
+        so without an explicit re-read reg 179 is not read back until the
+        next scheduled parameter cycle. Bit 11 is lineage-inferred, so the
+        readback is the point.
+        """
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            self.SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_failed_reread_warns_but_does_not_fail_the_write(self, caplog):
+        """A failed verification must not fail a command the device already
+        acknowledged — it warns and leaves the commanded value showing."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        with caplog.at_level(logging.WARNING):
+            await switch.async_turn_on()
+
+        assert "verifying parameter re-read did not complete" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_failed_reread_rearms_a_floored_retry(self):
+        """A failed verification must not leave the command UNVERIFIED
+        indefinitely.
+
+        The cache is already seeded and the optimistic state cleared, so if
+        parameter reads keep failing the commanded value would show for up
+        to the parameter interval (default 60 min) with nothing ever
+        checking it. Re-arm the #282 per-device retry so the read is
+        retried within roughly the 2-minute floor instead.
+        """
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.note_parameter_verification_pending.assert_called_once_with(
+            self.SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_rearm_reaches_the_real_retry_set(self):
+        """Prove the re-arm wires into the REAL #282 retry machinery.
+
+        The other tests use a MagicMock coordinator, on which
+        note_parameter_verification_pending is an auto-mock that records the
+        call and does nothing — a wiring regression (wrong attribute, wrong
+        serial) would still pass. Bind the real method over a real set so the
+        serial genuinely lands where the retry gate reads it (the #471
+        seed-registry precedent).
+        """
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        coordinator._param_retry_pending = set()  # real set, not the auto-mock
+        coordinator.note_parameter_verification_pending = MagicMock(
+            side_effect=lambda serial: (
+                EG4DataUpdateCoordinator.note_parameter_verification_pending(
+                    coordinator, serial
+                )
+            )
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        assert coordinator._param_retry_pending == {self.SERIAL}
+
+    @pytest.mark.asyncio
+    async def test_rearm_reaches_the_hybrid_refresh_gate(self):
+        """PROD IS HYBRID, so the re-arm must reach the path HYBRID uses.
+
+        _param_retry_pending is consulted ONLY inside the LOCAL update path.
+        HYBRID routes _async_update_hybrid_data -> _async_update_http_data,
+        which re-reads parameters when _should_refresh_parameters() says so
+        and never looks at that set — so a set-only re-arm was inert in the
+        one mode that matters. Clearing the refresh stamp is what re-arms it.
+        """
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        coordinator._param_retry_pending = set()
+        coordinator._last_parameter_refresh = dt_util.utcnow()  # just refreshed
+        coordinator._last_parameter_attempt = None  # no floor in effect
+        coordinator._parameter_refresh_interval = timedelta(minutes=60)
+        coordinator.note_parameter_verification_pending = MagicMock(
+            side_effect=lambda serial: (
+                EG4DataUpdateCoordinator.note_parameter_verification_pending(
+                    coordinator, serial
+                )
+            )
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        # Before: an hour-old interval with a fresh stamp is NOT due.
+        assert EG4DataUpdateCoordinator._should_refresh_parameters(coordinator) is False
+
+        await switch.async_turn_on()
+
+        assert coordinator._last_parameter_refresh is None
+        assert coordinator._param_retry_pending == {self.SERIAL}
+        # After: the real mode-agnostic gate now says a re-read is due.
+        assert EG4DataUpdateCoordinator._should_refresh_parameters(coordinator) is True
+
+    @pytest.mark.asyncio
+    async def test_rearm_still_respects_the_attempt_floor(self):
+        """The re-arm must not bypass the ~2-minute floor.
+
+        Forcing an immediate read is how a device with a failing transport
+        gets hammered every cycle; the fix is meant to bound the unverified
+        window, not to remove the rate limit.
+        """
+        from datetime import timedelta
+
+        from homeassistant.util import dt as dt_util
+
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
+        coordinator._param_retry_pending = set()
+        coordinator._last_parameter_refresh = dt_util.utcnow()
+        # An attempt seconds ago: inside the floor.
+        coordinator._last_parameter_attempt = dt_util.utcnow()
+        coordinator._parameter_refresh_interval = timedelta(minutes=60)
+        coordinator.note_parameter_verification_pending = MagicMock(
+            side_effect=lambda serial: (
+                EG4DataUpdateCoordinator.note_parameter_verification_pending(
+                    coordinator, serial
+                )
+            )
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        assert coordinator._last_parameter_refresh is None  # armed
+        # ...but still floored until the attempt interval elapses.
+        assert EG4DataUpdateCoordinator._should_refresh_parameters(coordinator) is False
+
+    @pytest.mark.asyncio
+    async def test_successful_reread_does_not_rearm(self):
+        """A verified write needs no retry — the re-arm is failure-only."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        coordinator.note_parameter_verification_pending.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cloud_fallback_write_rereads_exactly_once(self):
+        """One logical write = one forced parameter read.
+
+        When the local write fails and the cloud fallback carries it, the
+        cloud envelope already refreshes parameters. Running the readback
+        too spent TWO forced reads on one write.
+        """
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        # The cloud fallback ran, and its envelope's refresh is the only one.
+        coordinator.client.api.control.control_function.assert_awaited_once()
+        assert coordinator.async_refresh_device_parameters.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_local_success_write_rereads_exactly_once(self):
+        """Same budget on the happy path: one write, one forced read."""
+        coordinator = self._coordinator(
+            store={"enabled": False}, has_http=True, has_local=True
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        assert coordinator.async_refresh_device_parameters.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_local_only_write_also_rereads(self):
+        """Pure LOCAL takes the same readback path (no cloud client)."""
+        coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)
+        coordinator.client = None
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        await switch.async_turn_off()
+
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            self.SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_local_write_failure_without_cloud_raises(self):
+        """Pure LOCAL with no fallback: the local error propagates."""
+        coordinator = self._coordinator(has_http=False, has_local=True, local_only=True)
+        coordinator.client = None
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("Modbus timeout")
+        )
+        switch = self._switch(coordinator)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match="Modbus timeout"):
+            await switch.async_turn_on()
+        assert switch._optimistic_state is None
 
     @pytest.mark.asyncio
     async def test_write_preserves_soc_siblings_in_store(self):
@@ -1602,6 +2081,32 @@ class TestChargeLastSwitch:
 
         with pytest.raises(HomeAssistantError, match="No transport available"):
             await switch.async_turn_on()
+
+    @pytest.mark.asyncio
+    async def test_raising_after_local_write_hook_does_not_trigger_cloud_rewrite(self):
+        """A raising post-write hook must not look like a failed WRITE.
+
+        after_local_write runs inside local_write(), so an exception there is
+        indistinguishable to the router from a failed local write and would
+        re-write via the cloud a command the device already accepted. Now
+        that the hook is shared API (#472), isolate it.
+        """
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        switch = _make_charge_last_switch(coordinator)
+        _prep(switch)
+
+        async def boom() -> None:
+            raise RuntimeError("post-write step exploded")
+
+        await switch._execute_local_with_fallback(
+            action_name="charge last",
+            parameter=PARAM_FUNC_CHARGE_LAST,
+            value=True,
+            after_local_write=boom,
+        )
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        coordinator.client.api.control.control_function.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_fallback_one_sided_cloud_methods_raises(self):
