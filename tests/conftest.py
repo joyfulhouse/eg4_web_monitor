@@ -2,10 +2,11 @@
 
 import threading
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, create_autospec
+from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
 
 import pytest
 from homeassistant.exceptions import HomeAssistantError
+from pylxpweb.client import LuxpowerClient
 from pylxpweb.devices import HybridInverter, MIDDevice
 from pylxpweb.transports import ModbusTransport
 from pylxpweb.transports.data import (
@@ -15,6 +16,59 @@ from pylxpweb.transports.data import (
 )
 
 pytest_plugins = "pytest_homeassistant_custom_component"
+
+
+class CloudRequestInTest(RuntimeError):
+    """Raised when a test reaches pylxpweb's real cloud request path.
+
+    Exported (not name-mangled) so a test can assert on the type rather than
+    matching the message text.
+    """
+
+
+@pytest.fixture(autouse=True)
+def refuse_real_cloud_requests():
+    """Fail cloud requests instantly instead of retrying against the network.
+
+    The coordinator constructs a REAL ``LuxpowerClient`` for http/hybrid
+    entries (websession injection), so any test that drives a code path
+    reaching a cloud fetch lands in pylxpweb's request layer. There the
+    injected aiohttp session belongs to a different event loop than the test's,
+    every attempt fails, and pylxpweb retries with exponential backoff
+    (1+2+4+8+16s) until the caller's ``wait_for`` cancels it. That is pure
+    wall-clock: one test spent 55s at ~1% CPU, and on a runner whose egress to
+    the portal blackholes the same paths can exhaust the job timeout.
+
+    Failing at the request boundary — rather than blocking sockets — is what
+    removes the cost, because the backoff sleeps happen whether or not a socket
+    ever connects.
+
+    Both seams are closed, because ``_request`` alone is NOT complete: the
+    plant-region lookup and the data export read the session directly
+    (``endpoints/plants.py`` and ``endpoints/export.py`` call
+    ``session.post``/``session.get`` after ``client._get_session()``), so they
+    would bypass a ``_request``-only guard. ``_get_session`` is the accessor
+    every network user shares, which makes the pair airtight; ``_request`` is
+    still patched so the common path fails with a message naming the cause.
+
+    Tests that exercise cloud behaviour replace ``coordinator.client`` (or
+    patch ``coordinator.LuxpowerClient``) outright and so never reach this.
+    Nothing in the suite drives real HTTP, so no test needs the live path; one
+    that genuinely did could stop this fixture with its own patch.
+    """
+
+    async def _refuse(self: LuxpowerClient, *args: Any, **kwargs: Any) -> Any:
+        raise CloudRequestInTest(
+            "A test reached the real EG4 cloud request path. Mock the "
+            "coordinator's client (or the endpoint you are exercising) "
+            "instead of letting it attempt a live request."
+        )
+
+    with (
+        patch.object(LuxpowerClient, "_request", _refuse),
+        patch.object(LuxpowerClient, "_get_session", _refuse),
+    ):
+        yield
 
 
 def wire_coordinator_write_helpers(coordinator: MagicMock) -> None:
