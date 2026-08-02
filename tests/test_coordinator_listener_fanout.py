@@ -1,7 +1,10 @@
 """Regression and benchmark coverage for coordinator listener fan-out."""
 
+import asyncio
 from copy import deepcopy
 from unittest.mock import MagicMock
+
+import pytest
 
 from custom_components.eg4_web_monitor.base_entity import (
     EG4BatteryEntity,
@@ -23,7 +26,7 @@ def _bare_coordinator(data: dict | None = None) -> EG4DataUpdateCoordinator:
     coordinator = object.__new__(EG4DataUpdateCoordinator)
     coordinator.data = data
     coordinator._listeners = {}
-    coordinator._pending_listener_contexts = set()
+    coordinator._pending_listener_contexts = None
     coordinator._active_listener_contexts = None
     coordinator._last_listener_update_success = True
     coordinator.last_update_success = True
@@ -136,12 +139,33 @@ def test_unchanged_tick_skips_scoped_discovery_and_entity_work() -> None:
         2: (discovery_callback, DISCOVERY_LISTENER_CONTEXT),
         3: (unscoped_callback, None),
     }
+    coordinator._pending_listener_contexts = set()
 
     coordinator.async_update_listeners()
 
     entity_callback.assert_not_called()
     discovery_callback.assert_not_called()
     unscoped_callback.assert_called_once_with()
+
+
+def test_foreign_listener_context_retains_default_fanout() -> None:
+    """Contexts outside this integration's namespace remain safety listeners."""
+    coordinator = _bare_coordinator({"devices": {"FAST": {"sensors": {}}}})
+    foreign_hashable_callback = MagicMock()
+    foreign_unhashable_callback = MagicMock()
+    coordinator._listeners = {
+        1: (foreign_hashable_callback, ("foreign_consumer", "opaque_scope")),
+        2: (foreign_unhashable_callback, {"opaque": "scope"}),
+    }
+    coordinator._pending_listener_contexts = {
+        device_listener_context("FAST"),
+        DISCOVERY_LISTENER_CONTEXT,
+    }
+
+    coordinator.async_update_listeners()
+
+    foreign_hashable_callback.assert_called_once_with()
+    foreign_unhashable_callback.assert_called_once_with()
 
 
 def test_availability_transition_notifies_every_listener_once() -> None:
@@ -162,9 +186,55 @@ def test_availability_transition_notifies_every_listener_once() -> None:
 
     scoped_callback.reset_mock()
     unscoped_callback.reset_mock()
+    # Home Assistant suppresses listener dispatch after a repeated failure.
+    # Explicitly stage an unchanged result to exercise the defensive branch.
+    coordinator._pending_listener_contexts = set()
     coordinator.async_update_listeners()
     scoped_callback.assert_not_called()
     unscoped_callback.assert_called_once_with()
+
+
+def test_idle_public_listener_dispatch_retains_default_fanout() -> None:
+    """A public dispatch outside a classified refresh must notify all listeners."""
+    coordinator = _bare_coordinator()
+    scoped_callback = MagicMock()
+    coordinator._listeners = {
+        1: (scoped_callback, device_listener_context("SLOW")),
+    }
+
+    coordinator.async_update_listeners()
+
+    scoped_callback.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_inflight_refresh_does_not_mask_public_listener_dispatch() -> None:
+    """Awaiting transport I/O must not expose an empty scope to other dispatches."""
+    data = {"devices": {"SLOW": {"sensors": {"power": 200}}}}
+    coordinator = _bare_coordinator(data)
+    coordinator._consecutive_update_failures = 0
+    coordinator.clear_device_info_caches = MagicMock()
+    route_started = asyncio.Event()
+    release_route = asyncio.Event()
+
+    async def _route_update() -> dict:
+        route_started.set()
+        await release_route.wait()
+        return deepcopy(data)
+
+    coordinator._route_update_by_connection_type = _route_update
+    scoped_callback = MagicMock()
+    coordinator._listeners = {
+        1: (scoped_callback, device_listener_context("SLOW")),
+    }
+
+    refresh = asyncio.create_task(coordinator._async_update_data())
+    await route_started.wait()
+    coordinator.async_update_listeners()
+    release_route.set()
+
+    assert await refresh == data
+    scoped_callback.assert_called_once_with()
 
 
 def test_changed_device_iteration_is_limited_during_discovery_dispatch() -> None:

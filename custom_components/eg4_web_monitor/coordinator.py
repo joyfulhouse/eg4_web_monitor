@@ -2,6 +2,7 @@
 
 import asyncio
 from copy import deepcopy
+from dataclasses import dataclass
 import logging
 import time
 from datetime import datetime, timedelta
@@ -114,20 +115,28 @@ from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
 
-ListenerContext = tuple[str, str]
-STATION_LISTENER_CONTEXT: ListenerContext = ("station", "")
-DISCOVERY_LISTENER_CONTEXT: ListenerContext = ("discovery", "")
+
+@dataclass(frozen=True, slots=True)
+class _ListenerContext:
+    """Private runtime key for listener scopes owned by this integration."""
+
+    kind: str
+    serial: str = ""
 
 
-def device_listener_context(serial: str) -> ListenerContext:
+STATION_LISTENER_CONTEXT = _ListenerContext("station")
+DISCOVERY_LISTENER_CONTEXT = _ListenerContext("discovery")
+
+
+def device_listener_context(serial: str) -> _ListenerContext:
     """Return the listener context shared by one device and its descendants."""
-    return ("device", str(serial))
+    return _ListenerContext("device", str(serial))
 
 
 def _listener_contexts_for_data_change(
     old: dict[str, Any] | None,
     new: dict[str, Any],
-) -> set[ListenerContext] | None:
+) -> set[_ListenerContext] | None:
     """Return scoped listeners affected by a coordinator data transition.
 
     ``None`` means an unclassified/initial transition and therefore requests a
@@ -138,7 +147,7 @@ def _listener_contexts_for_data_change(
     if old is None:
         return None
 
-    contexts: set[ListenerContext] = set()
+    contexts: set[_ListenerContext] = set()
     old_devices = old.get("devices") or {}
     new_devices = new.get("devices") or {}
     changed_serials = {
@@ -184,9 +193,9 @@ def listener_changed_device_items(
     if not isinstance(active_contexts, set):
         return list(devices.items())
     changed_serials = {
-        serial
-        for kind, serial in active_contexts
-        if kind == "device" and serial in devices
+        context.serial
+        for context in active_contexts
+        if context.kind == "device" and context.serial in devices
     }
     return [(serial, devices[serial]) for serial in sorted(changed_serials)]
 
@@ -587,8 +596,8 @@ class EG4DataUpdateCoordinator(
         # smallest context they consume. Each refresh compares against a deep
         # pre-route snapshot because LOCAL carry-forward deliberately reuses
         # device dict objects and may mutate them while marking link failures.
-        self._pending_listener_contexts: set[ListenerContext] | None = None
-        self._active_listener_contexts: set[ListenerContext] | None = None
+        self._pending_listener_contexts: set[_ListenerContext] | None = None
+        self._active_listener_contexts: set[_ListenerContext] | None = None
         self._last_listener_update_success: bool | None = None
 
         # Register shutdown listener to cancel background tasks on Home Assistant stop
@@ -619,10 +628,6 @@ class EG4DataUpdateCoordinator(
             previous_data = deepcopy(self.data)
         except Exception:  # pragma: no cover - defensive for future opaque values
             previous_data = None
-        # An exception before a new data snapshot is produced represents no
-        # value change. Availability transitions are handled at dispatch.
-        self._pending_listener_contexts = set()
-
         # Clear device_info caches at the start of each update cycle
         # so fresh data is used for any new entity registrations
         self.clear_device_info_caches()
@@ -671,10 +676,11 @@ class EG4DataUpdateCoordinator(
     def async_update_listeners(self) -> None:
         """Notify only listeners whose consumed coordinator scope changed.
 
-        Unscoped listeners retain Home Assistant's default always-notify
-        contract. Initial data and availability transitions always notify the
-        full graph. Scoped unchanged listeners are skipped, including on a
-        repeated failure after their unavailable state was already published.
+        Unscoped and foreign-context listeners retain Home Assistant's default
+        always-notify contract. Initial data and availability transitions always
+        notify the full graph. Only this integration's private scoped contexts
+        are filtered, including on a repeated failure after their unavailable
+        state was already published.
         """
         contexts = self._pending_listener_contexts
         availability_changed = (
@@ -686,11 +692,15 @@ class EG4DataUpdateCoordinator(
         selected_contexts = contexts if contexts is not None else set()
         try:
             for update_callback, context in list(self._listeners.values()):
-                if notify_all or context is None or context in selected_contexts:
+                if (
+                    notify_all
+                    or not isinstance(context, _ListenerContext)
+                    or context in selected_contexts
+                ):
                     update_callback()
         finally:
             self._last_listener_update_success = self.last_update_success
-            self._pending_listener_contexts = set()
+            self._pending_listener_contexts = None
             self._active_listener_contexts = None
 
     @callback
