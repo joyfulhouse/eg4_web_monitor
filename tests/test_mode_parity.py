@@ -193,13 +193,12 @@ def test_power_factor_wired_across_modes() -> None:
     assert "power_factor" in SENSOR_TYPES, "missing from SENSOR_TYPES"
 
 
-def test_granular_energy_disabled_by_default_and_local_only() -> None:
-    """#243: granular per-string/per-component energy is added register-backed,
-    disabled-by-default (noise control), and LOCAL/HYBRID only.
+def test_granular_energy_disabled_by_default_and_not_property_mapped() -> None:
+    """#243/#495: granular energy stays outside the cloud property map.
 
-    These come from Modbus regs 28-37/40+. The cloud energy endpoint returns
-    only aggregates, so they must NOT be in the cloud inverter property map; and
-    to avoid dashboard noise they ship disabled-by-default.
+    All keys are register-backed and disabled by default. PV1-3 can also arrive
+    from the cloud chart side-fetch; PV4-6 are local only. None of PV1-6 belong
+    in the cloud inverter property map, which maps the aggregate endpoint.
     """
     from custom_components.eg4_web_monitor.const.sensors.inverter import (
         SENSOR_TYPES,
@@ -236,7 +235,7 @@ def test_granular_energy_disabled_by_default_and_local_only() -> None:
         assert key in energy_keys, f"{key} missing from LOCAL energy mapping"
         assert key in ALL_INVERTER_SENSOR_KEYS, f"{key} missing from static set"
         assert key not in property_map, (
-            f"{key} should be LOCAL/HYBRID only, not in the cloud property map"
+            f"{key} should not be in the cloud inverter property map"
         )
 
     # PV4-6 yield are gated by pv_string_count, like pv4-6 power/current.

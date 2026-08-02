@@ -2,15 +2,16 @@
 
 import logging
 import re
+import zoneinfo
 from collections.abc import Awaitable, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Protocol
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceInfo
-
-from typing import TYPE_CHECKING, Any
+from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from .coordinator import EG4DataUpdateCoordinator
@@ -29,6 +30,79 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class _StatisticsTimezoneCoordinator(Protocol):
+    """Coordinator surface required for station-timezone resolution."""
+
+    station: Any
+
+
+def _get_station_timezone(coordinator: _StatisticsTimezoneCoordinator) -> Any:
+    """Get station timezone from coordinator.
+
+    Args:
+        coordinator: The coordinator
+
+    Returns:
+        Timezone object or None
+    """
+    # Try to get timezone from station data
+    if coordinator.station:
+        tz_str = getattr(coordinator.station, "timezone", None)
+        if tz_str:
+            try:
+                # Parse timezone string like "GMT -8" or "America/Los_Angeles"
+                if tz_str.startswith("GMT"):
+                    # Convert "GMT -8" to UTC offset
+                    offset_str = tz_str.replace("GMT", "").strip()
+                    offset_hours = int(offset_str)
+                    return dt_util.get_time_zone(f"Etc/GMT{-offset_hours:+d}")
+                return zoneinfo.ZoneInfo(tz_str)
+            except Exception:
+                pass
+
+    return None
+
+
+def _is_fixed_offset_timezone(tz: Any) -> bool:
+    """Return True for zones without DST rules.
+
+    ``_get_station_timezone()`` parses cloud strings like "GMT -8" into
+    ``Etc/GMT±N`` zoneinfo zones; plain ``datetime.timezone`` offsets have
+    no ``key`` attribute at all. Genuine IANA zones (e.g.
+    "America/Los_Angeles", "Asia/Kathmandu") keep their own key and are
+    not considered fixed.
+    """
+    key = getattr(tz, "key", None)
+    return key is None or str(key).startswith("Etc/")
+
+
+def _resolve_statistics_timezone(coordinator: _StatisticsTimezoneCoordinator) -> Any:
+    """Pick the timezone used to place daily statistics rows.
+
+    Prefer Home Assistant's configured (IANA, DST-aware) timezone whenever
+    the station timezone is unknown, unparsable (e.g. "GMT +5:30"), or a
+    fixed offset — fixed offsets would drift daily rows to 01:00 local
+    for half the year under DST. The HA instance lives at the plant in
+    essentially all deployments, so its timezone is the best DST-aware
+    proxy. A genuine IANA station timezone is used as-is.
+    """
+    station_tz = _get_station_timezone(coordinator)
+    if station_tz is None or _is_fixed_offset_timezone(station_tz):
+        return dt_util.DEFAULT_TIME_ZONE
+    return station_tz
+
+
+def _resolve_chart_day_timezone(coordinator: _StatisticsTimezoneCoordinator) -> Any:
+    """Pick the timezone used to select cloud chart calendar dates.
+
+    Unlike the statistics resolver, a fixed station offset defines the plant's
+    calendar day without causing DST row-placement drift, so prefer every valid
+    station timezone and use Home Assistant's timezone only as a fallback.
+    Keep these resolvers separate: they solve different timezone problems.
+    """
+    return _get_station_timezone(coordinator) or dt_util.DEFAULT_TIME_ZONE
 
 
 # Inverter families whose control/config entities (switches, numbers, selects)

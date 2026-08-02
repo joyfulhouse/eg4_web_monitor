@@ -441,6 +441,68 @@ class TestLostRecoveryStateful:
         assert result["sensors"]["state_of_charge"] == 80
         assert result["binary_sensors"]["is_lost"] is False
 
+    async def test_recovery_refetches_pv_string_energy_inside_throttle_window(
+        self, hass, mock_config_entry
+    ):
+        from datetime import datetime, timezone
+        from types import SimpleNamespace
+
+        from pylxpweb.devices.inverters._features import InverterFeatures
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+        analytics = SimpleNamespace(
+            get_month_daily_energy=AsyncMock(
+                return_value=SimpleNamespace(
+                    days=[SimpleNamespace(day=1, ePv1Day=3, ePv2Day=7, ePv3Day=0)]
+                )
+            ),
+            get_energy_total_breakdown=AsyncMock(
+                return_value={"data": [{"year": 2026, "energy": 10}]}
+            ),
+        )
+        coordinator.client = SimpleNamespace(
+            analytics=analytics, api=SimpleNamespace(control=SimpleNamespace())
+        )
+        coordinator._fetch_quick_charge_status = AsyncMock()
+        coordinator._fetch_last_event = AsyncMock()
+        coordinator._fetch_ac_couple_soc = AsyncMock()
+        inverter = _make_cloud_inverter(lost=True)
+        inverter._features = InverterFeatures(pv_string_count=3)
+        now = datetime(2026, 8, 1, 9, 30, tzinfo=timezone.utc)
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=now,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=100.0,
+            ),
+        ):
+            lost_result = await coordinator._process_inverter_object(inverter)
+        assert lost_result["sensors"]["pv1_yield"] is None
+
+        coordinator.data = {"devices": {inverter.serial_number: lost_result}}
+        inverter._runtime = _cloud_runtime(lost=False)
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.dt_util.now",
+                return_value=now,
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic",
+                return_value=101.0,
+            ),
+        ):
+            recovered_result = await coordinator._process_inverter_object(inverter)
+
+        assert analytics.get_month_daily_energy.await_count == 2
+        assert analytics.get_energy_total_breakdown.await_count == 6
+        assert recovered_result["sensors"]["pv1_yield"] == 0.3
+        assert recovered_result["sensors"]["pv1_yield_lifetime"] == 1.0
+
 
 class TestGroupResurrectionPaths:
     """Post-blanking pipeline steps must not resurrect group values (#479 r2)."""

@@ -226,10 +226,9 @@ SENSOR_TYPES = {
         "icon": "mdi:power-plug",
     },
     # Granular per-string / per-component energy (Modbus regs 28-37 daily,
-    # 40+ lifetime).  Register-backed and read in LOCAL/HYBRID; the cloud energy
-    # endpoint returns only aggregates, so these are unavailable in pure-cloud
-    # mode.  Disabled by default to avoid dashboard noise — the meaningful totals
-    # (yield, charging, grid import/export, consumption) are enabled separately.
+    # 40+ lifetime). PV1-3 are also read from cloud chart endpoints; PV4-6
+    # remain LOCAL/HYBRID-only. Disabled by default to avoid dashboard noise —
+    # the meaningful totals are enabled separately.
     "pv1_yield": {
         "name": "PV1 Yield",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,

@@ -741,6 +741,7 @@ class TestDeprecatedCleanupSuffixes:
             )
 
         mock_coordinator = MagicMock()
+        mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator.data = {
             "devices": {
@@ -896,6 +897,7 @@ class TestSmartLoadSensors:
             )
 
         mock_coordinator = MagicMock()
+        mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         # Both GridBOSS units carry AUTHORITATIVE port data: the per-cycle
         # validation marker _filter_unused_smart_port_sensors writes on a

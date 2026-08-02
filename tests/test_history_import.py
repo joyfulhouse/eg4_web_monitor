@@ -169,6 +169,7 @@ async def _setup_loaded_entry(hass, entry, coordinator):
     """Register the services and bring the entry into LOADED state."""
     await async_setup(hass, {})
     entry.add_to_hass(hass)
+    coordinator._async_load_pv_string_lifetime_state = AsyncMock()
     with (
         patch(
             "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",

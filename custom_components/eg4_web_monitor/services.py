@@ -32,7 +32,7 @@ from .const import (
     CONNECTION_TYPE_HYBRID,
     DOMAIN,
 )
-from .utils import normalize_event_row
+from .utils import _get_station_timezone, normalize_event_row
 
 if TYPE_CHECKING:
     from homeassistant.components.recorder.models import (
@@ -640,36 +640,6 @@ async def _fetch_cloud_data(
             )
 
     return hourly_data
-
-
-def _get_station_timezone(coordinator: EG4DataUpdateCoordinator) -> Any:
-    """Get station timezone from coordinator.
-
-    Args:
-        coordinator: The coordinator
-
-    Returns:
-        Timezone object or None
-    """
-    # Try to get timezone from station data
-    if coordinator.station:
-        tz_str = getattr(coordinator.station, "timezone", None)
-        if tz_str:
-            try:
-                import zoneinfo
-
-                # Parse timezone string like "GMT -8" or "America/Los_Angeles"
-                if tz_str.startswith("GMT"):
-                    # Convert "GMT -8" to UTC offset
-                    offset_str = tz_str.replace("GMT", "").strip()
-                    offset_hours = int(offset_str)
-                    return dt_util.get_time_zone(f"Etc/GMT{-offset_hours:+d}")
-                else:
-                    return zoneinfo.ZoneInfo(tz_str)
-            except Exception:
-                pass
-
-    return None
 
 
 def _transform_to_statistics(

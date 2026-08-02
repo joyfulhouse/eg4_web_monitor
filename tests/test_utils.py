@@ -2,7 +2,11 @@
 
 from types import SimpleNamespace
 
+import pytest
+from homeassistant.util import dt as dt_util
+
 from custom_components.eg4_web_monitor.utils import (
+    _resolve_chart_day_timezone,
     battery_row_is_absent,
     clean_battery_display_name,
     clean_model_name,
@@ -11,6 +15,40 @@ from custom_components.eg4_web_monitor.utils import (
     generate_unique_id,
     is_supported_control_model,
 )
+
+
+class TestChartDayTimezoneResolution:
+    """Timezone selection for cloud chart calendar dates."""
+
+    def test_fixed_station_offset_is_used(self, monkeypatch: pytest.MonkeyPatch):
+        """A fixed station offset still defines the plant's calendar day."""
+        ha_tz = dt_util.get_time_zone("America/Los_Angeles")
+        coordinator = SimpleNamespace(station=SimpleNamespace(timezone="GMT +12"))
+
+        with monkeypatch.context() as scoped_patch:
+            scoped_patch.setattr(dt_util, "DEFAULT_TIME_ZONE", ha_tz)
+            resolved = _resolve_chart_day_timezone(coordinator)
+
+        assert resolved.key == "Etc/GMT-12"
+        assert resolved is not ha_tz
+
+    @pytest.mark.parametrize("station_timezone", [None, "GMT +5:30"])
+    def test_absent_or_unparsable_station_timezone_uses_ha_timezone(
+        self, monkeypatch: pytest.MonkeyPatch, station_timezone: str | None
+    ):
+        """Missing or invalid station zones fall back to Home Assistant."""
+        ha_tz = dt_util.get_time_zone("America/Los_Angeles")
+        station = (
+            None
+            if station_timezone is None
+            else SimpleNamespace(timezone=station_timezone)
+        )
+
+        with monkeypatch.context() as scoped_patch:
+            scoped_patch.setattr(dt_util, "DEFAULT_TIME_ZONE", ha_tz)
+            assert (
+                _resolve_chart_day_timezone(SimpleNamespace(station=station)) is ha_tz
+            )
 
 
 class TestBatteryRowIsAbsent:
