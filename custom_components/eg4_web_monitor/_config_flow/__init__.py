@@ -1390,29 +1390,44 @@ class EG4ConfigFlow(
 
     async def _test_cloud_credentials(self) -> None:
         """Test cloud credentials and load stations list."""
-        session = aiohttp_client.async_get_clientsession(self.hass)
         assert self._username is not None
         assert self._password is not None
-
-        async with LuxpowerClient(
-            username=self._username,
-            password=self._password,
-            base_url=self._base_url,
+        # Cookie-authenticated clients cannot use HA's process-wide default
+        # session: another account on the same origin would overwrite its
+        # domain cookie. The dedicated session still reuses HA's connector,
+        # resolver, SSL context, and user-agent. Config flows are not config
+        # entry setup, so explicitly detach instead of retaining the wrapper
+        # until Home Assistant stops.
+        session = aiohttp_client.async_create_clientsession(
+            self.hass,
             verify_ssl=self._verify_ssl,
-            session=session,
-        ) as client:
-            from pylxpweb.devices import Station
+            auto_cleanup=False,
+        )
+        try:
+            async with LuxpowerClient(
+                username=self._username,
+                password=self._password,
+                base_url=self._base_url,
+                verify_ssl=self._verify_ssl,
+                session=session,
+            ) as client:
+                from pylxpweb.devices import Station
 
-            stations = await Station.load_all(client)
-            # Normalize plant ids to str at the API boundary: pylxpweb returns
-            # Station.id as int, but the HA frontend submits form selections as
-            # str and CONF_PLANT_ID is stored as str (#275).
-            self._plants = [
-                {"plantId": str(station.id), "name": station.name}
-                for station in stations
-            ]
-            if not self._plants:
-                raise LuxpowerAPIError("No plants found for this account")
+                stations = await Station.load_all(client)
+                # Normalize plant ids to str at the API boundary: pylxpweb returns
+                # Station.id as int, but the HA frontend submits form selections as
+                # str and CONF_PLANT_ID is stored as str (#275).
+                self._plants = [
+                    {"plantId": str(station.id), "name": station.name}
+                    for station in stations
+                ]
+                if not self._plants:
+                    raise LuxpowerAPIError("No plants found for this account")
+        finally:
+            # The injected pylxpweb session is integration-owned; detach the
+            # wrapper while leaving Home Assistant's shared connector alive.
+            if not session.closed:
+                session.detach()
 
     def _build_entry_data(self) -> dict[str, Any]:
         """Build config entry data from current flow state."""

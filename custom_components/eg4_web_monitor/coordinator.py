@@ -1,12 +1,14 @@
 """Data update coordinator for EG4 Web Monitor integration using pylxpweb device objects."""
 
 import asyncio
+import inspect
 import logging
 import time
 from datetime import datetime, timedelta
 from collections.abc import Awaitable, Callable, Collection
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
@@ -170,17 +172,34 @@ class EG4DataUpdateCoordinator(
 
         # Initialize HTTP client for HTTP and Hybrid modes
         self.client: LuxpowerClient | None = None
+        self._cloud_session: aiohttp.ClientSession | None = None
         if self.connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID):
-            self.client = LuxpowerClient(
-                username=entry.data[CONF_USERNAME],
-                password=entry.data[CONF_PASSWORD],
-                base_url=entry.data.get(
-                    CONF_BASE_URL, "https://monitor.eg4electronics.com"
-                ),
-                verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
-                session=aiohttp_client.async_get_clientsession(hass),
-                iana_timezone=iana_timezone,
+            verify_ssl = entry.data.get(CONF_VERIFY_SSL, True)
+            cloud_session = aiohttp_client.async_create_clientsession(
+                hass,
+                verify_ssl=verify_ssl,
+                auto_cleanup=True,
             )
+            self._cloud_session = cloud_session
+            try:
+                self.client = LuxpowerClient(
+                    username=entry.data[CONF_USERNAME],
+                    password=entry.data[CONF_PASSWORD],
+                    base_url=entry.data.get(
+                        CONF_BASE_URL, "https://monitor.eg4electronics.com"
+                    ),
+                    verify_ssl=verify_ssl,
+                    session=cloud_session,
+                    iana_timezone=iana_timezone,
+                )
+            except BaseException:
+                # pylxpweb does not own injected sessions. If its synchronous
+                # constructor fails, no client exists to participate in later
+                # cleanup, so release this wrapper without closing HA's shared
+                # connector.
+                cloud_session.detach()
+                self._cloud_session = None
+                raise
 
         # Modbus input-register read block size (#254): preset option mapped
         # to pylxpweb's max registers per coalesced read. Conservative (40)
@@ -647,6 +666,39 @@ class EG4DataUpdateCoordinator(
                 "No local transport or cloud API available for parameter write."
             )
         return client
+
+    async def _async_close_cloud_session(self) -> None:
+        """Stop dependency-owned work, then detach the injected session."""
+        try:
+            # Current pylxpweb ignores injected sessions here; versions with
+            # auth single-flight also cancel their private auth task. That task
+            # must stop before its session is detached.
+            close = getattr(self.client, "close", None)
+            if close is not None:
+                close_result: Any = close()
+                if inspect.isawaitable(close_result):
+                    await close_result
+        finally:
+            # HA owns the connector; detach closes only this account's session
+            # wrapper and private CookieJar.
+            cloud_session = self._cloud_session
+            self._cloud_session = None
+            if cloud_session is not None and not cloud_session.closed:
+                cloud_session.detach()
+
+    async def _async_handle_shutdown(self, event: Any) -> None:
+        """Release the cloud wrapper when Home Assistant stops without unload."""
+        try:
+            await super()._async_handle_shutdown(event)
+        finally:
+            await self._async_close_cloud_session()
+
+    async def async_shutdown(self) -> None:
+        """Shut down the coordinator and release its cookie-bearing session."""
+        try:
+            await super().async_shutdown()
+        finally:
+            await self._async_close_cloud_session()
 
     async def refresh_inverter_params_if_linked(self, serial: str) -> None:
         """Refresh a device's parameters after a cloud write, unless link is down.

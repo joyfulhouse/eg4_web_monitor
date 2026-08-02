@@ -87,8 +87,8 @@ def check_websession_injection() -> bool:
         coord_content = coord_file.read()
 
         # Check for session injection in coordinator
-        if "async_get_clientsession" in coord_content:
-            print("  ✅ Coordinator injects Home Assistant's aiohttp session")
+        if "async_create_clientsession" in coord_content:
+            print("  ✅ Coordinator injects an isolated Home Assistant session")
         else:
             print("  ❌ Coordinator does not inject session")
             return False
@@ -111,8 +111,8 @@ def check_websession_injection() -> bool:
         cf_content = cf_file.read()
 
         # Check for session injection in config flow
-        if "async_get_clientsession" in cf_content:
-            print("  ✅ Config flow injects Home Assistant's aiohttp session")
+        if "async_create_clientsession" in cf_content:
+            print("  ✅ Config flow injects an isolated Home Assistant session")
         else:
             print("  ❌ Config flow does not inject session")
             return False
