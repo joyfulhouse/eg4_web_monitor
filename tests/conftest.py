@@ -18,8 +18,12 @@ from pylxpweb.transports.data import (
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
-class _CloudRequestInTest(RuntimeError):
-    """Raised when a test reaches pylxpweb's real cloud request path."""
+class CloudRequestInTest(RuntimeError):
+    """Raised when a test reaches pylxpweb's real cloud request path.
+
+    Exported (not name-mangled) so a test can assert on the type rather than
+    matching the message text.
+    """
 
 
 @pytest.fixture(autouse=True)
@@ -39,6 +43,14 @@ def refuse_real_cloud_requests():
     removes the cost, because the backoff sleeps happen whether or not a socket
     ever connects.
 
+    Both seams are closed, because ``_request`` alone is NOT complete: the
+    plant-region lookup and the data export read the session directly
+    (``endpoints/plants.py`` and ``endpoints/export.py`` call
+    ``session.post``/``session.get`` after ``client._get_session()``), so they
+    would bypass a ``_request``-only guard. ``_get_session`` is the accessor
+    every network user shares, which makes the pair airtight; ``_request`` is
+    still patched so the common path fails with a message naming the cause.
+
     Tests that exercise cloud behaviour replace ``coordinator.client`` (or
     patch ``coordinator.LuxpowerClient``) outright and so never reach this.
     Nothing in the suite drives real HTTP, so no test needs the live path; one
@@ -46,13 +58,16 @@ def refuse_real_cloud_requests():
     """
 
     async def _refuse(self: LuxpowerClient, *args: Any, **kwargs: Any) -> Any:
-        raise _CloudRequestInTest(
+        raise CloudRequestInTest(
             "A test reached the real EG4 cloud request path. Mock the "
             "coordinator's client (or the endpoint you are exercising) "
             "instead of letting it attempt a live request."
         )
 
-    with patch.object(LuxpowerClient, "_request", _refuse):
+    with (
+        patch.object(LuxpowerClient, "_request", _refuse),
+        patch.object(LuxpowerClient, "_get_session", _refuse),
+    ):
         yield
 
 

@@ -12,22 +12,36 @@ past its job timeout twice.
 boundary, which is what removes the cost: the backoff sleeps happen whether or
 not a socket ever connects, so blocking sockets alone would not have helped.
 
-This tripwire keeps the guard in place. It was verified to FAIL with the
-fixture made non-autouse. A wall-clock assertion was deliberately NOT added
-alongside it: an unreachable host resolves fast enough on a developer machine
-that the timing never trips, so such a test would pass whether or not the guard
-existed and would only look like protection.
+These tests keep both seams closed. They were verified to FAIL with the fixture
+made non-autouse. A wall-clock assertion was deliberately NOT added alongside
+them: an unreachable host resolves fast enough on a developer machine that the
+timing never trips, so such a test would pass whether or not the guard existed
+and would only look like protection.
 """
 
 import pytest
 from pylxpweb.client import LuxpowerClient
 
+from .conftest import CloudRequestInTest
 
-async def test_real_request_path_is_refused():
-    """The autouse guard is installed and fails instead of reaching out."""
-    client = LuxpowerClient("user", "password", base_url="https://example.invalid")
 
-    with pytest.raises(Exception) as excinfo:
-        await client._request("POST", "/WManage/api/inverter/getInverterRuntime")
+def _client() -> LuxpowerClient:
+    return LuxpowerClient("user", "password", base_url="https://example.invalid")
 
-    assert "real EG4 cloud request path" in str(excinfo.value)
+
+async def test_request_path_is_refused():
+    """The common seam: everything routed through ``_request``."""
+    with pytest.raises(CloudRequestInTest):
+        await _client()._request("POST", "/WManage/api/inverter/getInverterRuntime")
+
+
+async def test_session_accessor_is_refused():
+    """The second seam, and the reason ``_request`` alone is not enough.
+
+    ``endpoints/plants.py`` and ``endpoints/export.py`` take the session from
+    ``client._get_session()`` and call ``session.post``/``session.get``
+    directly, bypassing ``_request`` entirely. Guarding only ``_request`` would
+    leave those free to reach the network.
+    """
+    with pytest.raises(CloudRequestInTest):
+        await _client()._get_session()
