@@ -134,6 +134,22 @@ PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC = "HOLD_AC_CHARGE_END_BATTERY_SOC"  # reg 1
 # get/set_inverter_ac_couple_*_soc methods.
 PARAM_AC_COUPLE_START_SOC = "_12K_HOLD_AC_COUPLE_START_SOC"
 PARAM_AC_COUPLE_END_SOC = "_12K_HOLD_AC_COUPLE_END_SOC"
+# Smart Load panel thresholds (GH #499) — the portal's Maintenance -> Remote
+# Set -> Smart Load Port -> "Smart Load" tab, same widget family as the AC
+# couple pair above and as Grid Always On (#484). A READ-ONLY cloud probe
+# (2026-08-01) found all five among the 127-253 range read on an 18kPV and a
+# FlexBOSS21; a GridBOSS carries none of them (it has the per-port
+# MIDBOX_HOLD_SL_* family instead). CLOUD-ONLY: no local Modbus register is
+# pinned for any of them, they are served from the dedicated coordinator
+# ``smart_load`` store, and they must never be written through the local
+# transport name map. These constants document the wire names for the
+# register-contract harness — entity reads/writes go through pylxpweb's
+# get/set_inverter_smart_load_* methods.
+PARAM_SMART_LOAD_START_SOC = "_12K_HOLD_SMART_LOAD_START_SOC"
+PARAM_SMART_LOAD_END_SOC = "_12K_HOLD_SMART_LOAD_END_SOC"
+PARAM_SMART_LOAD_START_PV_POWER = "_12K_HOLD_START_PV_POWER"
+PARAM_SMART_LOAD_START_VOLT = "_12K_HOLD_SMART_LOAD_START_VOLT"
+PARAM_SMART_LOAD_END_VOLT = "_12K_HOLD_SMART_LOAD_END_VOLT"
 PARAM_HOLD_CHARGE_CURRENT = "HOLD_LEAD_ACID_CHARGE_RATE"
 PARAM_HOLD_DISCHARGE_CURRENT = "HOLD_LEAD_ACID_DISCHARGE_RATE"
 PARAM_HOLD_ONGRID_DISCHG_SOC = "HOLD_DISCHG_CUT_OFF_SOC_EOD"
