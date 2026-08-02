@@ -3913,15 +3913,29 @@ class TestPerTransportIntervals:
         coordinator = EG4DataUpdateCoordinator(hass, dongle_only_local_config_entry)
         assert coordinator.update_interval == timedelta(seconds=30)
 
+    @pytest.mark.parametrize(
+        ("transport_type", "timestamp_attr"),
+        [
+            ("modbus_tcp", "_last_modbus_poll"),
+            ("modbus_serial", "_last_modbus_poll"),
+            ("wifi_dongle", "_last_dongle_poll"),
+        ],
+    )
     def test_should_poll_transport_first_call_always_true(
-        self, hass, mixed_local_config_entry
+        self, hass, mixed_local_config_entry, transport_type, timestamp_attr
     ):
-        """First call to _should_poll_transport always returns True (timestamp==0.0)."""
+        """First poll is due even when monotonic uptime is below the interval."""
         mixed_local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mixed_local_config_entry)
-        assert coordinator._last_modbus_poll == 0.0
-        assert coordinator._should_poll_transport("modbus_tcp") is True
-        assert coordinator._last_modbus_poll > 0.0
+        assert getattr(coordinator, timestamp_attr) is None
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator.time.monotonic",
+            return_value=1.0,
+        ):
+            assert coordinator._should_poll_transport(transport_type) is True
+
+        assert getattr(coordinator, timestamp_attr) == 1.0
 
     def test_should_poll_transport_within_interval_false(
         self, hass, mixed_local_config_entry
@@ -4006,6 +4020,109 @@ class TestPerTransportIntervals:
         assert "BBBB222222" in all_serials, (
             "Second modbus_tcp device was skipped (transport interval bug)"
         )
+
+    @pytest.mark.asyncio
+    async def test_mixed_modbus_types_share_due_decision_across_ticks(self, hass):
+        """TCP and serial poll together without false fresh cached data.
+
+        Regression for eg4-mkxg: both Modbus types use the same configured
+        interval and timestamp, but the local partition used to ask that shared
+        gate once per concrete type.  Stable TCP-first ordering stamped the
+        clock before serial was checked, so serial was skipped on every due
+        tick and its cached/static device remained present as if healthy.
+
+        This covers a fresh host (monotonic uptime below the 5s interval), an
+        in-window cached tick, and the next due tick.  A skipped tick must keep
+        the prior successful ``last_polled`` value rather than fabricate one.
+        """
+        tcp_serial = "TCP1111111"
+        serial_serial = "SER2222222"
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Mixed Modbus TCP and Serial",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": tcp_serial,
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": serial_serial,
+                        "serial_port": "/dev/ttyUSB0",
+                        "transport_type": "modbus_serial",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "18kPV",
+                    },
+                ],
+            },
+            options={},
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        coordinator._local_parameters_loaded = True
+        coordinator._last_parameter_refresh = dt_util.utcnow()
+        coordinator.data = {
+            "devices": {
+                tcp_serial: {
+                    "type": "inverter",
+                    "sensors": {"last_polled": "cached-tcp"},
+                },
+                serial_serial: {
+                    "type": "inverter",
+                    "sensors": {"last_polled": "cached-serial"},
+                },
+            },
+            "parameters": {tcp_serial: {}, serial_serial: {}},
+        }
+
+        current_tick = 0.0
+        polls_by_tick: dict[float, set[str]] = {}
+        states_by_tick: dict[float, dict[str, Any]] = {}
+
+        async def tracking_group(configs, processed, availability):
+            polled = polls_by_tick.setdefault(current_tick, set())
+            for config in configs:
+                serial = config["serial"]
+                polled.add(serial)
+                availability[serial] = True
+                device = dict(processed["devices"][serial])
+                sensors = dict(device["sensors"])
+                sensors["last_polled"] = current_tick
+                device["sensors"] = sensors
+                processed["devices"][serial] = device
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator.time.monotonic"
+            ) as monotonic,
+            patch.object(
+                coordinator,
+                "_process_local_transport_group",
+                side_effect=tracking_group,
+            ),
+        ):
+            for current_tick in (1.0, 3.0, 6.0):
+                monotonic.return_value = current_tick
+                result = await coordinator._async_update_local_data()
+                coordinator.data = result
+                states_by_tick[current_tick] = {
+                    serial: result["devices"][serial]["sensors"]["last_polled"]
+                    for serial in (tcp_serial, serial_serial)
+                }
+
+        both = {tcp_serial, serial_serial}
+        assert polls_by_tick == {1.0: both, 6.0: both}
+        assert states_by_tick == {
+            1.0: {tcp_serial: 1.0, serial_serial: 1.0},
+            3.0: {tcp_serial: 1.0, serial_serial: 1.0},
+            6.0: {tcp_serial: 6.0, serial_serial: 6.0},
+        }
 
     @pytest.mark.asyncio
     async def test_local_data_skipped_devices_use_cache(

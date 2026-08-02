@@ -747,8 +747,8 @@ if TYPE_CHECKING:
         _dongle_model: str
         _modbus_interval: int
         _dongle_interval: int
-        _last_modbus_poll: float
-        _last_dongle_poll: float
+        _last_modbus_poll: float | None
+        _last_dongle_poll: float | None
         _shutdown_listener_remove: Callable[[], None] | None
         _shutdown_listener_fired: bool
         _debounced_refresh: Any
@@ -760,6 +760,7 @@ if TYPE_CHECKING:
         def get_inverter_object(self, serial: str) -> BaseInverter | None: ...
         async def async_request_refresh(self) -> None: ...
         def _rebuild_inverter_cache(self) -> None: ...
+        def _poll_gate_key(self, transport_type: str) -> str: ...
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...

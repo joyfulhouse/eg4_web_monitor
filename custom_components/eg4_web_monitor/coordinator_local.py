@@ -1886,18 +1886,22 @@ class LocalTransportMixin(_MixinBase):
 
         # Partition configs: only poll transports whose interval has elapsed.
         # Skipped devices retain cached data from the pre-population above.
-        # Pre-compute which transport types should poll this tick so that the
-        # interval gate fires once per type, not once per device.  Without this,
-        # the first device of a type stamps the timestamp and all subsequent
-        # devices of the same type get skipped.
-        transport_types_seen: set[str] = set()
-        pollable_types: set[str] = set()
+        # Pre-compute which interval gates should poll this tick so each gate
+        # fires once, not once per device or concrete transport type.  TCP and
+        # serial both normalize to the shared Modbus gate; its one decision is
+        # applied to both, preventing stable-order starvation (eg4-mkxg).
+        poll_gates_seen: set[str] = set()
+        pollable_gates: set[str] = set()
         for config in self._local_transport_configs:
             tt = config.get("transport_type", "modbus_tcp")
-            if tt not in transport_types_seen:
-                transport_types_seen.add(tt)
+            gate_key = self._poll_gate_key(tt)
+            if gate_key not in poll_gates_seen:
+                poll_gates_seen.add(gate_key)
+                # Pass the first concrete representative for compatibility
+                # with instrumentation that observes transport names; the
+                # gate method normalizes it internally to ``gate_key``.
                 if self._should_poll_transport(tt):
-                    pollable_types.add(tt)
+                    pollable_gates.add(gate_key)
 
         # Pre-compute parameter refresh decision once for the entire poll cycle
         # so every device sees the same answer.  Stored as instance attr because
@@ -1930,7 +1934,7 @@ class LocalTransportMixin(_MixinBase):
         for config in self._local_transport_configs:
             transport_type = config.get("transport_type", "modbus_tcp")
             serial = config.get("serial", "")
-            if transport_type in pollable_types:
+            if self._poll_gate_key(transport_type) in pollable_gates:
                 configs_to_poll.append(config)
             else:
                 if serial:
