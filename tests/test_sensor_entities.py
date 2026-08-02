@@ -200,13 +200,15 @@ class TestShouldCreateSensor:
         assert _should_create_sensor("battery_power", features) is True
 
     def test_default_true_when_feature_flag_missing(self):
-        """If feature flag not in dict, defaults to True (conservative)."""
+        """Legacy phase sensors fail open; ambiguous I25 alone fails closed."""
         # Features dict exists but doesn't have the specific key
         features = {"some_other_feature": True}
         for key in SPLIT_PHASE_ONLY_SENSORS:
             assert _should_create_sensor(key, features) is True
-        for key in THREE_PHASE_ONLY_SENSORS:
+        for key in THREE_PHASE_ONLY_SENSORS - {"eps_apparent_power_r"}:
             assert _should_create_sensor(key, features) is True
+        assert _should_create_sensor("eps_apparent_power", features) is False
+        assert _should_create_sensor("eps_apparent_power_r", features) is False
 
     def test_single_phase_grid_type_suppresses_all_phase_sensors(self):
         """Single-phase grid type suppresses both L1/L2 and R/S/T sensors.

@@ -130,8 +130,9 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:power-plug",
     },
-    # Aggregate EPS apparent power from input register 25.  The per-leg
-    # I131/I132 sensors remain available separately on split-phase hardware.
+    # Phase-neutral EPS apparent power from input register 25.  This entity is
+    # fail-closed to positively known non-three-phase context; I25 is R-phase
+    # on three-phase hardware (which uses eps_apparent_power_r below).
     "eps_apparent_power": {
         "name": "EPS Apparent Power",
         "unit": "VA",
@@ -141,6 +142,16 @@ SENSOR_TYPES = {
         "entity_category": "diagnostic",
         "enabled_default": False,
         "translation_key": "eps_apparent_power",
+    },
+    "eps_apparent_power_r": {
+        "name": "EPS Apparent Power R",
+        "unit": "VA",
+        "device_class": "apparent_power",
+        "state_class": "measurement",
+        "icon": "mdi:power-plug-outline",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "eps_apparent_power_r",
     },
     "eps_power_l1": {
         "name": "EPS Power L1",
@@ -1796,7 +1807,10 @@ SENSOR_TYPES = {
         "name": "Inverter Running Time",
         "unit": UnitOfTime.SECONDS,
         "device_class": "duration",
-        "state_class": "total_increasing",
+        # Register docs establish seconds, but no capture establishes reset or
+        # lifetime-counter behavior. Avoid total_increasing statistics until
+        # uptime continuity across reboot/replacement is observed.
+        "state_class": "measurement",
         "icon": "mdi:timer-outline",
         "entity_category": "diagnostic",
         "enabled_default": False,

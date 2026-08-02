@@ -169,6 +169,7 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
 # These inverters use R/S/T phase naming convention
 THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
     {
+        "eps_apparent_power_r",
         "grid_voltage_r",
         "grid_voltage_s",
         "grid_voltage_t",
@@ -186,6 +187,7 @@ THREE_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
 # with phase-neutral names. Not created for three-phase (R/S/T sensors used instead).
 NON_THREE_PHASE_SENSORS: frozenset[str] = frozenset(
     {
+        "eps_apparent_power",
         "grid_voltage",
         "eps_voltage",
     }

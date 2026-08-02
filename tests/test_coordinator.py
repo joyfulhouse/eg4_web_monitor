@@ -1994,11 +1994,19 @@ class TestStaticLocalData:
     def test_static_keys_match_runtime_mapping(self):
         """INVERTER_RUNTIME_KEYS matches _build_runtime_sensor_mapping keys.
 
-        The mapping's key surface is unconditional since the #197 EPS load
-        aliases were retired (#335) — an empty runtime exercises it fully.
+        I25 is phase-scoped: unresolved context omits it, while the union of
+        known three-phase and non-three-phase mappings covers both honest keys.
         """
-        mapping = _build_runtime_sensor_mapping(InverterRuntimeData())
-        assert set(mapping.keys()) == INVERTER_RUNTIME_KEYS
+        runtime = InverterRuntimeData()
+        unresolved = _build_runtime_sensor_mapping(runtime)
+        non_three_phase = _build_runtime_sensor_mapping(
+            runtime, supports_three_phase=False
+        )
+        three_phase = _build_runtime_sensor_mapping(runtime, supports_three_phase=True)
+
+        phase_keys = {"eps_apparent_power", "eps_apparent_power_r"}
+        assert not phase_keys & unresolved.keys()
+        assert set(non_three_phase) | set(three_phase) == INVERTER_RUNTIME_KEYS
 
     def test_static_keys_match_energy_mapping(self):
         """INVERTER_ENERGY_KEYS matches _build_energy_sensor_mapping keys."""
@@ -2195,6 +2203,7 @@ class TestStaticLocalData:
         features = _features_from_family(
             "LXP", device_type_code=12, grid_type="split_phase"
         )
+        assert features["grid_type"] == "split_phase"
         assert features["supports_split_phase"] is True
         assert features["supports_three_phase"] is False
 
@@ -2204,6 +2213,7 @@ class TestStaticLocalData:
         features = _features_from_family(
             "LXP", device_type_code=44, grid_type="single_phase"
         )
+        assert features["grid_type"] == "single_phase"
         assert features["supports_split_phase"] is False
         assert features["supports_three_phase"] is False
 
@@ -2211,6 +2221,7 @@ class TestStaticLocalData:
         """grid_type='three_phase' overrides to three-phase."""
         # EG4_HYBRID defaults to split-phase, but override to three-phase
         features = _features_from_family("EG4_HYBRID", grid_type="three_phase")
+        assert features["grid_type"] == "three_phase"
         assert features["supports_split_phase"] is False
         assert features["supports_three_phase"] is True
 
@@ -2224,6 +2235,7 @@ class TestStaticLocalData:
         """_apply_grid_type_override sets correct flags for split_phase."""
         features = {"supports_split_phase": False, "supports_three_phase": True}
         _apply_grid_type_override(features, "split_phase")
+        assert features["grid_type"] == "split_phase"
         assert features["supports_split_phase"] is True
         assert features["supports_three_phase"] is False
 
@@ -2231,6 +2243,7 @@ class TestStaticLocalData:
         """_apply_grid_type_override disables both for single_phase."""
         features = {"supports_split_phase": True, "supports_three_phase": False}
         _apply_grid_type_override(features, "single_phase")
+        assert features["grid_type"] == "single_phase"
         assert features["supports_split_phase"] is False
         assert features["supports_three_phase"] is False
 
@@ -2238,6 +2251,7 @@ class TestStaticLocalData:
         """_apply_grid_type_override sets correct flags for three_phase."""
         features = {"supports_split_phase": True, "supports_three_phase": False}
         _apply_grid_type_override(features, "three_phase")
+        assert features["grid_type"] == "three_phase"
         assert features["supports_split_phase"] is False
         assert features["supports_three_phase"] is True
 
@@ -5571,7 +5585,7 @@ class TestHybridTransportExclusiveSensors:
     async def test_transport_runtime_populates_readonly_diagnostics(
         self, hass, mock_config_entry
     ):
-        """Canonical I25/I69-70/I77/I113 diagnostics reach HYBRID data."""
+        """Canonical diagnostics use phase-neutral I25 on split-phase HYBRID."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
@@ -5583,7 +5597,7 @@ class TestHybridTransportExclusiveSensors:
             parallel_phase=2,
             parallel_number=4,
         )
-        inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
+        inverter = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._transport = make_transport_spec()
@@ -5599,6 +5613,53 @@ class TestHybridTransportExclusiveSensors:
             "parallel_unit_number": 4,
         }
         assert {key: result["sensors"].get(key) for key in expected} == expected
+        assert "eps_apparent_power_r" not in result["sensors"]
+
+    async def test_transport_runtime_labels_i25_as_r_phase_on_three_phase(
+        self, hass, mock_config_entry
+    ):
+        """A known three-phase HYBRID never labels I25 as aggregate VA."""
+        from pylxpweb.devices.inverters import InverterFamily, InverterFeatures
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
+        runtime = InverterRuntimeData(eps_apparent_power=2500)
+        inverter = make_real_inverter("1111111111", "LXP-EU 12K", runtime=runtime)
+        features = InverterFeatures.from_family(InverterFamily.LXP, 12)
+        assert features is not None
+        inverter._features = features
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+
+        result = await coordinator._process_inverter_object(inverter)
+
+        assert result["sensors"]["eps_apparent_power_r"] == 2500
+        assert "eps_apparent_power" not in result["sensors"]
+
+    async def test_transport_runtime_hides_i25_when_phase_is_unresolved(
+        self, hass, mock_config_entry
+    ):
+        """UNKNOWN family defaults are not evidence of non-three-phase I25."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
+        runtime = InverterRuntimeData(eps_apparent_power=2500)
+        inverter = make_real_inverter("1111111111", "Unmapped", runtime=runtime)
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+
+        result = await coordinator._process_inverter_object(inverter)
+
+        assert (
+            not {
+                "eps_apparent_power",
+                "eps_apparent_power_r",
+            }
+            & result["sensors"].keys()
+        )
 
     async def test_transport_runtime_populates_split_phase_l1_l2(
         self, hass, mock_config_entry
@@ -6816,6 +6877,7 @@ class TestUnknownFamilyModelFallback:
         )
         assert features["supports_split_phase"] is True  # fallback profile
         _apply_grid_type_override(features, "three_phase")
+        assert features["grid_type"] == "three_phase"
         assert features["supports_three_phase"] is True
         assert features["supports_split_phase"] is False
 
@@ -6922,6 +6984,7 @@ class TestUnknownFamilyModelFallback:
         """User grid-type override still beats the model-derived profile."""
         features = _features_from_family(None, model="6000XP", grid_type="three_phase")
         assert features["inverter_family"] == "EG4_OFFGRID"
+        assert features["grid_type"] == "three_phase"
         assert features["supports_split_phase"] is False
         assert features["supports_three_phase"] is True
 

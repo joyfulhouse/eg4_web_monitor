@@ -56,6 +56,7 @@ from .coordinator_mappings import (
     _energy_balance,
     _features_dict_from_inverter_features,
     _safe_float,
+    _supports_three_phase_context,
     _write_charge_rate,
     alias_common_voltage_sensors,
     blank_lost_inverter_measurements,
@@ -2382,7 +2383,8 @@ class DeviceProcessingMixin(_MixinBase):
                 if value is not None:
                     sensors[sensor_key] = value
             for sensor_key, value in _build_readonly_runtime_diagnostic_mapping(
-                transport_runtime
+                transport_runtime,
+                supports_three_phase=_supports_three_phase_context(features),
             ).items():
                 if value is not None:
                     sensors[sensor_key] = value

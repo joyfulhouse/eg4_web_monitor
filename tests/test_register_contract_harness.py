@@ -408,7 +408,17 @@ def _single(sources: frozenset[str]) -> str | None:
 
 
 # Traced integration LOCAL maps (computed once at import; pure functions).
-LOCAL_RUNTIME_MAP = _trace_sensor_mapping(_build_runtime_sensor_mapping)
+# I25 has two mutually exclusive HA keys selected by resolved phase context.
+# Trace both branches so the register contract covers their shared canonical
+# source instead of silently dropping the fail-closed default branch.
+LOCAL_RUNTIME_MAP = {
+    **_trace_sensor_mapping(
+        lambda data: _build_runtime_sensor_mapping(data, supports_three_phase=False)
+    ),
+    **_trace_sensor_mapping(
+        lambda data: _build_runtime_sensor_mapping(data, supports_three_phase=True)
+    ),
+}
 LOCAL_ENERGY_MAP = _trace_sensor_mapping(_build_energy_sensor_mapping)
 LOCAL_BATTERY_MAP = _trace_sensor_mapping(
     _build_individual_battery_mapping, none_attrs=frozenset({"last_seen"})
@@ -811,11 +821,12 @@ _LOCAL_ONLY_KEY_EXCEPTIONS: dict[str, str] = {
     # so load_power must come only from the local register (LOCAL table +
     # HYBRID _TRANSPORT_OVERLAY); a cloud property feed would publish zeros.
     "load_power": "deliberate (#197): cloud reg-170 mirror reads 0 on OFFGRID",
-    # I25 advertises cloud field `seps`, but released pylxpweb has no aggregate
-    # BaseInverter property for it (only the split-phase I131/I132 legs). Keep
-    # this opt-in diagnostic LOCAL/HYBRID instead of reaching through private
-    # cloud runtime state or synthesizing a phase-dependent quantity.
+    # I25 advertises cloud field `seps`, but released pylxpweb has no public
+    # BaseInverter property for either phase-contextual interpretation. Keep
+    # these opt-in diagnostics LOCAL/HYBRID instead of reaching through private
+    # cloud runtime state. The two keys are mutually exclusive at runtime.
     "eps_apparent_power": "deliberate (eg4-uwa0.2): no public aggregate cloud property",
+    "eps_apparent_power_r": "deliberate (eg4-uwa0.2): no public R-phase cloud property",
     # NOTE: load_energy/_lifetime need no entry here — Eload (regs 171/172)
     # has no cloud_api_field in the canonical table; the cloud feed happens
     # at the call site via getattr(inverter, "energy_today_usage").

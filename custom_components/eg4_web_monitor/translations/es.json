@@ -489,6 +489,9 @@
       "eps_apparent_power": {
         "name": "EPS Apparent Power"
       },
+      "eps_apparent_power_r": {
+        "name": "EPS Apparent Power R"
+      },
       "inverter_running_time": {
         "name": "Inverter Running Time"
       },

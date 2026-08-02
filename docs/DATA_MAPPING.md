@@ -292,17 +292,32 @@ diagnostics in LOCAL and HYBRID modes. They add no writable register surface.
 
 | Reg | Canonical field | Decode / unit | HA sensor key |
 |-----|-----------------|---------------|---------------|
-| 25 | `eps_apparent_power` | Unsigned VA | `eps_apparent_power` |
-| 69-70 | `running_time` | Unsigned 32-bit seconds | `inverter_running_time` |
+| 25 | `eps_apparent_power` | Phase-neutral VA only in positively known non-three-phase context | `eps_apparent_power` |
+| 25 | `eps_apparent_power` | R-phase VA in positively known three-phase context | `eps_apparent_power_r` |
+| 69-70 | `running_time` | Unsigned 32-bit seconds; diagnostic measurement, not a statistics total | `inverter_running_time` |
 | 77 bit 0 | `ac_input_type` | `0 = grid`, `1 = generator` (localized enum) | `ac_input_type` |
 | 113 bits 0-1 | `parallel_config` role | Standalone / Master / Slave / Three-Phase Master (localized enum) | `parallel_role` |
 | 113 bits 2-3 | `parallel_config` phase | `0 = R`, `1 = S`, `2 = T`; localized enum, unknown when standalone | `parallel_phase` |
 | 113 bits 8-15 | `parallel_config` unit | Unit ID; unknown when standalone | `parallel_unit_number` |
 
-The I69-70 unit is independently corroborated by the pinned ant0nkr comparison
-(`I_RUNNING_TIME_L/H`, unit seconds). An older `InverterRuntimeData` field
-comment says hours; the parser and both canonical register tables carry the raw
-seconds count, so the integration does not rescale it.
+I25 is deliberately phase-contextual. The pinned ant0nkr comparison
+(`d3d1014`, `I_SEPS`) explicitly qualifies the register as R-phase on
+three-phase systems. Pinned pylxpweb `v0.9.39b6` gives the field aggregate
+semantics on split-phase systems, falling back to I131 + I132 when the legacy
+combined value is zero. The integration therefore publishes a phase-neutral
+entity only for known non-three-phase devices, an explicitly R-phase entity for
+known three-phase devices, and neither when feature detection cannot resolve
+the topology. It never labels an unresolved or three-phase I25 value as an
+aggregate.
+
+The I69-70 **unit** is independently corroborated by the same pinned ant0nkr
+comparison (`I_RUNNING_TIME_L/H`, seconds). An older `InverterRuntimeData`
+field comment says hours; the parser and both canonical register tables carry
+the raw seconds count, so the integration does not rescale it. Neither source,
+however, supplies a hardware capture across reboot/replacement or enough
+continuity evidence to establish Home Assistant's `total_increasing` reset
+semantics. The opt-in duration therefore uses `measurement`; promoting it to a
+statistics total remains deferred until that evidence exists.
 
 For I77, only the well-defined AC-source bit is exposed. Bits 1-2 (AC-couple
 flow/enable in the comparison implementation) remain unexposed until their EG4
