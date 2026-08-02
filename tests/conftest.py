@@ -145,16 +145,18 @@ def refuse_real_cloud_requests(request: pytest.FixtureRequest):
     * An XFAILED test is the one hole: pytest absorbs the teardown error, so a
       violating xfail passes unreported. The suite has no xfail tests today,
       and a violation costs no wall clock because the refusal is immediate.
-    * An attempt made after this fixture's teardown — during a later fixture's
-      finalizer — is still recorded by the session-scoped patch, but lands in
-      the NEXT test's bucket. Attribution can therefore be off by one test;
-      detection is not lost.
+    * An attempt made after this fixture's teardown — during a finalizer that
+      runs later, or during session setup before any test — is still recorded
+      by the session-scoped patch and surfaces against the NEXT test.
+      Attribution is off by one test; detection is not lost. This is why the
+      buffer is drained ONLY at teardown: clearing it on entry as well would
+      discard exactly those late attempts instead of deferring them, turning
+      an attribution quirk into a silent miss.
     * ``get_closest_marker`` honours class- and module-level marks, so a
       module-wide ``pytestmark`` would opt an entire file out. That is the
       normal pytest inheritance rule, not a special case here, but it means
       the marker should be applied per-test.
     """
-    del _cloud_attempts[:]
     yield
     attempts = list(_cloud_attempts)
     del _cloud_attempts[:]
