@@ -1,4 +1,12 @@
-"""The unit suite must never attempt a live EG4 cloud request.
+"""No test may attempt a live EG4 cloud request — and now it is enforced.
+
+Before enforcement this file's opening claim was aspirational: 33 tests
+attempted a request on every run and were merely refused, which the call sites'
+broad ``except Exception`` swallowed. ``refuse_real_cloud_requests`` now records
+attempts and raises at teardown, so the sentence above is a checked property
+rather than an intention. Its exact scope, including the xfail hole, is
+documented on that fixture.
+
 
 The coordinator builds a REAL ``LuxpowerClient`` for http/hybrid entries, so a
 test that drives any cloud-touching path reaches pylxpweb's request layer. The

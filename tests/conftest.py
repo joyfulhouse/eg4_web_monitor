@@ -82,6 +82,15 @@ def refuse_real_cloud_requests(request: pytest.FixtureRequest):
     guarantee real rather than aspirational. Opt out with
     ``@pytest.mark.allow_real_cloud_request_path`` when reaching the path is
     the point of the test.
+
+    Scope, measured rather than assumed. A violation is reported for a passing
+    test, a failing test (both the failure and the violation surface), and each
+    parametrized case independently. A SKIPPED test never runs its body, so
+    there is nothing to catch. An XFAILED test is the one hole: pytest absorbs
+    the teardown error, so a violating xfail would pass unreported. The suite
+    currently contains no xfail tests, and a violation still costs no wall
+    clock because the refusal is immediate — but the guarantee is "no test
+    reaches the network unreported EXCEPT under xfail", not something broader.
     """
     attempts: list[str] = []
 
