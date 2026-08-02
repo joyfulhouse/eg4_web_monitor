@@ -7,30 +7,31 @@ attempts and raises at teardown, so the sentence above is a checked property
 rather than an intention. Its exact scope, including the xfail hole, is
 documented on that fixture.
 
+Why it mattered: the coordinator builds a REAL ``LuxpowerClient`` for
+http/hybrid entries, so a test driving any cloud-touching path reaches
+pylxpweb's request layer. The injected aiohttp session belongs to a different
+event loop than the test's, every attempt fails, and pylxpweb retries with
+exponential backoff — spending wall clock (1+2+4+8+16s) until the caller's
+``wait_for`` cancels it. One test cost 55s at ~1% CPU, the full suite 25
+minutes, and a release CI run wedged past its job timeout twice. Closing this
+at the request boundary is what removes the cost: the backoff sleeps happen
+whether or not a socket ever connects, so blocking sockets would not have
+helped.
 
-The coordinator builds a REAL ``LuxpowerClient`` for http/hybrid entries, so a
-test that drives any cloud-touching path reaches pylxpweb's request layer. The
-injected aiohttp session belongs to a different event loop than the test's,
-every attempt fails, and pylxpweb retries with exponential backoff — spending
-wall clock (1+2+4+8+16s) until the caller's ``wait_for`` cancels it. One test
-cost 55s at ~1% CPU, the full suite 25 minutes, and a release CI run wedged
-past its job timeout twice.
-
-``refuse_real_cloud_requests`` in conftest closes that off at the request
-boundary, which is what removes the cost: the backoff sleeps happen whether or
-not a socket ever connects, so blocking sockets alone would not have helped.
-
-These tests keep both seams closed. They were verified to FAIL with the fixture
-made non-autouse. A wall-clock assertion was deliberately NOT added alongside
-them: an unreachable host resolves fast enough on a developer machine that the
-timing never trips, so such a test would pass whether or not the guard existed
-and would only look like protection.
+These tests keep both seams closed and were verified to FAIL with the patches
+lifted. A wall-clock assertion was deliberately NOT added alongside them: an
+unreachable host resolves fast enough on a developer machine that the timing
+never trips, so such a test would pass whether or not the guard existed and
+would only look like protection.
 """
+
+import inspect
+from typing import Any
 
 import pytest
 from pylxpweb.client import LuxpowerClient
 
-from .conftest import CloudRequestInTest
+from .conftest import PRODUCTION_REQUEST_SIGNATURE, CloudRequestInTest
 
 
 def _client() -> LuxpowerClient:
@@ -58,18 +59,35 @@ async def test_session_accessor_is_refused():
 
 
 @pytest.mark.allow_real_cloud_request_path
-async def test_refusal_keeps_request_signature():
-    """The stand-in must reject calls the real ``_request`` would reject.
+def test_refusal_matches_production_request_signature():
+    """The stand-in must mirror the real ``_request`` signature exactly.
 
-    ``create_autospec(LuxpowerClient)`` derives its spec from the patched
-    attribute, so a permissive ``*args, **kwargs`` stand-in would silently
-    accept argument shapes the production signature forbids and weaken every
-    autospec-based test.
+    ``create_autospec(LuxpowerClient)`` derives its spec from whatever is
+    patched onto the class, so a stand-in whose signature drifts from
+    production silently changes what every autospec-based test accepts.
+
+    Comparing against the signature captured BEFORE patching is what makes
+    this a real check: asserting only that some call raises ``TypeError``
+    would still pass for a stand-in missing a keyword-only parameter. And
+    drift is not hypothetical in one direction — the pylxpweb pin is
+    unbounded, so an added parameter that production starts passing would
+    make argument binding raise before the attempt is ever recorded, and the
+    broad production ``except`` would swallow it.
     """
-    with pytest.raises(TypeError):
-        await _client()._request()
 
-    with pytest.raises(TypeError):
-        await _client()._request(
-            "POST", "/WManage/api/inverter/getInverterRuntime", nonexistent=1
-        )
+    def _binding_shape(sig: inspect.Signature) -> list[tuple[str, Any, Any]]:
+        """Name, kind and default — what argument binding actually uses.
+
+        Annotations are excluded on purpose: pylxpweb uses postponed
+        evaluation, so its annotations are strings while the stand-in's are
+        objects. Comparing those would fail on a cosmetic difference and say
+        nothing about which calls bind.
+        """
+        return [(p.name, p.kind, p.default) for p in sig.parameters.values()]
+
+    assert _binding_shape(inspect.signature(LuxpowerClient._request)) == _binding_shape(
+        PRODUCTION_REQUEST_SIGNATURE
+    ), (
+        "the refusal stand-in no longer mirrors LuxpowerClient._request; "
+        "update it to the current production signature"
+    )

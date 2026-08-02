@@ -1,5 +1,6 @@
 """Fixtures for EG4 Web Monitor integration tests."""
 
+import inspect
 import threading
 from types import SimpleNamespace
 from typing import Any, NoReturn
@@ -43,24 +44,66 @@ def stub_cloud_client() -> SimpleNamespace:
     The optional getters are deliberately absent, so the production code's own
     "installed pylxpweb predates this getter" branches no-op rather than the
     call exploding on a thinner double.
+
+    ``base_url`` is present because the coordinator reads it outside any fetch
+    (``get_station_device_info`` builds the plant's configuration URL from it),
+    so a double without it would fail there for a reason unrelated to the test.
     """
     return SimpleNamespace(
-        analytics=SimpleNamespace(), api=SimpleNamespace(control=SimpleNamespace())
+        analytics=SimpleNamespace(),
+        api=SimpleNamespace(control=SimpleNamespace()),
+        base_url="https://monitor.eg4electronics.com",
     )
 
 
-@pytest.fixture(autouse=True)
-def refuse_real_cloud_requests(request: pytest.FixtureRequest):
-    """Refuse cloud requests, and FAIL the test that made one.
+_cloud_attempts: list[str] = []
+
+# The production signature, captured before patching, so a test can prove the
+# stand-in still mirrors it rather than merely being non-permissive.
+PRODUCTION_REQUEST_SIGNATURE = inspect.signature(LuxpowerClient._request)
+
+
+async def _refuse_request(
+    self: LuxpowerClient,
+    method: str,
+    endpoint: str,
+    *,
+    data: dict[str, Any] | None = None,
+    cache_key: str | None = None,
+    cache_endpoint: str | None = None,
+    _retry_count: int = 0,
+) -> NoReturn:
+    """Stand-in for ``LuxpowerClient._request`` — records, then refuses."""
+    _cloud_attempts.append(f"{method} {endpoint}")
+    raise CloudRequestInTest(_REFUSAL_MESSAGE)
+
+
+async def _refuse_session(self: LuxpowerClient) -> NoReturn:
+    """Stand-in for ``LuxpowerClient._get_session`` — records, then refuses."""
+    _cloud_attempts.append("_get_session")
+    raise CloudRequestInTest(_REFUSAL_MESSAGE)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _patch_cloud_request_paths():
+    """Hold the refusal patches for the WHOLE session.
+
+    Deliberately session-scoped rather than per-test. Pytest sets the
+    plugin's own autouse fixtures up before this module's, which means they
+    tear down AFTER a function-scoped guard has already been restored — so a
+    cloud call made during another fixture's teardown, during module/session
+    setup, or by a task drained while ``hass`` shuts down would reach the real
+    method and retry against the network. Holding the patch for the session
+    leaves no window in which the real methods are reachable.
 
     The coordinator constructs a REAL ``LuxpowerClient`` for http/hybrid
-    entries (websession injection), so any test that drives a code path
-    reaching a cloud fetch lands in pylxpweb's request layer. There the
-    injected aiohttp session belongs to a different event loop than the test's,
-    every attempt fails, and pylxpweb retries with exponential backoff
-    (1+2+4+8+16s) until the caller's ``wait_for`` cancels it. That is pure
-    wall-clock: one test spent 55s at ~1% CPU, and on a runner whose egress to
-    the portal blackholes the same paths can exhaust the job timeout.
+    entries (websession injection), so any code path reaching a cloud fetch
+    lands in pylxpweb's request layer. There the injected aiohttp session
+    belongs to a different event loop than the test's, every attempt fails, and
+    pylxpweb retries with exponential backoff (1+2+4+8+16s) until the caller's
+    ``wait_for`` cancels it. That is pure wall clock: one test spent 55s at ~1%
+    CPU, and on a runner whose egress to the portal blackholes the same paths
+    can exhaust the job timeout.
 
     Failing at the request boundary — rather than blocking sockets — is what
     removes the cost, because the backoff sleeps happen whether or not a socket
@@ -73,49 +116,48 @@ def refuse_real_cloud_requests(request: pytest.FixtureRequest):
     would bypass a ``_request``-only guard. ``_get_session`` is the accessor
     every network user shares, which makes the pair airtight; ``_request`` is
     still patched so the common path fails with a message naming the cause.
-
-    Refusing is NOT enough on its own. Every cloud fetch call site wraps its
-    work in a broad ``except Exception`` and carries values forward, so a
-    refusal is swallowed into "optional data missing" and the offending test
-    still passes — silently attempting a live request on every run. So the
-    attempts are recorded and reported at teardown, which is what makes the
-    guarantee real rather than aspirational. Opt out with
-    ``@pytest.mark.allow_real_cloud_request_path`` when reaching the path is
-    the point of the test.
-
-    Scope, measured rather than assumed. A violation is reported for a passing
-    test, a failing test (both the failure and the violation surface), and each
-    parametrized case independently. A SKIPPED test never runs its body, so
-    there is nothing to catch. An XFAILED test is the one hole: pytest absorbs
-    the teardown error, so a violating xfail would pass unreported. The suite
-    currently contains no xfail tests, and a violation still costs no wall
-    clock because the refusal is immediate — but the guarantee is "no test
-    reaches the network unreported EXCEPT under xfail", not something broader.
     """
-    attempts: list[str] = []
-
-    async def _refuse_request(
-        self: LuxpowerClient,
-        method: str,
-        endpoint: str,
-        *,
-        data: dict[str, Any] | None = None,
-        cache_key: str | None = None,
-        cache_endpoint: str | None = None,
-        _retry_count: int = 0,
-    ) -> NoReturn:
-        attempts.append(f"{method} {endpoint}")
-        raise CloudRequestInTest(_REFUSAL_MESSAGE)
-
-    async def _refuse_session(self: LuxpowerClient) -> NoReturn:
-        attempts.append("_get_session")
-        raise CloudRequestInTest(_REFUSAL_MESSAGE)
-
     with (
         patch.object(LuxpowerClient, "_request", _refuse_request),
         patch.object(LuxpowerClient, "_get_session", _refuse_session),
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def refuse_real_cloud_requests(request: pytest.FixtureRequest):
+    """FAIL the test that attempted a cloud request.
+
+    Refusing is NOT enough on its own. Every cloud fetch call site wraps its
+    work in a broad ``except Exception`` and carries values forward, so a
+    refusal is swallowed into "optional data missing" and the offending test
+    still passes — silently attempting a live request on every run. Recording
+    the attempts and reporting them here is what makes the guarantee real
+    rather than aspirational. Opt out with
+    ``@pytest.mark.allow_real_cloud_request_path`` when reaching the path is
+    the point of the test.
+
+    Scope, measured rather than assumed:
+
+    * Reported for a passing test, a failing test (the failure and the
+      violation both surface), and each parametrized case independently.
+    * A SKIPPED test never runs its body, so there is nothing to catch.
+    * An XFAILED test is the one hole: pytest absorbs the teardown error, so a
+      violating xfail passes unreported. The suite has no xfail tests today,
+      and a violation costs no wall clock because the refusal is immediate.
+    * An attempt made after this fixture's teardown — during a later fixture's
+      finalizer — is still recorded by the session-scoped patch, but lands in
+      the NEXT test's bucket. Attribution can therefore be off by one test;
+      detection is not lost.
+    * ``get_closest_marker`` honours class- and module-level marks, so a
+      module-wide ``pytestmark`` would opt an entire file out. That is the
+      normal pytest inheritance rule, not a special case here, but it means
+      the marker should be applied per-test.
+    """
+    del _cloud_attempts[:]
+    yield
+    attempts = list(_cloud_attempts)
+    del _cloud_attempts[:]
 
     if attempts and request.node.get_closest_marker(_ALLOW_CLOUD_MARKER) is None:
         unique = sorted(set(attempts))
