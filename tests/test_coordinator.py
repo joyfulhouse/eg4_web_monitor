@@ -7260,6 +7260,22 @@ class TestCloudPVStringEnergy:
         assert target["sensors"]["pv2_yield_lifetime"] == 4.0
         assert target["sensors"]["pv3_yield_lifetime"] == 0.0
 
+    async def test_open_breaker_does_not_start_lifetime_children(
+        self, hass, mock_config_entry
+    ):
+        """The gather and its three requests are created only after admission."""
+        analytics = SimpleNamespace(get_energy_total_breakdown=AsyncMock())
+        coordinator = self._coordinator(hass, mock_config_entry, analytics)
+        coordinator._sidefetch_open_until = time.monotonic() + 300.0
+        target: dict[str, Any] = {
+            "features": {"pv_string_count": 3},
+            "sensors": {},
+        }
+
+        await coordinator._fetch_pv_string_energy(self.SERIAL, target)
+
+        analytics.get_energy_total_breakdown.assert_not_called()
+
     async def test_lifetime_omitted_year_carries_previous_value(
         self, hass, mock_config_entry
     ):
