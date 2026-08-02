@@ -303,8 +303,9 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
         config_entry.version,
     )
 
-    # Stage all data changes. Do not mutate the entry until cloud identity
-    # ownership has been resolved.
+    # Stage all data changes. Keep the ownership decision and registry mutation
+    # free of await points so concurrent migrations cannot interleave mid-election.
+    # Do not mutate the entry until cloud identity ownership has been resolved.
     new_data = dict(config_entry.data)
     if config_entry.version == 1:
         new_data = migrate_legacy_entry(new_data)
