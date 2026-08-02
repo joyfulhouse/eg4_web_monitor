@@ -1958,6 +1958,8 @@ class _SingleSlotTransport:
         self.port = port
         self.is_connected = True
         self.disconnected = asyncio.Event()
+        self.shutdown_calls = 0
+        self.disconnect_calls = 0
         self.split_phase = False
         self._op_lock: Any = None
 
@@ -1984,7 +1986,19 @@ class _SingleSlotTransport:
         self.is_connected = True
 
     async def disconnect(self) -> None:
-        """Interrupt a pending read, matching coordinator shutdown semantics."""
+        """Model a reusable disconnect serialized behind the operation lock."""
+        self.disconnect_calls += 1
+        if self._op_lock is not None:
+            async with self._op_lock:
+                self.is_connected = False
+                self.disconnected.set()
+            return
+        self.is_connected = False
+        self.disconnected.set()
+
+    async def async_shutdown(self) -> None:
+        """Model pylxpweb terminal shutdown bypassing a held operation lock."""
+        self.shutdown_calls += 1
         self.is_connected = False
         self.disconnected.set()
         self.endpoint.release.set()
@@ -2470,7 +2484,7 @@ class TestPhysicalEndpointOperationSerialization:
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
-    async def test_shutdown_disconnect_bypasses_held_endpoint_lock(
+    async def test_terminal_shutdown_bypasses_held_endpoint_lock(
         self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
     ) -> None:
         """Shutdown can close a socket to interrupt an in-flight read."""
@@ -2495,6 +2509,8 @@ class TestPhysicalEndpointOperationSerialization:
             await asyncio.gather(poll_task, shutdown_task, return_exceptions=True)
 
         assert transport.disconnected.is_set()
+        assert transport.shutdown_calls == 1
+        assert transport.disconnect_calls == 0
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")

@@ -4159,6 +4159,23 @@ class DSTSyncMixin(_MixinBase):
 class BackgroundTaskMixin(_MixinBase):
     """Mixin for background task management operations."""
 
+    @staticmethod
+    async def _shutdown_transport(transport: Any) -> None:
+        """Terminally close a transport when it exposes an interrupt seam.
+
+        Newer pylxpweb dongle transports serialize reusable ``disconnect()``
+        behind their transaction lock.  During coordinator shutdown that lock
+        may belong to the very hung read we need to interrupt.  Inspect the
+        concrete type (rather than a dynamic mock attribute) and prefer its
+        terminal shutdown method; older and reusable transports retain the
+        existing disconnect fallback.
+        """
+        terminal_shutdown = getattr(type(transport), "async_shutdown", None)
+        if callable(terminal_shutdown):
+            await terminal_shutdown(transport)
+            return
+        await transport.disconnect()
+
     async def _cancel_background_tasks(self) -> None:
         """Cancel all background tasks and wait for them to finish."""
         for task in self._background_tasks:
@@ -4241,7 +4258,7 @@ class BackgroundTaskMixin(_MixinBase):
             transport = getattr(self, attr, None)
             if transport is not None and getattr(transport, "is_connected", False):
                 try:
-                    await transport.disconnect()
+                    await self._shutdown_transport(transport)
                     _LOGGER.debug("Disconnected legacy transport %s", attr)
                 except Exception:
                     _LOGGER.debug(
@@ -4253,7 +4270,7 @@ class BackgroundTaskMixin(_MixinBase):
             transport = inverter.transport
             if transport is not None and getattr(transport, "is_connected", False):
                 try:
-                    await transport.disconnect()
+                    await self._shutdown_transport(transport)
                     _LOGGER.debug("Disconnected transport for inverter %s", serial)
                 except Exception:
                     _LOGGER.debug(
@@ -4267,7 +4284,7 @@ class BackgroundTaskMixin(_MixinBase):
             transport = mid_device.transport
             if transport is not None and getattr(transport, "is_connected", False):
                 try:
-                    await transport.disconnect()
+                    await self._shutdown_transport(transport)
                     _LOGGER.debug("Disconnected transport for MID device %s", serial)
                 except Exception:
                     _LOGGER.debug(
@@ -4303,7 +4320,7 @@ class BackgroundTaskMixin(_MixinBase):
                     continue
                 seen.add(id(transport))
                 try:
-                    await transport.disconnect()
+                    await self._shutdown_transport(transport)
                     _LOGGER.debug(
                         "Disconnected station transport for %s",
                         getattr(device, "serial_number", "?"),
