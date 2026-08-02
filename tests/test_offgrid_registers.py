@@ -66,6 +66,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
 from custom_components.eg4_web_monitor.sensor import _should_create_sensor
 
 from .conftest import make_real_inverter, make_transport_spec
+from tests.conftest import stub_cloud_client
 
 
 @pytest.fixture
@@ -329,6 +330,7 @@ class TestCloudHybridPath:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1111111111", "12000XP")
         inverter.refresh = AsyncMock()
@@ -362,6 +364,7 @@ class TestCloudHybridPath:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1111111111", "12000XP")
         inverter.refresh = AsyncMock()
@@ -393,6 +396,7 @@ class TestCloudHybridPath:
         real HYBRID session it populates from cloud-supplemental runtime."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(
             output_power=1324.0,
@@ -425,6 +429,7 @@ class TestCloudHybridPath:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         # Pure cloud: NO transport and NO transport runtime — cloud-side
         # property values are patched onto the real class so the property
@@ -512,6 +517,7 @@ class TestOffgridCloudOutputPowerGate:
         mirror publishes NO output_power key (entity stays absent)."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1111111111", "12000XP")
         inverter.refresh = AsyncMock()
@@ -538,6 +544,7 @@ class TestOffgridCloudOutputPowerGate:
         the gate must still drop the untrusted cloud value (codex r2 HIGH)."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("3333333333", "12000XP")
         inverter.refresh = AsyncMock()
@@ -564,6 +571,7 @@ class TestOffgridCloudOutputPowerGate:
         value (live-verified 2365 W on FlexBOSS21)."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("2222222222", "FlexBOSS21")
         inverter.refresh = AsyncMock()
@@ -590,6 +598,7 @@ class TestOffgridCloudOutputPowerGate:
         output_power from reg 170 — the local register always wins."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(output_power=1324.0)
         inverter = make_real_inverter("1111111111", "12000XP", runtime=runtime)
@@ -828,6 +837,7 @@ class TestSmartLoadSensors:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         # Reporter's capture: EV charging on the GEN-port smart load.
         runtime = InverterRuntimeData(
@@ -1004,6 +1014,7 @@ class TestOffgridLinkDownLoadFallback:
         """No transport runtime + offgrid family → split sum (365+2999+0)."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("4233740012", "6000XP")
         inverter.refresh = AsyncMock()
@@ -1031,6 +1042,7 @@ class TestOffgridLinkDownLoadFallback:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1234567890", "FlexBOSS21")
         inverter.refresh = AsyncMock()
@@ -1051,6 +1063,7 @@ class TestOffgridLinkDownLoadFallback:
         """Healthy hybrid: the local energy balance wins over the cloud split."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(
             pv_total_power=1000,

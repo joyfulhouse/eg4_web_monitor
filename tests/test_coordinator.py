@@ -82,7 +82,12 @@ from pylxpweb.transports.data import (
     MidboxRuntimeData,
 )
 
-from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
+from tests.conftest import (
+    stub_cloud_client,
+    make_real_inverter,
+    make_real_mid,
+    make_transport_spec,
+)
 
 
 @pytest.fixture
@@ -5534,6 +5539,7 @@ class TestHybridTransportExclusiveSensors:
         """bt_temperature from transport_runtime overlays into hybrid sensors."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         # REAL inverter so the FULL base property surface mapped by
         # _process_inverter_object is exercised against the genuine class shape,
@@ -5575,6 +5581,7 @@ class TestHybridTransportExclusiveSensors:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(
             grid_l1_voltage=120.1,
@@ -5600,6 +5607,7 @@ class TestHybridTransportExclusiveSensors:
         """Without _transport_runtime, overlay is skipped entirely."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         # REAL inverter with NO runtime/transport injected: the real class
         # defaults _transport_runtime and _transport to None, so the overlay
@@ -5620,6 +5628,7 @@ class TestHybridTransportExclusiveSensors:
         """None values in transport_runtime do not overwrite existing sensors."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         # REAL inverter with a sparse runtime: only inverter_rms_current_r is
         # set, and NO pv/grid/battery power, so the real consumption_power
@@ -5654,6 +5663,7 @@ class TestHybridTransportExclusiveSensors:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(
             grid_l1_voltage=0.0,  # firmware-dead reg 193
@@ -5686,6 +5696,7 @@ class TestHybridTransportExclusiveSensors:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(
             grid_l1_voltage=121.3,
@@ -7087,6 +7098,7 @@ class TestPV456DataPath:
 
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = _SpecInverter(runtime)
         result = await coordinator._process_inverter_object(inverter)

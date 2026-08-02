@@ -29,12 +29,14 @@ def _client() -> LuxpowerClient:
     return LuxpowerClient("user", "password", base_url="https://example.invalid")
 
 
+@pytest.mark.allow_real_cloud_request_path
 async def test_request_path_is_refused():
     """The common seam: everything routed through ``_request``."""
-    with pytest.raises(CloudRequestInTest):
+    with pytest.raises(CloudRequestInTest, match="real EG4 cloud request path"):
         await _client()._request("POST", "/WManage/api/inverter/getInverterRuntime")
 
 
+@pytest.mark.allow_real_cloud_request_path
 async def test_session_accessor_is_refused():
     """The second seam, and the reason ``_request`` alone is not enough.
 
@@ -43,5 +45,23 @@ async def test_session_accessor_is_refused():
     directly, bypassing ``_request`` entirely. Guarding only ``_request`` would
     leave those free to reach the network.
     """
-    with pytest.raises(CloudRequestInTest):
+    with pytest.raises(CloudRequestInTest, match="real EG4 cloud request path"):
         await _client()._get_session()
+
+
+@pytest.mark.allow_real_cloud_request_path
+async def test_refusal_keeps_request_signature():
+    """The stand-in must reject calls the real ``_request`` would reject.
+
+    ``create_autospec(LuxpowerClient)`` derives its spec from the patched
+    attribute, so a permissive ``*args, **kwargs`` stand-in would silently
+    accept argument shapes the production signature forbids and weaken every
+    autospec-based test.
+    """
+    with pytest.raises(TypeError):
+        await _client()._request()
+
+    with pytest.raises(TypeError):
+        await _client()._request(
+            "POST", "/WManage/api/inverter/getInverterRuntime", nonexistent=1
+        )
