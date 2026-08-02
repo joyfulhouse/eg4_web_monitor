@@ -138,6 +138,7 @@ from .const import (
     is_control_active,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .control_discovery import setup_control_entity_discovery
 from .utils import (
     async_write_with_cloud_fallback,
     flag_offgrid_control_suppression,
@@ -588,14 +589,12 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
 # ── Platform setup ───────────────────────────────────────────────────
 
 
-async def async_setup_entry(
+def _create_number_entities(
     hass: HomeAssistant,
-    config_entry: EG4ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up EG4 Web Monitor number entities from a config entry."""
-    coordinator = config_entry.runtime_data
-    entities: list[NumberEntity] = []
+    coordinator: EG4DataUpdateCoordinator,
+) -> list[EG4BaseNumberEntity]:
+    """Build controls applicable to the coordinator's current capabilities."""
+    entities: list[EG4BaseNumberEntity] = []
 
     for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
         device_type = device_data.get("type")
@@ -658,11 +657,10 @@ async def async_setup_entry(
                 # switch.py.
                 offgrid = is_offgrid_family(device_data)
                 if offgrid:
-                    # Suffix-based probe: number unique IDs embed the model
-                    # slug ({clean_model}_{serial}_{key}), and registry
-                    # entries from a misdetected-model era (e.g. "unknown",
-                    # #219/#222) carry legacy prefixes — all variants end
-                    # with {serial}_{key}.
+                    # Suffix-based probe matches current stable IDs and legacy
+                    # model-prefixed IDs from a misdetected-model era (e.g.
+                    # "unknown", #219/#222). All variants end in
+                    # {serial}_{key}.
                     flag_offgrid_control_suppression(
                         hass,
                         serial,
@@ -748,9 +746,45 @@ async def async_setup_entry(
                     if coordinator.has_local_register_path(serial):
                         entities.append(StartChargePowerNumber(coordinator, serial))
 
-    if entities:
-        _LOGGER.info("Setup complete: %d number entities created", len(entities))
-        async_add_entities(entities, update_before_add=False)
+    return entities
+
+
+def _number_route_signature(coordinator: EG4DataUpdateCoordinator) -> object:
+    """Return transport state that can change the number candidate set."""
+    serials = (coordinator.data or {}).get("devices", {})
+    return (
+        bool(coordinator.has_http_api()),
+        bool(coordinator.is_local_only()),
+        tuple(
+            sorted(
+                (
+                    str(serial),
+                    bool(coordinator.has_configured_local_transport(serial)),
+                    bool(coordinator.has_local_register_path(serial)),
+                )
+                for serial in serials
+            )
+        ),
+    )
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: EG4ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up and continuously converge EG4 number entities."""
+    coordinator = config_entry.runtime_data
+    setup_control_entity_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        async_add_entities,
+        lambda: _create_number_entities(hass, coordinator),
+        platform="number",
+        extra_signature=lambda: _number_route_signature(coordinator),
+        migrate_model_prefix=True,
+    )
 
 
 # ── Entity classes ───────────────────────────────────────────────────
@@ -768,9 +802,7 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "System Charge SOC Limit"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_system_charge_soc_limit"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("system_charge_soc_limit")
         self._attr_native_min_value = SYSTEM_CHARGE_SOC_LIMIT_MIN
         self._attr_native_max_value = SYSTEM_CHARGE_SOC_LIMIT_MAX
         self._attr_native_step = SYSTEM_CHARGE_SOC_LIMIT_STEP
@@ -857,9 +889,7 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
         """Initialize the Quick Charge Duration number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Quick Charge Duration"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_quick_charge_duration"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("quick_charge_duration")
         self._attr_native_min_value = QUICK_CHARGE_DURATION_MIN
         self._attr_native_max_value = QUICK_CHARGE_DURATION_MAX
         self._attr_native_step = QUICK_CHARGE_DURATION_STEP
@@ -1037,7 +1067,7 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "AC Charge Power"
-        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_ac_charge_power"
+        self._attr_unique_id = self._stable_control_unique_id("ac_charge_power")
         self._attr_native_min_value = AC_CHARGE_POWER_MIN
         self._attr_native_max_value = AC_CHARGE_POWER_MAX
         self._attr_native_step = AC_CHARGE_POWER_STEP
@@ -1099,7 +1129,7 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "PV Charge Power"
-        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_pv_charge_power"
+        self._attr_unique_id = self._stable_control_unique_id("pv_charge_power")
         self._attr_native_min_value = PV_CHARGE_POWER_MIN
         self._attr_native_max_value = PV_CHARGE_POWER_MAX
         self._attr_native_step = PV_CHARGE_POWER_STEP
@@ -1179,9 +1209,7 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Grid Peak Shaving Power"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_grid_peak_shaving_power"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("grid_peak_shaving_power")
         self._attr_native_min_value = GRID_PEAK_SHAVING_POWER_MIN
         self._attr_native_max_value = GRID_PEAK_SHAVING_POWER_MAX
         self._attr_native_step = GRID_PEAK_SHAVING_POWER_STEP
@@ -1311,9 +1339,7 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "AC Charge SOC Limit"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_ac_charge_soc_limit"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("ac_charge_soc_limit")
         self._attr_native_min_value = AC_CHARGE_SOC_LIMIT_MIN
         self._attr_native_max_value = AC_CHARGE_SOC_LIMIT_MAX
         self._attr_native_step = AC_CHARGE_SOC_LIMIT_STEP
@@ -1369,8 +1395,8 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "AC Charge Start Battery SOC"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_ac_charge_start_battery_soc"
+        self._attr_unique_id = self._stable_control_unique_id(
+            "ac_charge_start_battery_soc"
         )
         self._attr_native_min_value = AC_CHARGE_BATTERY_SOC_MIN
         self._attr_native_max_value = AC_CHARGE_BATTERY_SOC_MAX
@@ -1445,8 +1471,8 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "AC Charge End Battery SOC"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_ac_charge_end_battery_soc"
+        self._attr_unique_id = self._stable_control_unique_id(
+            "ac_charge_end_battery_soc"
         )
         self._attr_native_min_value = AC_CHARGE_BATTERY_SOC_MIN
         self._attr_native_max_value = AC_CHARGE_BATTERY_SOC_MAX
@@ -1635,9 +1661,7 @@ class ACCoupleStartSOCNumber(ACCoupleSOCNumberBase):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_translation_key = "ac_couple_start_soc"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_ac_couple_start_soc"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("ac_couple_start_soc")
         self._attr_native_min_value = AC_COUPLE_SOC_MIN
         self._attr_native_max_value = AC_COUPLE_SOC_MAX
         self._attr_native_step = AC_COUPLE_SOC_STEP
@@ -1664,7 +1688,7 @@ class ACCoupleEndSOCNumber(ACCoupleSOCNumberBase):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_translation_key = "ac_couple_end_soc"
-        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_ac_couple_end_soc"
+        self._attr_unique_id = self._stable_control_unique_id("ac_couple_end_soc")
         self._attr_native_min_value = AC_COUPLE_SOC_MIN
         self._attr_native_max_value = AC_COUPLE_SOC_MAX
         self._attr_native_step = AC_COUPLE_SOC_STEP
@@ -1826,9 +1850,7 @@ class SmartLoadNumber(EG4BaseNumberEntity):
         self._spec = spec
         super().__init__(coordinator, serial)
         self._attr_translation_key = spec.translation_key
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_{spec.unique_id_suffix}"
-        )
+        self._attr_unique_id = self._stable_control_unique_id(spec.unique_id_suffix)
         self._attr_native_min_value = spec.min_value
         self._attr_native_max_value = spec.max_value
         self._attr_native_step = spec.step
@@ -1947,9 +1969,7 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_translation_key = "grid_sell_back_power"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_grid_sell_back_power"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("grid_sell_back_power")
         self._attr_native_min_value = GRID_SELL_BACK_POWER_MIN
         self._attr_native_max_value = GRID_SELL_BACK_POWER_MAX
         self._attr_native_step = GRID_SELL_BACK_POWER_STEP
@@ -2067,8 +2087,8 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_translation_key = "start_discharge_power_threshold"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_start_discharge_power_threshold"
+        self._attr_unique_id = self._stable_control_unique_id(
+            "start_discharge_power_threshold"
         )
         self._attr_native_min_value = START_DISCHARGE_POWER_MIN
         self._attr_native_max_value = START_DISCHARGE_POWER_MAX
@@ -2161,8 +2181,8 @@ class StartChargePowerNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_translation_key = "start_charge_power_threshold"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_start_charge_power_threshold"
+        self._attr_unique_id = self._stable_control_unique_id(
+            "start_charge_power_threshold"
         )
         self._attr_native_min_value = START_CHARGE_POWER_MIN
         self._attr_native_max_value = START_CHARGE_POWER_MAX
@@ -2233,9 +2253,7 @@ class ForcedDischargePowerNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Forced Discharge Power"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_forced_discharge_power"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("forced_discharge_power")
         self._attr_native_min_value = FORCED_DISCHARGE_POWER_MIN
         self._attr_native_max_value = FORCED_DISCHARGE_POWER_MAX
         self._attr_native_step = FORCED_DISCHARGE_POWER_STEP
@@ -2321,8 +2339,8 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Forced Discharge SOC Limit"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_forced_discharge_soc_limit"
+        self._attr_unique_id = self._stable_control_unique_id(
+            "forced_discharge_soc_limit"
         )
         self._attr_native_min_value = FORCED_DISCHARGE_SOC_LIMIT_MIN
         self._attr_native_max_value = FORCED_DISCHARGE_SOC_LIMIT_MAX
@@ -2396,9 +2414,7 @@ class StopDischargeVoltageNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Stop Discharge Voltage"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_stop_discharge_voltage"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("stop_discharge_voltage")
         self._attr_native_min_value = STOP_DISCHARGE_VOLTAGE_MIN
         self._attr_native_max_value = STOP_DISCHARGE_VOLTAGE_MAX
         self._attr_native_step = STOP_DISCHARGE_VOLTAGE_STEP
@@ -2471,9 +2487,7 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "On-Grid SOC Cut-Off"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_on_grid_soc_cutoff"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("on_grid_soc_cutoff")
         self._attr_native_min_value = SOC_LIMIT_MIN
         self._attr_native_max_value = SOC_LIMIT_MAX
         self._attr_native_step = SOC_LIMIT_STEP
@@ -2522,9 +2536,7 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Off-Grid SOC Cut-Off"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_off_grid_soc_cutoff"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("off_grid_soc_cutoff")
         self._attr_native_min_value = SOC_LIMIT_MIN
         self._attr_native_max_value = SOC_LIMIT_MAX
         self._attr_native_step = SOC_LIMIT_STEP
@@ -2571,9 +2583,7 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Battery Charge Current"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_battery_charge_current"
-        )
+        self._attr_unique_id = self._stable_control_unique_id("battery_charge_current")
         self._attr_native_min_value = BATTERY_CURRENT_MIN
         self._attr_native_max_value = BATTERY_CURRENT_MAX
         self._attr_native_step = BATTERY_CURRENT_STEP
@@ -2621,8 +2631,8 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "Battery Discharge Current"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_battery_discharge_current"
+        self._attr_unique_id = self._stable_control_unique_id(
+            "battery_discharge_current"
         )
         self._attr_native_min_value = BATTERY_CURRENT_MIN
         self._attr_native_max_value = BATTERY_CURRENT_MAX
@@ -2676,8 +2686,8 @@ class SystemChargeVoltLimitNumber(EG4BaseNumberEntity):
         """Initialize the number entity."""
         super().__init__(coordinator, serial)
         self._attr_name = "System Charge Voltage Limit"
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_system_charge_volt_limit"
+        self._attr_unique_id = self._stable_control_unique_id(
+            "system_charge_volt_limit"
         )
         self._attr_native_min_value = SYSTEM_CHARGE_VOLT_LIMIT_MIN
         self._attr_native_max_value = SYSTEM_CHARGE_VOLT_LIMIT_MAX
@@ -2869,9 +2879,7 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
         self._control_key = spec.control_key
         super().__init__(coordinator, serial)
         self._attr_name = spec.name
-        self._attr_unique_id = (
-            f"{self._clean_model}_{serial.lower()}_{spec.unique_id_suffix}"
-        )
+        self._attr_unique_id = self._stable_control_unique_id(spec.unique_id_suffix)
         self._attr_native_min_value = spec.min_value
         self._attr_native_max_value = spec.max_value
         self._attr_native_step = spec.step

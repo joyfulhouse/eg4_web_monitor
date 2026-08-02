@@ -471,7 +471,7 @@ class EG4BaseSensor(EG4DeviceEntity):
             )
         elif device_type == "parallel_group":
             self._attr_entity_id = (
-                f"sensor.{ENTITY_PREFIX}_parallel_group_{self._sensor_key}"
+                f"sensor.{ENTITY_PREFIX}_{self._serial}_{self._sensor_key}"
             )
         else:
             model_clean = clean_model_name(model, use_underscores=True)
@@ -780,6 +780,30 @@ class EG4OptimisticEntity(CoordinatorEntity):
         self._pre_write_state: Any = None
         self._retention_expires: float = 0.0
         self._retained_action: str = ""
+        # Directly-constructed entities remain supported by default.  Platform
+        # discovery overrides this bit and keeps it current as late model/family
+        # metadata arrives or disappears.
+        self._control_discovery_supported = True
+
+    def _set_control_discovery_supported(self, supported: bool) -> None:
+        """Set whether this entity is in the platform's current candidate set."""
+        self._control_discovery_supported = supported
+
+    def _control_device_available(self, expected_type: str = "inverter") -> bool:
+        """Return whether a discovered control still has an applicable device."""
+        devices = (self.coordinator.data or {}).get("devices", {})
+        device_data = devices.get(self._retention_serial)
+        return bool(
+            self.coordinator.last_update_success
+            and self._control_discovery_supported
+            and device_data
+            and device_data.get("type") == expected_type
+            and "error" not in device_data
+        )
+
+    def _stable_control_unique_id(self, entity_key: str) -> str:
+        """Build a registry identity from immutable device identity and purpose."""
+        return generate_unique_id(self._retention_serial.lower(), entity_key)
 
     # ── Subclass hooks ──────────────────────────────────────────────
 
@@ -1005,8 +1029,6 @@ class EG4BaseNumber(EG4OptimisticEntity):
     Attributes:
         coordinator: The data update coordinator managing device data.
         serial: The device serial number.
-        _model: The device model name.
-        _clean_model: Cleaned model name for entity IDs.
         _optimistic_value: Temporary value for immediate UI feedback.
     """
 
@@ -1023,10 +1045,6 @@ class EG4BaseNumber(EG4OptimisticEntity):
         self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
         self._optimistic_value: float | None = None
-
-        # Get device info for subclasses
-        self._model = _get_model_from_coordinator(coordinator, serial)
-        self._clean_model = clean_model_name(self._model, use_underscores=True)
 
         # Device info
         self._attr_device_info = coordinator.get_device_info(serial)
@@ -1047,7 +1065,7 @@ class EG4BaseNumber(EG4OptimisticEntity):
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return bool(self.coordinator.last_update_success)
+        return self._control_device_available()
 
     def _get_inverter_or_raise(self) -> Any:
         """Get inverter device object or raise HomeAssistantError.
@@ -1097,8 +1115,6 @@ class EG4BaseTime(EG4OptimisticEntity):
     Attributes:
         coordinator: The data update coordinator managing device data.
         serial: The device serial number.
-        _model: The device model name.
-        _clean_model: Cleaned model name for unique IDs.
         _optimistic_value: Temporary value for immediate UI feedback.
     """
 
@@ -1115,10 +1131,6 @@ class EG4BaseTime(EG4OptimisticEntity):
         self.coordinator: EG4DataUpdateCoordinator = coordinator
         self.serial = serial
         self._optimistic_value: dt_time | None = None
-
-        # Get device info for subclasses
-        self._model = _get_model_from_coordinator(coordinator, serial)
-        self._clean_model = clean_model_name(self._model, use_underscores=True)
 
         # Device info
         self._attr_device_info = coordinator.get_device_info(serial)
@@ -1139,7 +1151,7 @@ class EG4BaseTime(EG4OptimisticEntity):
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
-        return bool(self.coordinator.last_update_success)
+        return self._control_device_available()
 
     @property
     def _parameter_data(self) -> dict[str, Any]:
@@ -1334,10 +1346,7 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
             True if the coordinator is healthy and the device is an inverter,
             False otherwise.
         """
-        return bool(
-            self.coordinator.last_update_success
-            and self._device_data.get("type") == "inverter"
-        )
+        return self._control_device_available()
 
     def _get_inverter_or_raise(self) -> Any:
         """Get inverter device object or raise HomeAssistantError.

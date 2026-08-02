@@ -43,6 +43,7 @@ from .const import (
     WORKING_MODES,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .control_discovery import setup_control_entity_discovery
 from .utils import (
     flag_offgrid_control_suppression,
     is_family_control_supported,
@@ -161,32 +162,19 @@ def _local_params_can_carry(param: str) -> bool:
 MAX_PARALLEL_UPDATES = 3
 
 
-async def async_setup_entry(
+def _create_switch_entities(
     hass: HomeAssistant,
-    entry: EG4ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up EG4 Web Monitor switch entities."""
-    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
-
-    entities: list[SwitchEntity] = []
+    coordinator: EG4DataUpdateCoordinator,
+) -> list[EG4BaseSwitch]:
+    """Build device switches applicable to current capabilities and routes."""
+    entities: list[EG4BaseSwitch] = []
 
     if not coordinator.data:
-        _LOGGER.warning("No coordinator data available for switch setup")
-        return
-
-    # Create station DST switch if station data is available
-    if "station" in coordinator.data:
-        entities.append(EG4DSTSwitch(coordinator))
+        return entities
 
     # Skip device switches if no devices data
     if "devices" not in coordinator.data:
-        _LOGGER.warning(
-            "No device data for switch setup, creating station switches only"
-        )
-        if entities:
-            async_add_entities(entities, True)
-        return
+        return entities
 
     # Create switch entities for compatible devices
     for serial, device_data in coordinator.data["devices"].items():
@@ -390,8 +378,52 @@ async def async_setup_entry(
                         )
                     )
 
-    if entities:
-        async_add_entities(entities)
+    return entities
+
+
+def _switch_route_signature(coordinator: EG4DataUpdateCoordinator) -> object:
+    """Return transport/cache state that can change switch candidates."""
+    serials = (coordinator.data or {}).get("devices", {})
+    return (
+        bool(coordinator.has_http_api()),
+        bool(coordinator.is_local_only()),
+        tuple(
+            sorted(
+                (
+                    str(serial),
+                    bool(coordinator.has_configured_local_transport(serial)),
+                    bool(
+                        coordinator.params_are_local_raw(
+                            serial, include_configured=True
+                        )
+                    ),
+                )
+                for serial in serials
+            )
+        ),
+    )
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up station switches and continuously converge device switches."""
+    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
+
+    if coordinator.data and "station" in coordinator.data:
+        async_add_entities([EG4DSTSwitch(coordinator)], update_before_add=True)
+
+    setup_control_entity_discovery(
+        hass,
+        entry,
+        coordinator,
+        async_add_entities,
+        lambda: _create_switch_entities(hass, coordinator),
+        platform="switch",
+        extra_signature=lambda: _switch_route_signature(coordinator),
+    )
 
 
 # Bound (seconds) on how long the Quick Charge switch distrusts a FRESH but

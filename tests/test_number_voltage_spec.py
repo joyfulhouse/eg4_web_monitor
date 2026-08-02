@@ -84,7 +84,7 @@ def _voltage_number(coordinator: MagicMock, key: str) -> EG4VoltageNumber:
             475,
             47.5,
             {
-                "unique_id": "flexboss21_abc123_on_grid_cutoff_voltage",
+                "unique_id": "abc123_on_grid_cutoff_voltage",
                 "name": "On-Grid Cut-Off Voltage",
                 "min": 40.0,
                 "max": 58.0,
@@ -100,7 +100,7 @@ def _voltage_number(coordinator: MagicMock, key: str) -> EG4VoltageNumber:
             480,
             48.0,
             {
-                "unique_id": "flexboss21_abc123_off_grid_cutoff_voltage",
+                "unique_id": "abc123_off_grid_cutoff_voltage",
                 "name": "Off-Grid Cut-Off Voltage",
                 "min": 40.0,
                 "max": 58.0,
@@ -116,7 +116,7 @@ def _voltage_number(coordinator: MagicMock, key: str) -> EG4VoltageNumber:
             520,
             52.0,
             {
-                "unique_id": "flexboss21_abc123_ac_charge_start_voltage",
+                "unique_id": "abc123_ac_charge_start_voltage",
                 "name": "AC Charge Start Voltage",
                 "min": 38,
                 "max": 60,
@@ -132,7 +132,7 @@ def _voltage_number(coordinator: MagicMock, key: str) -> EG4VoltageNumber:
             580,
             58.0,
             {
-                "unique_id": "flexboss21_abc123_ac_charge_end_voltage",
+                "unique_id": "abc123_ac_charge_end_voltage",
                 "name": "AC Charge End Voltage",
                 "min": 38,
                 "max": 60,
@@ -183,7 +183,7 @@ def test_pv_start_voltage_characterization() -> None:
     coordinator = _mock_coordinator(parameters={PARAM_HOLD_START_PV_VOLT: 1400})
     entity = _voltage_number(coordinator, "pv_start_voltage")
 
-    assert entity.unique_id == "flexboss21_abc123_pv_start_voltage"
+    assert entity.unique_id == "abc123_pv_start_voltage"
     assert entity._attr_name == "PV Start Voltage"
     assert entity._attr_native_min_value == 140
     assert entity._attr_native_max_value == 500

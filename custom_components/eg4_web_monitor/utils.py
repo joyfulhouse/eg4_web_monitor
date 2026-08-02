@@ -379,15 +379,14 @@ def flag_offgrid_control_suppression(
     pruning. The issue is one per (issue_key, serial); re-creating it with
     the same issue_id is an idempotent update.
 
-    Matching is suffix-based rather than exact: number unique IDs embed the
-    model slug (``{clean_model}_{serial}_{key}``), and devices that were once
-    misdetected (e.g. the pre-beta.2 ``unknown`` model era, #219/#222) carry
-    legacy prefixes in the registry. All variants end with
-    ``{serial}_{control_key}``, which is what the suffixes pin. The serial
-    boundary is enforced (PR #332 review): a suffix matches only as the
-    whole unique ID or preceded by ``_``, so a serial that happens to be
-    the tail of a longer sibling's serial (``1234567890`` vs
-    ``91234567890``) cannot false-positive another device's entities.
+    Matching is suffix-based rather than exact: current control identities are
+    ``{serial}_{key}``, while number/time entities registered before the stable
+    identity migration can retain a model prefix (including the pre-beta.2
+    ``unknown`` model era, #219/#222). The serial boundary is enforced (PR
+    #332 review): a suffix matches only as the whole unique ID or preceded by
+    ``_``, so a serial that happens to be the tail of a longer sibling's serial
+    (``1234567890`` vs ``91234567890``) cannot false-positive another device's
+    entities.
 
     Args:
         hass: Home Assistant instance.

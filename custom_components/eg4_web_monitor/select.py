@@ -16,6 +16,7 @@ from .const import (
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     PARAM_HOLD_PV_INPUT_MODE,
 )
+from .control_discovery import setup_control_entity_discovery
 from .coordinator import EG4DataUpdateCoordinator
 from .base_entity import EG4BaseSelect, _get_model_from_coordinator
 from .utils import (
@@ -72,19 +73,14 @@ _STATUS_TO_SELECT = {
 }
 
 
-async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: EG4ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up EG4 Web Monitor select entities."""
-    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
-
+def _create_select_entities(
+    coordinator: EG4DataUpdateCoordinator,
+) -> list[EG4BaseSelect]:
+    """Build controls applicable to the coordinator's current capabilities."""
     entities: list[EG4BaseSelect] = []
 
     if not coordinator.data or "devices" not in coordinator.data:
-        _LOGGER.warning("No device data available for select setup")
-        return
+        return entities
 
     # Create select entities for compatible devices
     for serial, device_data in coordinator.data["devices"].items():
@@ -145,11 +141,24 @@ async def async_setup_entry(
                 device_type,
             )
 
-    if entities:
-        _LOGGER.info("Setup complete: %d select entities created", len(entities))
-        async_add_entities(entities)
-    else:
-        _LOGGER.debug("No select entities created - no compatible devices found")
+    return entities
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up and continuously converge EG4 select entities."""
+    coordinator: EG4DataUpdateCoordinator = entry.runtime_data
+    setup_control_entity_discovery(
+        hass,
+        entry,
+        coordinator,
+        async_add_entities,
+        lambda: _create_select_entities(coordinator),
+        platform="select",
+    )
 
 
 class EG4OperatingModeSelect(EG4BaseSelect):
@@ -228,14 +237,7 @@ class EG4OperatingModeSelect(EG4BaseSelect):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        if not self.coordinator.last_update_success:
-            return False
-        # Check if the device supports operating mode control
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(self._serial, {})
-            # Only available for inverter devices (not GridBOSS)
-            return bool(device_data.get("type") == "inverter")
-        return False
+        return self._control_device_available()
 
     async def async_select_option(self, option: str) -> None:
         """Change the operating mode using device object method."""
@@ -344,12 +346,7 @@ class EG4PVInputModeSelect(EG4BaseSelect):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        if not self.coordinator.last_update_success:
-            return False
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(self._serial, {})
-            return bool(device_data.get("type") == "inverter")
-        return False
+        return self._control_device_available()
 
     async def async_select_option(self, option: str) -> None:
         """Change the PV input mode via local Modbus or cloud API."""
@@ -473,12 +470,7 @@ class EG4SmartPortModeSelect(EG4BaseSelect):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        if not self.coordinator.last_update_success:
-            return False
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(self._serial, {})
-            return bool(device_data.get("type") == DEVICE_TYPE_GRIDBOSS)
-        return False
+        return self._control_device_available(DEVICE_TYPE_GRIDBOSS)
 
     async def async_select_option(self, option: str) -> None:
         """Change the smart port mode via local Modbus or cloud API."""
@@ -617,12 +609,7 @@ class EG4BatteryControlModeSelect(EG4BaseSelect):
     @property
     def available(self) -> bool:
         """Return if entity is available."""
-        if not self.coordinator.last_update_success:
-            return False
-        if self.coordinator.data and "devices" in self.coordinator.data:
-            device_data = self.coordinator.data["devices"].get(self._serial, {})
-            return bool(device_data.get("type") == "inverter")
-        return False
+        return self._control_device_available()
 
     async def async_select_option(self, option: str) -> None:
         """Change the battery control mode via local Modbus or cloud API."""

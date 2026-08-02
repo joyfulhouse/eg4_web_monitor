@@ -54,6 +54,7 @@ from pylxpweb.endpoints.control import ControlEndpoints
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseTime
 from .const import SCHEDULE_TIME_TYPES, ScheduleTimeSpec
+from .control_discovery import setup_control_entity_discovery
 from .coordinator import EG4DataUpdateCoordinator
 from .utils import (
     async_write_with_cloud_fallback,
@@ -111,24 +112,12 @@ def _schedule_supported(spec: ScheduleTimeSpec, device_data: dict[str, Any]) -> 
     return not (spec.gate == "control_grid_tied" and is_offgrid_family(device_data))
 
 
-async def async_setup_entry(
+def _create_time_entities(
     hass: HomeAssistant,
-    config_entry: EG4ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
-) -> None:
-    """Set up EG4 Web Monitor time entities from a config entry."""
-    coordinator = config_entry.runtime_data
-    entities: list[TimeEntity] = []
-
-    global _logged_missing_write_time
-    if not _SUPPORTS_WRITE_TIME and not _logged_missing_write_time:
-        _logged_missing_write_time = True
-        _LOGGER.info(
-            "Installed pylxpweb lacks write_time_parameter; Generator/Off-Grid/"
-            "Peak Shaving schedule time entities are not created (upgrade pylxpweb "
-            "to enable them)"
-        )
-
+    coordinator: EG4DataUpdateCoordinator,
+) -> list[EG4ScheduleTimeEntity]:
+    """Build schedules applicable to the coordinator's current capabilities."""
+    entities: list[EG4ScheduleTimeEntity] = []
     for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
         if device_data.get("type") != "inverter":
             continue
@@ -145,9 +134,8 @@ async def async_setup_entry(
         # beta.20/21 before the family gate landed (#295 live report: cloud
         # REMOTE_SET_ERROR + portal absence). One-shot Repairs notice for
         # anyone who had one registered — same machinery as the #307 Battery
-        # Backup gate. Suffix-based probe: time unique IDs embed the model
-        # slug ({clean_model}_{serial}_{key}); all variants end with
-        # {serial}_{key}.
+        # Backup gate. The suffix probe matches current stable IDs and legacy
+        # model-prefixed IDs; every variant ends with {serial}_{key}.
         if is_offgrid_family(device_data):
             flag_offgrid_control_suppression(
                 hass,
@@ -162,9 +150,35 @@ async def async_setup_entry(
                 issue_key="offgrid_forced_charge_times_removed",
             )
 
-    if entities:
-        _LOGGER.info("Setup complete: %d time entities created", len(entities))
-        async_add_entities(entities, update_before_add=False)
+    return entities
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: EG4ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up and continuously converge EG4 schedule time entities."""
+    coordinator = config_entry.runtime_data
+
+    global _logged_missing_write_time
+    if not _SUPPORTS_WRITE_TIME and not _logged_missing_write_time:
+        _logged_missing_write_time = True
+        _LOGGER.info(
+            "Installed pylxpweb lacks write_time_parameter; Generator/Off-Grid/"
+            "Peak Shaving schedule time entities are not created (upgrade pylxpweb "
+            "to enable them)"
+        )
+
+    setup_control_entity_discovery(
+        hass,
+        config_entry,
+        coordinator,
+        async_add_entities,
+        lambda: _create_time_entities(hass, coordinator),
+        platform="time",
+        migrate_model_prefix=True,
+    )
 
 
 class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
@@ -205,7 +219,7 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         boundary = "end" if is_end else "start"
         key = f"{spec.key}_{boundary}_time_{window}"
         self._attr_translation_key = key
-        self._attr_unique_id = f"{self._clean_model}_{serial.lower()}_{key}"
+        self._attr_unique_id = self._stable_control_unique_id(key)
         self._attr_icon = "mdi:clock-end" if is_end else "mdi:clock-start"
         # All schedule time entities are opt-in (registry-disabled by default).
         self._attr_entity_registry_enabled_default = False

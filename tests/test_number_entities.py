@@ -170,8 +170,7 @@ class TestNumberPlatformSetup:
         voltage_entities = [e for e in entities if isinstance(e, EG4VoltageNumber)]
         assert len(voltage_entities) == 5
         assert {
-            entity.unique_id.removeprefix("flexboss21_1234567890_")
-            for entity in voltage_entities
+            entity.unique_id.removeprefix("1234567890_") for entity in voltage_entities
         } == {
             "on_grid_cutoff_voltage",
             "off_grid_cutoff_voltage",
@@ -2454,8 +2453,8 @@ class TestOffgridACChargeSOCWindow:
         coordinator = self._offgrid_coordinator()
         start = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         end = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
-        assert start.unique_id == "12000xp_1234567890_ac_charge_start_battery_soc"
-        assert end.unique_id == "12000xp_1234567890_ac_charge_end_battery_soc"
+        assert start.unique_id == "1234567890_ac_charge_start_battery_soc"
+        assert end.unique_id == "1234567890_ac_charge_end_battery_soc"
         for entity in (start, end):
             assert entity.native_min_value == 0
             assert entity.native_max_value == 100
@@ -2785,8 +2784,8 @@ class TestACCoupleSOCWindow:
         coordinator = self._coordinator()
         start = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
         end = ACCoupleEndSOCNumber(coordinator, self.SERIAL)
-        assert start.unique_id == "12000xp_1234567890_ac_couple_start_soc"
-        assert end.unique_id == "12000xp_1234567890_ac_couple_end_soc"
+        assert start.unique_id == "1234567890_ac_couple_start_soc"
+        assert end.unique_id == "1234567890_ac_couple_end_soc"
         assert start.translation_key == "ac_couple_start_soc"
         assert end.translation_key == "ac_couple_end_soc"
         for entity in (start, end):
