@@ -9293,7 +9293,7 @@ class TestACCoupleSOCStore:
         # reads — the AC couple keys are gone.
         inverter = MagicMock()
         inverter.serial_number = self.SERIAL
-        inverter.refresh = AsyncMock()
+        inverter._fetch_parameters = AsyncMock()
         inverter.parameters = {"HOLD_AC_CHARGE_POWER_CMD": 60}
         with patch.object(coordinator, "get_inverter_object", return_value=inverter):
             # The REAL refresh — the exact production wipe path.

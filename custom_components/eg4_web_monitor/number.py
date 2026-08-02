@@ -2035,9 +2035,7 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
                 raise HomeAssistantError(
                     f"Failed to set grid sell back power to {value:.1f} kW"
                 )
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
-                await inverter.refresh(force=True, include_parameters=True)
+            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
             write.refresh_ok = await self._refresh_related_entities()
 
 

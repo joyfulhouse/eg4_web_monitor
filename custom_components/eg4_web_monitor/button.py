@@ -262,7 +262,9 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
                     "Force-refreshing inverter %s including parameters",
                     self._serial,
                 )
-                await self.coordinator._refresh_device_parameters(self._serial)
+                await self.coordinator._refresh_device_parameters(
+                    self._serial, include_runtime_data=True
+                )
                 inverter = self.coordinator.get_inverter_object(self._serial)
                 incomplete = inverter is not None and not getattr(
                     inverter, "parameters_complete", True

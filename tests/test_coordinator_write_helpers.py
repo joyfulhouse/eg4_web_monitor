@@ -68,22 +68,22 @@ def test_require_client_raises_exact_message(real_coordinator):
 
 async def test_refresh_if_linked_calls_refresh_when_linked(real_coordinator):
     inv = MagicMock()
-    inv.refresh = AsyncMock()
+    inv._fetch_parameters = AsyncMock()
     real_coordinator.get_inverter_object = MagicMock(return_value=inv)
     real_coordinator.is_transport_link_down = MagicMock(return_value=False)
     await real_coordinator.refresh_inverter_params_if_linked("123")
-    inv.refresh.assert_awaited_once_with(force=True, include_parameters=True)
+    inv._fetch_parameters.assert_awaited_once_with()
     real_coordinator.get_inverter_object.assert_called_once_with("123")
     real_coordinator.is_transport_link_down.assert_called_once_with("123")
 
 
 async def test_refresh_if_linked_skips_when_link_down(real_coordinator):
     inv = MagicMock()
-    inv.refresh = AsyncMock()
+    inv._fetch_parameters = AsyncMock()
     real_coordinator.get_inverter_object = MagicMock(return_value=inv)
     real_coordinator.is_transport_link_down = MagicMock(return_value=True)
     await real_coordinator.refresh_inverter_params_if_linked("123")
-    inv.refresh.assert_not_awaited()
+    inv._fetch_parameters.assert_not_awaited()
 
 
 async def test_refresh_if_linked_skips_when_no_inverter(real_coordinator):

@@ -4668,7 +4668,7 @@ class TestKnownStateWorkingModeParity:
             },
         }
         inverter = MagicMock()
-        inverter.refresh = AsyncMock()
+        inverter._fetch_parameters = AsyncMock()
         inverter.parameters = {"FUNC_BUZZER_EN": True}
         coordinator.get_inverter_object = MagicMock(return_value=inverter)
 
@@ -4683,7 +4683,7 @@ class TestKnownStateWorkingModeParity:
             assert switch.is_on is True, mode_key
 
         assert await coordinator._refresh_device_parameters("1234567890") is True
-        inverter.refresh.assert_awaited_once()
+        inverter._fetch_parameters.assert_awaited_once()
         entity_coordinator.data["parameters"]["1234567890"] = coordinator.data[
             "parameters"
         ]["1234567890"]

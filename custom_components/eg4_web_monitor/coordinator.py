@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Coroutine
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from homeassistant.config_entries import ConfigEntry
@@ -89,6 +89,7 @@ from .const import (
     HYBRID_LOCAL_MODBUS,
 )
 from .battery_migration import async_migrate_battery_keys
+from .cloud_requests import CloudRequestLimiter, install_cloud_request_limiter
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -170,6 +171,7 @@ class EG4DataUpdateCoordinator(
 
         # Initialize HTTP client for HTTP and Hybrid modes
         self.client: LuxpowerClient | None = None
+        self._cloud_request_limiter: CloudRequestLimiter | None = None
         if self.connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID):
             self.client = LuxpowerClient(
                 username=entry.data[CONF_USERNAME],
@@ -180,6 +182,13 @@ class EG4DataUpdateCoordinator(
                 verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
                 session=aiohttp_client.async_get_clientsession(hass),
                 iana_timezone=iana_timezone,
+            )
+            # pylxpweb's Station and device refresh methods create their own
+            # nested gather() fanout.  Bound the shared request boundary, not
+            # just the later per-device mapping stage, so cold-cache startup,
+            # parameter reads, and supplemental fetches share one budget.
+            self._cloud_request_limiter = install_cloud_request_limiter(
+                self.client, limit=3
             )
 
         # Modbus input-register read block size (#254): preset option mapped
@@ -318,6 +327,33 @@ class EG4DataUpdateCoordinator(
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._shutdown_listener_fired: bool = False
 
+        # One missing-parameter loader per coordinator. Repeated update cycles
+        # reuse this task instead of queuing identical forced reads behind the
+        # dependency's parameter locks.
+        self._missing_parameter_refresh_task: asyncio.Task[None] | None = None
+        self._missing_parameter_active_serials: set[str] = set()
+        self._missing_parameter_pending_serials: set[str] = set()
+        self._missing_parameter_pending_data: dict[str, Any] | None = None
+
+        # Firmware progress is an account-wide endpoint even though pylxpweb
+        # exposes it on every device.  Replace only this coordinator's client
+        # endpoint with a cancellation-shielded single-flight wrapper; no task
+        # or result is shared across config entries.
+        self._firmware_status_fetch: Callable[[], Coroutine[Any, Any, Any]] | None = (
+            None
+        )
+        self._firmware_status_task: asyncio.Task[Any] | None = None
+        self._firmware_status_batch_active = False
+        self._firmware_prefetched_device_ids: set[int] = set()
+        if self.client is not None:
+            firmware_endpoint = self.client.api.firmware
+            self._firmware_status_fetch = firmware_endpoint.get_firmware_update_status
+            setattr(
+                firmware_endpoint,
+                "get_firmware_update_status",
+                self._get_firmware_update_status_shared,
+            )
+
         # Track availability state for Silver tier logging requirement
         self._last_available_state: bool = True
 
@@ -417,7 +453,9 @@ class EG4DataUpdateCoordinator(
             CONF_DATA_VALIDATION, False
         )
 
-        # Semaphore to limit concurrent API calls and prevent rate limiting
+        # Bound per-device mapping/side-fetch processing. Raw pylxpweb request
+        # chains have their own account budget installed above; this semaphore
+        # alone cannot see refresh()'s nested gather() calls.
         self._api_semaphore = asyncio.Semaphore(3)
 
         # Consecutive update failure counter for stale data tolerance
@@ -657,7 +695,7 @@ class EG4DataUpdateCoordinator(
         """
         inverter = self.get_inverter_object(serial)
         if inverter and not self.is_transport_link_down(serial):
-            await inverter.refresh(force=True, include_parameters=True)
+            await inverter._fetch_parameters()
 
     def params_are_local_raw(
         self, serial: str, *, include_configured: bool = False

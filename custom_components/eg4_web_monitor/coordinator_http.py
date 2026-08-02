@@ -775,6 +775,14 @@ class HTTPUpdateMixin(_MixinBase):
                 "ymd": today_ymd,
             }
 
+        # Firmware availability checks are device-specific, but progress comes
+        # from one account-wide endpoint.  Run the two stages separately so all
+        # progress callers overlap and the client single-flight can share one
+        # response even when there are more devices than mapping semaphore slots.
+        firmware_devices: list[Any] = list(self.station.all_inverters)
+        firmware_devices.extend(self.station.all_mid_devices)
+        await self._prefetch_firmware_update_info(firmware_devices)
+
         # Process all inverters concurrently with semaphore to prevent rate limiting
         async def process_inverter_with_semaphore(
             inv: "BaseInverter",
@@ -1339,11 +1347,8 @@ class HTTPUpdateMixin(_MixinBase):
                 len(inverters_needing_params),
                 inverters_needing_params,
             )
-            task = self.hass.async_create_task(
-                self._refresh_missing_parameters(inverters_needing_params, processed)
+            self._schedule_missing_parameter_refresh(
+                inverters_needing_params, processed
             )
-            self._background_tasks.add(task)
-            task.add_done_callback(self._remove_task_from_set)
-            task.add_done_callback(self._log_task_exception)
 
         return processed
