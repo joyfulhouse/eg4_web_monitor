@@ -52,6 +52,7 @@ from .coordinator_mappings import (
     _apply_grid_type_override,
     _apply_model_family_fallback,
     _build_battery_bank_sensor_mapping,
+    _build_readonly_runtime_diagnostic_mapping,
     _energy_balance,
     _features_dict_from_inverter_features,
     _safe_float,
@@ -2378,6 +2379,11 @@ class DeviceProcessingMixin(_MixinBase):
             # canonical register tables.
             for sensor_key, runtime_attr in _TRANSPORT_OVERLAY:
                 value = getattr(transport_runtime, runtime_attr, None)
+                if value is not None:
+                    sensors[sensor_key] = value
+            for sensor_key, value in _build_readonly_runtime_diagnostic_mapping(
+                transport_runtime
+            ).items():
                 if value is not None:
                     sensors[sensor_key] = value
             if (val := getattr(inverter, "total_load_power", None)) is not None:

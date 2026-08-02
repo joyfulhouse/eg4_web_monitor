@@ -130,6 +130,17 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:power-plug",
     },
+    # Aggregate EPS apparent power from input register 25.  The per-leg
+    # I131/I132 sensors remain available separately on split-phase hardware.
+    "eps_apparent_power": {
+        "name": "EPS Apparent Power",
+        "unit": "VA",
+        "device_class": "apparent_power",
+        "state_class": "measurement",
+        "icon": "mdi:power-plug-outline",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+    },
     "eps_power_l1": {
         "name": "EPS Power L1",
         "unit": UnitOfPower.WATT,
@@ -1776,6 +1787,48 @@ SENSOR_TYPES = {
         "name": "Has Runtime Data",
         "icon": "mdi:database-check",
         "entity_category": "diagnostic",
+    },
+    # Read-only LOCAL/HYBRID operational diagnostics.  These are intentionally
+    # opt-in: useful for commissioning and topology debugging, but noisy on a
+    # normal energy dashboard.  No matching writable controls are provided.
+    "inverter_running_time": {
+        "name": "Inverter Running Time",
+        "unit": UnitOfTime.SECONDS,
+        "device_class": "duration",
+        "state_class": "total_increasing",
+        "icon": "mdi:timer-outline",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+    },
+    "ac_input_type": {
+        "name": "AC Input Type",
+        "device_class": "enum",
+        "options": ["Grid", "Generator"],
+        "icon": "mdi:power-source",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+    },
+    "parallel_role": {
+        "name": "Parallel Role",
+        "device_class": "enum",
+        "options": ["Standalone", "Master", "Slave", "Three-Phase Master"],
+        "icon": "mdi:vector-link",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+    },
+    "parallel_phase": {
+        "name": "Parallel Phase",
+        "device_class": "enum",
+        "options": ["R", "S", "T"],
+        "icon": "mdi:chart-timeline-variant",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+    },
+    "parallel_unit_number": {
+        "name": "Parallel Unit Number",
+        "icon": "mdi:counter",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
     },
     # New runtime sensors
     "pv_total_power": {

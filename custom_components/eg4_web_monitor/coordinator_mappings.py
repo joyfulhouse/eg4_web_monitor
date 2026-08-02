@@ -427,6 +427,7 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "eps_voltage_l2",
         "eps_frequency",
         "eps_power",
+        "eps_apparent_power",
         "output_power",
         "generator_voltage",
         "generator_frequency",
@@ -438,6 +439,14 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "radiator2_temperature",
         "bt_temperature",
         "status_code",
+        # Read-only operational/parallel diagnostics from canonical input
+        # registers 69-70, 77, and 113.  Values are decoded below rather than
+        # exposing opaque bitfields to Home Assistant.
+        "inverter_running_time",
+        "ac_input_type",
+        "parallel_role",
+        "parallel_phase",
+        "parallel_unit_number",
         # Friendly decode of status_code (issue #262); same value all modes.
         "operating_state",
         # Inverter fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields;
@@ -479,6 +488,49 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "generator_voltage_l2",
     }
 )
+
+_PARALLEL_ROLE_LABELS: dict[int, str] = {
+    0: "Standalone",
+    1: "Master",
+    2: "Slave",
+    3: "Three-Phase Master",
+}
+_PARALLEL_PHASE_LABELS: dict[int, str] = {0: "R", 1: "S", 2: "T"}
+
+
+def _build_readonly_runtime_diagnostic_mapping(
+    runtime_data: "InverterRuntimeData",
+) -> dict[str, Any]:
+    """Decode harmless operational diagnostics from canonical input data.
+
+    Register 77 is a bitfield, so only its proven bit-0 AC source is exposed.
+    Register 113's phase and unit number are meaningless on a standalone
+    inverter and deliberately remain unknown in that state.
+    """
+    ac_input_raw = runtime_data.ac_input_type
+    role = runtime_data.parallel_master_slave
+    is_parallel = role is not None and role != 0
+    return {
+        "eps_apparent_power": runtime_data.eps_apparent_power,
+        # I69-70 is an unsigned 32-bit count in seconds.  Keep the canonical
+        # unit; an old InverterRuntimeData comment incorrectly says hours.
+        "inverter_running_time": runtime_data.inverter_on_time,
+        "ac_input_type": (
+            None
+            if ac_input_raw is None
+            else "Generator"
+            if ac_input_raw & 0x01
+            else "Grid"
+        ),
+        "parallel_role": _PARALLEL_ROLE_LABELS.get(role) if role is not None else None,
+        "parallel_phase": (
+            _PARALLEL_PHASE_LABELS.get(runtime_data.parallel_phase)
+            if is_parallel and runtime_data.parallel_phase is not None
+            else None
+        ),
+        "parallel_unit_number": runtime_data.parallel_number if is_parallel else None,
+    }
+
 
 INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
     {
@@ -963,6 +1015,7 @@ def _build_runtime_sensor_mapping(
         "max_charge_current": runtime_data.bms_charge_current_limit,
         "max_discharge_current": runtime_data.bms_discharge_current_limit,
     }
+    mapping.update(_build_readonly_runtime_diagnostic_mapping(runtime_data))
     # NOTE (#335): eps_load_power (the EPS-loads subset of the backup output)
     # is deliberately NOT mapped here.  Regs 129/130 are the COMBINED
     # backup-path legs (already on eps_power_l1/l2 above) — with a GEN-port

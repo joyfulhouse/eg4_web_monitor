@@ -5568,6 +5568,38 @@ class TestHybridTransportExclusiveSensors:
         assert sensors["battery_current"] == 12.5
         assert sensors["total_load_power"] == 2500
 
+    async def test_transport_runtime_populates_readonly_diagnostics(
+        self, hass, mock_config_entry
+    ):
+        """Canonical I25/I69-70/I77/I113 diagnostics reach HYBRID data."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
+        runtime = InverterRuntimeData(
+            eps_apparent_power=2500,
+            inverter_on_time=3600,
+            ac_input_type=0b001,
+            parallel_master_slave=2,
+            parallel_phase=2,
+            parallel_number=4,
+        )
+        inverter = make_real_inverter("1111111111", "LXP-12K", runtime=runtime)
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        inverter._transport = make_transport_spec()
+
+        result = await coordinator._process_inverter_object(inverter)
+
+        expected = {
+            "eps_apparent_power": 2500,
+            "inverter_running_time": 3600,
+            "ac_input_type": "Generator",
+            "parallel_role": "Slave",
+            "parallel_phase": "T",
+            "parallel_unit_number": 4,
+        }
+        assert {key: result["sensors"].get(key) for key in expected} == expected
+
     async def test_transport_runtime_populates_split_phase_l1_l2(
         self, hass, mock_config_entry
     ):

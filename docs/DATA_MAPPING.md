@@ -285,6 +285,32 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 > genuinely at 0 on a cloud connection now reads unknown — the same
 > caveat #348 raised for `tBat`. Bounded, and reversible.
 
+### Read-Only Operational Diagnostics
+
+The following canonical input fields are exposed as disabled-by-default
+diagnostics in LOCAL and HYBRID modes. They add no writable register surface.
+
+| Reg | Canonical field | Decode / unit | HA sensor key |
+|-----|-----------------|---------------|---------------|
+| 25 | `eps_apparent_power` | Unsigned VA | `eps_apparent_power` |
+| 69-70 | `running_time` | Unsigned 32-bit seconds | `inverter_running_time` |
+| 77 bit 0 | `ac_input_type` | `0 = Grid`, `1 = Generator` | `ac_input_type` |
+| 113 bits 0-1 | `parallel_config` role | Standalone / Master / Slave / Three-Phase Master | `parallel_role` |
+| 113 bits 2-3 | `parallel_config` phase | `0 = R`, `1 = S`, `2 = T`; unknown when standalone | `parallel_phase` |
+| 113 bits 8-15 | `parallel_config` unit | Unit ID; unknown when standalone | `parallel_unit_number` |
+
+The I69-70 unit is independently corroborated by the pinned ant0nkr comparison
+(`I_RUNNING_TIME_L/H`, unit seconds). An older `InverterRuntimeData` field
+comment says hours; the parser and both canonical register tables carry the raw
+seconds count, so the integration does not rescale it.
+
+For I77, only the well-defined AC-source bit is exposed. Bits 1-2 (AC-couple
+flow/enable in the comparison implementation) remain unexposed until their EG4
+family behavior is captured. For I113, the integration follows pylxpweb's
+hardware-tested zero-based phase decode; the ant0nkr entity table labels those
+same bit values one-based. Exposing already-decoded values avoids importing that
+conflict or publishing the opaque packed word.
+
 ### Energy Registers (Daily)
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |

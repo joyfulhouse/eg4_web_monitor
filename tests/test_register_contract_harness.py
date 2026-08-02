@@ -811,6 +811,11 @@ _LOCAL_ONLY_KEY_EXCEPTIONS: dict[str, str] = {
     # so load_power must come only from the local register (LOCAL table +
     # HYBRID _TRANSPORT_OVERLAY); a cloud property feed would publish zeros.
     "load_power": "deliberate (#197): cloud reg-170 mirror reads 0 on OFFGRID",
+    # I25 advertises cloud field `seps`, but released pylxpweb has no aggregate
+    # BaseInverter property for it (only the split-phase I131/I132 legs). Keep
+    # this opt-in diagnostic LOCAL/HYBRID instead of reaching through private
+    # cloud runtime state or synthesizing a phase-dependent quantity.
+    "eps_apparent_power": "deliberate (eg4-uwa0.2): no public aggregate cloud property",
     # NOTE: load_energy/_lifetime need no entry here — Eload (regs 171/172)
     # has no cloud_api_field in the canonical table; the cloud feed happens
     # at the call site via getattr(inverter, "energy_today_usage").
