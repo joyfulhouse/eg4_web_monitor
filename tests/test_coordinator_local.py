@@ -8,6 +8,7 @@ Covers methods not already tested in test_coordinator.py:
 - _log_transport_error
 """
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -743,6 +744,154 @@ class TestStickyParameterCarryForward:
         assert result["parameters"]["INV001"] == {"HOLD_CHG_POWER_PERCENT_CMD": 60}
         assert coordinator._last_parameter_refresh is not None
         assert coordinator._param_retry_pending == set()
+
+    async def test_acknowledged_write_during_read_survives_stale_result(
+        self, hass, local_config_entry
+    ):
+        """A poll begun before an ACK cannot publish its pre-write snapshot."""
+        coordinator = self._seed_coordinator(hass, local_config_entry)
+        coordinator.async_update_listeners = MagicMock()
+        read_started = asyncio.Event()
+        release_read = asyncio.Event()
+
+        async def stale_read(
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
+        ) -> tuple[dict[str, Any], bool]:
+            read_started.set()
+            await release_read.wait()
+            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}, True
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator, "_read_modbus_parameters", side_effect=stale_read
+            ),
+            patch.object(
+                coordinator, "_fetch_quick_charge_status", new_callable=AsyncMock
+            ),
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            update_task = asyncio.create_task(coordinator._async_update_local_data())
+            await asyncio.wait_for(read_started.wait(), timeout=1)
+            coordinator.note_parameters_written(
+                "INV001", {"HOLD_CHG_POWER_PERCENT_CMD": 90}
+            )
+            release_read.set()
+            result = await update_task
+
+        assert result["parameters"]["INV001"]["HOLD_CHG_POWER_PERCENT_CMD"] == 90
+
+        # A partial read begun after the write cannot retire a seed for a
+        # register range it did not observe.
+        coordinator.data = result
+        coordinator._last_parameter_refresh = None
+        coordinator._last_parameter_attempt = None
+
+        async def unrelated_partial_read(
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
+        ) -> tuple[dict[str, Any], bool]:
+            return {"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 95}, False
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator,
+                "_read_modbus_parameters",
+                side_effect=unrelated_partial_read,
+            ),
+            patch.object(
+                coordinator, "_fetch_quick_charge_status", new_callable=AsyncMock
+            ),
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            partial = await coordinator._async_update_local_data()
+
+        assert partial["parameters"]["INV001"]["HOLD_CHG_POWER_PERCENT_CMD"] == 90
+        assert (
+            "HOLD_CHG_POWER_PERCENT_CMD" in coordinator._parameter_write_seeds["INV001"]
+        )
+
+        # A later complete read that begins after the write is authoritative
+        # and retires the retained write seed.
+        coordinator.data = partial
+        coordinator._last_parameter_refresh = None
+        coordinator._last_parameter_attempt = None
+
+        async def post_write_read(
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
+        ) -> tuple[dict[str, Any], bool]:
+            return {"HOLD_CHG_POWER_PERCENT_CMD": 75}, True
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator, "_read_modbus_parameters", side_effect=post_write_read
+            ),
+            patch.object(
+                coordinator, "_fetch_quick_charge_status", new_callable=AsyncMock
+            ),
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            converged = await coordinator._async_update_local_data()
+
+        assert converged["parameters"]["INV001"]["HOLD_CHG_POWER_PERCENT_CMD"] == 75
+        assert coordinator._parameter_write_seeds.get("INV001") is None
+
+    async def test_acknowledged_write_after_read_survives_remaining_cycle_work(
+        self, hass, local_config_entry
+    ):
+        """The final publish overlays ACKs received while other groups finish."""
+        coordinator = self._seed_coordinator(hass, local_config_entry)
+        coordinator.async_update_listeners = MagicMock()
+        read_finished = asyncio.Event()
+        release_cycle = asyncio.Event()
+
+        async def stale_read(
+            transport: Any,
+            device_data: dict[str, Any] | None = None,
+            device: Any = None,
+        ) -> tuple[dict[str, Any], bool]:
+            return {"HOLD_CHG_POWER_PERCENT_CMD": 60}, True
+
+        async def finish_parallel_groups(processed: dict[str, Any]) -> None:
+            read_finished.set()
+            await release_cycle.wait()
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator, "_read_modbus_parameters", side_effect=stale_read
+            ),
+            patch.object(
+                coordinator, "_fetch_quick_charge_status", new_callable=AsyncMock
+            ),
+            patch.object(
+                coordinator,
+                "_process_local_parallel_groups",
+                side_effect=finish_parallel_groups,
+            ),
+        ):
+            update_task = asyncio.create_task(coordinator._async_update_data())
+            await asyncio.wait_for(read_finished.wait(), timeout=1)
+            coordinator.note_parameters_written(
+                "INV001", {"HOLD_CHG_POWER_PERCENT_CMD": 90}
+            )
+            release_cycle.set()
+            result = await update_task
+
+        assert result["parameters"]["INV001"]["HOLD_CHG_POWER_PERCENT_CMD"] == 90
 
 
 # Targeted parameter reads per cycle for the seeded FlexBOSS21 (model-fallback
@@ -3775,6 +3924,73 @@ class TestLinkDownParameterRefreshGate:
         assert coordinator.data["parameters"]["UP1"] == {"HOLD_X": 1}
         assert coordinator.data["parameters"]["DOWN1"] == {"HOLD_Y": 2}
 
+    async def test_background_refresh_cannot_revert_mid_read_write(
+        self, hass, local_config_entry
+    ):
+        """The pylxpweb refresh path obeys the same write-generation envelope."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        inverter = self._fake_inverter(
+            link_down=False, parameters={"HOLD_CHG_POWER_PERCENT_CMD": 60}
+        )
+        inverter.parameters_complete = True
+        coordinator._inverter_cache = {"INV1": inverter}
+        coordinator.data = {
+            "devices": {"INV1": {"type": "inverter"}},
+            "parameters": {"INV1": {"HOLD_CHG_POWER_PERCENT_CMD": 60}},
+        }
+        coordinator.async_update_listeners = MagicMock()
+        read_started = asyncio.Event()
+        release_read = asyncio.Event()
+
+        async def stale_refresh(**_kwargs: Any) -> None:
+            read_started.set()
+            await release_read.wait()
+            inverter.parameters = {"HOLD_CHG_POWER_PERCENT_CMD": 60}
+
+        inverter.refresh = AsyncMock(side_effect=stale_refresh)
+        refresh_task = asyncio.create_task(
+            coordinator._refresh_device_parameters("INV1")
+        )
+        await asyncio.wait_for(read_started.wait(), timeout=1)
+        coordinator.note_parameters_written("INV1", {"HOLD_CHG_POWER_PERCENT_CMD": 90})
+        release_read.set()
+
+        assert await refresh_task is True
+        assert coordinator.data["parameters"]["INV1"] == {
+            "HOLD_CHG_POWER_PERCENT_CMD": 90
+        }
+
+        # pylxpweb's partial snapshot already contains sticky carried keys, so
+        # the integration cannot treat their presence as proof this range was
+        # freshly observed. Keep the ACK seed through that partial result.
+        async def partial_refresh(**_kwargs: Any) -> None:
+            inverter.parameters = {
+                "HOLD_CHG_POWER_PERCENT_CMD": 60,
+                "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 95,
+            }
+            inverter.parameters_complete = False
+
+        inverter.refresh = AsyncMock(side_effect=partial_refresh)
+        assert await coordinator._refresh_device_parameters("INV1") is True
+        assert coordinator.data["parameters"]["INV1"] == {
+            "HOLD_CHG_POWER_PERCENT_CMD": 90,
+            "HOLD_SYSTEM_CHARGE_SOC_LIMIT": 95,
+        }
+        assert "INV1" in coordinator._parameter_write_seeds
+
+        # A complete post-write read finally converges and retires the seed.
+        async def complete_refresh(**_kwargs: Any) -> None:
+            inverter.parameters = {"HOLD_CHG_POWER_PERCENT_CMD": 75}
+            inverter.parameters_complete = True
+
+        inverter.refresh = AsyncMock(side_effect=complete_refresh)
+        assert await coordinator._refresh_device_parameters("INV1") is True
+        assert coordinator.data["parameters"]["INV1"] == {
+            "HOLD_CHG_POWER_PERCENT_CMD": 75
+        }
+        assert coordinator._parameter_write_seeds.get("INV1") is None
+
     async def test_routine_parameter_refresh_logs_at_debug(
         self, hass, local_config_entry, caplog: pytest.LogCaptureFixture
     ):
@@ -3994,6 +4210,22 @@ class TestLinkDownParameterRefreshGate:
         coordinator.note_parameters_written("INV001", {"HOLD_B": 2})
 
         coordinator.async_update_listeners.assert_not_called()
+
+    async def test_cloud_parameters_update_without_retaining_local_raw_seed(
+        self, hass, local_config_entry
+    ):
+        """Cloud-fed caches converge immediately but do not pin a raw seed."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.data = {"parameters": {"INV001": {"HOLD_A": 1}}}
+        coordinator.async_update_listeners = MagicMock()
+
+        with patch.object(coordinator, "params_are_local_raw", return_value=False):
+            coordinator.note_parameters_written("INV001", {"HOLD_A": 2})
+
+        assert coordinator.data["parameters"]["INV001"] == {"HOLD_A": 2}
+        assert coordinator._parameter_write_seeds == {}
+        coordinator.async_update_listeners.assert_called_once()
 
 
 # ── Transport link-down flow (eg4-57g / #226 attached-but-dead) ──────

@@ -100,8 +100,8 @@ def _maybe_bust_degraded_cloud_cache(
     if client is None:
         return False
     now = _time.monotonic()
-    last = last_refresh.get(serial, 0.0)
-    if now - last < http_interval:
+    last = last_refresh.get(serial)
+    if last is not None and now - last < http_interval:
         return False
     last_refresh[serial] = now
     client.invalidate_cache_for_device(serial)
@@ -177,7 +177,10 @@ class HTTPUpdateMixin(_MixinBase):
             from .coordinator_local import ATTACH_RETRY_INTERVAL_SECONDS
 
             now = _time.monotonic()
-            if now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS:
+            if (
+                self._last_attach_retry is not None
+                and now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS
+            ):
                 return
             self._last_attach_retry = now
             await self._attach_local_transports_to_station()
@@ -853,8 +856,8 @@ class HTTPUpdateMixin(_MixinBase):
                 # Cloud API — throttle to 60s intervals
                 _PG_ENERGY_INTERVAL = 60  # seconds
                 now_mono = _time.monotonic()
-                last_pg = getattr(self, "_last_pg_energy_fetch", 0.0)
-                if now_mono - last_pg >= _PG_ENERGY_INTERVAL:
+                last_pg = getattr(self, "_last_pg_energy_fetch", None)
+                if last_pg is None or now_mono - last_pg >= _PG_ENERGY_INTERVAL:
                     energy_tasks = []
                     for group in groups:
                         if group.inverters:
