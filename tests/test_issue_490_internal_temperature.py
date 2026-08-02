@@ -60,8 +60,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
 )
 from custom_components.eg4_web_monitor.sensor import _should_create_sensor
 
-from .conftest import make_real_inverter
-from tests.conftest import stub_cloud_client
+from .conftest import make_real_inverter, stub_cloud_client
 
 _OFFGRID = {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
 
