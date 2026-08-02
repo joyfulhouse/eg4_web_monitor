@@ -1,9 +1,10 @@
 """Tests for __init__.py (setup and teardown) in EG4 Web Monitor integration."""
 
 import logging
-import pytest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
