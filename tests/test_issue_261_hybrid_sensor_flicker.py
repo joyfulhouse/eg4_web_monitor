@@ -49,7 +49,7 @@ from pylxpweb.transports.data import (
     InverterRuntimeData,
 )
 
-from tests.conftest import make_real_inverter, make_transport_spec
+from tests.conftest import stub_cloud_client, make_real_inverter, make_transport_spec
 
 
 @pytest.fixture
@@ -109,6 +109,7 @@ class TestBatteryBankReg96Fallback:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = await _make_hybrid_inverter()
         # Combined read with reg 96 = 0: aggregate soc valid, count None, no
@@ -131,6 +132,7 @@ class TestBatteryBankReg96Fallback:
         """A trustworthy transport count keeps the live local bank (unchanged)."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = await _make_hybrid_inverter()
         inverter._transport_battery = BatteryBankData(
@@ -153,6 +155,7 @@ class TestBatteryBankReg96Fallback:
         """#169 preserved: a genuine secondary reports 0 on BOTH sources → skip."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = await _make_hybrid_inverter()
         inverter._transport_battery = BatteryBankData(
@@ -182,6 +185,7 @@ class TestFaultCodeStickyOnLinkDown:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1111111111", "LXP-LB-US 10K")
         inverter.refresh = AsyncMock()
@@ -209,6 +213,7 @@ class TestFaultCodeStickyOnLinkDown:
         """Link down with no prior poll → codes simply absent (no crash)."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1111111111", "LXP-LB-US 10K")
         inverter.refresh = AsyncMock()
@@ -228,6 +233,7 @@ class TestFaultCodeStickyOnLinkDown:
         """Link up: the live overlay value is used, not a stale prior value."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(fault_code=0x0000_0020, warning_code=0)
         inverter = make_real_inverter("1111111111", "LXP-LB-US 10K", runtime=runtime)
@@ -254,6 +260,7 @@ class TestFaultCodeStickyOnLinkDown:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1111111111", "LXP-LB-US 10K")
         inverter.refresh = AsyncMock()

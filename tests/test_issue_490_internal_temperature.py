@@ -60,7 +60,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
 )
 from custom_components.eg4_web_monitor.sensor import _should_create_sensor
 
-from .conftest import make_real_inverter
+from .conftest import make_real_inverter, stub_cloud_client
 
 _OFFGRID = {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
 
@@ -239,6 +239,7 @@ class TestEndToEndWiring:
         """
         cloud_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, cloud_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("1111111111", "12000XP")
         inverter.refresh = AsyncMock()
@@ -273,6 +274,7 @@ class TestEndToEndWiring:
         """
         cloud_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, cloud_config_entry)
+        coordinator.client = stub_cloud_client()
 
         inverter = make_real_inverter("2222222222", "6000XP")
         inverter.refresh = AsyncMock()
@@ -302,6 +304,7 @@ class TestEndToEndWiring:
         """
         cloud_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, cloud_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(internal_temperature=0)
         inverter = make_real_inverter("3333333333", "12000XP", runtime=runtime)
