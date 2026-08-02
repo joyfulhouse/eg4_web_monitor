@@ -531,6 +531,38 @@ def _local_fidelity_offenders(
     return offenders, stale
 
 
+def test_family_register_tables_have_not_diverged() -> None:
+    """Every family's register->param table must equal the base table (#505).
+
+    ``switch.py``'s ``_local_params_can_carry`` (and the LOCAL register
+    gates built on it) probe pylxpweb's BASE ``REGISTER_TO_PARAM_KEYS``,
+    not the family-resolved ``get_register_to_param_mapping(family)``.
+    That is sound ONLY while every family resolves to the same table —
+    true today because #476 unified the reg-110 layout lineage-wide, and
+    pinned in pylxpweb by its own contract test. If a family table ever
+    diverges again (the #476 history shows it can), the base-table probe
+    would answer wrongly for that family and a switch could be created or
+    suppressed against the wrong layout.
+
+    This assertion is the eg4-side half of that pin: a divergence fails
+    HERE, loudly, with the instruction that ``_local_params_can_carry``
+    must become family-aware before the divergence ships.
+
+    Enumerating ``InverterFamily`` (plus ``None``) means a newly added
+    family is covered automatically rather than silently exempted.
+    """
+    base = get_register_to_param_mapping()
+    for family in [None, *(member.value for member in InverterFamily)]:
+        resolved = get_register_to_param_mapping(family)
+        assert resolved == base, (
+            f"Register table for family {family!r} diverged from the base "
+            "table. switch.py's _local_params_can_carry probes the BASE "
+            "table only — make it (and the LOCAL register gates that use "
+            "it) family-aware before shipping this divergence, or a "
+            "capability probe will answer wrongly for this family."
+        )
+
+
 def test_local_runtime_mapping_follows_canonical_registers() -> None:
     """Every runtime register's ha_sensor_key is fed by its canonical field."""
     offenders, stale = _local_fidelity_offenders(

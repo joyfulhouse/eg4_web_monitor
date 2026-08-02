@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **An unreachable EG4 portal no longer costs tens of dead seconds every poll cycle** ([#511](https://github.com/joyfulhouse/eg4_web_monitor/issues/511)): every supplemental cloud fetch (quick-charge status, per-string PV energy, the event log, the AC Couple / Smart Load parameter stores, voltage limits) bounds its call with a timeout — which caps each call, but on a portal that is genuinely unreachable (blocked egress, DNS blackhole) every one of them still burned its full timeout every cycle, serially, forever. They now share one connectivity breaker: after three consecutive connectivity-class failures the supplemental fetches are skipped instantly for five minutes, then retried. Only connectivity-class failures count — an HTTP-level answer from the portal (even an error) proves it is reachable and closes the breaker. Entity behavior is unchanged: skipped fetches take the exact same carry-forward path a timed-out fetch always took, just without the wait, and the main runtime polling is not affected. A single warning log line announces the pause.
+
 - **Smart Load switch moved to the Configuration section** (from #499's follow-up question): the switch shipped in 3.5.1-beta.5 without an entity category, so Home Assistant filed it under *Controls* while Grid Always On and the five Smart Load threshold numbers from the same portal panel all sit under *Configuration*. It now declares the configuration category and the panel's seven entities appear together. The #499 reporter also **hardware-confirmed the write path** (a toggle in Home Assistant reflects in the portal), so the switch's unverified-write caveat is retired.
 
 ## [3.5.1-beta.5] - 2026-08-02

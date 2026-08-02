@@ -12,15 +12,17 @@ final coordinator class inheriting all mixins together.
 import asyncio
 import logging
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
+from pylxpweb.exceptions import LuxpowerConnectionError
 
 if TYPE_CHECKING:
     from homeassistant.helpers.storage import Store
@@ -128,6 +130,90 @@ CLOUD_PARAM_STORE_RETRY_FLOOR = 120.0
 # earlier review threads refer to.
 AC_COUPLE_SOC_FETCH_INTERVAL = CLOUD_PARAM_STORE_FETCH_INTERVAL
 AC_COUPLE_SOC_FETCH_TIMEOUT = CLOUD_PARAM_STORE_FETCH_TIMEOUT
+
+# ── Shared connectivity breaker for supplemental cloud side-fetches (#511) ──
+# Every guarded side-fetch (quick-charge status, per-string PV energy, event
+# log, cloud param stores, voltage limits) bounds its cloud call with its own
+# timeout. That caps each call, but on a portal that is genuinely UNREACHABLE
+# (blocked egress, DNS blackhole) every one of them still burns its full
+# timeout every poll cycle, serially — tens of dead seconds per cycle, forever.
+# The breaker shares one connectivity verdict across all of them: after
+# _SIDEFETCH_BREAKER_THRESHOLD consecutive connectivity-class failures the
+# side-fetches are skipped instantly for _SIDEFETCH_BREAKER_COOLDOWN seconds,
+# then attempts resume (an implicit half-open probe: one success closes the
+# breaker, one connectivity failure re-opens it for another cooldown).
+#
+# Only connectivity-class failures count — a timeout on the outer wait_for, an
+# aiohttp transport error, or pylxpweb's own connection error. An HTTP-level
+# API error (auth, bad request, device offline) proves the portal IS reachable
+# and resets the streak, exactly like a success.
+#
+# Two normal-return shapes carry connectivity evidence INSIDE the result and
+# must not blindly reset the streak: a ``gather(return_exceptions=True)``
+# result whose members are all connectivity-class exceptions (a failure), and
+# a store getter's empty dict, which pylxpweb returns after swallowing its
+# internal per-range errors (ambiguous — neither proof of reachability nor a
+# counted failure). Call sites pass a ``classify`` callback for these.
+_SIDEFETCH_BREAKER_THRESHOLD = 3
+_SIDEFETCH_BREAKER_COOLDOWN = 300.0
+
+# The connectivity-class exceptions the breaker counts, shared with call-site
+# ``classify`` callbacks that inspect gathered results.
+SIDEFETCH_CONNECTIVITY_ERRORS = (
+    TimeoutError,
+    aiohttp.ClientError,
+    LuxpowerConnectionError,
+)
+
+
+def _classify_gathered_responses(responses: Any) -> bool | None:
+    """Breaker verdict for a ``gather(return_exceptions=True)`` result.
+
+    True (reachability proven) if ANY member is a real payload or a
+    non-connectivity exception (an HTTP-level answer); False (a counted
+    connectivity failure) when every member is a connectivity-class
+    exception; None when there is no evidence either way — an empty list,
+    or members that are all cancellations (a ``CancelledError`` says the
+    CALLER stopped waiting, nothing about the portal; the call site
+    re-raises it, and it must not reset a streak on the way through).
+    """
+    if not isinstance(responses, list):
+        return None
+    members = [
+        item for item in responses if not isinstance(item, asyncio.CancelledError)
+    ]
+    if not members:
+        return None
+    if all(isinstance(item, SIDEFETCH_CONNECTIVITY_ERRORS) for item in members):
+        return False
+    return True
+
+
+def _classify_store_limits(limits: Any) -> bool | None:
+    """Breaker verdict for a cloud param-store getter result.
+
+    The getters swallow their internal per-range errors and — verified
+    against pylxpweb's control endpoints — return a NON-EMPTY schema dict
+    with every value ``None`` after a total failure, so truthiness of the
+    dict proves nothing. Reachability is proven only by at least one
+    non-``None`` value (``False`` and ``0`` are real portal answers);
+    anything else is neutral.
+    """
+    if isinstance(limits, dict) and any(value is not None for value in limits.values()):
+        return True
+    return None
+
+
+class _CloudSidefetchSkipped(Exception):
+    """Raised in place of a side-fetch's cloud call while the breaker is open.
+
+    Deliberately an ordinary Exception: every side-fetch call site already
+    wraps its cloud call in a broad ``except Exception`` whose handler does
+    the right degraded thing (carry forward previous values, stamp the retry
+    floor). Raising into that handler reuses each site's existing failure
+    semantics unchanged — the skip just costs microseconds instead of the
+    site's full timeout.
+    """
 
 
 @dataclass(frozen=True)
@@ -867,6 +953,143 @@ class DeviceProcessingMixin(_MixinBase):
     Provides static methods for property mapping.
     """
 
+    # Shared connectivity breaker state (#511). Class-level defaults so the
+    # mixin needs no __init__; the first failure writes instance attributes.
+    _sidefetch_consecutive_failures: int = 0
+    # None = closed. A monotonic deadline, never 0.0 (the d66cc92 fresh-boot
+    # class: monotonic is host uptime, so early-uptime comparisons against a
+    # 0.0 default misclassify).
+    _sidefetch_open_until: float | None = None
+    # True between a cooldown expiring and the first probe's verdict: a
+    # single connectivity failure in that state re-opens immediately (a real
+    # half-open, not another three-strike round).
+    _sidefetch_half_open: bool = False
+
+    def _sidefetch_note_reachable(self) -> None:
+        """The portal answered: close the breaker fully.
+
+        Also clears an open deadline: with concurrent device processing, a
+        sibling call can open (or re-open) the breaker while THIS call was
+        already in flight — its success is fresher evidence than the
+        sibling's failure, and leaving the deadline in place would skip
+        every fetch for the whole cooldown despite proven reachability
+        (delta-review P2).
+        """
+        self._sidefetch_consecutive_failures = 0
+        self._sidefetch_half_open = False
+        self._sidefetch_open_until = None
+
+    def _sidefetch_note_connectivity_failure(self) -> None:
+        """Count one connectivity-class failure; open on threshold or probe."""
+        if self._sidefetch_half_open:
+            # The half-open probe failed — one strike re-opens.
+            self._sidefetch_half_open = False
+            self._sidefetch_consecutive_failures = 0
+            self._sidefetch_open_until = time.monotonic() + _SIDEFETCH_BREAKER_COOLDOWN
+            _LOGGER.warning(
+                "Cloud portal still unreachable after cooldown; pausing "
+                "supplemental cloud fetches for another %.0fs",
+                _SIDEFETCH_BREAKER_COOLDOWN,
+            )
+            return
+        self._sidefetch_consecutive_failures += 1
+        if self._sidefetch_consecutive_failures >= _SIDEFETCH_BREAKER_THRESHOLD:
+            self._sidefetch_consecutive_failures = 0
+            self._sidefetch_open_until = time.monotonic() + _SIDEFETCH_BREAKER_COOLDOWN
+            _LOGGER.warning(
+                "Cloud portal unreachable (%d consecutive side-fetch "
+                "connectivity failures); pausing supplemental cloud fetches "
+                "for %.0fs. Runtime polling and previously fetched values "
+                "are unaffected",
+                _SIDEFETCH_BREAKER_THRESHOLD,
+                _SIDEFETCH_BREAKER_COOLDOWN,
+            )
+
+    @staticmethod
+    def _discard_skipped_awaitable(call: "Awaitable[Any]") -> None:
+        """Dispose of a never-to-be-awaited call without asyncio complaints.
+
+        A bare coroutine is closed (never awaited — no RuntimeWarning). A
+        gather() Future has ALREADY scheduled its children, so it is
+        cancelled — and because a ``return_exceptions=True`` gathering future
+        finishes WITH the CancelledError as its exception rather than in the
+        CANCELLED state, the exception must also be retrieved via a done
+        callback or the event loop logs "exception was never retrieved".
+        """
+        if isinstance(call, Coroutine):
+            call.close()
+        elif isinstance(call, asyncio.Future):
+            call.cancel()
+
+            def _retrieve(fut: "asyncio.Future[Any]") -> None:
+                if not fut.cancelled():
+                    fut.exception()
+
+            call.add_done_callback(_retrieve)
+
+    async def _breakered_cloud_call(
+        self,
+        call: "Awaitable[Any]",
+        *,
+        timeout: float,
+        classify: "Callable[[Any], bool | None] | None" = None,
+    ) -> Any:
+        """Run one supplemental cloud call through the shared breaker (#511).
+
+        Drop-in for the side-fetches' ``asyncio.wait_for(call, timeout=...)``:
+        same await, same timeout, same exception propagation — plus the shared
+        connectivity bookkeeping. While the breaker is open the awaitable is
+        discarded unrun and ``_CloudSidefetchSkipped`` is raised instead,
+        which each call site's existing broad ``except Exception`` handler
+        turns into its normal degraded behavior (carry-forward + retry stamp)
+        without burning the timeout.
+
+        Only connectivity-class failures advance the breaker: the outer
+        ``TimeoutError``, aiohttp transport errors, and pylxpweb's
+        ``LuxpowerConnectionError``. A raised non-connectivity exception is an
+        HTTP-level answer — reachability proven — and closes the breaker.
+
+        A NORMAL return usually proves reachability too, but two shapes carry
+        connectivity evidence inside the result: a
+        ``gather(return_exceptions=True)`` list whose members are all
+        connectivity-class exceptions, and a store getter's empty dict (the
+        getter swallows its internal per-range errors). Sites with such
+        shapes pass ``classify``: return True for reachability proven, False
+        for a connectivity failure to count, None for no evidence either way.
+        """
+        now = time.monotonic()
+        open_until = self._sidefetch_open_until
+        if open_until is not None:
+            if now < open_until:
+                self._discard_skipped_awaitable(call)
+                raise _CloudSidefetchSkipped(
+                    f"cloud side-fetch skipped, breaker open for another "
+                    f"{open_until - now:.0f}s (portal unreachable)"
+                )
+            # Cooldown expired: this call is the half-open probe. Concurrent
+            # sites in the same cycle may each probe once before the first
+            # verdict lands — bounded by the device count, accepted.
+            self._sidefetch_open_until = None
+            self._sidefetch_half_open = True
+        try:
+            result = await asyncio.wait_for(call, timeout=timeout)
+        except SIDEFETCH_CONNECTIVITY_ERRORS:
+            self._sidefetch_note_connectivity_failure()
+            raise
+        except Exception:
+            # Reachability proven (an HTTP-level answer arrived); the failure
+            # itself is the call site's to handle.
+            self._sidefetch_note_reachable()
+            raise
+        else:
+            verdict = classify(result) if classify is not None else True
+            if verdict is True:
+                self._sidefetch_note_reachable()
+            elif verdict is False:
+                self._sidefetch_note_connectivity_failure()
+            # None: ambiguous result — no evidence in either direction.
+            return result
+
     def _get_device_grid_type(self, serial: str) -> str | None:
         """Look up user-selected grid type for a device from config entry.
 
@@ -978,7 +1201,7 @@ class DeviceProcessingMixin(_MixinBase):
             # escalated backoff sleep (up to ~60s) would otherwise hold a
             # coordinator slot for the whole storm. A timeout is a failed
             # read — the caller's carry-forward path handles it.
-            status = await asyncio.wait_for(
+            status = await self._breakered_cloud_call(
                 client.api.control.get_quick_charge_status(inverter.serial_number),
                 timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
             )
@@ -1364,7 +1587,7 @@ class DeviceProcessingMixin(_MixinBase):
             else:
                 try:
                     local_now = dt_util.now(_resolve_chart_day_timezone(self))
-                    response = await asyncio.wait_for(
+                    response = await self._breakered_cloud_call(
                         fetch_daily(serial, local_now.year, local_now.month),
                         timeout=PV_STRING_ENERGY_CLOUD_TIMEOUT,
                     )
@@ -1416,7 +1639,7 @@ class DeviceProcessingMixin(_MixinBase):
 
             if due_lifetime_strings:
                 try:
-                    responses = await asyncio.wait_for(
+                    responses = await self._breakered_cloud_call(
                         asyncio.gather(
                             *(
                                 fetch_lifetime(serial, f"ePv{string_number}Day")
@@ -1425,6 +1648,11 @@ class DeviceProcessingMixin(_MixinBase):
                             return_exceptions=True,
                         ),
                         timeout=PV_STRING_ENERGY_CLOUD_TIMEOUT,
+                        # gather(return_exceptions=True) hides connectivity
+                        # failures inside a NORMAL return — inspect it, or a
+                        # fast-failing outage would reset the breaker streak
+                        # every cycle and it would never open (review P1).
+                        classify=_classify_gathered_responses,
                     )
                 except Exception as e:
                     _LOGGER.debug(
@@ -1561,7 +1789,7 @@ class DeviceProcessingMixin(_MixinBase):
             return
 
         try:
-            response = await asyncio.wait_for(
+            response = await self._breakered_cloud_call(
                 fetch(serial, rows=1), timeout=EVENT_LOG_CLOUD_TIMEOUT
             )
             rows = response.get("rows") or []
@@ -1629,7 +1857,7 @@ class DeviceProcessingMixin(_MixinBase):
                 # the cloud getStatusInfo is the authoritative live state
                 # (#296). Bounded like the throttled fetch — a backoff-stalled
                 # cloud call must not hang the caller; timeout -> unknown.
-                status = await asyncio.wait_for(
+                status = await self._breakered_cloud_call(
                     client.api.control.get_quick_charge_status(serial),
                     timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
                 )
@@ -1799,8 +2027,14 @@ class DeviceProcessingMixin(_MixinBase):
             # carry-forward here, not escape to the per-device handler and
             # blank the whole inverter for the cycle (the #378 round-2 bug
             # class).
-            limits: dict[str, float | bool | None] = await asyncio.wait_for(
-                getter(serial), timeout=CLOUD_PARAM_STORE_FETCH_TIMEOUT
+            limits: dict[str, float | bool | None] = await self._breakered_cloud_call(
+                getter(serial),
+                timeout=CLOUD_PARAM_STORE_FETCH_TIMEOUT,
+                # The getter swallows its internal per-range errors and
+                # returns an all-None schema dict — truthy, so truthiness
+                # proves nothing (delta-review P1). Only a non-None value
+                # is reachability evidence.
+                classify=_classify_store_limits,
             )
             values: dict[str, Any] = {}
             for field in spec.fields:
