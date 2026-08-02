@@ -52,6 +52,7 @@ def _mock_coordinator(*, parameters: dict[str, Any]) -> MagicMock:
     coordinator.has_http_api = MagicMock(return_value=True)
     coordinator.is_transport_link_down = MagicMock(return_value=False)
     coordinator.async_request_refresh = AsyncMock()
+    coordinator.async_refresh_device_parameters = AsyncMock(return_value=True)
     coordinator.refresh_all_device_parameters = AsyncMock()
     coordinator.refresh_inverter_params_if_linked = AsyncMock()
     result = MagicMock(success=True)
@@ -399,7 +400,7 @@ async def test_pv_start_voltage_write_dispatch_uses_named_cloud_route() -> None:
     coordinator.client.api.control.write_parameter = write_parameter
     await kwargs["cloud_write"]()
     write_parameter.assert_awaited_once_with(SERIAL, PARAM_HOLD_START_PV_VOLT, "140")
-    coordinator.refresh_inverter_params_if_linked.assert_awaited_once_with(SERIAL)
+    coordinator.refresh_inverter_params_if_linked.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -446,34 +447,19 @@ async def test_pv_start_voltage_named_cloud_write_failure_raises() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("source_key", "expected_updated"),
+    "source_key",
     [
-        (
-            "on_grid_cutoff_voltage",
-            {"on_grid_cutoff_voltage", "off_grid_cutoff_voltage"},
-        ),
-        (
-            "off_grid_cutoff_voltage",
-            {"on_grid_cutoff_voltage", "off_grid_cutoff_voltage"},
-        ),
-        (
-            "ac_charge_start_voltage",
-            {"ac_charge_start_voltage", "ac_charge_end_voltage"},
-        ),
-        (
-            "ac_charge_end_voltage",
-            {"ac_charge_start_voltage", "ac_charge_end_voltage"},
-        ),
-        (
-            "pv_start_voltage",
-            {"pv_start_voltage"},
-        ),
+        "on_grid_cutoff_voltage",
+        "off_grid_cutoff_voltage",
+        "ac_charge_start_voltage",
+        "ac_charge_end_voltage",
+        "pv_start_voltage",
     ],
 )
-async def test_voltage_number_refresh_fanout_is_pair_scoped(
-    source_key: str, expected_updated: set[str]
+async def test_voltage_number_refresh_is_serial_scoped_without_entity_fanout(
+    source_key: str,
 ) -> None:
-    """A write refreshes its voltage pair without crossing pair boundaries."""
+    """Every voltage write delegates one serial and polls no entity objects."""
     coordinator = _mock_coordinator(parameters={})
     coordinator.is_local_only.return_value = False
     entities = {
@@ -497,8 +483,8 @@ async def test_voltage_number_refresh_fanout_is_pair_scoped(
         value = 52.0
     await entities[source_key].async_set_native_value(value)
 
-    for key, entity in entities.items():
-        if key in expected_updated:
-            entity.async_update.assert_awaited_once()
-        else:
-            entity.async_update.assert_not_awaited()
+    coordinator.async_refresh_device_parameters.assert_awaited_once_with(SERIAL)
+    coordinator.refresh_all_device_parameters.assert_not_awaited()
+    coordinator.async_request_refresh.assert_not_awaited()
+    for entity in entities.values():
+        entity.async_update.assert_not_awaited()

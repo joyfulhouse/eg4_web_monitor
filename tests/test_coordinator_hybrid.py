@@ -261,6 +261,10 @@ class TestCoordinatorHybridInit:
     def mock_hass(self) -> MagicMock:
         """Create a mock Home Assistant instance."""
         hass = MagicMock()
+        # Shared cloud request/firmware ownership uses HA's dictionary-backed
+        # runtime data registry; model that concrete contract instead of
+        # allowing MagicMock.setdefault() to fabricate phantom owners.
+        hass.data = {}
         hass.config.time_zone = "America/Los_Angeles"
         hass.bus.async_listen_once = MagicMock()
         return hass

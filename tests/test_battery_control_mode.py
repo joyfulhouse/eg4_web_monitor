@@ -410,3 +410,5 @@ class TestBatteryControlSelects:
         coordinator.client.api.control.control_function.assert_awaited_once_with(
             "1234567890", "FUNC_BAT_DISCHARGE_CONTROL", False
         )
+        coordinator.refresh_inverter_params_if_linked.assert_not_awaited()
+        coordinator.refresh_all_device_parameters.assert_awaited_once_with()

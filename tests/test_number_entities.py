@@ -1,7 +1,9 @@
 """Tests for EG4 number entities and shared read/write helpers."""
 
-import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from homeassistant.components.number import RestoreNumber
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -70,6 +72,7 @@ def _mock_coordinator(
     coordinator.async_add_listener = MagicMock(return_value=lambda: None)
     coordinator.async_request_refresh = AsyncMock()
     coordinator.async_refresh = AsyncMock()
+    coordinator.async_refresh_device_parameters = AsyncMock(return_value=True)
     coordinator.refresh_all_device_parameters = AsyncMock()
     coordinator.write_named_parameter = AsyncMock()
     coordinator.write_raw_parameter = AsyncMock()
@@ -124,6 +127,104 @@ def _prep(entity: object) -> None:
     entity.entity_id = "number.test_entity"  # type: ignore[attr-defined]
     entity.platform = None  # type: ignore[attr-defined]
     entity.async_write_ha_state = MagicMock()  # type: ignore[attr-defined]
+
+
+def _track_one_targeted_parameter_fetch(
+    coordinator: MagicMock, serial: str = "1234567890"
+) -> MagicMock:
+    """Make the coordinator's public refresh seam perform one narrow read."""
+    inverter = coordinator.get_inverter_object(serial)
+    inverter._fetch_parameters = AsyncMock()
+
+    async def _refresh(target: str) -> bool:
+        assert target == serial
+        await inverter._fetch_parameters()
+        return True
+
+    coordinator.async_refresh_device_parameters = AsyncMock(side_effect=_refresh)
+    return inverter
+
+
+@pytest.mark.asyncio
+async def test_post_write_refresh_is_serial_scoped_without_entity_fanout() -> None:
+    """A number write publishes one serial without polling every related entity."""
+    coordinator = _mock_coordinator(serial="INV1")
+    entity = SystemChargeSOCLimitNumber(coordinator, "INV1")
+    _prep(entity)
+
+    related_entities = [MagicMock(spec=SystemChargeSOCLimitNumber) for _ in range(300)]
+    for related in related_entities:
+        related.async_update = AsyncMock()
+    entity.platform = SimpleNamespace(
+        entities={str(index): related for index, related in enumerate(related_entities)}
+    )
+
+    assert await entity._refresh_related_entities() is True
+
+    coordinator.async_refresh_device_parameters.assert_awaited_once_with("INV1")
+    coordinator.refresh_all_device_parameters.assert_not_awaited()
+    coordinator.async_request_refresh.assert_not_awaited()
+    assert all(related.async_update.await_count == 0 for related in related_entities)
+
+
+@pytest.mark.asyncio
+async def test_generic_cloud_method_performs_one_narrow_post_write_fetch() -> None:
+    """Generic inverter-method writes do not broad-refresh before verification."""
+    coordinator = _mock_coordinator(has_local=False, has_http=True)
+    inverter = _track_one_targeted_parameter_fetch(coordinator)
+    entity = ACChargePowerNumber(coordinator, "1234567890")
+    _prep(entity)
+
+    await entity.async_set_native_value(5.0)
+
+    inverter.set_ac_charge_power.assert_awaited_once_with(power_kw=5.0)
+    inverter._fetch_parameters.assert_awaited_once_with()
+    inverter.refresh.assert_not_awaited()
+    coordinator.refresh_inverter_params_if_linked.assert_not_awaited()
+    coordinator.refresh_all_device_parameters.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_direct_cloud_method_performs_one_narrow_post_write_fetch() -> None:
+    """Direct cloud setter paths share the same one-read verification cadence."""
+    coordinator = _mock_coordinator(
+        has_local=False,
+        has_http=True,
+        parameters={PARAM_FUNC_GRID_PEAK_SHAVING: True},
+    )
+    inverter = _track_one_targeted_parameter_fetch(coordinator)
+    entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
+    _prep(entity)
+
+    await entity.async_set_native_value(5.0)
+
+    inverter.set_grid_peak_shaving_power.assert_awaited_once_with(power_kw=5.0)
+    inverter._fetch_parameters.assert_awaited_once_with()
+    inverter.refresh.assert_not_awaited()
+    coordinator.refresh_inverter_params_if_linked.assert_not_awaited()
+    coordinator.refresh_all_device_parameters.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_named_cloud_write_performs_one_narrow_post_write_fetch() -> None:
+    """Generic named writes do not perform a hidden pre-verification fetch."""
+    coordinator = _mock_coordinator(has_local=False, has_http=True)
+    coordinator.client.api.control.write_parameter = AsyncMock(
+        return_value=MagicMock(success=True)
+    )
+    inverter = _track_one_targeted_parameter_fetch(coordinator)
+    entity = StartDischargePowerNumber(coordinator, "1234567890")
+    _prep(entity)
+
+    await entity.async_set_native_value(150)
+
+    coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+        "1234567890", "HOLD_P_TO_USER_START_DISCHG", "150"
+    )
+    inverter._fetch_parameters.assert_awaited_once_with()
+    inverter.refresh.assert_not_awaited()
+    coordinator.refresh_inverter_params_if_linked.assert_not_awaited()
+    coordinator.refresh_all_device_parameters.assert_not_awaited()
 
 
 # ── Platform setup ───────────────────────────────────────────────────

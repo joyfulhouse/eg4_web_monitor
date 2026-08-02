@@ -1555,7 +1555,9 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
                 register is firmware-rejected, #296).
             disable_method: Method to call when turning off (same forms).
             turn_on: True to enable, False to disable.
-            refresh_params: If True, refresh parameters instead of just data.
+            refresh_params: If True, perform one targeted parameter refresh.
+                Runtime/status actions retain the pre-delay inverter refresh
+                followed by their full coordinator refresh.
             api_delay: Seconds to wait for API to propagate changes (default 1.0).
             enable_kwargs: Optional keyword arguments passed to the enable method
                 on the turn-on path only (the disable method is always called with
@@ -1638,7 +1640,7 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
             turn_on,
             do_write=do_write,
             do_refresh=do_refresh,
-            pre_delay_refresh=pre_delay_refresh,
+            pre_delay_refresh=None if refresh_params else pre_delay_refresh,
             api_delay=api_delay,
             seed_param_key=seed_param_key,
             refresh_after_write=refresh_after_write,

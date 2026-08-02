@@ -3843,8 +3843,8 @@ class TestLinkDownParameterRefreshGate:
         range fails, exposing the failure only through
         ``parameters_complete=False``.  The public wrapper must not report that
         as a completed refresh: its boolean drives the acknowledged-write
-        retention envelope (#362). The coordinator refresh side effect remains
-        intact for older callers that ignore the boolean.
+        retention envelope (#362). The partial cache mutation is published in
+        place without scheduling a duplicate full coordinator cycle.
         """
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
@@ -3862,6 +3862,7 @@ class TestLinkDownParameterRefreshGate:
             "devices": {"INV1": {"type": "inverter"}},
             "parameters": {"INV1": {"FUNC_TEST": True}},
         }
+        coordinator.async_update_listeners = MagicMock()
         coordinator.async_request_refresh = AsyncMock()
 
         result = await coordinator.async_refresh_device_parameters("INV1")
@@ -3869,7 +3870,8 @@ class TestLinkDownParameterRefreshGate:
         assert result is False
         incomplete._fetch_parameters.assert_awaited_once_with()
         incomplete.refresh.assert_not_awaited()
-        coordinator.async_request_refresh.assert_awaited_once_with()
+        coordinator.async_update_listeners.assert_called_once_with()
+        coordinator.async_request_refresh.assert_not_awaited()
 
     async def test_incomplete_fetch_logs_at_debug_not_warning(
         self, hass, local_config_entry, caplog: pytest.LogCaptureFixture

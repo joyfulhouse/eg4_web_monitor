@@ -197,6 +197,10 @@ class TestOperatingModeSelect:
 
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.set_operating_mode.assert_called_once_with(OperatingMode.NORMAL)
+        inverter.refresh.assert_not_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            "1234567890"
+        )
 
     @pytest.mark.asyncio
     async def test_select_standby(self):
@@ -542,6 +546,10 @@ class TestPVInputModeSelectFallback:
         coordinator.write_named_parameter.assert_awaited_once()
         coordinator.client.api.control.write_parameter.assert_called_once_with(
             "1234567890", "HOLD_PV_INPUT_MODE", "1"
+        )
+        coordinator.refresh_inverter_params_if_linked.assert_not_awaited()
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(
+            "1234567890"
         )
 
     @pytest.mark.asyncio

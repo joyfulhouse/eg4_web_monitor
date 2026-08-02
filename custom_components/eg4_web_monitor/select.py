@@ -265,8 +265,6 @@ class EG4OperatingModeSelect(EG4BaseSelect):
             if not success:
                 raise HomeAssistantError(f"Failed to set operating mode to {option}")
 
-            # Refresh inverter data
-            await inverter.refresh()
         except Exception as e:
             _LOGGER.error(
                 "Failed to set operating mode to %s for device %s: %s",
@@ -384,7 +382,6 @@ class EG4PVInputModeSelect(EG4BaseSelect):
                 )
                 if not result.success:
                     raise HomeAssistantError(f"Failed to set PV input mode to {option}")
-                await self.coordinator.refresh_inverter_params_if_linked(self._serial)
 
             await async_write_with_cloud_fallback(
                 self.coordinator,
@@ -655,7 +652,6 @@ class EG4BatteryControlModeSelect(EG4BaseSelect):
                     raise HomeAssistantError(
                         f"Failed to set {self._control_name} to {option}"
                     )
-                await self.coordinator.refresh_inverter_params_if_linked(self._serial)
 
             await async_write_with_cloud_fallback(
                 self.coordinator,
