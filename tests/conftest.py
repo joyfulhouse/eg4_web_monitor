@@ -61,6 +61,7 @@ _cloud_attempts: list[str] = []
 # The production signature, captured before patching, so a test can prove the
 # stand-in still mirrors it rather than merely being non-permissive.
 PRODUCTION_REQUEST_SIGNATURE = inspect.signature(LuxpowerClient._request)
+PRODUCTION_GET_SESSION_SIGNATURE = inspect.signature(LuxpowerClient._get_session)
 
 
 async def _refuse_request(
@@ -84,17 +85,19 @@ async def _refuse_session(self: LuxpowerClient) -> NoReturn:
     raise CloudRequestInTest(_REFUSAL_MESSAGE)
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _patch_cloud_request_paths():
-    """Hold the refusal patches for the WHOLE session.
+_cloud_patchers: list[Any] = []
 
-    Deliberately session-scoped rather than per-test. Pytest sets the
-    plugin's own autouse fixtures up before this module's, which means they
-    tear down AFTER a function-scoped guard has already been restored — so a
-    cloud call made during another fixture's teardown, during module/session
-    setup, or by a task drained while ``hass`` shuts down would reach the real
-    method and retry against the network. Holding the patch for the session
-    leaves no window in which the real methods are reachable.
+
+def _start_cloud_refusal() -> None:
+    """Patch both cloud seams for the entire pytest process.
+
+    Applied from ``pytest_configure`` — before collection and before any
+    fixture of any scope — and lifted in ``pytest_unconfigure``. Neither a
+    per-test nor a session-scoped FIXTURE is sufficient: a fixture starts
+    after collection and after the session fixtures pytest sets up ahead of
+    it, and is restored before those same fixtures finish tearing down. Import
+    or collection-time calls, and equal-scope setup/finalizers, would slip
+    through those windows and retry against the network unrecorded.
 
     The coordinator constructs a REAL ``LuxpowerClient`` for http/hybrid
     entries (websession injection), so any code path reaching a cloud fetch
@@ -117,11 +120,33 @@ def _patch_cloud_request_paths():
     every network user shares, which makes the pair airtight; ``_request`` is
     still patched so the common path fails with a message naming the cause.
     """
-    with (
-        patch.object(LuxpowerClient, "_request", _refuse_request),
-        patch.object(LuxpowerClient, "_get_session", _refuse_session),
+    for attribute, replacement in (
+        ("_request", _refuse_request),
+        ("_get_session", _refuse_session),
     ):
-        yield
+        patcher = patch.object(LuxpowerClient, attribute, replacement)
+        patcher.start()
+        _cloud_patchers.append(patcher)
+
+
+def _stop_cloud_refusal() -> None:
+    """Lift the patches and report anything nobody else consumed.
+
+    The per-test fixture drains the buffer at each teardown, but attempts made
+    after the LAST test's teardown — a session finalizer, or interpreter
+    shutdown work — have no test to be attributed to. Reporting them here
+    means they are loud rather than lost.
+    """
+    while _cloud_patchers:
+        _cloud_patchers.pop().stop()
+
+    if _cloud_attempts:
+        unattributed = sorted(set(_cloud_attempts))
+        del _cloud_attempts[:]
+        raise CloudRequestInTest(
+            f"cloud request(s) attempted outside any test: {unattributed}. "
+            f"{_REFUSAL_MESSAGE}"
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -141,17 +166,23 @@ def refuse_real_cloud_requests(request: pytest.FixtureRequest):
 
     * Reported for a passing test, a failing test (the failure and the
       violation both surface), and each parametrized case independently.
-    * A SKIPPED test never runs its body, so there is nothing to catch.
-    * An XFAILED test is the one hole: pytest absorbs the teardown error, so a
-      violating xfail passes unreported. The suite has no xfail tests today,
-      and a violation costs no wall clock because the refusal is immediate.
+    * A test skipped by ``@pytest.mark.skip`` never runs its body, so there is
+      nothing to catch. A RUNTIME ``pytest.skip()`` is different: the body ran,
+      so a prior violation is reported as SKIPPED plus ERROR.
+    * Plain non-strict ``xfail`` is the hole: pytest absorbs the teardown error
+      and the run still exits 0. ``xfail(raises=...)`` with a mismatch, and
+      dynamic ``pytest.xfail()``, can still surface it. The suite has no xfail
+      tests today, and a violation costs no wall clock because the refusal is
+      immediate.
     * An attempt made after this fixture's teardown — during a finalizer that
-      runs later, or during session setup before any test — is still recorded
-      by the session-scoped patch and surfaces against the NEXT test.
-      Attribution is off by one test; detection is not lost. This is why the
-      buffer is drained ONLY at teardown: clearing it on entry as well would
-      discard exactly those late attempts instead of deferring them, turning
-      an attribution quirk into a silent miss.
+      runs later — is still recorded, because the patches are held by
+      ``pytest_configure``/``pytest_unconfigure`` rather than by any fixture,
+      and surfaces against the NEXT test. Attribution is off by one test;
+      detection is not lost. This is why the buffer is drained ONLY at
+      teardown: clearing it on entry as well would discard exactly those late
+      attempts instead of deferring them, turning an attribution quirk into a
+      silent miss. Anything left over after the final test is reported by
+      ``_stop_cloud_refusal``.
     * ``get_closest_marker`` honours class- and module-level marks, so a
       module-wide ``pytestmark`` would opt an entire file out. That is the
       normal pytest inheritance rule, not a special case here, but it means
@@ -166,6 +197,11 @@ def refuse_real_cloud_requests(request: pytest.FixtureRequest):
         raise CloudRequestInTest(
             f"{len(attempts)} cloud request(s) attempted: {unique}. {_REFUSAL_MESSAGE}"
         )
+
+
+def pytest_unconfigure(config):
+    """Lift the cloud-refusal patches at the very end of the run."""
+    _stop_cloud_refusal()
 
 
 def wire_coordinator_write_helpers(coordinator: MagicMock) -> None:
@@ -349,6 +385,7 @@ def pytest_configure(config):
         "request path; the refusal is still raised, but reaching it is not "
         "treated as a failure.",
     )
+    _start_cloud_refusal()
 
     # Store original threading.enumerate
     original_enumerate = threading.enumerate

@@ -31,11 +31,26 @@ from typing import Any
 import pytest
 from pylxpweb.client import LuxpowerClient
 
-from .conftest import PRODUCTION_REQUEST_SIGNATURE, CloudRequestInTest
+from .conftest import (
+    PRODUCTION_GET_SESSION_SIGNATURE,
+    PRODUCTION_REQUEST_SIGNATURE,
+    CloudRequestInTest,
+)
 
 
 def _client() -> LuxpowerClient:
     return LuxpowerClient("user", "password", base_url="https://example.invalid")
+
+
+def _binding_shape(sig: inspect.Signature) -> list[tuple[str, Any, Any]]:
+    """Name, kind and default — what argument binding actually uses.
+
+    Annotations are excluded on purpose: pylxpweb uses postponed evaluation, so
+    its annotations are strings while the stand-ins' are objects. Comparing
+    those would fail on a cosmetic difference and say nothing about which calls
+    bind.
+    """
+    return [(p.name, p.kind, p.default) for p in sig.parameters.values()]
 
 
 @pytest.mark.allow_real_cloud_request_path
@@ -75,19 +90,36 @@ def test_refusal_matches_production_request_signature():
     broad production ``except`` would swallow it.
     """
 
-    def _binding_shape(sig: inspect.Signature) -> list[tuple[str, Any, Any]]:
-        """Name, kind and default — what argument binding actually uses.
-
-        Annotations are excluded on purpose: pylxpweb uses postponed
-        evaluation, so its annotations are strings while the stand-in's are
-        objects. Comparing those would fail on a cosmetic difference and say
-        nothing about which calls bind.
-        """
-        return [(p.name, p.kind, p.default) for p in sig.parameters.values()]
-
     assert _binding_shape(inspect.signature(LuxpowerClient._request)) == _binding_shape(
         PRODUCTION_REQUEST_SIGNATURE
     ), (
         "the refusal stand-in no longer mirrors LuxpowerClient._request; "
         "update it to the current production signature"
     )
+
+
+@pytest.mark.allow_real_cloud_request_path
+def test_refusal_matches_production_get_session_shape():
+    """The second seam needs the same drift check as the first.
+
+    ``_get_session`` had no signature or coroutine check at all, so a
+    stand-in that drifted from production — or stopped being a coroutine —
+    would go unnoticed while every autospec-derived double inherited the
+    wrong shape.
+    """
+    assert _binding_shape(inspect.signature(LuxpowerClient._get_session)) == (
+        _binding_shape(PRODUCTION_GET_SESSION_SIGNATURE)
+    )
+
+
+@pytest.mark.allow_real_cloud_request_path
+def test_refusals_are_still_coroutine_functions():
+    """Parameter shape alone would miss an async/sync flip.
+
+    ``create_autospec`` decides between ``AsyncMock`` and ``MagicMock`` from
+    this property, so a stand-in that stopped being a coroutine function would
+    silently change what every autospec-based double returns, without altering
+    a single parameter.
+    """
+    assert inspect.iscoroutinefunction(LuxpowerClient._request)
+    assert inspect.iscoroutinefunction(LuxpowerClient._get_session)
