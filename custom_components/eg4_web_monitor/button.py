@@ -18,7 +18,11 @@ else:
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BatteryEntity, EG4DeviceEntity, EG4StationEntity
-from .coordinator import EG4DataUpdateCoordinator
+from .coordinator import (
+    DISCOVERY_LISTENER_CONTEXT,
+    EG4DataUpdateCoordinator,
+    listener_changed_device_items,
+)
 from .utils import (
     generate_entity_id,
     generate_unique_id,
@@ -132,7 +136,7 @@ async def async_setup_entry(
         if not coordinator.data or "devices" not in coordinator.data:
             return
         new_entities: list[ButtonEntity] = []
-        for serial, device_data in coordinator.data["devices"].items():
+        for serial, device_data in listener_changed_device_items(coordinator):
             known = known_battery_keys.setdefault(serial, set())
             for battery_key in device_data.get("batteries", {}):
                 if battery_key in known:
@@ -153,7 +157,9 @@ async def async_setup_entry(
             async_add_entities(new_entities)
 
     entry.async_on_unload(
-        coordinator.async_add_listener(_async_discover_battery_buttons)
+        coordinator.async_add_listener(
+            _async_discover_battery_buttons, DISCOVERY_LISTENER_CONTEXT
+        )
     )
 
 
