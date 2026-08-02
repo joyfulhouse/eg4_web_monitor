@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -85,6 +86,30 @@ def test_test_runner_normalizes_signal_termination_to_failure() -> None:
         assert quality_runner.run_tests() == 1
 
 
+def test_test_runner_uses_canonical_root_pytest_config() -> None:
+    """The helper and bare pytest share one repository-root configuration."""
+    with patch.object(
+        quality_runner.subprocess, "run", return_value=_completed(0)
+    ) as run:
+        assert quality_runner.run_tests() == 0
+
+    run.assert_called_once_with(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-c",
+            str(REPO_ROOT / "pytest.ini"),
+            "-q",
+            "-p",
+            "pytest_asyncio",
+            str(REPO_ROOT / "tests"),
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+
+
 def test_platinum_strict_typing_fails_on_mypy_errors() -> None:
     """Configured strict typing is insufficient when the actual check fails."""
     with patch.object(
@@ -131,8 +156,16 @@ def test_platinum_strict_typing_passes_only_on_zero_exit() -> None:
 
 def test_pytest_config_contains_only_supported_ini_options() -> None:
     """rootdir is a CLI option and must not be placed in pytest.ini."""
-    config = (REPO_ROOT / "tests" / "pytest.ini").read_text(encoding="utf-8")
+    config = (REPO_ROOT / "pytest.ini").read_text(encoding="utf-8")
     assert not re.search(r"^rootdir\s*=", config, flags=re.MULTILINE)
+    assert re.search(r"^testpaths\s*=\s*tests$", config, flags=re.MULTILINE)
+
+
+def test_collision_script_import_ignores_pytest_arguments() -> None:
+    """Pytest collection cannot feed its CLI flags into the hardware script."""
+    script = REPO_ROOT / "scripts" / "collision_test.py"
+    with patch.object(sys, "argv", ["pytest", "-q"]):
+        runpy.run_path(script, run_name="collision_test_import")
 
 
 def test_documented_validation_scripts_exist() -> None:

@@ -116,7 +116,7 @@ python tests/validate_gold_tier.py
 python tests/validate_platinum_tier.py
 
 # All tests with coverage
-pytest -c tests/pytest.ini tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
 ```
 
 ### Code Quality Checks

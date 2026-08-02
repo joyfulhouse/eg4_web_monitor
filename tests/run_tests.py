@@ -42,7 +42,7 @@ def run_tests(
         "-m",
         "pytest",
         "-c",
-        str(tests_dir / "pytest.ini"),
+        str(integration_root / "pytest.ini"),
     ]
 
     if coverage:
@@ -111,7 +111,7 @@ def run_linting() -> int:
             )
             if result.returncode != 0:
                 print(f"❌ {label} failed (exit {result.returncode})")
-                return _normalized_exit_code(result.returncode) or 1
+                return _normalized_exit_code(result.returncode)
     except OSError as err:
         print(f"❌ Could not run Ruff: {err}")
         return 1

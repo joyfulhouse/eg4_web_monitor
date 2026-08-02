@@ -31,7 +31,7 @@ HOLDING_REGS = [
     (0, 10),  # basic params
 ]
 
-ROUNDS = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+DEFAULT_ROUNDS = 10
 PARALLEL_READS = 3  # concurrent reads per round
 
 
@@ -182,17 +182,17 @@ async def run_collision_round(round_num: int) -> list[tuple[str, bool, str]]:
     return await asyncio.gather(*tasks)
 
 
-async def main() -> None:
+async def main(rounds: int = DEFAULT_ROUNDS) -> None:
     print("=== Modbus Collision Test ===")
     print(f"Targets: INV1={INVERTER_1}, INV2={INVERTER_2}, DONGLE={DONGLE}")
-    print(f"Rounds: {ROUNDS}, parallel reads per round: ~{len(INPUT_REGS) * 2 + 4}")
+    print(f"Rounds: {rounds}, parallel reads per round: ~{len(INPUT_REGS) * 2 + 4}")
     print("=" * 60)
 
     total_reads = 0
     total_errors = 0
     total_suspect = 0
 
-    for r in range(1, ROUNDS + 1):
+    for r in range(1, rounds + 1):
         now = datetime.now().strftime("%H:%M:%S")
         results = await run_collision_round(r)
         errors = [(label, detail) for label, ok, detail in results if not ok]
@@ -206,14 +206,14 @@ async def main() -> None:
         total_suspect += len(suspects)
 
         if errors or suspects:
-            print(f"\n[{now}] Round {r}/{ROUNDS}:")
+            print(f"\n[{now}] Round {r}/{rounds}:")
             for label, detail in errors:
                 print(f"  ERROR: {label}: {detail}")
             for label, detail in suspects:
                 print(f"  SUSPECT: {label}: {detail}")
         else:
             if r % 3 == 0 or r == 1:
-                print(f"[{now}] Round {r}/{ROUNDS}: {len(results)} reads OK")
+                print(f"[{now}] Round {r}/{rounds}: {len(results)} reads OK")
 
         # Small delay between rounds to let coordinator also attempt reads
         await asyncio.sleep(2)
@@ -231,4 +231,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    requested_rounds = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ROUNDS
+    asyncio.run(main(requested_rounds))

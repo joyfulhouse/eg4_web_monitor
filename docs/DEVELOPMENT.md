@@ -29,8 +29,8 @@ ruff format --check .
 mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
 
 # Tests (with coverage)
-pytest -c tests/pytest.ini tests/ -x --tb=short
-pytest -c tests/pytest.ini tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+pytest tests/ -x --tb=short
+pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
 
 # Or run tests, coverage, Ruff lint, and Ruff format together
 python tests/run_tests.py --all

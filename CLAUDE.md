@@ -41,7 +41,7 @@ python tests/validate_platinum_tier.py # All 3 Platinum requirements
 python tests/validate_gold_tier.py     # All 5 Gold requirements
 python tests/validate_silver_tier.py   # All 10 Silver requirements
 # Bronze requirements are enforced by .github/workflows/quality-validation.yml
-pytest -c tests/pytest.ini tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
 mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/  # Strict type checking
 ```
 
