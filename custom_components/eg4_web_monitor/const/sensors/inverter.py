@@ -86,6 +86,18 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:battery",
     },
+    # Inverter-reported battery temperature (input register 67 / cloud tBat).
+    # pylxpweb normalizes the firmware's exact 0x7F "no reading" sentinel to
+    # None before coordinator mapping, so the entity is unknown rather than
+    # presenting a dangerous-looking 127 °C value on battery-less secondaries.
+    "battery_temperature": {
+        "name": "Battery Temperature",
+        "unit": UnitOfTemperature.CELSIUS,
+        "device_class": "temperature",
+        "state_class": "measurement",
+        "icon": "mdi:thermometer",
+        "entity_category": "diagnostic",
+    },
     "hybrid_power": {
         "name": "Hybrid Power",
         "unit": UnitOfPower.WATT,
