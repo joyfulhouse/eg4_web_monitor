@@ -27,9 +27,13 @@ from custom_components.eg4_web_monitor.const import (
     CONNECTION_TYPE_HYBRID,
     DEFAULT_DONGLE_UPDATE_INTERVAL,
     DOMAIN,
+    GRID_TYPE_SPLIT_PHASE,
 )
 from custom_components.eg4_web_monitor.coordinator import (
     EG4DataUpdateCoordinator,
+)
+from custom_components.eg4_web_monitor.transport_serialization import (
+    EndpointOperationLock,
 )
 from pylxpweb.exceptions import (
     LuxpowerAPIError,
@@ -1915,6 +1919,102 @@ class _FakeTcpTransport:
         self.port = port
 
 
+class _SingleSlotEndpoint:
+    """Deterministic endpoint that records overlapping physical operations."""
+
+    def __init__(self, *operation_names: str) -> None:
+        self.active = 0
+        self.max_active = 0
+        self.entered = {name: asyncio.Event() for name in operation_names}
+        self.release = asyncio.Event()
+
+    async def run(self, operation_name: str) -> None:
+        """Hold an operation in flight until the test releases the endpoint."""
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        self.entered[operation_name].set()
+        try:
+            await self.release.wait()
+        finally:
+            self.active -= 1
+
+
+class _SingleSlotTransport:
+    """Transport facade backed by a shared fake physical endpoint."""
+
+    transport_type = "modbus_tcp"
+
+    def __init__(
+        self,
+        endpoint: _SingleSlotEndpoint,
+        *,
+        operation_name: str,
+        host: str | None = "192.168.1.50",
+        port: int | str = 502,
+    ) -> None:
+        self.endpoint = endpoint
+        self.operation_name = operation_name
+        self.host = host
+        self.port = port
+        self.is_connected = True
+        self.disconnected = asyncio.Event()
+        self.split_phase = False
+        self._op_lock: Any = None
+
+    async def _run_serialized(self) -> None:
+        """Use the operation-lock seam exposed by real pylxpweb transports."""
+        if self._op_lock is None:
+            await self.endpoint.run(self.operation_name)
+            return
+        async with self._op_lock:
+            await self.endpoint.run(self.operation_name)
+
+    async def read_runtime(self) -> None:
+        """Represent a poll/background read on the physical endpoint."""
+        await self._run_serialized()
+
+    async def write_named_parameters(self, _parameters: dict[str, Any]) -> bool:
+        """Represent a write on the physical endpoint."""
+        await self._run_serialized()
+        return True
+
+    async def connect(self) -> None:
+        """Represent a lifecycle operation that is outside pylxpweb's op lock."""
+        await self.endpoint.run(f"{self.operation_name}_connect")
+        self.is_connected = True
+
+    async def disconnect(self) -> None:
+        """Interrupt a pending read, matching coordinator shutdown semantics."""
+        self.is_connected = False
+        self.disconnected.set()
+        self.endpoint.release.set()
+
+
+class _SingleSlotInverter:
+    """Minimal inverter that always performs one transport read per refresh."""
+
+    def __init__(self, serial: str, transport: _SingleSlotTransport) -> None:
+        self.serial_number = serial
+        self._transport: Any = transport
+        self.parameters: dict[str, Any] = {"loaded": True}
+        self.transport_runtime = SimpleNamespace(
+            pv_total_power=0,
+            battery_soc=0,
+            rectifier_power=0,
+        )
+        self.transport_energy = None
+        self.transport_battery = None
+
+    @property
+    def transport(self) -> Any:
+        """Return the attached transport like pylxpweb's device objects."""
+        return self._transport
+
+    async def refresh(self, **_kwargs: Any) -> None:
+        """Run one physical transport operation."""
+        await self._transport.read_runtime()
+
+
 def _tracking_refresh(counter: dict[str, int]) -> Any:
     """Build a refresh coroutine that records concurrent-entry depth."""
 
@@ -2045,6 +2145,383 @@ class TestSerialEndpointGrouping:
         inv1.refresh.assert_awaited_once()
         inv2.refresh.assert_awaited_once()
         assert counter["max"] == 2
+
+
+class TestPhysicalEndpointOperationSerialization:
+    """Polls, writes, and background work share one endpoint lock."""
+
+    async def test_endpoint_lock_is_task_reentrant(self) -> None:
+        """Nested pylxpweb RMW operations do not deadlock themselves."""
+        lock = EndpointOperationLock()
+
+        async def nested_operation() -> None:
+            async with lock:
+                async with lock:
+                    return
+
+        await asyncio.wait_for(nested_operation(), timeout=0.1)
+
+    @staticmethod
+    def _install_devices(
+        coordinator: EG4DataUpdateCoordinator,
+        *devices: _SingleSlotInverter,
+    ) -> None:
+        coordinator.station = _mock_station(list(devices))
+        coordinator._local_transports_attached = True
+        coordinator._inverter_cache = {
+            device.serial_number: device for device in devices
+        }  # type: ignore[dict-item]
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_poll_and_write_on_shared_endpoint_do_not_overlap(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """A write waits while another device is polling the same adapter."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("poll", "write")
+        poll_device = _SingleSlotInverter(
+            "INV001", _SingleSlotTransport(endpoint, operation_name="poll")
+        )
+        write_device = _SingleSlotInverter(
+            "INV002", _SingleSlotTransport(endpoint, operation_name="write")
+        )
+        self._install_devices(coordinator, poll_device, write_device)
+
+        poll_task = asyncio.create_task(coordinator._refresh_station_devices())
+        await endpoint.entered["poll"].wait()
+        write_task = asyncio.create_task(
+            coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV002")
+        )
+        try:
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert not endpoint.entered["write"].is_set()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(poll_task, write_task, return_exceptions=True)
+
+        assert endpoint.max_active == 1
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_serial_adapter_operations_do_not_overlap(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Distinct devices on one tty path share the operation lock."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("poll", "write")
+        poll_transport = _SingleSlotTransport(
+            endpoint,
+            operation_name="poll",
+            host=None,
+            port="/dev/ttyUSB0",
+        )
+        write_transport = _SingleSlotTransport(
+            endpoint,
+            operation_name="write",
+            host=None,
+            port="/dev/ttyUSB0",
+        )
+        coordinator._bind_endpoint_operation_lock(poll_transport)
+        coordinator._bind_endpoint_operation_lock(write_transport)
+
+        poll_task = asyncio.create_task(poll_transport.read_runtime())
+        await endpoint.entered["poll"].wait()
+        write_task = asyncio.create_task(
+            write_transport.write_named_parameters({"FUNC_EPS_EN": True})
+        )
+        try:
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert not endpoint.entered["write"].is_set()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(poll_task, write_task, return_exceptions=True)
+
+        assert endpoint.max_active == 1
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_background_parameter_load_and_write_do_not_overlap(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Deferred parameter work shares the adapter lock with writes."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        coordinator.async_request_refresh = AsyncMock()
+        endpoint = _SingleSlotEndpoint("background", "write")
+        background_device = _SingleSlotInverter(
+            "INV001", _SingleSlotTransport(endpoint, operation_name="background")
+        )
+        write_device = _SingleSlotInverter(
+            "INV002", _SingleSlotTransport(endpoint, operation_name="write")
+        )
+        self._install_devices(coordinator, background_device, write_device)
+
+        background_task = asyncio.create_task(
+            coordinator._deferred_local_parameter_load()
+        )
+        await endpoint.entered["background"].wait()
+        write_task = asyncio.create_task(
+            coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV002")
+        )
+        try:
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert not endpoint.entered["write"].is_set()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(background_task, write_task, return_exceptions=True)
+
+        assert endpoint.max_active == 1
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_independent_endpoints_remain_concurrent(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Endpoint locking does not impose a coordinator-wide bottleneck."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("first", "second")
+        first = _SingleSlotInverter(
+            "INV001",
+            _SingleSlotTransport(
+                endpoint,
+                operation_name="first",
+                host="192.168.1.50",
+            ),
+        )
+        second = _SingleSlotInverter(
+            "INV002",
+            _SingleSlotTransport(
+                endpoint,
+                operation_name="second",
+                host="192.168.1.51",
+            ),
+        )
+        self._install_devices(coordinator, first, second)
+
+        first_task = asyncio.create_task(
+            coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV001")
+        )
+        second_task = asyncio.create_task(
+            coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV002")
+        )
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(
+                    endpoint.entered["first"].wait(),
+                    endpoint.entered["second"].wait(),
+                ),
+                timeout=1,
+            )
+            assert endpoint.max_active == 2
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(first_task, second_task, return_exceptions=True)
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_reconnect_and_write_share_one_endpoint_transaction(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Two disconnected devices cannot dial the single-slot endpoint together."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint(
+            "first_connect", "second_connect", "first", "second"
+        )
+        first_transport = _SingleSlotTransport(endpoint, operation_name="first")
+        second_transport = _SingleSlotTransport(endpoint, operation_name="second")
+        first_transport.is_connected = False
+        second_transport.is_connected = False
+        first = _SingleSlotInverter("INV001", first_transport)
+        second = _SingleSlotInverter("INV002", second_transport)
+        self._install_devices(coordinator, first, second)
+
+        first_task = asyncio.create_task(
+            coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV001")
+        )
+        await endpoint.entered["first_connect"].wait()
+        second_task = asyncio.create_task(
+            coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV002")
+        )
+        try:
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert not endpoint.entered["second_connect"].is_set()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(first_task, second_task, return_exceptions=True)
+
+        assert endpoint.max_active == 1
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_separate_config_entries_share_physical_endpoint_lock(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Two coordinators cannot bypass the same adapter boundary."""
+        hybrid_config_entry.add_to_hass(hass)
+        second_entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Second Hybrid Test",
+            data={
+                **hybrid_config_entry.data,
+                CONF_PLANT_ID: "67890",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        **hybrid_config_entry.data[CONF_LOCAL_TRANSPORTS][0],
+                        "serial": "INV002",
+                    }
+                ],
+            },
+            entry_id="second_hybrid_test_entry",
+        )
+        second_entry.add_to_hass(hass)
+        first_coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        second_coordinator = EG4DataUpdateCoordinator(hass, second_entry)
+        endpoint = _SingleSlotEndpoint("first", "second")
+        first = _SingleSlotInverter(
+            "INV001",
+            _SingleSlotTransport(
+                endpoint,
+                operation_name="first",
+                host="EG4-GATEWAY.local",
+            ),
+        )
+        second = _SingleSlotInverter(
+            "INV002",
+            _SingleSlotTransport(
+                endpoint,
+                operation_name="second",
+                host="eg4-gateway.LOCAL",
+            ),
+        )
+        self._install_devices(first_coordinator, first)
+        self._install_devices(second_coordinator, second)
+
+        first_task = asyncio.create_task(
+            first_coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV001")
+        )
+        await endpoint.entered["first"].wait()
+        second_task = asyncio.create_task(
+            second_coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV002")
+        )
+        try:
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert not endpoint.entered["second"].is_set()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(first_task, second_task, return_exceptions=True)
+
+        assert endpoint.max_active == 1
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_legacy_poll_and_write_do_not_overlap(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Deprecated single-transport polling uses the endpoint lock too."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("poll", "write")
+        transport = _SingleSlotTransport(endpoint, operation_name="poll")
+        inverter = _SingleSlotInverter("INV001", transport)
+        coordinator.station = None
+        coordinator._modbus_transport = transport  # type: ignore[assignment]
+        coordinator._inverter_cache = {"INV001": inverter}  # type: ignore[dict-item]
+        coordinator._local_parameters_loaded = True
+        coordinator._firmware_cache["INV001"] = "FAKE"
+        coordinator._read_modbus_parameters = AsyncMock(  # type: ignore[method-assign]
+            return_value=({}, True)
+        )
+        coordinator._build_local_device_data = MagicMock(  # type: ignore[method-assign]
+            return_value={"sensors": {}}
+        )
+
+        poll_task = asyncio.create_task(
+            coordinator._async_update_local_transport_data(
+                transport,
+                "INV001",
+                "18kPV",
+                "modbus",
+            )
+        )
+        await endpoint.entered["poll"].wait()
+        transport.operation_name = "write"
+        write_task = asyncio.create_task(
+            coordinator.write_named_parameter("FUNC_EPS_EN", True, "INV001")
+        )
+        try:
+            for _ in range(3):
+                await asyncio.sleep(0)
+            assert not endpoint.entered["write"].is_set()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(poll_task, write_task, return_exceptions=True)
+
+        assert endpoint.max_active == 1
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_shutdown_disconnect_bypasses_held_endpoint_lock(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Shutdown can close a socket to interrupt an in-flight read."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("poll")
+        transport = _SingleSlotTransport(endpoint, operation_name="poll")
+        inverter = _SingleSlotInverter("INV001", transport)
+        coordinator.station = None
+        coordinator._inverter_cache = {"INV001": inverter}  # type: ignore[dict-item]
+        coordinator._bind_device_endpoint_lock(inverter)
+
+        poll_task = asyncio.create_task(inverter.refresh())
+        await endpoint.entered["poll"].wait()
+        shutdown_task = asyncio.create_task(coordinator._disconnect_all_transports())
+        try:
+            await asyncio.wait_for(
+                asyncio.shield(transport.disconnected.wait()), timeout=0.1
+            )
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(poll_task, shutdown_task, return_exceptions=True)
+
+        assert transport.disconnected.is_set()
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_reconfigure_preserves_concrete_transport_behavior(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Repeated configuration still updates concrete transport settings."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("unused")
+        transport = _SingleSlotTransport(endpoint, operation_name="unused")
+        inverter = _SingleSlotInverter("INV001", transport)
+        coordinator.station = _mock_station([inverter])  # type: ignore[list-item]
+        coordinator._get_device_grid_type = MagicMock(  # type: ignore[method-assign]
+            side_effect=[GRID_TYPE_SPLIT_PHASE, "single_phase"]
+        )
+        coordinator._align_inverter_cache_ttls = MagicMock()  # type: ignore[method-assign]
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local._LOCAL_REGISTER_TRANSPORTS",
+            (_SingleSlotTransport,),
+        ):
+            coordinator._configure_attached_devices()
+            assert transport.split_phase is True
+            coordinator._configure_attached_devices()
+
+        assert transport.split_phase is False
 
 
 class TestMidboxVoltageCanary:

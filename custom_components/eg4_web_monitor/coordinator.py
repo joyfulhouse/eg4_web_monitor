@@ -109,9 +109,14 @@ from .coordinator_mixins import (
     is_transport_link_down as _device_transport_link_down,
 )
 from .const.sensors import SENSOR_TYPES
+from .transport_serialization import (
+    EndpointOperationLock,
+    physical_endpoint_key,
+)
 from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
+_ENDPOINT_OPERATION_LOCKS_DATA = f"{DOMAIN}_endpoint_operation_locks"
 
 PV_STRING_LIFETIME_STORAGE_VERSION = 1
 PV_STRING_LIFETIME_STORAGE_KEY = f"{DOMAIN}_pv_string_lifetime"
@@ -274,6 +279,13 @@ class EG4DataUpdateCoordinator(
             CONF_LOCAL_TRANSPORTS, []
         )
         self._local_transports_attached = False
+        # One lock per physical host:port or serial adapter. pylxpweb's
+        # operation lock is intentionally per transport instance, while this
+        # Home Assistant-scoped registry owns the physical boundary across
+        # logical devices and separate EG4 config-entry coordinators alike.
+        self._endpoint_operation_locks: dict[str, EndpointOperationLock] = (
+            hass.data.setdefault(_ENDPOINT_OPERATION_LOCKS_DATA, {})
+        )
         # Serials whose local-transport attach failed (commonly: the dongle's
         # single TCP slot still held by the previous session right after an
         # HA restart). Retried with a bounded interval each update cycle and
@@ -1011,19 +1023,98 @@ class EG4DataUpdateCoordinator(
         transport = self.get_local_transport(serial)
         if not transport:
             raise HomeAssistantError(no_transport_message)
+        endpoint_lock = self._endpoint_operation_lock_for_transport(transport)
 
-        try:
+        async def _execute_write() -> None:
             if not transport.is_connected:
                 _LOGGER.debug(reconnect_message, *reconnect_args)
                 await transport.connect()
 
             await write(transport)
+
+        try:
+            if endpoint_lock is None:
+                await _execute_write()
+            else:
+                # Keep reconnect + write in one endpoint transaction. The
+                # transport operation re-enters this task-owned lock, matching
+                # pylxpweb's named-parameter RMW nesting contract.
+                async with endpoint_lock:
+                    await _execute_write()
             _LOGGER.debug(success_message, *success_args)
             return True
 
         except Exception as err:
             _LOGGER.error(failure_message, *failure_args, err)
             raise HomeAssistantError(translated_error(err)) from err
+
+    def _endpoint_operation_lock_for_transport(
+        self, transport: Any
+    ) -> EndpointOperationLock | None:
+        """Return and install the lock owned by a transport's endpoint.
+
+        pylxpweb serializes complete operations with ``_op_lock``, but owns
+        that lock per transport instance. Multiple logical devices on one
+        dongle/RS485 adapter therefore cannot see each other's work. Rebinding
+        the existing operation seam preserves concrete transport identity and
+        expands the lock boundary to the physical endpoint.
+        """
+        endpoint_key = physical_endpoint_key(transport)
+        if endpoint_key is None:
+            return None
+        endpoint_locks = getattr(self, "_endpoint_operation_locks", None)
+        if endpoint_locks is None:
+            # A small number of focused tests construct the coordinator with
+            # __new__ to exercise isolated mixin behavior. Keep the private
+            # helper total for those partial objects; normal coordinators use
+            # the Home Assistant-scoped registry initialized in __init__.
+            endpoint_locks = {}
+            self._endpoint_operation_locks = endpoint_locks
+        lock = endpoint_locks.get(endpoint_key)
+        if lock is None:
+            lock = EndpointOperationLock()
+            endpoint_locks[endpoint_key] = lock
+        if getattr(transport, "_op_lock", None) is lock:
+            return lock
+        try:
+            # Real pylxpweb transports initialize this private operation seam
+            # in BaseTransport. object.__setattr__ also supports autospecced
+            # test doubles whose spec omits instance-only attributes.
+            object.__setattr__(transport, "_op_lock", lock)
+        except (AttributeError, TypeError):
+            _LOGGER.warning(
+                "Cannot serialize %s operations on endpoint %s: transport "
+                "does not expose pylxpweb's operation-lock seam",
+                type(transport).__name__,
+                endpoint_key,
+            )
+        return lock
+
+    def _bind_endpoint_operation_lock(self, transport: Any) -> Any:
+        """Bind a transport to its physical endpoint and preserve identity."""
+        self._endpoint_operation_lock_for_transport(transport)
+        return transport
+
+    async def _connect_endpoint_transport(self, transport: Any) -> Any:
+        """Connect a transport without racing another endpoint operation."""
+        endpoint_lock = self._endpoint_operation_lock_for_transport(transport)
+        if transport.is_connected:
+            return transport
+        if endpoint_lock is None:
+            await transport.connect()
+            return transport
+        async with endpoint_lock:
+            # Another waiter may have connected this same transport first.
+            if not transport.is_connected:
+                await transport.connect()
+        return transport
+
+    def _bind_device_endpoint_lock(self, device: Any) -> Any | None:
+        """Bind and return a device transport's physical-endpoint lock."""
+        transport = getattr(device, "transport", None)
+        if transport is None:
+            return None
+        return self._bind_endpoint_operation_lock(transport)
 
     async def write_named_parameter(
         self,

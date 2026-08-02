@@ -711,6 +711,7 @@ if TYPE_CHECKING:
         _http_polling_interval: int
         _local_transport_configs: list[dict[str, Any]]
         _local_transports_attached: bool
+        _endpoint_operation_locks: dict[str, Any]
         _failed_attach_serials: set[str]
         _last_attach_retry: float
         _last_degraded_cloud_refresh: dict[str, float]
@@ -760,6 +761,9 @@ if TYPE_CHECKING:
         def get_inverter_object(self, serial: str) -> BaseInverter | None: ...
         async def async_request_refresh(self) -> None: ...
         def _rebuild_inverter_cache(self) -> None: ...
+        def _bind_endpoint_operation_lock(self, transport: Any) -> Any: ...
+        def _bind_device_endpoint_lock(self, device: Any) -> Any | None: ...
+        async def _connect_endpoint_transport(self, transport: Any) -> Any: ...
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...
@@ -1159,6 +1163,8 @@ class DeviceProcessingMixin(_MixinBase):
         transport = getattr(inverter, "transport", None)
         if transport is None:
             return None
+        transport = self._bind_device_endpoint_lock(inverter)
+        assert transport is not None
         if is_transport_link_down(inverter):
             _LOGGER.debug(
                 "Skipping reg 234 read for %s: local transport link is down "
@@ -3953,6 +3959,7 @@ class ParameterManagementMixin(_MixinBase):
                 _LOGGER.warning("Cannot find inverter object for serial %s", serial)
                 return False
 
+            self._bind_device_endpoint_lock(inverter)
             # Use force=True to bypass cache when refreshing parameters after changes
             await inverter.refresh(force=True, include_parameters=True)
 
