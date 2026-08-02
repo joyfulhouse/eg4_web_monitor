@@ -8,12 +8,32 @@ body:
       value: |
         Thanks for reporting! Please fill out all fields so we can investigate quickly.
 
+        ⚠️ **Debug logs and a diagnostics download are required.** Almost every bug in this
+        integration comes down to what the EG4 cloud or your inverter actually returned, and
+        neither is visible in a screenshot or a default (warnings-only) log. Reports without
+        them usually stall on a round-trip asking for exactly this, so we now collect it up
+        front. It takes about two minutes:
+
+        **Debug logs**
+        1. Go to **Settings → Devices & Services → EG4 Web Monitor**
+        2. Click **⋮ (three dots) → Enable debug logging**
+        3. Reproduce the problem (or wait ~2 minutes for a few update cycles)
+        4. Click **⋮ → Disable debug logging** — Home Assistant downloads the log file automatically
+        5. Attach that file below (drag & drop), or paste the relevant portion
+
+        **Diagnostics download** (credentials, hosts and the plant name are redacted;
+        serial numbers are replaced with aliases)
+        1. Same page: **⋮ (three dots) → Download diagnostics**
+        2. Attach the JSON file to this issue (drag & drop into any text field)
+        3. On versions **before v3.5.1-beta.6** the menu item does not exist yet — just
+           write "not available on my version" in the diagnostics field below
+
   - type: input
     id: integration_version
     attributes:
       label: Integration Version
       description: "Found in Settings > Devices & Services > EG4 Web Monitor"
-      placeholder: "v3.2.0"
+      placeholder: "v3.5.1-beta.5"
     validations:
       required: true
 
@@ -22,7 +42,7 @@ body:
     attributes:
       label: Home Assistant Version
       description: "Found in Settings > About"
-      placeholder: "2025.3.1"
+      placeholder: "2026.7.1"
     validations:
       required: true
 
@@ -75,15 +95,58 @@ body:
     validations:
       required: true
 
+  - type: input
+    id: affected_entities
+    attributes:
+      label: Affected Entity ID(s)
+      description: |
+        The exact entity ID(s), from Settings > Devices & Services > Entities
+        (e.g. `sensor.eg4_12000xp_1234567890_state_of_charge`). Entity IDs tell us
+        exactly which data path is involved — a friendly name or screenshot often doesn't.
+      placeholder: "sensor.battery_bank_1234567890_battery_bank_capacity_percent"
+    validations:
+      required: false
+
   - type: textarea
     id: logs
     attributes:
-      label: Home Assistant Logs
+      label: Debug Logs (required)
       description: |
-        Relevant logs from Settings > System > Logs (filter by "eg4").
-      render: shell
+        DEBUG-level logs captured while reproducing the issue — see the instructions at the
+        top of this form (Settings → Devices & Services → EG4 Web Monitor → ⋮ → Enable debug
+        logging, reproduce, Disable debug logging, attach the downloaded file).
+        Default warnings-only logs are not enough: the DEBUG level is where the actual
+        cloud/Modbus payloads appear.
+        ⚠️ Debug logs contain your device serial numbers and plant id as-is (unlike the
+        diagnostics download, they are not redacted) — mask them before attaching if that
+        matters to you.
     validations:
-      required: false
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics Download (required)
+      description: |
+        Attach the diagnostics JSON (Settings → Devices & Services → EG4 Web Monitor →
+        ⋮ → Download diagnostics). Credentials, hosts and the plant name are redacted
+        and serial numbers are aliased automatically. Drag & drop the file here.
+        If your version predates v3.5.1-beta.6, write "not available on my version";
+        if the problem happens during initial setup (before a config entry exists),
+        write "N/A — issue occurs during onboarding".
+      placeholder: Drag & drop the diagnostics JSON file here.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I attached DEBUG-level logs captured while the problem was occurring (not just the default warnings log)
+          required: true
+        - label: I attached the diagnostics download (or explained above why it is not possible)
+          required: true
 
   - type: textarea
     id: screenshots

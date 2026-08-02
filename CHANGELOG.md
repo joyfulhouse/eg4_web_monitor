@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Diagnostics download**: *Settings → Devices & Services → EG4 Web Monitor → ⋮ → Download diagnostics* now produces a JSON dump of the config entry and the coordinator's current data — what the cloud or your local transport actually returned — so a bug report can carry the evidence without a capture round-trip. Credentials, hosts, the plant name and station identity/location fields are redacted outright, and a non-default portal URL is treated as private topology and redacted too; device, dongle and battery serial numbers are replaced with aliases (`SN_1`, `SN_2`, …) everywhere they appear — as dict keys, as values, lowercased inside derived strings, and embedded inside longer strings such as unique IDs — and the plant id becomes `PLANT_1`, so the dump stays correlatable without exposing identifying values. The download also works on an entry whose setup failed (a config-only snapshot), which is exactly when a reporter needs it. The bug-report form now asks for this file (and for debug logs) up front; note that **debug logs, unlike the diagnostics download, contain serials and the plant id as-is** — the form says so.
+
+### Fixed
+
+- **Smart Load switch moved to the Configuration section** (from #499's follow-up question): the switch shipped in 3.5.1-beta.5 without an entity category, so Home Assistant filed it under *Controls* while Grid Always On and the five Smart Load threshold numbers from the same portal panel all sit under *Configuration*. It now declares the configuration category and the panel's seven entities appear together. The #499 reporter also **hardware-confirmed the write path** (a toggle in Home Assistant reflects in the portal), so the switch's unverified-write caveat is retired.
+
 ## [3.5.1-beta.5] - 2026-08-02
 
 ### Added

@@ -7,6 +7,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity import EntityCategory
 
 from custom_components.eg4_web_monitor.const import (
     INVERTER_FAMILY_EG4_OFFGRID,
@@ -1867,6 +1868,15 @@ class TestSmartLoadSwitch:
 
         switch = next(e for e in entities if isinstance(e, EG4SmartLoadSwitch))
         assert switch.entity_registry_enabled_default is False
+
+    def test_config_entity_category(self):
+        """CONFIG, to sit beside Grid Always On and the five threshold
+        numbers from the same portal panel — shipping without a category
+        filed it under Controls while every sibling was under Configuration
+        (#499 follow-up report)."""
+        coordinator = self._coordinator(store={"enabled": True})
+        switch = EG4SmartLoadSwitch(coordinator, self.SERIAL)
+        assert switch.entity_category is EntityCategory.CONFIG
 
     # ── Reads (dedicated coordinator store) ───────────────────────────
 
