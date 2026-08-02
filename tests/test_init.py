@@ -1,8 +1,11 @@
 """Tests for __init__.py (setup and teardown) in EG4 Web Monitor integration."""
 
+import logging
 import pytest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
@@ -25,6 +28,7 @@ from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
     CONF_DST_SYNC,
+    CONF_LIBRARY_DEBUG,
     CONF_PLANT_ID,
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
@@ -323,6 +327,411 @@ class TestAsyncSetupEntry:
             assert "switch" in all_platforms
             assert "button" in all_platforms
             assert "select" in all_platforms
+
+
+class TestLibraryLoggingLifecycle:
+    """Regression coverage for process-global pylxpweb logger ownership."""
+
+    @staticmethod
+    def _coordinator() -> MagicMock:
+        """Build a coordinator double that can be set up and unloaded."""
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock()
+        coordinator.async_shutdown = AsyncMock()
+        coordinator.client = None
+        coordinator.data = {"devices": {}, "device_info": {}, "parameters": {}}
+        return coordinator
+
+    @staticmethod
+    def _entry(entry_id: str, *, library_debug: bool) -> MockConfigEntry:
+        """Build one independently configurable HTTP entry."""
+        return MockConfigEntry(
+            domain=DOMAIN,
+            title=entry_id,
+            entry_id=entry_id,
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+                CONF_USERNAME: entry_id,
+                CONF_PASSWORD: "secret",
+                CONF_PLANT_ID: entry_id,
+            },
+            options={CONF_LIBRARY_DEBUG: library_debug},
+        )
+
+    async def test_preferences_compose_and_successful_unload_reconciles(
+        self, hass: HomeAssistant
+    ) -> None:
+        """Any debug owner wins; unloading restores the remaining preference."""
+        logger = logging.getLogger("pylxpweb")
+        original_level = logger.level
+        logger.setLevel(logging.ERROR)
+        debug_entry = self._entry("debug_entry", library_debug=True)
+        quiet_entry = self._entry("quiet_entry", library_debug=False)
+        debug_entry.add_to_hass(hass)
+        quiet_entry.add_to_hass(hass)
+        debug_coordinator = self._coordinator()
+        quiet_coordinator = self._coordinator()
+
+        try:
+            with (
+                patch(
+                    "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                    side_effect=[debug_coordinator, quiet_coordinator],
+                ),
+                patch.object(
+                    hass.config_entries,
+                    "async_forward_entry_setups",
+                    new=AsyncMock(),
+                ),
+                patch.object(
+                    hass.config_entries,
+                    "async_unload_platforms",
+                    new=AsyncMock(return_value=True),
+                ),
+            ):
+                assert await async_setup_entry(hass, debug_entry)
+                assert logger.level == logging.DEBUG
+
+                # The later quiet entry must not disable the existing owner.
+                assert await async_setup_entry(hass, quiet_entry)
+                assert logger.level == logging.DEBUG
+
+                assert await async_unload_entry(hass, debug_entry)
+                assert logger.level == logging.WARNING
+
+                assert await async_unload_entry(hass, quiet_entry)
+                assert logger.level == logging.ERROR
+        finally:
+            logger.setLevel(original_level)
+
+    async def test_failed_setup_rolls_back_debug_ownership(
+        self, hass: HomeAssistant
+    ) -> None:
+        """An entry that never loads cannot leave process-global DEBUG behind."""
+        logger = logging.getLogger("pylxpweb")
+        original_level = logger.level
+        logger.setLevel(logging.ERROR)
+        entry = self._entry("failed_entry", library_debug=True)
+        entry.add_to_hass(hass)
+        coordinator = self._coordinator()
+        coordinator.async_config_entry_first_refresh.side_effect = RuntimeError("boom")
+
+        try:
+            with patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=coordinator,
+            ):
+                with pytest.raises(RuntimeError, match="boom"):
+                    await async_setup_entry(hass, entry)
+            assert logger.level == logging.ERROR
+        finally:
+            logger.setLevel(original_level)
+
+    async def test_failed_unload_keeps_loaded_entry_preference(
+        self, hass: HomeAssistant
+    ) -> None:
+        """A platform unload failure leaves the still-loaded owner's level intact."""
+        logger = logging.getLogger("pylxpweb")
+        original_level = logger.level
+        logger.setLevel(logging.ERROR)
+        entry = self._entry("loaded_entry", library_debug=True)
+        entry.add_to_hass(hass)
+        coordinator = self._coordinator()
+
+        try:
+            with (
+                patch(
+                    "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                    return_value=coordinator,
+                ),
+                patch.object(
+                    hass.config_entries,
+                    "async_forward_entry_setups",
+                    new=AsyncMock(),
+                ),
+                patch.object(
+                    hass.config_entries,
+                    "async_unload_platforms",
+                    new=AsyncMock(return_value=False),
+                ),
+            ):
+                assert await async_setup_entry(hass, entry)
+                assert not await async_unload_entry(hass, entry)
+                assert logger.level == logging.DEBUG
+        finally:
+            logger.setLevel(original_level)
+
+
+class TestRegistryLifecycleCleanup:
+    """Regression coverage for removed serial/plant registry ownership."""
+
+    @staticmethod
+    def _seed_device(
+        hass: HomeAssistant,
+        entry: MockConfigEntry,
+        identifier: str,
+        *,
+        serial_number: str | None = None,
+        via_device: tuple[str, str] | None = None,
+    ):
+        """Create one domain device linked to a config entry."""
+        return dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, identifier)},
+            name=identifier,
+            manufacturer="EG4 Electronics",
+            model="Test Device",
+            serial_number=serial_number,
+            via_device=via_device,
+        )
+
+    @staticmethod
+    def _seed_entity(
+        hass: HomeAssistant,
+        entry: MockConfigEntry,
+        device_id: str,
+        unique_id: str,
+    ):
+        """Create one registry entity owned by an entry and device."""
+        return er.async_get(hass).async_get_or_create(
+            "sensor",
+            DOMAIN,
+            unique_id,
+            config_entry=entry,
+            device_id=device_id,
+        )
+
+    @staticmethod
+    def _coordinator(data: dict, *, plant_id: str | None = None) -> MagicMock:
+        """Build a setup-capable coordinator with authoritative first data."""
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock()
+        coordinator.async_shutdown = AsyncMock()
+        coordinator.client = None
+        coordinator.data = data
+        coordinator.plant_id = plant_id
+        coordinator.station = None
+        return coordinator
+
+    async def test_setup_preserves_device_in_authoritative_station_membership(
+        self, hass: HomeAssistant, mock_config_entry
+    ) -> None:
+        """A transient processing omission cannot delete a cloud station member."""
+        mock_config_entry.add_to_hass(hass)
+        live = self._seed_device(
+            hass, mock_config_entry, "CLOUDLIVE", serial_number="CLOUDLIVE"
+        )
+        live_entity = self._seed_entity(
+            hass, mock_config_entry, live.id, "CLOUDLIVE_output_power"
+        )
+        coordinator = self._coordinator(
+            {
+                "station": {"name": "Current"},
+                "devices": {},
+                "device_info": {},
+                "parameters": {},
+            },
+            plant_id="current",
+        )
+        coordinator.station = SimpleNamespace(
+            all_inverters=[SimpleNamespace(serial_number="CLOUDLIVE")],
+            all_mid_devices=[],
+        )
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        assert dr.async_get(hass).async_get_device({(DOMAIN, "CLOUDLIVE")}) is not None
+        assert er.async_get(hass).async_get(live_entity.entity_id) is not None
+
+    async def test_setup_prunes_removed_serial_tree_and_old_station(
+        self, hass: HomeAssistant, mock_config_entry
+    ) -> None:
+        """A successful reconfigure reload removes absent roots and descendants."""
+        mock_config_entry.add_to_hass(hass)
+        device_registry = dr.async_get(hass)
+        entity_registry = er.async_get(hass)
+
+        live = self._seed_device(
+            hass, mock_config_entry, "LIVE123", serial_number="LIVE123"
+        )
+        live_entity = self._seed_entity(
+            hass, mock_config_entry, live.id, "LIVE123_output_power"
+        )
+        stale = self._seed_device(
+            hass, mock_config_entry, "STALE123", serial_number="STALE123"
+        )
+        stale_bank = self._seed_device(
+            hass,
+            mock_config_entry,
+            "STALE123_battery_bank",
+            via_device=(DOMAIN, "STALE123"),
+        )
+        stale_battery = self._seed_device(
+            hass,
+            mock_config_entry,
+            "BAT-STALE",
+            via_device=(DOMAIN, "STALE123_battery_bank"),
+        )
+        stale_entities = [
+            self._seed_entity(
+                hass, mock_config_entry, stale.id, "STALE123_output_power"
+            ),
+            self._seed_entity(
+                hass,
+                mock_config_entry,
+                stale_bank.id,
+                "STALE123_battery_bank_soc",
+            ),
+            self._seed_entity(
+                hass,
+                mock_config_entry,
+                stale_battery.id,
+                "STALE123_BAT-STALE_soc",
+            ),
+        ]
+        old_station = self._seed_device(hass, mock_config_entry, "station_old")
+        old_station_entity = self._seed_entity(
+            hass, mock_config_entry, old_station.id, "station_old_name"
+        )
+        current_station = self._seed_device(hass, mock_config_entry, "station_current")
+        current_station_entity = self._seed_entity(
+            hass, mock_config_entry, current_station.id, "station_current_name"
+        )
+
+        coordinator = self._coordinator(
+            {
+                "station": {"name": "Current"},
+                "devices": {
+                    "LIVE123": {
+                        "type": "inverter",
+                        "model": "Test",
+                        "sensors": {},
+                        "batteries": {},
+                    }
+                },
+                "device_info": {},
+                "parameters": {},
+            },
+            plant_id="current",
+        )
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        assert device_registry.async_get_device({(DOMAIN, "LIVE123")}) is not None
+        assert entity_registry.async_get(live_entity.entity_id) is not None
+        assert (
+            device_registry.async_get_device({(DOMAIN, "station_current")}) is not None
+        )
+        assert entity_registry.async_get(current_station_entity.entity_id) is not None
+        for identifier in ("STALE123", "STALE123_battery_bank", "BAT-STALE"):
+            assert device_registry.async_get_device({(DOMAIN, identifier)}) is None
+        assert device_registry.async_get_device({(DOMAIN, "station_old")}) is None
+        for entity in (*stale_entities, old_station_entity):
+            assert entity_registry.async_get(entity.entity_id) is None
+
+    async def test_setup_detaches_but_preserves_shared_stale_device(
+        self, hass: HomeAssistant, mock_config_entry
+    ) -> None:
+        """Cleanup removes only this entry's ownership from a shared identity."""
+        mock_config_entry.add_to_hass(hass)
+        other_entry = MockConfigEntry(
+            domain=DOMAIN, entry_id="other_entry", data={CONF_PLANT_ID: "other"}
+        )
+        other_entry.add_to_hass(hass)
+        shared = self._seed_device(
+            hass, mock_config_entry, "SHARED123", serial_number="SHARED123"
+        )
+        # A second get-or-create links the same physical identity to another entry.
+        same_shared = self._seed_device(
+            hass, other_entry, "SHARED123", serial_number="SHARED123"
+        )
+        assert same_shared.id == shared.id
+        current_entity = self._seed_entity(
+            hass, mock_config_entry, shared.id, "current_shared_power"
+        )
+        other_entity = self._seed_entity(
+            hass, other_entry, shared.id, "other_shared_power"
+        )
+        coordinator = self._coordinator(
+            {"devices": {}, "device_info": {}, "parameters": {}}
+        )
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        surviving = dr.async_get(hass).async_get_device({(DOMAIN, "SHARED123")})
+        assert surviving is not None
+        assert surviving.config_entries == {other_entry.entry_id}
+        assert er.async_get(hass).async_get(current_entity.entity_id) is None
+        assert er.async_get(hass).async_get(other_entity.entity_id) is not None
+
+    async def test_entry_removal_deletes_owned_records_but_not_shared_records(
+        self, hass: HomeAssistant, mock_config_entry
+    ) -> None:
+        """Deleting an entry purges its registry ownership without collateral loss."""
+        mock_config_entry.add_to_hass(hass)
+        other_entry = MockConfigEntry(
+            domain=DOMAIN, entry_id="other_entry", data={CONF_PLANT_ID: "other"}
+        )
+        other_entry.add_to_hass(hass)
+        exclusive = self._seed_device(
+            hass, mock_config_entry, "EXCLUSIVE123", serial_number="EXCLUSIVE123"
+        )
+        exclusive_entity = self._seed_entity(
+            hass, mock_config_entry, exclusive.id, "exclusive_power"
+        )
+        shared = self._seed_device(
+            hass, mock_config_entry, "SHARED123", serial_number="SHARED123"
+        )
+        self._seed_device(hass, other_entry, "SHARED123", serial_number="SHARED123")
+        current_shared_entity = self._seed_entity(
+            hass, mock_config_entry, shared.id, "current_shared_power"
+        )
+        other_shared_entity = self._seed_entity(
+            hass, other_entry, shared.id, "other_shared_power"
+        )
+        store = MagicMock()
+        store.async_remove = AsyncMock()
+
+        with patch("custom_components.eg4_web_monitor.Store", return_value=store):
+            await async_remove_entry(hass, mock_config_entry)
+
+        device_registry = dr.async_get(hass)
+        entity_registry = er.async_get(hass)
+        assert device_registry.async_get_device({(DOMAIN, "EXCLUSIVE123")}) is None
+        assert entity_registry.async_get(exclusive_entity.entity_id) is None
+        surviving = device_registry.async_get_device({(DOMAIN, "SHARED123")})
+        assert surviving is not None
+        assert surviving.config_entries == {other_entry.entry_id}
+        assert entity_registry.async_get(current_shared_entity.entity_id) is None
+        assert entity_registry.async_get(other_shared_entity.entity_id) is not None
 
 
 class TestSmartPortCleanupOnReboot:
