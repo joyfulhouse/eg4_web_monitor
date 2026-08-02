@@ -130,6 +130,11 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
     PARAM_RAW_PTOUSER_START_CHARGE,
+    PARAM_SMART_LOAD_END_SOC,
+    PARAM_SMART_LOAD_END_VOLT,
+    PARAM_SMART_LOAD_START_PV_POWER,
+    PARAM_SMART_LOAD_START_SOC,
+    PARAM_SMART_LOAD_START_VOLT,
     PARAM_SNA_QUICK_CHARGE_MINUTE,
     REG_AC_CHARGE_END_VOLTAGE,
     REG_AC_CHARGE_START_VOLTAGE,
@@ -1614,6 +1619,55 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
         "enable — reg 179 membership is confirmed but the BIT is unpinned; "
         "never write it through the local transport name map.",
     ),
+    # Smart Load panel (GH #499): the rest of the same portal tab Grid Always
+    # On came from. A READ-ONLY cloud probe 2026-08-01 found all five
+    # threshold holdParams plus FUNC_SMART_LOAD_ENABLE in the 127-253 range
+    # read on an 18kPV and a FlexBOSS21; the GridBOSS returned the function
+    # param but NONE of the five (it carries the per-port MIDBOX_HOLD_SL_*
+    # family instead), which is exactly why the entities must go unavailable
+    # rather than render a zero. No local register is pinned for any of them
+    # — for the function param the reg-179 bit is unpinned like Grid Always
+    # On's, and for the five holdParams no register is claimed at all. Reads
+    # come from the coordinator's dedicated smart_load store (throttled
+    # get_inverter_smart_load_limits); writes route exclusively through
+    # client.api.control.set_inverter_smart_load_*.
+    "FUNC_SMART_LOAD_ENABLE": (
+        179,
+        "Cloud-only function param for the smart load port's parent enable "
+        "(GH #499) — reg 179 membership is confirmed but the BIT is "
+        "unpinned; never write it through the local transport name map. "
+        "Distinct from the GridBOSS per-port FUNC_SMART_LOAD_EN_{n}.",
+    ),
+    PARAM_SMART_LOAD_START_SOC: (
+        None,
+        "Cloud-only holdParam for the Smart Load START SOC threshold — no "
+        "pinned local register; never write it through the local transport "
+        "name map.",
+    ),
+    PARAM_SMART_LOAD_END_SOC: (
+        None,
+        "Cloud-only holdParam for the Smart Load END SOC threshold — no "
+        "pinned local register; never write it through the local transport "
+        "name map.",
+    ),
+    PARAM_SMART_LOAD_START_PV_POWER: (
+        None,
+        "Cloud-only holdParam for the Smart Load START PV power threshold "
+        "(kW on the wire, not a raw register scaling) — no pinned local "
+        "register; never write it through the local transport name map.",
+    ),
+    PARAM_SMART_LOAD_START_VOLT: (
+        None,
+        "Cloud-only holdParam for the Smart Load START voltage threshold "
+        "(volts on the wire, not decivolts) — no pinned local register; "
+        "never write it through the local transport name map.",
+    ),
+    PARAM_SMART_LOAD_END_VOLT: (
+        None,
+        "Cloud-only holdParam for the Smart Load END voltage threshold "
+        "(volts on the wire, not decivolts) — no pinned local register; "
+        "never write it through the local transport name map.",
+    ),
 }
 
 
@@ -1917,6 +1971,82 @@ def test_todo_divergences_are_inventoried() -> None:
             )
     assert not misrouted, (
         "TODO entries tagged with the wrong beads issue:\n  " + "\n  ".join(misrouted)
+    )
+
+
+# Cross-repo method contract: the pylxpweb control-endpoint methods the Smart
+# Load panel (GH #499) is built on. Unlike a register/bit pin these are plain
+# Python attributes, so the seam is checkable directly against the INSTALLED
+# pylxpweb.
+_SMART_LOAD_PYLXPWEB_METHODS: tuple[str, ...] = (
+    "get_inverter_smart_load_limits",
+    "set_inverter_smart_load_enabled",
+    "set_inverter_smart_load_start_soc",
+    "set_inverter_smart_load_end_soc",
+    "set_inverter_smart_load_start_pv_power",
+    "set_inverter_smart_load_start_volt",
+    "set_inverter_smart_load_end_volt",
+)
+
+# The pylxpweb release that carries them (joyfulhouse/pylxpweb#257).
+_SMART_LOAD_PYLXPWEB_RELEASE = "0.9.39b6"
+
+
+def test_smart_load_methods_exist_in_installed_pylxpweb() -> None:
+    """The Smart Load entities' pylxpweb seam, checked for real.
+
+    Every OTHER test of this feature mocks the control endpoint, so the whole
+    suite passes green against a pylxpweb that has none of these methods —
+    which is exactly the state that ships six permanently-unavailable entities
+    to a user whose resolver keeps an older release. This is the one test that
+    fails instead (review finding, mirroring the #472 contract pin).
+
+    DELIBERATELY RED until pylxpweb {release} is released and pinned by the
+    manifest at the release cut. Red here means "the dependency is not
+    satisfied yet", not "the integration is broken" — the entity code degrades
+    to unavailable with a version-explicit write error, which its own tests
+    cover.
+
+    The manifest pin is intentionally NOT bumped on the feature branch (repo
+    convention: the release cut owns it), so this test is what stops the pin
+    and the feature from silently drifting apart.
+    """
+    from pylxpweb.endpoints.control import ControlEndpoints
+
+    missing = [
+        name
+        for name in _SMART_LOAD_PYLXPWEB_METHODS
+        if not callable(getattr(ControlEndpoints, name, None))
+    ]
+    assert not missing, (
+        "installed pylxpweb does not provide the Smart Load control methods "
+        f"(needs >= {_SMART_LOAD_PYLXPWEB_RELEASE}, joyfulhouse/pylxpweb#257) "
+        f"— the GH #499 entities would be permanently unavailable:\n  "
+        + "\n  ".join(missing)
+    )
+
+
+def test_smart_load_entities_name_the_same_methods_the_contract_pins() -> None:
+    """The pin above tracks what the entities actually call.
+
+    Without this, a rename in number.py/switch.py would leave the contract
+    passing against methods nothing uses — the pin has to be anchored to the
+    real call sites, not maintained by hand beside them.
+    """
+    from custom_components.eg4_web_monitor.number import SMART_LOAD_NUMBER_SPECS
+    from custom_components.eg4_web_monitor.switch import EG4SmartLoadSwitch
+
+    used = {spec.cloud_method for spec in SMART_LOAD_NUMBER_SPECS}
+    used.add(EG4SmartLoadSwitch._cloud_method)
+    # The getter is named in the coordinator's store spec, not on an entity.
+    from custom_components.eg4_web_monitor.coordinator_mixins import SMART_LOAD_STORE
+
+    used.add(SMART_LOAD_STORE.getter_name)
+
+    assert used == set(_SMART_LOAD_PYLXPWEB_METHODS), (
+        "the Smart Load pylxpweb contract drifted from the call sites:\n  "
+        f"used but unpinned: {sorted(used - set(_SMART_LOAD_PYLXPWEB_METHODS))}\n  "
+        f"pinned but unused: {sorted(set(_SMART_LOAD_PYLXPWEB_METHODS) - used)}"
     )
 
 

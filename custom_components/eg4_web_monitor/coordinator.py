@@ -97,7 +97,10 @@ from .coordinator_mappings import (
 from .coordinator_http import HTTPUpdateMixin
 from .coordinator_local import LocalTransportMixin
 from .coordinator_mixins import (
+    AC_COUPLE_SOC_STORE,
+    SMART_LOAD_STORE,
     BackgroundTaskMixin,
+    CloudParamStoreSpec,
     DeviceInfoMixin,
     DeviceProcessingMixin,
     DSTSyncMixin,
@@ -707,31 +710,57 @@ class EG4DataUpdateCoordinator(
         self.async_update_listeners()
 
     def note_ac_couple_soc_written(
-        self, serial: str, key: str, value: int | bool
+        self, serial: str, key: str, value: float | bool
     ) -> None:
-        """Merge an acknowledged AC couple write into the dedicated store.
+        """Merge an acknowledged AC Couple write into its store (GH #352/#471).
 
-        The AC Couple SOC window and enable state live in the
-        ``ac_couple_soc`` device-data store, NOT the parameter cache (GH #352
-        — no local register, so a HYBRID parameter refresh would wipe
-        cache-seeded values). The written value IS device truth (the cloud
-        write was acknowledged); merging it keeps the UI converged until the
-        next throttled getter read confirms.
+        ``key`` is ``"start_soc"``, ``"end_soc"`` or ``"enabled"``; ``value``
+        is the acknowledged whole-percent value or FUNC_AC_COUPLING_FUNCTION
+        state.
+        """
+        self.note_cloud_param_store_written(AC_COUPLE_SOC_STORE, serial, key, value)
+
+    def note_smart_load_written(
+        self, serial: str, key: str, value: float | bool
+    ) -> None:
+        """Merge an acknowledged Smart Load write into its store (GH #499).
+
+        ``key`` is one of the six ``SMART_LOAD_STORE`` fields; ``value`` is the
+        acknowledged percent / kW / volt value, or the FUNC_SMART_LOAD_ENABLE
+        state for ``"enabled"``.
+        """
+        self.note_cloud_param_store_written(SMART_LOAD_STORE, serial, key, value)
+
+    def note_cloud_param_store_written(
+        self,
+        spec: CloudParamStoreSpec,
+        serial: str,
+        key: str,
+        value: float | bool,
+    ) -> None:
+        """Merge an acknowledged cloud-only write into its dedicated store.
+
+        These controls' values live in a per-family device-data store, NOT the
+        parameter cache (GH #352 — no local register, so a HYBRID parameter
+        refresh would wipe cache-seeded values). The written value IS device
+        truth (the cloud write was acknowledged); merging it keeps the UI
+        converged until the next throttled getter read confirms.
 
         Sibling-preserving by design: the store dict is copied and only
         ``key`` is replaced, so writing Start never blanks a known End value
         (and vice versa) — PR #380 review P1.
 
         Persistent write-seed registry (PR #471 review): the acknowledged
-        write is ALSO recorded in ``_ac_couple_soc_seeds`` — a per-serial dict
+        write is ALSO recorded in the spec's seed registry — a per-serial dict
         that lives OUTSIDE ``self.data`` and therefore survives the wholesale
         ``self.data`` replacement at the end of a refresh cycle. Seeding only
         ``self.data`` is not enough: a refresh cycle already in flight
         snapshots the store (throttled carry-forward) BEFORE this write lands,
         then publishes that stale snapshot on completion — reverting the UI
         until the next 5-minute cloud read. Every carry-forward path re-applies
-        the registry (:meth:`_overlay_ac_couple_seeds`), and a cloud read
-        initiated AFTER the write clears it (:meth:`_fetch_ac_couple_soc`).
+        the registry (:meth:`_overlay_cloud_param_store_seeds`), and a cloud
+        read initiated AFTER the write clears it
+        (:meth:`_fetch_cloud_param_store`).
 
         Each field carries its OWN timestamp (PR #471 round-2 review): a later
         write to one key must NOT renew an older key's seed, or an in-flight
@@ -741,15 +770,24 @@ class EG4DataUpdateCoordinator(
         field's seed is applied/cleared independently.
 
         Args:
+            spec: The cloud-only store the write belongs to.
             serial: Inverter serial number.
-            key: Store key — ``"start_soc"``, ``"end_soc"`` or ``"enabled"``.
-            value: Acknowledged whole-percent value, or the acknowledged
-                FUNC_AC_COUPLING_FUNCTION state for ``"enabled"`` (GH #471).
+            key: Store key — one of ``spec.fields``.
+            value: Acknowledged value, or the acknowledged function-param state
+                for a boolean field.
         """
         now = time.monotonic()
-        if not hasattr(self, "_ac_couple_soc_seeds"):
-            self._ac_couple_soc_seeds = {}
-        self._ac_couple_soc_seeds.setdefault(serial, {})[key] = {
+        # Registry accessed directly rather than through
+        # cloud_param_store_seeds(): this method is the one the entity write
+        # paths reach on a MagicMock coordinator in tests, and every extra
+        # self-call is a hop those tests must re-bind to prove the wiring.
+        seeds: dict[str, dict[str, dict[str, Any]]] | None = getattr(
+            self, spec.seeds_attr, None
+        )
+        if seeds is None:
+            seeds = {}
+            setattr(self, spec.seeds_attr, seeds)
+        seeds.setdefault(serial, {})[key] = {
             "value": value,
             "at": now,
         }
@@ -759,10 +797,10 @@ class EG4DataUpdateCoordinator(
         device = self.data.get("devices", {}).get(serial)
         if device is None:
             return
-        store = dict(device.get("ac_couple_soc") or {})
+        store = dict(device.get(spec.store_key) or {})
         store[key] = value
         store["fetched_at"] = now
-        device["ac_couple_soc"] = store
+        device[spec.store_key] = store
         self.async_update_listeners()
 
     def _has_modbus_transport(self) -> bool:

@@ -29,6 +29,8 @@ from custom_components.eg4_web_monitor.number import (
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
     QuickChargeDurationNumber,
+    SMART_LOAD_NUMBER_SPECS,
+    SmartLoadNumber,
     StartChargePowerNumber,
     StartDischargePowerNumber,
     StopDischargeVoltageNumber,
@@ -132,11 +134,12 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS creates 23 number entities.
+        """FlexBOSS creates 28 number entities.
 
         12 base + 6 voltage + grid sell + start discharge threshold + Quick
         Charge Duration (HTTP-only) + the two cloud-only AC Couple SOC
-        window numbers (GH #352, cloud client present, family-neutral). The
+        window numbers (GH #352, cloud client present, family-neutral) + the
+        five cloud-only Smart Load panel numbers (GH #499, same gate). The
         reg-117 start CHARGE threshold is absent: no local transport and the
         register has no cloud param name (GH #272).
         """
@@ -147,7 +150,7 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 23
+        assert len(entities) == 28
         type_names = [type(e).__name__ for e in entities]
         assert "ACChargePowerNumber" in type_names
         # Quick Charge Duration preference (HTTP-only, #251)
@@ -2011,9 +2014,10 @@ class TestOffgridGridTiedNumberSuppression:
         # minus Grid Sell Back (no sell-back on offgrid, GH #135) minus the
         # reg-67 AC Charge SOC Limit (GH #331) = 14, plus the HTTP-only Quick
         # Charge Duration preference (#251), the two reg-160/161 AC-charge
-        # SOC window numbers (GH #331) and the two cloud-only, family-neutral
-        # AC Couple SOC window numbers (GH #352, cloud client present) = 19.
-        assert len(entities) == 19
+        # SOC window numbers (GH #331), the two cloud-only, family-neutral
+        # AC Couple SOC window numbers (GH #352, cloud client present) and the
+        # five equally cloud-gated Smart Load panel numbers (GH #499) = 24.
+        assert len(entities) == 24
         assert "ACCoupleStartSOCNumber" in type_names
         assert "ACCoupleEndSOCNumber" in type_names
         assert "ACChargePowerNumber" in type_names
@@ -2047,9 +2051,10 @@ class TestOffgridGridTiedNumberSuppression:
         assert "ACCoupleEndSOCNumber" in type_names
         # Fail-open keeps every control except Grid Sell Back, whose own
         # XP-model gate (GH #135) fires on the model name alone = 18, plus the
-        # HTTP-only Quick Charge Duration preference (#251) and the two AC
-        # Couple SOC window numbers (GH #352) = 21
-        assert len(entities) == 21
+        # HTTP-only Quick Charge Duration preference (#251), the two AC
+        # Couple SOC window numbers (GH #352) and the five Smart Load panel
+        # numbers (GH #499) = 26
+        assert len(entities) == 26
 
     @pytest.mark.asyncio
     async def test_repairs_issue_for_previously_registered_numbers(self, hass):
@@ -2686,6 +2691,16 @@ class TestACCoupleSOCWindow:
                 )
             )
         )
+        # note_ac_couple_soc_written is the named binding of the shared
+        # cloud-only-store seeder (GH #499 generalization); bind that too or
+        # the MagicMock swallows the hop and the wiring is not really proven.
+        coordinator.note_cloud_param_store_written = MagicMock(
+            side_effect=lambda spec, serial, key, value: (
+                EG4DataUpdateCoordinator.note_cloud_param_store_written(
+                    coordinator, spec, serial, key, value
+                )
+            )
+        )
         entity = ACCoupleStartSOCNumber(coordinator, self.SERIAL)
         _prep(entity)
 
@@ -2784,6 +2799,520 @@ class TestACCoupleSOCWindow:
             assert entity.entity_registry_enabled_default is True
             # No _attr_name when translation_key is set (issue #262 gotcha).
             assert getattr(entity, "_attr_name", None) is None
+
+
+# ── Smart Load panel numbers (GH #499) ───────────────────────────────
+
+
+class TestSmartLoadNumbers:
+    """Smart Load Start/End SOC, Start PV Power, Start/End Volt (GH #499).
+
+    The portal's Smart Load tab writes five ``_12K_HOLD_*`` holdParams with no
+    pinned local register, so the entities read the coordinator's dedicated
+    ``smart_load`` store and write through the cloud client in every mode. A
+    read-only probe (2026-08-01) found all five on an 18kPV and a FlexBOSS21
+    and NONE on a GridBOSS — devices lacking them must go unavailable, never
+    render a fake 0.
+    """
+
+    SERIAL = "1234567890"
+
+    @staticmethod
+    def _coordinator(*, store=None, model="12000XP", **kwargs):
+        coordinator = _mock_coordinator(model=model, **kwargs)
+        if store is not None:
+            coordinator.data["devices"]["1234567890"]["smart_load"] = store
+        return coordinator
+
+    def _cloud_write_mock(self, coordinator, method, *, success=True):
+        mock = AsyncMock(return_value=MagicMock(success=success))
+        setattr(coordinator.client.api.control, method, mock)
+        return mock
+
+    @staticmethod
+    def _entity(coordinator, serial, store_key):
+        spec = next(s for s in SMART_LOAD_NUMBER_SPECS if s.store_key == store_key)
+        return SmartLoadNumber(coordinator, serial, spec)
+
+    # ── Spec table integrity ──────────────────────────────────────────
+
+    def test_specs_pin_each_field_to_its_own_writer(self):
+        """The exact store_key -> cloud_method mapping, not just uniqueness.
+
+        Uniqueness alone would let the End SOC and End Voltage writers be
+        SWAPPED with the suite still green: both accept overlapping 0-100
+        inputs, so setting End SOC would silently change End Voltage and the
+        write would still look successful (review finding).
+        """
+        assert {s.store_key: s.cloud_method for s in SMART_LOAD_NUMBER_SPECS} == {
+            "start_soc": "set_inverter_smart_load_start_soc",
+            "end_soc": "set_inverter_smart_load_end_soc",
+            "start_pv_power": "set_inverter_smart_load_start_pv_power",
+            "start_volt": "set_inverter_smart_load_start_volt",
+            "end_volt": "set_inverter_smart_load_end_volt",
+        }
+        suffixes = [s.unique_id_suffix for s in SMART_LOAD_NUMBER_SPECS]
+        assert len(set(suffixes)) == len(suffixes)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("store_key", "method", "value"),
+        [
+            ("start_soc", "set_inverter_smart_load_start_soc", 80),
+            ("end_soc", "set_inverter_smart_load_end_soc", 55),
+            ("start_pv_power", "set_inverter_smart_load_start_pv_power", 1.5),
+            ("start_volt", "set_inverter_smart_load_start_volt", 53.5),
+            ("end_volt", "set_inverter_smart_load_end_volt", 47.5),
+        ],
+    )
+    async def test_every_spec_writes_through_its_own_setter(
+        self, store_key, method, value
+    ):
+        """End-to-end routing for ALL five, not just the three with bespoke
+        write tests — the swap above has to fail here too."""
+        coordinator = self._coordinator(store={store_key: value})
+        write = self._cloud_write_mock(coordinator, method)
+        entity = self._entity(coordinator, self.SERIAL, store_key)
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        write.assert_awaited_once_with(self.SERIAL, value)
+        coordinator.note_smart_load_written.assert_called_once_with(
+            self.SERIAL, store_key, value
+        )
+
+    def test_units_match_the_portal(self):
+        """SOC in percent, PV power in kW, thresholds in volts — the cloud
+        carries portal units, NOT raw register scalings."""
+        units = {s.store_key: s.unit for s in SMART_LOAD_NUMBER_SPECS}
+        assert units == {
+            "start_soc": "%",
+            "end_soc": "%",
+            "start_pv_power": "kW",
+            "start_volt": "V",
+            "end_volt": "V",
+        }
+
+    # ── Entity creation gating (cloud client only — no family gate) ───
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("model", "family"),
+        [
+            ("12000XP", "EG4_OFFGRID"),
+            ("FlexBOSS21", "EG4_HYBRID"),
+            ("LXP-LB-EU 12k", "LXP"),
+        ],
+    )
+    async def test_created_for_any_family_with_cloud(self, hass, model, family):
+        coordinator = self._coordinator(model=model)
+        coordinator.data["devices"][self.SERIAL]["features"] = {
+            "inverter_family": family
+        }
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        created = [e for e in entities if isinstance(e, SmartLoadNumber)]
+        assert len(created) == len(SMART_LOAD_NUMBER_SPECS)
+
+    @pytest.mark.asyncio
+    async def test_created_for_hybrid(self, hass):
+        """HYBRID has a cloud client — the five are created (cloud-routed)."""
+        coordinator = self._coordinator(has_local=True, has_http=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        assert len([e for e in entities if isinstance(e, SmartLoadNumber)]) == 5
+
+    @pytest.mark.asyncio
+    async def test_not_created_in_pure_local(self, hass):
+        """Pure LOCAL has no cloud client — the params can never be read or
+        written, so the entities are not created."""
+        coordinator = self._coordinator(has_local=True, has_http=False, local_only=True)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        assert not any(isinstance(e, SmartLoadNumber) for e in entities)
+
+    @pytest.mark.asyncio
+    async def test_disabled_by_default(self, hass):
+        """The write path is unverified on hardware (#499)."""
+        coordinator = self._coordinator()
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        created = [e for e in entities if isinstance(e, SmartLoadNumber)]
+        assert created and all(
+            e.entity_registry_enabled_default is False for e in created
+        )
+
+    @pytest.mark.asyncio
+    async def test_unique_ids_are_distinct(self, hass):
+        coordinator = self._coordinator()
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        ids = [e.unique_id for e in entities if isinstance(e, SmartLoadNumber)]
+        assert len(set(ids)) == 5
+        assert all(self.SERIAL.lower() in uid for uid in ids)
+
+    # ── Reads (dedicated coordinator store) ───────────────────────────
+
+    def test_reads_the_reporters_values(self):
+        """The reporter's 12000XP shows 69/60; our own units read 0.5 kW and
+        54/48 V (live probe)."""
+        coordinator = self._coordinator(
+            store={
+                "start_soc": 69,
+                "end_soc": 60,
+                "start_pv_power": 0.5,
+                "start_volt": 54.0,
+                "end_volt": 48.0,
+            }
+        )
+        values = {
+            key: self._entity(coordinator, self.SERIAL, key).native_value
+            for key in ("start_soc", "end_soc", "start_pv_power", "start_volt")
+        }
+        assert values == {
+            "start_soc": 69,
+            "end_soc": 60,
+            "start_pv_power": 0.5,
+            "start_volt": 54.0,
+        }
+
+    def test_percent_pair_reads_whole_numbers(self):
+        """SOC renders as an int, not 69.0 — exact-string automations."""
+        coordinator = self._coordinator(store={"start_soc": 69})
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        assert entity.native_value == 69
+        assert isinstance(entity.native_value, int)
+
+    def test_zero_is_a_real_value_not_absence(self):
+        """0 kW is legal and must render — the reason the getter reports
+        None rather than 0 for an absent param."""
+        coordinator = self._coordinator(store={"start_pv_power": 0.0})
+        entity = self._entity(coordinator, self.SERIAL, "start_pv_power")
+        assert entity.native_value == 0.0
+        assert entity.available is True
+
+    def test_missing_store_reads_unavailable(self):
+        coordinator = self._coordinator()
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        assert entity.native_value is None
+        assert entity.available is False
+
+    def test_optimistic_percent_keeps_its_int_shape(self):
+        """An in-flight write and the settled store value must render the
+        same shape — a float mid-write and an int after would flip the state
+        from "80.0" to "80" on convergence, breaking exact-string automation
+        conditions."""
+        coordinator = self._coordinator(store={"start_soc": 69})
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        entity._optimistic_value = 80
+
+        assert entity.native_value == 80
+        assert isinstance(entity.native_value, int)
+
+    def test_optimistic_float_is_shaped_to_the_wire_resolution(self):
+        """Deliberately OFF-resolution: an already-rounded 53.5 would pass
+        with the rounding deleted (review finding)."""
+        coordinator = self._coordinator(store={"start_volt": 54.0})
+        entity = self._entity(coordinator, self.SERIAL, "start_volt")
+        entity._optimistic_value = 53.56
+
+        assert entity.native_value == 53.6
+
+    def test_gridboss_shape_reads_unavailable(self):
+        """An inverter read that comes back in the partial shape the cloud is
+        known to produce — FUNC_SMART_LOAD_ENABLE present, all five thresholds
+        absent (what a GridBOSS returns; a GridBOSS never gets these entities,
+        so the case that matters is an inverter answering the same way). Every
+        number must be unavailable — never 0."""
+        coordinator = self._coordinator(
+            store={
+                "enabled": False,
+                "start_soc": None,
+                "end_soc": None,
+                "start_pv_power": None,
+                "start_volt": None,
+                "end_volt": None,
+            }
+        )
+        for spec in SMART_LOAD_NUMBER_SPECS:
+            entity = self._entity(coordinator, self.SERIAL, spec.store_key)
+            assert entity.available is False, spec.store_key
+            assert entity.native_value is None, spec.store_key
+
+    def test_corrupt_store_value_reads_unavailable(self):
+        coordinator = self._coordinator(store={"start_soc": "garbage"})
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        assert entity.native_value is None
+        assert entity.available is False
+
+    def test_bool_store_value_is_not_a_number(self):
+        """Defensive: a bool is an int in Python — it must not read as 1."""
+        coordinator = self._coordinator(store={"start_soc": True})
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        assert entity.native_value is None
+        assert entity.available is False
+
+    def test_out_of_range_value_reads_none(self):
+        coordinator = self._coordinator(store={"start_volt": 250.0})
+        entity = self._entity(coordinator, self.SERIAL, "start_volt")
+        assert entity.native_value is None
+
+    def test_each_entity_reads_only_its_own_field(self):
+        """A spec/store-key mix-up would make two entities mirror one value."""
+        coordinator = self._coordinator(store={"start_soc": 69, "end_soc": 60})
+        assert self._entity(coordinator, self.SERIAL, "start_soc").native_value == 69
+        assert self._entity(coordinator, self.SERIAL, "end_soc").native_value == 60
+
+    def test_does_not_read_the_ac_couple_store(self):
+        coordinator = self._coordinator(store={"start_soc": 69})
+        coordinator.data["devices"][self.SERIAL]["ac_couple_soc"] = {"start_soc": 85}
+        assert self._entity(coordinator, self.SERIAL, "start_soc").native_value == 69
+
+    def test_survives_parameter_cache_wipe(self):
+        """A HYBRID local parameter refresh hard-replaces the parameter
+        cache; these entities never read it (the #352 P1-A regression)."""
+        coordinator = self._coordinator(store={"start_soc": 69})
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        assert entity.native_value == 69
+        coordinator.data["parameters"][self.SERIAL] = {"HOLD_AC_CHARGE_POWER_CMD": 50}
+        assert entity.native_value == 69
+        assert entity.available is True
+
+    # ── Writes (cloud-routed in every mode, store-seeded) ─────────────
+
+    @pytest.mark.asyncio
+    async def test_percent_write_routes_to_cloud_and_seeds_store(self):
+        coordinator = self._coordinator(store={"start_soc": 69, "end_soc": 60})
+        write = self._cloud_write_mock(coordinator, "set_inverter_smart_load_start_soc")
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        await entity.async_set_native_value(80)
+
+        write.assert_awaited_once_with(self.SERIAL, 80)
+        coordinator.note_smart_load_written.assert_called_once_with(
+            self.SERIAL, "start_soc", 80
+        )
+        coordinator.note_parameters_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pv_power_write_keeps_tenths(self):
+        """kW at 0.1 resolution — the value must NOT be truncated to an int
+        on the way to the cloud."""
+        coordinator = self._coordinator(store={"start_pv_power": 0.5})
+        write = self._cloud_write_mock(
+            coordinator, "set_inverter_smart_load_start_pv_power"
+        )
+        entity = self._entity(coordinator, self.SERIAL, "start_pv_power")
+        _prep(entity)
+
+        await entity.async_set_native_value(1.5)
+
+        write.assert_awaited_once_with(self.SERIAL, 1.5)
+        coordinator.note_smart_load_written.assert_called_once_with(
+            self.SERIAL, "start_pv_power", 1.5
+        )
+
+    @pytest.mark.asyncio
+    async def test_volt_write_keeps_tenths(self):
+        coordinator = self._coordinator(store={"start_volt": 54.0})
+        write = self._cloud_write_mock(
+            coordinator, "set_inverter_smart_load_start_volt"
+        )
+        entity = self._entity(coordinator, self.SERIAL, "start_volt")
+        _prep(entity)
+
+        await entity.async_set_native_value(53.5)
+
+        write.assert_awaited_once_with(self.SERIAL, 53.5)
+
+    @pytest.mark.asyncio
+    async def test_volt_write_rounds_to_the_wire_resolution(self):
+        """The wire carries 0.1 V; pylxpweb rejects a finer value outright,
+        so the entity must round rather than hand it through."""
+        coordinator = self._coordinator(store={"start_volt": 54.0})
+        write = self._cloud_write_mock(
+            coordinator, "set_inverter_smart_load_start_volt"
+        )
+        entity = self._entity(coordinator, self.SERIAL, "start_volt")
+        _prep(entity)
+
+        await entity.async_set_native_value(53.55)
+
+        (_serial, sent), _ = write.await_args
+        assert sent == round(sent, 1)
+
+    @pytest.mark.asyncio
+    async def test_hybrid_write_routes_via_cloud(self):
+        """HYBRID (attached local transport): still cloud-routed — no local
+        register is pinned for any of these params."""
+        coordinator = self._coordinator(
+            store={"start_soc": 69}, has_local=True, has_http=True
+        )
+        write = self._cloud_write_mock(coordinator, "set_inverter_smart_load_start_soc")
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        await entity.async_set_native_value(80)
+
+        write.assert_awaited_once_with(self.SERIAL, 80)
+        coordinator.client.api.control.write_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_percent_out_of_range_rejected_before_write(self):
+        coordinator = self._coordinator(store={"start_soc": 69})
+        write = self._cloud_write_mock(coordinator, "set_inverter_smart_load_start_soc")
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="between"):
+            await entity.async_set_native_value(150)
+
+        write.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_fractional_percent_rejected(self):
+        """SOC is whole percent on the wire; a fractional request must fail
+        loudly rather than be silently truncated."""
+        coordinator = self._coordinator(store={"start_soc": 69})
+        write = self._cloud_write_mock(coordinator, "set_inverter_smart_load_start_soc")
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="integer"):
+            await entity.async_set_native_value(69.5)
+
+        write.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_float_noise_on_a_whole_percent_is_absorbed(self):
+        """The integer check carries a 0.01 tolerance, shared with every
+        other percent control — a template producing 69.000000001 (or the
+        69.009 a review probe used) writes 69 rather than erroring.
+
+        Pinned deliberately rather than tightened to `is_integer()`: the
+        tolerance exists precisely to absorb float noise from templates and
+        HA's own float transport, and an exact check would reject values a
+        user cannot tell apart from a whole number. The boundary is what is
+        documented, so a change to it has to be a deliberate one.
+        """
+        coordinator = self._coordinator(store={"start_soc": 69})
+        write = self._cloud_write_mock(coordinator, "set_inverter_smart_load_start_soc")
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        await entity.async_set_native_value(69.009)
+
+        write.assert_awaited_once_with(self.SERIAL, 69)
+
+    @pytest.mark.asyncio
+    async def test_float_out_of_range_rejected_before_write(self):
+        coordinator = self._coordinator(store={"start_volt": 54.0})
+        write = self._cloud_write_mock(
+            coordinator, "set_inverter_smart_load_start_volt"
+        )
+        entity = self._entity(coordinator, self.SERIAL, "start_volt")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="between"):
+            await entity.async_set_native_value(250)
+
+        write.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_write_failure_raises_and_does_not_seed(self):
+        coordinator = self._coordinator(store={"start_soc": 69})
+        self._cloud_write_mock(
+            coordinator, "set_inverter_smart_load_start_soc", success=False
+        )
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="Failed to set"):
+            await entity.async_set_native_value(80)
+
+        coordinator.note_smart_load_written.assert_not_called()
+        assert entity._optimistic_value is None
+
+    @pytest.mark.asyncio
+    async def test_old_pylxpweb_missing_method_raises(self):
+        """A pylxpweb without the setters raises a version-explicit error
+        instead of AttributeError."""
+        coordinator = self._coordinator(store={"start_soc": 69})
+        coordinator.client.api.control = MagicMock(spec=[])
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match="0.9.39b6"):
+            await entity.async_set_native_value(80)
+
+    @pytest.mark.asyncio
+    async def test_write_preserves_siblings_in_store(self):
+        """Through the REAL coordinator seed methods: writing Start SOC must
+        not blank the other four known values."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        coordinator = self._coordinator(
+            store={
+                "start_soc": 69,
+                "end_soc": 60,
+                "start_pv_power": 0.5,
+                "start_volt": 54.0,
+                "end_volt": 48.0,
+                "enabled": True,
+            }
+        )
+        self._cloud_write_mock(coordinator, "set_inverter_smart_load_start_soc")
+        coordinator.async_update_listeners = MagicMock()
+        coordinator.note_smart_load_written = MagicMock(
+            side_effect=lambda serial, key, value: (
+                EG4DataUpdateCoordinator.note_smart_load_written(
+                    coordinator, serial, key, value
+                )
+            )
+        )
+        coordinator.note_cloud_param_store_written = MagicMock(
+            side_effect=lambda spec, serial, key, value: (
+                EG4DataUpdateCoordinator.note_cloud_param_store_written(
+                    coordinator, spec, serial, key, value
+                )
+            )
+        )
+        entity = self._entity(coordinator, self.SERIAL, "start_soc")
+        _prep(entity)
+
+        await entity.async_set_native_value(80)
+
+        store = coordinator.data["devices"][self.SERIAL]["smart_load"]
+        assert store["start_soc"] == 80
+        assert store["end_soc"] == 60
+        assert store["start_pv_power"] == 0.5
+        assert store["start_volt"] == 54.0
+        assert store["end_volt"] == 48.0
+        assert store["enabled"] is True
 
 
 # ── QuickChargeDurationNumber (preference, no register) ───────────────

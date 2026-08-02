@@ -725,6 +725,9 @@
       },
       "grid_always_on": {
         "name": "電網常開"
+      },
+      "smart_load": {
+        "name": "智慧負載"
       }
     },
     "number": {
@@ -763,6 +766,21 @@
       },
       "start_charge_power_threshold": {
         "name": "啟動充電功率閾值"
+      },
+      "smart_load_start_soc": {
+        "name": "智慧負載啟動 SOC"
+      },
+      "smart_load_end_soc": {
+        "name": "智慧負載停止 SOC"
+      },
+      "smart_load_start_pv_power": {
+        "name": "智慧負載啟動光伏功率"
+      },
+      "smart_load_start_volt": {
+        "name": "智慧負載啟動電壓"
+      },
+      "smart_load_end_volt": {
+        "name": "智慧負載停止電壓"
       }
     },
     "button": {

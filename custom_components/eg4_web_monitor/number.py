@@ -107,6 +107,15 @@ from .const import (
     REG_ONGRID_EOD_VOLTAGE,
     REG_PTOUSER_START_CHARGE,
     REG_SYSTEM_CHARGE_VOLT_LIMIT,
+    SMART_LOAD_PV_POWER_MAX,
+    SMART_LOAD_PV_POWER_MIN,
+    SMART_LOAD_PV_POWER_STEP,
+    SMART_LOAD_SOC_MAX,
+    SMART_LOAD_SOC_MIN,
+    SMART_LOAD_SOC_STEP,
+    SMART_LOAD_VOLT_MAX,
+    SMART_LOAD_VOLT_MIN,
+    SMART_LOAD_VOLT_STEP,
     SOC_LIMIT_MAX,
     SOC_LIMIT_MIN,
     SOC_LIMIT_STEP,
@@ -624,6 +633,20 @@ async def async_setup_entry(
                             ACCoupleStartSOCNumber(coordinator, serial),
                             ACCoupleEndSOCNumber(coordinator, serial),
                         ]
+                    )
+
+                # Smart Load panel (GH #499): the same cloud-only arrangement
+                # — five holdParams with no pinned local register, so the
+                # entities exist only where a cloud client can read and write
+                # them. NOT family-gated: the params answered on an 18kPV and
+                # a FlexBOSS21 in the maintainer's own plant and the reporter
+                # runs them on a 12000XP (EG4_OFFGRID). An INVERTER whose read
+                # omits them reads None and goes unavailable — this block is
+                # inverter-only, so a GridBOSS never reaches it at all.
+                if coordinator.has_http_api():
+                    entities.extend(
+                        SmartLoadNumber(coordinator, serial, spec)
+                        for spec in SMART_LOAD_NUMBER_SPECS
                     )
 
                 # Grid-tied-only controls (Peak Shaving / Forced Discharge)
@@ -1658,6 +1681,252 @@ class ACCoupleEndSOCNumber(ACCoupleSOCNumberBase):
     def extra_state_attributes(self) -> dict[str, Any] | None:
         """Expose the 255 sentinel a 0-100 slider cannot render as a value."""
         return {"disabled_sentinel": self._disabled_sentinel_active}
+
+
+@dataclass(frozen=True)
+class SmartLoadNumberSpec:
+    """Declarative configuration for one Smart Load panel number (GH #499)."""
+
+    #: Field within the coordinator's ``smart_load`` store.
+    store_key: str
+    #: pylxpweb control-endpoint writer method.
+    cloud_method: str
+    translation_key: str
+    unique_id_suffix: str
+    #: Human label used in log and error messages.
+    label: str
+    min_value: float
+    max_value: float
+    step: float
+    unit: str
+    icon: str
+    precision: int
+    #: True for the percent pair — writes are coerced to whole ints and a
+    #: fractional request is rejected rather than silently truncated.
+    whole_number: bool
+
+
+SMART_LOAD_NUMBER_SPECS: tuple[SmartLoadNumberSpec, ...] = (
+    SmartLoadNumberSpec(
+        store_key="start_soc",
+        cloud_method="set_inverter_smart_load_start_soc",
+        translation_key="smart_load_start_soc",
+        unique_id_suffix="smart_load_start_soc",
+        label="Smart Load start SOC",
+        min_value=SMART_LOAD_SOC_MIN,
+        max_value=SMART_LOAD_SOC_MAX,
+        step=SMART_LOAD_SOC_STEP,
+        unit="%",
+        icon="mdi:battery-charging-high",
+        precision=0,
+        whole_number=True,
+    ),
+    SmartLoadNumberSpec(
+        store_key="end_soc",
+        cloud_method="set_inverter_smart_load_end_soc",
+        translation_key="smart_load_end_soc",
+        unique_id_suffix="smart_load_end_soc",
+        label="Smart Load end SOC",
+        min_value=SMART_LOAD_SOC_MIN,
+        max_value=SMART_LOAD_SOC_MAX,
+        step=SMART_LOAD_SOC_STEP,
+        unit="%",
+        icon="mdi:battery-charging-low",
+        precision=0,
+        whole_number=True,
+    ),
+    SmartLoadNumberSpec(
+        store_key="start_pv_power",
+        cloud_method="set_inverter_smart_load_start_pv_power",
+        translation_key="smart_load_start_pv_power",
+        unique_id_suffix="smart_load_start_pv_power",
+        label="Smart Load start PV power",
+        min_value=SMART_LOAD_PV_POWER_MIN,
+        max_value=SMART_LOAD_PV_POWER_MAX,
+        step=SMART_LOAD_PV_POWER_STEP,
+        unit="kW",
+        icon="mdi:solar-power",
+        precision=1,
+        whole_number=False,
+    ),
+    SmartLoadNumberSpec(
+        store_key="start_volt",
+        cloud_method="set_inverter_smart_load_start_volt",
+        translation_key="smart_load_start_volt",
+        unique_id_suffix="smart_load_start_volt",
+        label="Smart Load start voltage",
+        min_value=SMART_LOAD_VOLT_MIN,
+        max_value=SMART_LOAD_VOLT_MAX,
+        step=SMART_LOAD_VOLT_STEP,
+        unit="V",
+        icon="mdi:flash",
+        precision=1,
+        whole_number=False,
+    ),
+    SmartLoadNumberSpec(
+        store_key="end_volt",
+        cloud_method="set_inverter_smart_load_end_volt",
+        translation_key="smart_load_end_volt",
+        unique_id_suffix="smart_load_end_volt",
+        label="Smart Load end voltage",
+        min_value=SMART_LOAD_VOLT_MIN,
+        max_value=SMART_LOAD_VOLT_MAX,
+        step=SMART_LOAD_VOLT_STEP,
+        unit="V",
+        icon="mdi:flash-outline",
+        precision=1,
+        whole_number=False,
+    ),
+)
+
+
+class SmartLoadNumber(EG4BaseNumberEntity):
+    """Spec-driven Smart Load panel number (GH #499, cloud client required).
+
+    The portal's Maintenance -> Remote Set -> Smart Load Port -> "Smart Load"
+    tab governs when the inverter's smart load port is energized: the SOC pair
+    (start/end percent), the PV-power threshold, and a voltage pair that
+    appears to stand in for the SOC pair under a voltage mode (the reporter's
+    screenshot greys it out while SOC mode is active — UNTESTED here, and no
+    mode parameter was found to gate on, so both pairs are exposed).
+    @brendonlobo123 asked for all of them on a 12000XP (#499); Grid Always On
+    from the same panel shipped first (#484).
+
+    CLOUD-ONLY, dedicated store — the same arrangement as the AC Couple SOC
+    pair (#352) for the same reasons: the portal writes
+    ``_12K_HOLD_SMART_LOAD_{START,END}_{SOC,VOLT}`` and
+    ``_12K_HOLD_START_PV_POWER`` and no local Modbus register is pinned for
+    any of them, and a cache-seeded value would be wiped by the next parameter
+    refresh under a local transport (PR #380 review P1). Values come from the
+    coordinator's ``smart_load`` store (throttled 5-minute cloud getter reads +
+    carry-forward + post-write seeding) in every mode, and writes always route
+    through the cloud client.
+
+    Unavailable while the value is absent from the store — never a confident 0
+    on an inverter that does not carry the param. That the cloud really does
+    answer with FUNC_SMART_LOAD_ENABLE present and all five holdParams missing
+    is established, not assumed: it is what a GridBOSS returns (live probe
+    2026-08-01). A GridBOSS itself never gets these entities — setup creates
+    them only for inverters — so the case this guards is an INVERTER whose
+    portal read comes back in that same partial shape.
+
+    Disabled by default: niche, and the WRITE path is unverified on hardware
+    (#484's read-verified/write-unverified position, awaiting the reporter).
+    """
+
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        spec: SmartLoadNumberSpec,
+    ) -> None:
+        """Initialize a Smart Load number entity from its spec."""
+        self._spec = spec
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = spec.translation_key
+        self._attr_unique_id = (
+            f"{self._clean_model}_{serial.lower()}_{spec.unique_id_suffix}"
+        )
+        self._attr_native_min_value = spec.min_value
+        self._attr_native_max_value = spec.max_value
+        self._attr_native_step = spec.step
+        self._attr_native_unit_of_measurement = spec.unit
+        self._attr_icon = spec.icon
+        self._attr_native_precision = spec.precision
+
+    def _get_related_entity_types(self) -> tuple[type, ...]:
+        return (SmartLoadNumber,)
+
+    @property
+    def _stored_value(self) -> float | None:
+        """This setting's value from the coordinator's ``smart_load`` store."""
+        devices = (self.coordinator.data or {}).get("devices", {})
+        store = devices.get(self.serial, {}).get("smart_load") or {}
+        value = store.get(self._spec.store_key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value)
+
+    @property
+    def available(self) -> bool:
+        """Available only while the store holds a value (or mid-write)."""
+        if not super().available:
+            return False
+        if self._optimistic_value is not None:
+            return True
+        return self._stored_value is not None
+
+    @property
+    def native_value(self) -> float | None:
+        """Value from the dedicated store, or None while out of range.
+
+        A value outside the entity's range cannot be rendered on the slider;
+        surfacing None is the honest answer, and the bounds are wide enough
+        that a real setting reaching this branch is a signal worth a bug
+        report rather than something to clamp away.
+        """
+        value = self._optimistic_value
+        if value is None:
+            value = self._stored_value
+            if (
+                value is None
+                or not self._spec.min_value <= value <= self._spec.max_value
+            ):
+                return None
+        # Shaped identically whether it came from the store or from an
+        # in-flight write: returning a float here and an int once the store
+        # caught up would flip the percent pair's state from "80.0" to "80"
+        # on convergence, breaking exact-string automation conditions.
+        return int(value) if self._spec.whole_number else round(value, 1)
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Write the setting through the cloud client (every mode)."""
+        spec = self._spec
+        write_value: float
+        if spec.whole_number:
+            write_value = _coerce_int_in_range(
+                value,
+                min_v=spec.min_value,
+                max_v=spec.max_value,
+                label=spec.label,
+                unit=spec.unit,
+                require_integer=True,
+            )
+        else:
+            if not spec.min_value <= value <= spec.max_value:
+                raise HomeAssistantError(
+                    f"{spec.label} must be between "
+                    f"{spec.min_value}-{spec.max_value}{spec.unit}, got {value}"
+                )
+            write_value = round(value, 1)
+        client = self.coordinator.require_client()
+        _LOGGER.info(
+            "Setting %s to %s%s for %s",
+            spec.label,
+            write_value,
+            spec.unit,
+            self.serial,
+        )
+        # No refresh wiring, matching the AC Couple SOC pair: the store seed
+        # below IS this control's convergence channel, so the write settles
+        # immediately rather than arming retention it could never clear.
+        with optimistic_value_context(self, write_value, spec.label):
+            method = getattr(client.api.control, spec.cloud_method, None)
+            if method is None:
+                raise HomeAssistantError(
+                    f"Failed to set {spec.label}: pylxpweb is missing "
+                    f"{spec.cloud_method} (requires >= 0.9.39b6)"
+                )
+            result = await method(self.serial, write_value)
+            if not result.success:
+                raise HomeAssistantError(
+                    f"Failed to set {spec.label} to {write_value}{spec.unit}"
+                )
+            self.coordinator.note_smart_load_written(
+                self.serial, spec.store_key, write_value
+            )
 
 
 class GridSellBackPowerNumber(EG4BaseNumberEntity):

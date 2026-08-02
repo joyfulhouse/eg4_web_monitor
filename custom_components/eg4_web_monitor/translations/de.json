@@ -725,6 +725,9 @@
       },
       "grid_always_on": {
         "name": "Netz immer an"
+      },
+      "smart_load": {
+        "name": "Intelligente Last"
       }
     },
     "number": {
@@ -763,6 +766,21 @@
       },
       "start_charge_power_threshold": {
         "name": "Ladestart-Leistungsschwelle"
+      },
+      "smart_load_start_soc": {
+        "name": "Intelligente Last Start-SOC"
+      },
+      "smart_load_end_soc": {
+        "name": "Intelligente Last End-SOC"
+      },
+      "smart_load_start_pv_power": {
+        "name": "Intelligente Last Start-PV-Leistung"
+      },
+      "smart_load_start_volt": {
+        "name": "Intelligente Last Startspannung"
+      },
+      "smart_load_end_volt": {
+        "name": "Intelligente Last Endspannung"
       }
     },
     "button": {

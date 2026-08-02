@@ -725,6 +725,9 @@
       },
       "grid_always_on": {
         "name": "계통 항상 켜짐"
+      },
+      "smart_load": {
+        "name": "스마트 부하"
       }
     },
     "number": {
@@ -763,6 +766,21 @@
       },
       "start_charge_power_threshold": {
         "name": "충전 시작 전력 임계값"
+      },
+      "smart_load_start_soc": {
+        "name": "스마트 부하 시작 SOC"
+      },
+      "smart_load_end_soc": {
+        "name": "스마트 부하 종료 SOC"
+      },
+      "smart_load_start_pv_power": {
+        "name": "스마트 부하 시작 PV 전력"
+      },
+      "smart_load_start_volt": {
+        "name": "스마트 부하 시작 전압"
+      },
+      "smart_load_end_volt": {
+        "name": "스마트 부하 종료 전압"
       }
     },
     "button": {

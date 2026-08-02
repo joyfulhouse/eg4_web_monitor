@@ -725,6 +725,9 @@
       },
       "grid_always_on": {
         "name": "Grid Always On"
+      },
+      "smart_load": {
+        "name": "Smart Load"
       }
     },
     "number": {
@@ -763,6 +766,21 @@
       },
       "start_charge_power_threshold": {
         "name": "Start Charge Power Threshold"
+      },
+      "smart_load_start_soc": {
+        "name": "Smart Load Start SOC"
+      },
+      "smart_load_end_soc": {
+        "name": "Smart Load End SOC"
+      },
+      "smart_load_start_pv_power": {
+        "name": "Smart Load Start PV Power"
+      },
+      "smart_load_start_volt": {
+        "name": "Smart Load Start Voltage"
+      },
+      "smart_load_end_volt": {
+        "name": "Smart Load End Voltage"
       }
     },
     "button": {

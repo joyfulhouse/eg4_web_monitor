@@ -725,6 +725,9 @@
       },
       "grid_always_on": {
         "name": "Net altijd aan"
+      },
+      "smart_load": {
+        "name": "Slimme belasting"
       }
     },
     "number": {
@@ -763,6 +766,21 @@
       },
       "start_charge_power_threshold": {
         "name": "Vermogensdrempel start opladen"
+      },
+      "smart_load_start_soc": {
+        "name": "Slimme belasting start-SOC"
+      },
+      "smart_load_end_soc": {
+        "name": "Slimme belasting eind-SOC"
+      },
+      "smart_load_start_pv_power": {
+        "name": "Slimme belasting start-PV-vermogen"
+      },
+      "smart_load_start_volt": {
+        "name": "Slimme belasting startspanning"
+      },
+      "smart_load_end_volt": {
+        "name": "Slimme belasting eindspanning"
       }
     },
     "button": {
