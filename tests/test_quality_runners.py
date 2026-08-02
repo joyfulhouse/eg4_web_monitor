@@ -155,3 +155,21 @@ def test_documented_validation_scripts_exist() -> None:
     assert {
         name for name in referenced if not (REPO_ROOT / "tests" / name).exists()
     } == set()
+
+
+def test_platinum_workflow_installs_validator_dependencies() -> None:
+    """The standalone Platinum validator runs with its declared toolchain."""
+    workflow = (
+        REPO_ROOT / ".github" / "workflows" / "quality-validation.yml"
+    ).read_text(encoding="utf-8")
+    job = workflow.split("  platinum-validation-script:\n", maxsplit=1)[1].split(
+        "\n  platinum-summary:\n", maxsplit=1
+    )[0]
+
+    assert "python-version: '3.13'" in job
+    assert "uv pip install --system --refresh -r tests/requirements-test.txt" in job
+
+    requirements = (REPO_ROOT / "tests" / "requirements-test.txt").read_text(
+        encoding="utf-8"
+    )
+    assert re.search(r"^mypy(?:\s|[<>=!~]|$)", requirements, flags=re.MULTILINE)

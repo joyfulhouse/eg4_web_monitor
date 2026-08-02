@@ -17,6 +17,7 @@ voluptuous>=0.15.0
 pylxpweb>=0.9.39b6  # keep in sync with manifest.json
 
 # Code quality
+mypy
 ruff==0.15.5  # pinned (#482); keep in sync with prek.toml and quality-validation.yml
 pylint>=3.3.0
 
