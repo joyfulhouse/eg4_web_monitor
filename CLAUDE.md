@@ -40,9 +40,9 @@ Home Assistant custom component that integrates EG4 devices (inverters, GridBOSS
 python tests/validate_platinum_tier.py # All 3 Platinum requirements
 python tests/validate_gold_tier.py     # All 5 Gold requirements
 python tests/validate_silver_tier.py   # All 10 Silver requirements
-python tests/validate_bronze_tier.py   # All 18 Bronze requirements
-pytest tests/ --cov=. --cov-report=term-missing
-mypy --config-file mypy.ini .          # Strict type checking
+# Bronze requirements are enforced by .github/workflows/quality-validation.yml
+pytest -c tests/pytest.ini tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/  # Strict type checking
 ```
 
 **Quality Scale Reference**: https://www.home-assistant.io/docs/quality_scale/

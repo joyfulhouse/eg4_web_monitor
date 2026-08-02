@@ -103,8 +103,8 @@ Claude Code Review (1 job, PR only)
 You can run individual validation scripts locally:
 
 ```bash
-# Bronze tier
-python tests/validate_bronze_tier.py
+# Bronze tier checks run as dedicated jobs in quality-validation.yml;
+# there is no standalone Bronze validator.
 
 # Silver tier
 python tests/validate_silver_tier.py
@@ -112,8 +112,11 @@ python tests/validate_silver_tier.py
 # Gold tier
 python tests/validate_gold_tier.py
 
+# Platinum tier (includes an actual strict-mypy run)
+python tests/validate_platinum_tier.py
+
 # All tests with coverage
-pytest tests/ --cov=. --cov-report=term-missing
+pytest -c tests/pytest.ini tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
 ```
 
 ### Code Quality Checks

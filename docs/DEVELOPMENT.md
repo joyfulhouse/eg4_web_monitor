@@ -13,22 +13,27 @@ How to set up a development environment for EG4 Web Monitor.
 ```bash
 git clone https://github.com/joyfulhouse/eg4_web_monitor.git
 cd eg4_web_monitor
-uv sync
+uv venv --python 3.13
+source .venv/bin/activate
+uv pip install -r tests/requirements-test.txt
 ```
 
 ## Quality Checks
 
 ```bash
 # Lint and format
-uv run ruff check custom_components/ --fix
-uv run ruff format custom_components/
+ruff check .
+ruff format --check .
 
 # Type check (strict)
-uv run mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
+mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
 
 # Tests (with coverage)
-uv run pytest tests/ -x --tb=short
-uv run pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+pytest -c tests/pytest.ini tests/ -x --tb=short
+pytest -c tests/pytest.ini tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
+
+# Or run tests, coverage, Ruff lint, and Ruff format together
+python tests/run_tests.py --all
 ```
 
 Run all of these before opening a pull request. See
@@ -41,11 +46,13 @@ This integration targets the Home Assistant **Platinum** quality tier. Tier
 validation scripts live alongside the tests:
 
 ```bash
-uv run python tests/validate_bronze_tier.py
-uv run python tests/validate_silver_tier.py
-uv run python tests/validate_gold_tier.py
-uv run python tests/validate_platinum_tier.py
+python tests/validate_silver_tier.py
+python tests/validate_gold_tier.py
+python tests/validate_platinum_tier.py
 ```
+
+Bronze requirements are enforced directly by the quality-validation workflow;
+there is no standalone Bronze validator.
 
 ## Releasing
 
