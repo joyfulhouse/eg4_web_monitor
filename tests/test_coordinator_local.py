@@ -3390,6 +3390,43 @@ class TestCanonicalAbsentPredicateInRRMerge:
         entry.add_to_hass(hass)
         return entry
 
+    async def test_real_battery_data_degraded_row_is_retained(self, hass):
+        """The SHIPPED predicate keeps a degraded row — no stubbing at all.
+
+        Uses real ``BatteryData`` rather than a subclass overriding
+        ``is_absent()``, so this exercises pylxpweb's own definition end to
+        end. Only possible since the pin moved to 0.9.39b6; before that the
+        method did not exist to exercise.
+        """
+        from custom_components.eg4_web_monitor.utils import local_battery_key
+
+        serial = "DONGLE506REAL"
+        coordinator = EG4DataUpdateCoordinator(
+            hass, self._make_config_entry(hass, serial)
+        )
+
+        # Cell block gone (0 V / 0 %) but the BMS still reports live current:
+        # present-but-degraded, must stay in the bank.
+        degraded = BatteryData(
+            battery_index=0,
+            serial_number="BATDEGRADED1",
+            voltage=0.0,
+            soc=0,
+            current=12.5,
+        )
+        empty = BatteryData(
+            battery_index=1, serial_number="BATEMPTY00001", voltage=0.0, soc=0
+        )
+        assert degraded.is_absent() is False
+        assert empty.is_absent() is True
+
+        merged = coordinator._merge_round_robin_batteries(serial, [degraded, empty])
+
+        assert local_battery_key(serial, "BATDEGRADED1", 0) in merged, (
+            "present-but-degraded battery was dropped"
+        )
+        assert local_battery_key(serial, "BATEMPTY00001", 1) not in merged
+
     async def test_degraded_row_retained_when_is_absent_available(self, hass):
         """With pylxpweb >= 0.9.39b6 the degraded row survives the merge."""
         from custom_components.eg4_web_monitor.utils import local_battery_key

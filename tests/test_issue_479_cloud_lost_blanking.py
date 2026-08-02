@@ -461,7 +461,9 @@ class TestLostRecoveryStateful:
                 return_value={"data": [{"year": 2026, "energy": 10}]}
             ),
         )
-        coordinator.client = SimpleNamespace(analytics=analytics)
+        coordinator.client = SimpleNamespace(
+            analytics=analytics, api=SimpleNamespace(control=SimpleNamespace())
+        )
         coordinator._fetch_quick_charge_status = AsyncMock()
         coordinator._fetch_last_event = AsyncMock()
         coordinator._fetch_ac_couple_soc = AsyncMock()

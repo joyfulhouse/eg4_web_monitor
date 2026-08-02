@@ -7110,7 +7110,9 @@ class TestCloudPVStringEnergy:
     def _coordinator(hass, mock_config_entry, analytics: Any):
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-        coordinator.client = SimpleNamespace(analytics=analytics)
+        coordinator.client = SimpleNamespace(
+            analytics=analytics, api=SimpleNamespace(control=SimpleNamespace())
+        )
         return coordinator
 
     async def test_daily_values_are_scaled_from_today_row(
@@ -7549,7 +7551,9 @@ class TestCloudPVStringEnergy:
             )
         )
         second_coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-        second_coordinator.client = SimpleNamespace(analytics=low_analytics)
+        second_coordinator.client = SimpleNamespace(
+            analytics=low_analytics, api=SimpleNamespace(control=SimpleNamespace())
+        )
         await second_coordinator._async_load_pv_string_lifetime_state()
         second_target: dict[str, Any] = {
             "features": {"pv_string_count": 3},
@@ -7600,7 +7604,10 @@ class TestCloudPVStringEnergy:
             )
         )
         second_coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-        second_coordinator.client = SimpleNamespace(analytics=truncated_analytics)
+        second_coordinator.client = SimpleNamespace(
+            analytics=truncated_analytics,
+            api=SimpleNamespace(control=SimpleNamespace()),
+        )
         await second_coordinator._async_load_pv_string_lifetime_state()
         second_target: dict[str, Any] = {
             "features": {"pv_string_count": 3},
