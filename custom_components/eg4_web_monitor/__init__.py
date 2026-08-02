@@ -599,7 +599,9 @@ async def _async_cleanup_failed_entry_setup(
     coordinator: EG4DataUpdateCoordinator,
 ) -> None:
     """Roll back resources acquired by an entry that did not finish setup."""
-    if coordinator._platform_setup_started:
+    try:
+        if not coordinator._platform_setup_started:
+            return
         try:
             await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
         except Exception:
@@ -608,27 +610,29 @@ async def _async_cleanup_failed_entry_setup(
                 entry.title,
                 exc_info=True,
             )
-
-    try:
-        await coordinator.async_shutdown()
-    except Exception:
-        _LOGGER.warning(
-            "Error shutting down coordinator after failed setup for %s",
-            entry.title,
-            exc_info=True,
-        )
-
-    if coordinator.client is not None:
+    finally:
         try:
-            await coordinator.client.close()
-        except Exception:
-            _LOGGER.warning(
-                "Error closing HTTP client after failed setup for %s",
-                entry.title,
-                exc_info=True,
-            )
-
-    entry.runtime_data = None  # type: ignore[assignment]
+            try:
+                await coordinator.async_shutdown()
+            except Exception:
+                _LOGGER.warning(
+                    "Error shutting down coordinator after failed setup for %s",
+                    entry.title,
+                    exc_info=True,
+                )
+        finally:
+            try:
+                if coordinator.client is not None:
+                    try:
+                        await coordinator.client.close()
+                    except Exception:
+                        _LOGGER.warning(
+                            "Error closing HTTP client after failed setup for %s",
+                            entry.title,
+                            exc_info=True,
+                        )
+            finally:
+                entry.runtime_data = None  # type: ignore[assignment]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:

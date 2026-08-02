@@ -442,6 +442,30 @@ class TestAsyncSetupEntry:
         coordinator.client.close.assert_awaited_once_with()
         assert mock_config_entry.runtime_data is None
 
+    @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
+    async def test_cleanup_cancellation_still_closes_client_and_clears_runtime(
+        self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
+    ):
+        """A second cancellation cannot strand later rollback steps."""
+        mock_config_entry.add_to_hass(hass)
+        mock_config_entry.runtime_data = None
+        coordinator = MagicMock()
+        coordinator._platform_setup_started = False
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock(
+            side_effect=RuntimeError("initial refresh failed")
+        )
+        coordinator.async_shutdown = AsyncMock(side_effect=asyncio.CancelledError)
+        coordinator.client = MagicMock()
+        coordinator.client.close = AsyncMock()
+        mock_coordinator_class.return_value = coordinator
+
+        with pytest.raises(asyncio.CancelledError):
+            await async_setup_entry(hass, mock_config_entry)
+
+        coordinator.client.close.assert_awaited_once_with()
+        assert mock_config_entry.runtime_data is None
+
 
 class TestSmartPortCleanupOnReboot:
     """Regression tests for #217: smart-port registry cleanup across restarts.
