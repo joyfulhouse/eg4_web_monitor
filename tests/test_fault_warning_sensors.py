@@ -52,7 +52,12 @@ from custom_components.eg4_web_monitor.sensor import (
 )
 from pylxpweb.transports.data import InverterRuntimeData, MidboxRuntimeData
 
-from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
+from tests.conftest import (
+    stub_cloud_client,
+    make_real_inverter,
+    make_real_mid,
+    make_transport_spec,
+)
 
 CODE_KEYS = ("fault_code", "warning_code")
 
@@ -185,6 +190,7 @@ class TestFaultWarningHybridOverlay:
         """HYBRID: codes from the attached transport overlay into sensors."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(
             fault_code=0x0000_0010,
@@ -206,6 +212,7 @@ class TestFaultWarningHybridOverlay:
         """HYBRID: 0 (no fault/warning) is a real state and overlays too."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(fault_code=0, warning_code=0)
         inverter = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)

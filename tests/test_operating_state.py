@@ -47,7 +47,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
 from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
 from pylxpweb.transports.data import InverterRuntimeData
 
-from tests.conftest import make_real_inverter, make_transport_spec
+from tests.conftest import stub_cloud_client, make_real_inverter, make_transport_spec
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -259,6 +259,7 @@ class TestOperatingStateCloudHybrid:
         """_process_inverter_object decodes status_code -> operating_state."""
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(device_status=0x40, pv_total_power=1500)
         inverter = make_real_inverter("1111111111", "FlexBOSS21", runtime=runtime)
@@ -285,6 +286,7 @@ class TestOperatingStateCloudHybrid:
         """
         mock_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator.client = stub_cloud_client()
 
         # No runtime/energy -> inverter.has_data is False -> early return.
         inverter = make_real_inverter("2222222222", "FlexBOSS21")
