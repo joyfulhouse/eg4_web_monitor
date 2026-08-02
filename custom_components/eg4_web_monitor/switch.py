@@ -975,13 +975,18 @@ class EG4SmartLoadSwitch(EG4CloudStoreSwitch):
     Distinct from the GridBOSS/MID per-port ``FUNC_SMART_LOAD_EN_{n}``
     functions, which address different hardware.
 
-    The WRITE path is unverified on hardware (the read side is verified on an
-    18kPV, a FlexBOSS21 and a GridBOSS by a 2026-08-01 cloud probe); #499 stays
-    open pending the reporter's confirmation. Disabled by default for that
-    reason and because it only matters once the smart load port is configured.
+    The WRITE path is hardware-confirmed: the #499 reporter toggled the switch
+    in Home Assistant and watched the portal reflect it (2026-08-02, 12000XP).
+    Disabled by default because it only matters once the smart load port is
+    configured.
+
+    CONFIG category to sit beside Grid Always On and the five threshold
+    numbers from the same portal panel — shipping without a category filed it
+    under Controls while every sibling was under Configuration (#499 report).
     """
 
     _attr_entity_registry_enabled_default = False
+    _attr_entity_category = EntityCategory.CONFIG
 
     _store_key = "smart_load"
     _cloud_method = "set_inverter_smart_load_enabled"
