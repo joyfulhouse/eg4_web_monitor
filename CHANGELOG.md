@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.5] - 2026-08-02
+
 ### Added
 
 - **The rest of the Smart Load panel** ([#499](https://github.com/joyfulhouse/eg4_web_monitor/issues/499), requested by @brendonlobo123): the portal's *Maintenance → Remote Set → Smart Load Port → Smart Load* tab is now exposed. **Grid Always On** shipped in 3.5.1-beta.4 ([#484](https://github.com/joyfulhouse/eg4_web_monitor/issues/484)); this adds the six controls beside it — a **Smart Load** enable switch, **Smart Load Start SOC** and **End SOC**, **Smart Load Start PV Power** (kW), and **Smart Load Start Voltage** and **End Voltage**. The SOC pair and the voltage pair appear to be alternatives, the reporter's 12000XP showing the voltage pair greyed out while SOC mode is active; which one an inverter acts on has not been tested here, so both are offered rather than one being hidden on an assumption. **All seven are disabled by default** — they only matter once the smart load port is configured, so enable them from the entity settings if you use that port. Not restricted by inverter model or family: all six parameters answered on an 18kPV and a FlexBOSS21 in a read-only cloud check, and the reporter runs them on a 12000XP.
