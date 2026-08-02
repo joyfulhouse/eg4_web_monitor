@@ -5593,9 +5593,9 @@ class TestHybridTransportExclusiveSensors:
         expected = {
             "eps_apparent_power": 2500,
             "inverter_running_time": 3600,
-            "ac_input_type": "Generator",
-            "parallel_role": "Slave",
-            "parallel_phase": "T",
+            "ac_input_type": "generator",
+            "parallel_role": "slave",
+            "parallel_phase": "t",
             "parallel_unit_number": 4,
         }
         assert {key: result["sensors"].get(key) for key in expected} == expected

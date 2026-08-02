@@ -294,9 +294,9 @@ diagnostics in LOCAL and HYBRID modes. They add no writable register surface.
 |-----|-----------------|---------------|---------------|
 | 25 | `eps_apparent_power` | Unsigned VA | `eps_apparent_power` |
 | 69-70 | `running_time` | Unsigned 32-bit seconds | `inverter_running_time` |
-| 77 bit 0 | `ac_input_type` | `0 = Grid`, `1 = Generator` | `ac_input_type` |
-| 113 bits 0-1 | `parallel_config` role | Standalone / Master / Slave / Three-Phase Master | `parallel_role` |
-| 113 bits 2-3 | `parallel_config` phase | `0 = R`, `1 = S`, `2 = T`; unknown when standalone | `parallel_phase` |
+| 77 bit 0 | `ac_input_type` | `0 = grid`, `1 = generator` (localized enum) | `ac_input_type` |
+| 113 bits 0-1 | `parallel_config` role | Standalone / Master / Slave / Three-Phase Master (localized enum) | `parallel_role` |
+| 113 bits 2-3 | `parallel_config` phase | `0 = R`, `1 = S`, `2 = T`; localized enum, unknown when standalone | `parallel_phase` |
 | 113 bits 8-15 | `parallel_config` unit | Unit ID; unknown when standalone | `parallel_unit_number` |
 
 The I69-70 unit is independently corroborated by the pinned ant0nkr comparison

@@ -490,12 +490,12 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
 )
 
 _PARALLEL_ROLE_LABELS: dict[int, str] = {
-    0: "Standalone",
-    1: "Master",
-    2: "Slave",
-    3: "Three-Phase Master",
+    0: "standalone",
+    1: "master",
+    2: "slave",
+    3: "three_phase_master",
 }
-_PARALLEL_PHASE_LABELS: dict[int, str] = {0: "R", 1: "S", 2: "T"}
+_PARALLEL_PHASE_LABELS: dict[int, str] = {0: "r", 1: "s", 2: "t"}
 
 
 def _build_readonly_runtime_diagnostic_mapping(
@@ -518,9 +518,9 @@ def _build_readonly_runtime_diagnostic_mapping(
         "ac_input_type": (
             None
             if ac_input_raw is None
-            else "Generator"
+            else "generator"
             if ac_input_raw & 0x01
-            else "Grid"
+            else "grid"
         ),
         "parallel_role": _PARALLEL_ROLE_LABELS.get(role) if role is not None else None,
         "parallel_phase": (

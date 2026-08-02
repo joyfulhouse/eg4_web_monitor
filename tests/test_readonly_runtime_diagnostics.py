@@ -1,5 +1,7 @@
 """Contracts for safe read-only diagnostics from canonical input registers."""
 
+import json
+from pathlib import Path
 from unittest.mock import MagicMock
 
 from homeassistant.const import EntityCategory, UnitOfTime
@@ -38,9 +40,9 @@ def test_runtime_diagnostics_decode_canonical_fields() -> None:
 
     assert mapping["eps_apparent_power"] == 3456
     assert mapping["inverter_running_time"] == 86_400
-    assert mapping["ac_input_type"] == "Generator"
-    assert mapping["parallel_role"] == "Master"
-    assert mapping["parallel_phase"] == "S"
+    assert mapping["ac_input_type"] == "generator"
+    assert mapping["parallel_role"] == "master"
+    assert mapping["parallel_phase"] == "s"
     assert mapping["parallel_unit_number"] == 7
     assert DIAGNOSTIC_KEYS <= INVERTER_RUNTIME_KEYS
 
@@ -60,8 +62,8 @@ def test_runtime_diagnostics_keep_absence_and_standalone_semantics_honest() -> N
             parallel_number=0,
         )
     )
-    assert standalone["ac_input_type"] == "Grid"
-    assert standalone["parallel_role"] == "Standalone"
+    assert standalone["ac_input_type"] == "grid"
+    assert standalone["parallel_role"] == "standalone"
     assert standalone["parallel_phase"] is None
     assert standalone["parallel_unit_number"] is None
 
@@ -76,6 +78,7 @@ def test_runtime_diagnostics_are_disabled_read_only_entities() -> None:
         "icon": "mdi:power-plug-outline",
         "entity_category": "diagnostic",
         "enabled_default": False,
+        "translation_key": "eps_apparent_power",
     }
     assert SENSOR_TYPES["inverter_running_time"] == {
         "name": "Inverter Running Time",
@@ -85,24 +88,52 @@ def test_runtime_diagnostics_are_disabled_read_only_entities() -> None:
         "icon": "mdi:timer-outline",
         "entity_category": "diagnostic",
         "enabled_default": False,
+        "translation_key": "inverter_running_time",
     }
     for key, options in {
-        "ac_input_type": ["Grid", "Generator"],
-        "parallel_role": ["Standalone", "Master", "Slave", "Three-Phase Master"],
-        "parallel_phase": ["R", "S", "T"],
+        "ac_input_type": ["grid", "generator"],
+        "parallel_role": ["standalone", "master", "slave", "three_phase_master"],
+        "parallel_phase": ["r", "s", "t"],
     }.items():
         config = SENSOR_TYPES[key]
         assert config["device_class"] == "enum"
         assert config["options"] == options
         assert config["entity_category"] == "diagnostic"
         assert config["enabled_default"] is False
+        assert config["translation_key"] == key
         assert "state_class" not in config
         assert "unit" not in config
 
     number_config = SENSOR_TYPES["parallel_unit_number"]
     assert number_config["entity_category"] == "diagnostic"
     assert number_config["enabled_default"] is False
+    assert number_config["translation_key"] == "parallel_unit_number"
     assert "state_class" not in number_config
+
+
+def test_runtime_diagnostic_translations_cover_every_locale_and_enum_state() -> None:
+    """Every opt-in diagnostic has a localizable name and stable enum states."""
+    component = Path("custom_components/eg4_web_monitor")
+    files = [
+        component / "strings.json",
+        *sorted((component / "translations").glob("*.json")),
+    ]
+    expected_states = {
+        "ac_input_type": {"grid", "generator"},
+        "parallel_role": {
+            "standalone",
+            "master",
+            "slave",
+            "three_phase_master",
+        },
+        "parallel_phase": {"r", "s", "t"},
+    }
+
+    for path in files:
+        sensor_strings = json.loads(path.read_text())["entity"]["sensor"]
+        assert DIAGNOSTIC_KEYS <= sensor_strings.keys(), path
+        for key, states in expected_states.items():
+            assert sensor_strings[key]["state"].keys() == states, path
 
 
 def test_runtime_diagnostics_create_inverter_scoped_entities() -> None:
@@ -110,9 +141,9 @@ def test_runtime_diagnostics_create_inverter_scoped_entities() -> None:
     sensors = {
         "eps_apparent_power": 3456,
         "inverter_running_time": 86_400,
-        "ac_input_type": "Generator",
-        "parallel_role": "Master",
-        "parallel_phase": "S",
+        "ac_input_type": "generator",
+        "parallel_role": "master",
+        "parallel_phase": "s",
         "parallel_unit_number": 7,
     }
     coordinator = MagicMock()
