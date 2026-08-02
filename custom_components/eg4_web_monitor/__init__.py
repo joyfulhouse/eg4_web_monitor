@@ -21,9 +21,15 @@ from homeassistant.core import (
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
 
+from ._config_flow.helpers import (
+    cloud_unique_id_from_data,
+    find_config_entry_identity_conflicts,
+    migrate_legacy_entry,
+)
 from .const import (
     CONF_CONNECTION_TYPE,
     CONF_HTTP_POLLING_INTERVAL,
+    CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_HTTP,
     DEFAULT_HTTP_POLLING_INTERVAL,
@@ -53,7 +59,6 @@ from .services import (
     async_fetch_events,
     async_reconcile_history,
 )
-from ._config_flow.helpers import migrate_legacy_entry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -253,14 +258,34 @@ async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     return True
 
 
-async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
-    """Migrate config entry to current version.
+def _select_cloud_migration_owner(
+    entries: list[ConfigEntry], canonical_unique_id: str
+) -> ConfigEntry | None:
+    """Select the stable owner of a canonical cloud identity.
 
-    Version 1 -> 2: Migrate legacy modbus/dongle entries to unified local format.
-    Old format stored connection details at root level (modbus_host, dongle_host, etc.)
-    New format uses local_transports array with transport configs.
+    An entry already using the canonical ID wins so migration cannot displace an
+    established HTTP identity. If all IDs are legacy/non-canonical, retain the
+    oldest entry, with entry ID as a deterministic tie-breaker.
     """
-    if config_entry.version > 2:
+    canonical_owners = [
+        entry for entry in entries if entry.unique_id == canonical_unique_id
+    ]
+    if len(canonical_owners) > 1:
+        return None
+    if canonical_owners:
+        return canonical_owners[0]
+    return min(entries, key=lambda entry: (entry.created_at, entry.entry_id))
+
+
+async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) -> bool:
+    """Migrate config entries to unified transports and canonical cloud identity.
+
+    Version 1 -> 2 introduced the unified local transport array. Version 2 -> 3
+    makes cloud identity independent of HTTP/HYBRID mode. Both transformations
+    are staged and committed together so an identity conflict leaves the entry
+    entirely untouched.
+    """
+    if config_entry.version > 3:
         # Can't downgrade from future version
         _LOGGER.error(
             "Cannot migrate config entry %s from version %s (future version)",
@@ -269,26 +294,53 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
         )
         return False
 
+    if config_entry.version == 3:
+        return True
+
+    _LOGGER.info(
+        "Migrating config entry %s from version %s to 3",
+        config_entry.entry_id,
+        config_entry.version,
+    )
+
+    # Stage all data changes. Do not mutate the entry until cloud identity
+    # ownership has been resolved.
+    new_data = dict(config_entry.data)
     if config_entry.version == 1:
-        _LOGGER.info(
-            "Migrating config entry %s from version 1 to 2",
-            config_entry.entry_id,
-        )
+        new_data = migrate_legacy_entry(new_data)
 
-        # Use the helper function to migrate legacy modbus/dongle entries
-        new_data = migrate_legacy_entry(dict(config_entry.data))
-
-        # Update the entry with migrated data and new version
-        hass.config_entries.async_update_entry(
-            config_entry,
-            data=new_data,
-            version=2,
+    canonical_unique_id = cloud_unique_id_from_data(new_data)
+    new_unique_id = config_entry.unique_id
+    if canonical_unique_id is not None:
+        conflicts = find_config_entry_identity_conflicts(
+            hass,
+            canonical_unique_id,
+            cloud_unique_id=canonical_unique_id,
+            exclude_entry_id=config_entry.entry_id,
         )
-
-        _LOGGER.info(
-            "Migration complete for config entry %s",
-            config_entry.entry_id,
+        owner = _select_cloud_migration_owner(
+            [config_entry, *conflicts], canonical_unique_id
         )
+        if owner is None or owner.entry_id != config_entry.entry_id:
+            owner_id = owner.entry_id if owner is not None else "ambiguous"
+            _LOGGER.error(
+                "Cannot migrate config entry %s: canonical cloud identity is "
+                "owned by %s; leaving the entry unchanged",
+                config_entry.entry_id,
+                owner_id,
+            )
+            return False
+
+        new_data[CONF_PLANT_ID] = str(new_data[CONF_PLANT_ID])
+        new_unique_id = canonical_unique_id
+
+    hass.config_entries.async_update_entry(
+        config_entry,
+        data=new_data,
+        unique_id=new_unique_id,
+        version=3,
+    )
+    _LOGGER.info("Migration complete for config entry %s", config_entry.entry_id)
 
     return True
 
