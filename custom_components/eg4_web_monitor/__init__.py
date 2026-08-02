@@ -593,9 +593,62 @@ def _async_cleanup_stale_smart_port_entities(
     return pending_serials
 
 
+async def _async_cleanup_failed_entry_setup(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    coordinator: EG4DataUpdateCoordinator,
+) -> None:
+    """Roll back resources acquired by an entry that did not finish setup."""
+    if coordinator._platform_setup_started:
+        try:
+            await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        except Exception:
+            _LOGGER.warning(
+                "Error rolling back partially set up platforms for %s",
+                entry.title,
+                exc_info=True,
+            )
+
+    try:
+        await coordinator.async_shutdown()
+    except Exception:
+        _LOGGER.warning(
+            "Error shutting down coordinator after failed setup for %s",
+            entry.title,
+            exc_info=True,
+        )
+
+    if coordinator.client is not None:
+        try:
+            await coordinator.client.close()
+        except Exception:
+            _LOGGER.warning(
+                "Error closing HTTP client after failed setup for %s",
+                entry.title,
+                exc_info=True,
+            )
+
+    entry.runtime_data = None  # type: ignore[assignment]
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
+    """Set up an entry and unwind every acquired resource on failure."""
+    try:
+        return await _async_setup_entry(hass, entry)
+    except (Exception, asyncio.CancelledError):
+        coordinator = entry.runtime_data
+        if coordinator is not None:
+            await _async_cleanup_failed_entry_setup(hass, entry, coordinator)
+        raise
+
+
+async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up EG4 Web Monitor from a config entry."""
     _LOGGER.debug("Setting up EG4 Web Monitor entry: %s", entry.entry_id)
+
+    # A failed constructor must not accidentally clean up stale runtime data
+    # retained by a test harness or an interrupted previous setup attempt.
+    entry.runtime_data = None  # type: ignore[assignment]
 
     # Configure library debug logging based on user preference (options, data fallback)
     library_debug = entry.options.get(
@@ -648,13 +701,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
 
     # Initialize the coordinator
     coordinator = EG4DataUpdateCoordinator(hass, entry)
+    coordinator._platform_setup_started = False
+    entry.runtime_data = coordinator
     await coordinator._async_load_pv_string_lifetime_state()
 
     # Perform initial data fetch
     await coordinator.async_config_entry_first_refresh()
-
-    # Store coordinator in runtime_data
-    entry.runtime_data = coordinator
 
     # One-time migration: remove stale local-format battery entities
     # Old local keys used numeric-only battery indices (e.g., "0", "1")
@@ -829,6 +881,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     # Forward entry setup to platforms (creates devices and entities)
     # Sensor platform first to create parent devices before other platforms
     # reference them via via_device.
+    coordinator._platform_setup_started = True
     try:
         await hass.config_entries.async_forward_entry_setups(entry, SENSOR_PLATFORM)
         await hass.config_entries.async_forward_entry_setups(entry, OTHER_PLATFORMS)

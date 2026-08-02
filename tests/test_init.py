@@ -1,5 +1,7 @@
 """Tests for __init__.py (setup and teardown) in EG4 Web Monitor integration."""
 
+import asyncio
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -323,6 +325,122 @@ class TestAsyncSetupEntry:
             assert "switch" in all_platforms
             assert "button" in all_platforms
             assert "select" in all_platforms
+
+    @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
+    async def test_first_refresh_failure_unwinds_coordinator_and_client(
+        self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
+    ):
+        """A failed initial refresh must not strand setup-owned resources."""
+        mock_config_entry.add_to_hass(hass)
+        mock_config_entry.runtime_data = None
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock(
+            side_effect=RuntimeError("initial refresh failed")
+        )
+        coordinator.async_shutdown = AsyncMock()
+        coordinator.client = MagicMock()
+        coordinator.client.close = AsyncMock()
+        mock_coordinator_class.return_value = coordinator
+
+        with (
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ) as forward,
+            patch.object(
+                hass.config_entries, "async_unload_platforms", new=AsyncMock()
+            ) as unload,
+            pytest.raises(RuntimeError, match="initial refresh failed"),
+        ):
+            await async_setup_entry(hass, mock_config_entry)
+
+        coordinator.async_shutdown.assert_awaited_once_with()
+        coordinator.client.close.assert_awaited_once_with()
+        forward.assert_not_awaited()
+        unload.assert_not_awaited()
+        assert mock_config_entry.runtime_data is None
+
+    @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
+    async def test_partial_platform_failure_rolls_back_before_shutdown(
+        self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
+    ):
+        """Partially forwarded platforms are unloaded before resource shutdown."""
+        mock_config_entry.add_to_hass(hass)
+        mock_config_entry.runtime_data = None
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock()
+        coordinator.async_shutdown = AsyncMock()
+        coordinator.client = MagicMock()
+        coordinator.client.close = AsyncMock()
+        mock_coordinator_class.return_value = coordinator
+        calls: list[str] = []
+
+        async def forward_platforms(*_args):
+            calls.append("forward")
+            if len(calls) == 2:
+                raise RuntimeError("platform setup failed")
+
+        async def unload_platforms(*_args):
+            calls.append("unload")
+            return True
+
+        coordinator.async_shutdown.side_effect = lambda: calls.append("shutdown")
+        coordinator.client.close.side_effect = lambda: calls.append("close")
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_forward_entry_setups",
+                side_effect=forward_platforms,
+            ),
+            patch.object(
+                hass.config_entries,
+                "async_unload_platforms",
+                side_effect=unload_platforms,
+            ) as unload,
+            pytest.raises(RuntimeError, match="platform setup failed"),
+        ):
+            await async_setup_entry(hass, mock_config_entry)
+
+        unload.assert_awaited_once()
+        assert calls == ["forward", "forward", "unload", "shutdown", "close"]
+        assert mock_config_entry.runtime_data is None
+
+    @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
+    async def test_cancelled_platform_setup_also_unwinds(
+        self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
+    ):
+        """Cancellation follows the same rollback contract as other failures."""
+        mock_config_entry.add_to_hass(hass)
+        mock_config_entry.runtime_data = None
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock()
+        coordinator.async_shutdown = AsyncMock()
+        coordinator.client = MagicMock()
+        coordinator.client.close = AsyncMock()
+        mock_coordinator_class.return_value = coordinator
+
+        with (
+            patch.object(
+                hass.config_entries,
+                "async_forward_entry_setups",
+                new=AsyncMock(side_effect=asyncio.CancelledError),
+            ),
+            patch.object(
+                hass.config_entries,
+                "async_unload_platforms",
+                new=AsyncMock(return_value=True),
+            ) as unload,
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await async_setup_entry(hass, mock_config_entry)
+
+        unload.assert_awaited_once()
+        coordinator.async_shutdown.assert_awaited_once_with()
+        coordinator.client.close.assert_awaited_once_with()
+        assert mock_config_entry.runtime_data is None
 
 
 class TestSmartPortCleanupOnReboot:

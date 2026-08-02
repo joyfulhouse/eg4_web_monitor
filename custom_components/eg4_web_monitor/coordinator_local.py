@@ -1861,7 +1861,10 @@ class LocalTransportMixin(_MixinBase):
             # Schedule an immediate follow-up refresh to load real register data.
             # This runs AFTER async_config_entry_first_refresh() completes and
             # entity platforms finish setup.
-            self.hass.async_create_task(self.async_request_refresh())
+            task = self.hass.async_create_task(self.async_request_refresh())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._remove_task_from_set)
+            task.add_done_callback(self._log_task_exception)
             return self._build_static_local_data()
 
         # Phase 2+: Normal register read path
