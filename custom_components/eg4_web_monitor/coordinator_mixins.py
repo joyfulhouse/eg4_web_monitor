@@ -4160,21 +4160,27 @@ class BackgroundTaskMixin(_MixinBase):
     """Mixin for background task management operations."""
 
     @staticmethod
-    async def _shutdown_transport(transport: Any) -> None:
+    async def _shutdown_transport(transport: Any) -> bool:
         """Terminally close a transport when it exposes an interrupt seam.
 
         Newer pylxpweb dongle transports serialize reusable ``disconnect()``
         behind their transaction lock.  During coordinator shutdown that lock
         may belong to the very hung read we need to interrupt.  Inspect the
         concrete type (rather than a dynamic mock attribute) and prefer its
-        terminal shutdown method; older and reusable transports retain the
-        existing disconnect fallback.
+        terminal shutdown method even while ``is_connected`` is still false
+        during a pending dial. Older transports retain the reusable disconnect
+        fallback only while they report a live connection.
+
+        Return whether a shutdown operation was invoked.
         """
         terminal_shutdown = getattr(type(transport), "async_shutdown", None)
         if callable(terminal_shutdown):
             await terminal_shutdown(transport)
-            return
+            return True
+        if not getattr(transport, "is_connected", False):
+            return False
         await transport.disconnect()
+        return True
 
     async def _cancel_background_tasks(self) -> None:
         """Cancel all background tasks and wait for them to finish."""
@@ -4246,91 +4252,68 @@ class BackgroundTaskMixin(_MixinBase):
         _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")
 
     async def _disconnect_all_transports(self) -> None:
-        """Disconnect all active transports (legacy and cached).
+        """Shut down every unique terminal-capable or active transport.
 
-        Covers three transport sources:
+        Covers four transport sources:
         1. Legacy single-device _modbus_transport / _dongle_transport
         2. Inverters in _inverter_cache (LOCAL/HYBRID mode)
         3. MID devices in _mid_device_cache (LOCAL/HYBRID mode)
+        4. Station-attached devices not represented by either cache
+
+        Terminal-capable transports are visited regardless of ``is_connected``
+        so an in-flight connect is marked terminal before it can install a late
+        socket. Object-identity de-duplication spans every source.
         """
-        # Legacy transports (old single-device config format)
+        transports: list[tuple[str, Any]] = []
+
+        # Legacy transports (old single-device config format).
         for attr in ("_modbus_transport", "_dongle_transport"):
             transport = getattr(self, attr, None)
-            if transport is not None and getattr(transport, "is_connected", False):
-                try:
-                    await self._shutdown_transport(transport)
-                    _LOGGER.debug("Disconnected legacy transport %s", attr)
-                except Exception:
-                    _LOGGER.debug(
-                        "Error disconnecting %s (ignored)", attr, exc_info=True
-                    )
+            if transport is not None:
+                transports.append((f"legacy transport {attr}", transport))
 
-        # Cached inverter transports (LOCAL/HYBRID with local_transports config)
+        # Cached inverter transports (LOCAL/HYBRID with local_transports config).
         for serial, inverter in self._inverter_cache.items():
             transport = inverter.transport
-            if transport is not None and getattr(transport, "is_connected", False):
-                try:
-                    await self._shutdown_transport(transport)
-                    _LOGGER.debug("Disconnected transport for inverter %s", serial)
-                except Exception:
-                    _LOGGER.debug(
-                        "Error disconnecting inverter %s transport (ignored)",
-                        serial,
-                        exc_info=True,
-                    )
+            if transport is not None:
+                transports.append((f"inverter {serial} transport", transport))
 
-        # Cached MID device transports (GridBOSS in LOCAL/HYBRID mode)
+        # Cached MID device transports (GridBOSS in LOCAL/HYBRID mode).
         for serial, mid_device in self._mid_device_cache.items():
             transport = mid_device.transport
-            if transport is not None and getattr(transport, "is_connected", False):
-                try:
-                    await self._shutdown_transport(transport)
-                    _LOGGER.debug("Disconnected transport for MID device %s", serial)
-                except Exception:
-                    _LOGGER.debug(
-                        "Error disconnecting MID %s transport (ignored)",
-                        serial,
-                        exc_info=True,
-                    )
+            if transport is not None:
+                transports.append((f"MID {serial} transport", transport))
 
         # Station-attached transports (HYBRID attach path). Devices attached
         # via Station.attach_local_transports() or the serial attach helper
         # are not guaranteed to appear in the caches above — notably MID
         # devices, since _rebuild_inverter_cache() only caches inverters —
-        # which leaked open serial ports across reloads (#233). De-dup by
-        # object identity so a transport shared with a cache entry closes once.
+        # which leaked open serial ports across reloads (#233).
         station = getattr(self, "station", None)
         if station is not None:
-            seen: set[int] = set()
-            for cache in (self._inverter_cache, self._mid_device_cache):
-                for cached in cache.values():
-                    if cached.transport is not None:
-                        seen.add(id(cached.transport))
             station_devices: list[Any] = list(
                 getattr(station, "all_inverters", None) or []
             )
             station_devices.extend(getattr(station, "all_mid_devices", None) or [])
             for device in station_devices:
                 transport = getattr(device, "transport", None)
-                if (
-                    transport is None
-                    or id(transport) in seen
-                    or not getattr(transport, "is_connected", False)
-                ):
-                    continue
-                seen.add(id(transport))
-                try:
-                    await self._shutdown_transport(transport)
-                    _LOGGER.debug(
-                        "Disconnected station transport for %s",
-                        getattr(device, "serial_number", "?"),
-                    )
-                except Exception:
-                    _LOGGER.debug(
-                        "Error disconnecting station transport for %s (ignored)",
-                        getattr(device, "serial_number", "?"),
-                        exc_info=True,
-                    )
+                if transport is not None:
+                    serial = getattr(device, "serial_number", "?")
+                    transports.append((f"station transport for {serial}", transport))
+
+        seen: set[int] = set()
+        for description, transport in transports:
+            identity = id(transport)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            try:
+                if await self._shutdown_transport(transport):
+                    _LOGGER.debug("Shut down %s", description)
+            except Exception:
+                _LOGGER.debug(
+                    "Error shutting down %s (ignored)", description, exc_info=True
+                )
 
     def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None:
         """Remove completed task from background tasks set."""

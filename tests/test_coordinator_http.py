@@ -1960,6 +1960,7 @@ class _SingleSlotTransport:
         self.disconnected = asyncio.Event()
         self.shutdown_calls = 0
         self.disconnect_calls = 0
+        self.shutdown_requested = False
         self.split_phase = False
         self._op_lock: Any = None
 
@@ -1983,7 +1984,8 @@ class _SingleSlotTransport:
     async def connect(self) -> None:
         """Represent a lifecycle operation that is outside pylxpweb's op lock."""
         await self.endpoint.run(f"{self.operation_name}_connect")
-        self.is_connected = True
+        if not self.shutdown_requested:
+            self.is_connected = True
 
     async def disconnect(self) -> None:
         """Model a reusable disconnect serialized behind the operation lock."""
@@ -1999,9 +2001,23 @@ class _SingleSlotTransport:
     async def async_shutdown(self) -> None:
         """Model pylxpweb terminal shutdown bypassing a held operation lock."""
         self.shutdown_calls += 1
+        self.shutdown_requested = True
         self.is_connected = False
         self.disconnected.set()
         self.endpoint.release.set()
+
+
+class _ReusableOnlyTransport:
+    """Transport without pylxpweb's optional terminal shutdown seam."""
+
+    def __init__(self, *, is_connected: bool) -> None:
+        self.is_connected = is_connected
+        self.disconnect_calls = 0
+
+    async def disconnect(self) -> None:
+        """Model the protocol's idempotent reusable disconnect."""
+        self.disconnect_calls += 1
+        self.is_connected = False
 
 
 class _SingleSlotInverter:
@@ -2511,6 +2527,82 @@ class TestPhysicalEndpointOperationSerialization:
         assert transport.disconnected.is_set()
         assert transport.shutdown_calls == 1
         assert transport.disconnect_calls == 0
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_terminal_shutdown_marks_cached_inflight_connect_once(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """A cached transport still dialing is terminally closed exactly once."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("cached_connect")
+        transport = _SingleSlotTransport(endpoint, operation_name="cached")
+        transport.is_connected = False
+        inverter = _SingleSlotInverter("INV001", transport)
+        coordinator._inverter_cache = {"INV001": inverter}  # type: ignore[dict-item]
+        # The same object is also station-attached. Shutdown de-duplication must
+        # not skip it merely because the cache saw it while still disconnected.
+        coordinator.station = _mock_station([inverter])  # type: ignore[list-item]
+
+        connect_task = asyncio.create_task(transport.connect())
+        await endpoint.entered["cached_connect"].wait()
+        try:
+            await coordinator._disconnect_all_transports()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(connect_task, return_exceptions=True)
+
+        assert transport.shutdown_requested is True
+        assert transport.shutdown_calls == 1
+        assert transport.disconnect_calls == 0
+        assert transport.is_connected is False
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_terminal_shutdown_marks_uncached_station_inflight_connect(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """An uncached station transport still dialing receives the terminal seam."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        endpoint = _SingleSlotEndpoint("station_connect")
+        transport = _SingleSlotTransport(endpoint, operation_name="station")
+        transport.is_connected = False
+        inverter = _SingleSlotInverter("INV001", transport)
+        coordinator._inverter_cache = {}
+        coordinator.station = _mock_station([inverter])  # type: ignore[list-item]
+
+        connect_task = asyncio.create_task(transport.connect())
+        await endpoint.entered["station_connect"].wait()
+        try:
+            await coordinator._disconnect_all_transports()
+        finally:
+            endpoint.release.set()
+            await asyncio.gather(connect_task, return_exceptions=True)
+
+        assert transport.shutdown_requested is True
+        assert transport.shutdown_calls == 1
+        assert transport.disconnect_calls == 0
+        assert transport.is_connected is False
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_shutdown_transport_uses_reusable_disconnect_fallback_only_when_live(
+        self, mock_aiohttp, mock_client_cls, hass, hybrid_config_entry
+    ) -> None:
+        """Clients without async_shutdown retain the connected-only fallback."""
+        hybrid_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
+        connected = _ReusableOnlyTransport(is_connected=True)
+        disconnected = _ReusableOnlyTransport(is_connected=False)
+
+        assert await coordinator._shutdown_transport(connected) is True
+        assert await coordinator._shutdown_transport(disconnected) is False
+
+        assert connected.disconnect_calls == 1
+        assert connected.is_connected is False
+        assert disconnected.disconnect_calls == 0
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
