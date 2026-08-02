@@ -368,6 +368,136 @@ def _async_cleanup_duplicate_runtime_data_entities(
             )
 
 
+def _parallel_group_migration_matches(
+    existing_pg_ids: set[str],
+    devices: dict[str, Any],
+) -> dict[str, str]:
+    """Return legacy-to-current parallel-group IDs with unique member proof.
+
+    A legacy ID embeds the serial of the group master.  A current group is a
+    safe migration target only when its authoritative ``member_serials`` list
+    contains that serial and both sides of the match are one-to-one.  Empty,
+    contradictory, or many-to-one first-refresh data is deliberately ignored.
+    """
+    current_members: dict[str, set[str]] = {}
+    for group_id, device_data in devices.items():
+        if (
+            not group_id.startswith("parallel_group_")
+            or device_data.get("type") != "parallel_group"
+        ):
+            continue
+        members = device_data.get("member_serials")
+        if not isinstance(members, (list, tuple, set, frozenset)) or not members:
+            continue
+        current_members[group_id] = {str(member) for member in members if member}
+
+    stale_ids = existing_pg_ids - current_members.keys()
+    candidates_by_old: dict[str, set[str]] = {}
+    claimants_by_new: dict[str, set[str]] = {
+        group_id: set() for group_id in current_members
+    }
+    for stale_id in stale_ids:
+        legacy_serial = stale_id.removeprefix("parallel_group_")
+        candidates = {
+            group_id
+            for group_id, members in current_members.items()
+            if legacy_serial in members
+        }
+        candidates_by_old[stale_id] = candidates
+        for group_id in candidates:
+            claimants_by_new[group_id].add(stale_id)
+
+    matches: dict[str, str] = {}
+    for stale_id, candidates in candidates_by_old.items():
+        if len(candidates) != 1:
+            continue
+        candidate = next(iter(candidates))
+        if len(claimants_by_new[candidate]) == 1:
+            matches[stale_id] = candidate
+    return matches
+
+
+def _migrate_parallel_group_registry_entries(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    existing_pg_ids: set[str],
+    devices: dict[str, Any],
+) -> None:
+    """Migrate parallel-group registry IDs without guessing or losing entries."""
+    matches = _parallel_group_migration_matches(existing_pg_ids, devices)
+    if not matches:
+        return
+
+    device_registry = dr.async_get(hass)
+    entity_registry = er.async_get(hass)
+
+    for old_id, new_id in sorted(matches.items()):
+        old_device = device_registry.async_get_device({(DOMAIN, old_id)})
+        if old_device is None:
+            continue
+
+        target_device = device_registry.async_get_device({(DOMAIN, new_id)})
+        entries = list(
+            er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+        )
+        for entity in entries:
+            belongs_to_old_device = entity.device_id == old_device.id
+            has_old_unique_id = entity.unique_id.startswith(f"{old_id}_")
+            if not belongs_to_old_device and not has_old_unique_id:
+                continue
+
+            new_unique_id = (
+                entity.unique_id.replace(old_id, new_id, 1)
+                if has_old_unique_id
+                else entity.unique_id
+            )
+            existing_entity_id = entity_registry.async_get_entity_id(
+                entity.domain, DOMAIN, new_unique_id
+            )
+            if existing_entity_id and existing_entity_id != entity.entity_id:
+                entity_registry.async_remove(entity.entity_id)
+                _LOGGER.info(
+                    "Removed duplicate legacy PG entity %s; target %s exists",
+                    entity.entity_id,
+                    existing_entity_id,
+                )
+                continue
+
+            update_args: dict[str, Any] = {}
+            if new_unique_id != entity.unique_id:
+                update_args["new_unique_id"] = new_unique_id
+            if target_device is not None and belongs_to_old_device:
+                update_args["device_id"] = target_device.id
+            if update_args:
+                entity_registry.async_update_entity(entity.entity_id, **update_args)
+                _LOGGER.info(
+                    "Migrated PG entity %s: %s -> %s",
+                    entity.entity_id,
+                    old_id,
+                    new_id,
+                )
+
+        if target_device is not None and target_device.id != old_device.id:
+            device_registry.async_remove_device(old_device.id)
+            _LOGGER.info(
+                "Merged legacy parallel group device %s into %s", old_id, new_id
+            )
+            continue
+
+        new_identifiers = {
+            identifier
+            for identifier in old_device.identifiers
+            if identifier != (DOMAIN, old_id)
+        }
+        new_identifiers.add((DOMAIN, new_id))
+        device_registry.async_update_device(
+            old_device.id,
+            new_identifiers=new_identifiers,
+            name=devices[new_id].get("name") or old_device.name,
+        )
+        _LOGGER.info("Renamed parallel group device in place: %s -> %s", old_id, new_id)
+
+
 # Segments that may sit between the serial and the sensor key in a DEVICE
 # unique ID.
 #
@@ -708,63 +838,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
                 )
 
     # One-time migration: serial-based parallel group IDs → name-based IDs.
-    # Old format: parallel_group_{serial} (e.g., parallel_group_4524850115)
-    # New format: parallel_group_{letter} (e.g., parallel_group_a)
-    # The new format uses the cloud API's parallelGroup name for stability
-    # across LOCAL/HYBRID/cloud mode transitions.
+    # Migration is allowed only when the legacy serial occurs in exactly one
+    # current group's authoritative member list and no second legacy ID claims
+    # that same group. Registry devices are renamed in place where possible so
+    # entity/device IDs, user customizations, and history survive the migration.
     if coordinator.data and "devices" in coordinator.data:
         devices = coordinator.data["devices"]
-        new_pg_ids = {k for k in devices if k.startswith("parallel_group_")}
-
-        # Find old serial-based PG IDs that don't match any new name-based ID
-        stale_ids = existing_pg_ids - new_pg_ids
-
-        claimed_new_ids: set[str] = set()
-        for stale_id in sorted(stale_ids):
-            # Find matching new name-based PG not already claimed or existing
-            matched_new_id = ""
-            for new_id in sorted(new_pg_ids):
-                if new_id not in existing_pg_ids and new_id not in claimed_new_ids:
-                    matched_new_id = new_id
-                    claimed_new_ids.add(new_id)
-                    break
-
-            if matched_new_id:
-                # Migrate entity unique_ids from old serial-based to new name-based
-                old_prefix = stale_id
-                new_prefix = matched_new_id
-                for entity in er.async_entries_for_config_entry(
-                    entity_registry, entry.entry_id
-                ):
-                    if entity.unique_id.startswith(f"{old_prefix}_"):
-                        new_uid = entity.unique_id.replace(old_prefix, new_prefix, 1)
-                        existing_entity = entity_registry.async_get_entity_id(
-                            entity.domain, DOMAIN, new_uid
-                        )
-                        if existing_entity:
-                            entity_registry.async_remove(entity.entity_id)
-                        else:
-                            entity_registry.async_update_entity(
-                                entity.entity_id, new_unique_id=new_uid
-                            )
-                        _LOGGER.info(
-                            "Migrated PG entity %s: %s -> %s",
-                            entity.entity_id,
-                            old_prefix,
-                            new_prefix,
-                        )
-
-            # Remove the old serial-based PG device
-            for device in dr.async_entries_for_config_entry(
-                device_registry, entry.entry_id
-            ):
-                for domain, identifier in device.identifiers:
-                    if domain == DOMAIN and identifier == stale_id:
-                        device_registry.async_remove_device(device.id)
-                        _LOGGER.info(
-                            "Removed stale parallel group device: %s",
-                            stale_id,
-                        )
+        _migrate_parallel_group_registry_entries(hass, entry, existing_pg_ids, devices)
 
     # One-time cleanup: remove deprecated charge/discharge split sensors
     # Consolidated into signed net sensors (battery_power, battery_bank_power, etc.)
