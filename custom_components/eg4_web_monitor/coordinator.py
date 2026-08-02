@@ -318,6 +318,15 @@ class EG4DataUpdateCoordinator(
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._shutdown_listener_fired: bool = False
 
+        # Multi-call controls must be serialized as one logical transaction.
+        # The low-level transport lock protects each individual request, but it
+        # cannot stop another service call from interleaving between (for
+        # example) a schedule's hour/minute writes or the battery regime's
+        # charge/discharge writes.  Coordinator ownership shares the lock across
+        # separate entity instances while the control key keeps unrelated
+        # controls on the same inverter independent.
+        self._control_transaction_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
         # Track availability state for Silver tier logging requirement
         self._last_available_state: bool = True
 
@@ -1159,6 +1168,20 @@ class EG4DataUpdateCoordinator(
 
     # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
 
+    def control_transaction_lock(self, serial: str, control: str) -> asyncio.Lock:
+        """Return the lock for one device's logical multi-call control.
+
+        Locks live for the coordinator lifetime.  Both key components come from
+        the configured device/control tables, so this dictionary is bounded by
+        the number of entities rather than by user-provided values.
+        """
+        key = (serial, control)
+        lock = self._control_transaction_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._control_transaction_locks[key] = lock
+        return lock
+
     def get_configured_control_modes(self) -> tuple[str, str]:
         """Return the configured ``(charge_mode, discharge_mode)`` for entity gating.
 
@@ -1204,6 +1227,15 @@ class EG4DataUpdateCoordinator(
         Raises:
             HomeAssistantError: If no write path is available or a write fails.
         """
+        async with self.control_transaction_lock(serial, "battery_control_mode"):
+            await self._async_write_battery_control_mode(
+                serial, charge_mode, discharge_mode
+            )
+
+    async def _async_write_battery_control_mode(
+        self, serial: str, charge_mode: str, discharge_mode: str
+    ) -> None:
+        """Execute a battery regime write with its logical lock already held."""
         charge_voltage = charge_mode == CONTROL_MODE_VOLTAGE
         discharge_voltage = discharge_mode == CONTROL_MODE_VOLTAGE
 
@@ -1215,6 +1247,15 @@ class EG4DataUpdateCoordinator(
                 await self.write_named_parameter(
                     PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage, serial=serial
                 )
+            except asyncio.CancelledError as err:
+                # Cancellation of the in-flight request is ambiguous: it may
+                # have landed before the response coroutine was interrupted.
+                # Re-read while holding the logical lock, then preserve the
+                # caller's cancellation.
+                await self._converge_partial_battery_mode_write(
+                    serial, charge_voltage, err
+                )
+                raise
             except HomeAssistantError:
                 # Charge bit landed but the discharge bit did not — register
                 # 179 holds a MIXED regime (cloud-path parity with
@@ -1248,6 +1289,11 @@ class EG4DataUpdateCoordinator(
                 discharge_result = await client.api.control.control_function(
                     serial, PARAM_FUNC_BAT_DISCHARGE_CONTROL, discharge_voltage
                 )
+            except asyncio.CancelledError as err:
+                await self._converge_partial_battery_mode_write(
+                    serial, charge_voltage, err
+                )
+                raise
             except Exception as err:
                 await self._raise_partial_battery_mode_write(
                     serial, charge_voltage, err
@@ -1286,6 +1332,22 @@ class EG4DataUpdateCoordinator(
         untouched (the device still holds its previous value) — so the cache
         converges on what actually landed while the error still surfaces.
         """
+        await self._converge_partial_battery_mode_write(serial, charge_voltage, err)
+        raise HomeAssistantError(
+            f"Failed to set battery control mode for {serial}: the regime may "
+            "be partially applied (charge and discharge bits are written "
+            "separately) — device state was re-read"
+        ) from err
+
+    async def _converge_partial_battery_mode_write(
+        self, serial: str, charge_voltage: bool, err: BaseException | None
+    ) -> None:
+        """Best-effort convergence after the charge bit was acknowledged.
+
+        Returning instead of translating the error lets cancellation callers
+        preserve ``CancelledError`` after the cache is made honest. The
+        logical-control lock remains held until this cleanup finishes.
+        """
         _LOGGER.warning(
             "Battery control mode write for %s partially applied (discharge "
             "bit failed%s); re-reading device parameters to reflect the "
@@ -1306,11 +1368,6 @@ class EG4DataUpdateCoordinator(
                     "write failed for %s",
                     serial,
                 )
-        raise HomeAssistantError(
-            f"Failed to set battery control mode for {serial}: the regime may "
-            "be partially applied (charge and discharge bits are written "
-            "separately) — device state was re-read"
-        ) from err
 
     def _get_device_object(self, serial: str) -> BaseInverter | Any | None:
         """Get device object (inverter or MID device) by serial number.

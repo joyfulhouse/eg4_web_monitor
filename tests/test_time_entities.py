@@ -25,6 +25,7 @@ the live cloud register probes in pylxpweb docs/inverters/. Every schedule time
 entity is registry-disabled by default (opt-in advanced feature).
 """
 
+import asyncio
 from datetime import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -953,6 +954,134 @@ class TestWritePaths:
         coordinator.async_refresh_device_parameters.assert_awaited_once_with(
             "1234567890"
         )
+
+    @pytest.mark.asyncio
+    async def test_concurrent_classic_cloud_writes_do_not_interleave(self):
+        """A schedule boundary's hour/minute writes are one logical unit.
+
+        Reproduce audit INT-04 deterministically: the first request pauses after
+        its hour write while a second request attempts the same boundary. With
+        no logical transaction lock the calls land as A-hour, B-hour, B-minute,
+        A-minute and synthesize 20:15 -- a value requested by neither caller.
+        """
+        serial = "1234567890"
+        coordinator = _mock_coordinator(serial=serial, has_local=False)
+        locks: dict[tuple[str, str], asyncio.Lock] = {}
+        coordinator.control_transaction_lock = MagicMock(
+            side_effect=lambda lock_serial, control: locks.setdefault(
+                (lock_serial, control), asyncio.Lock()
+            )
+        )
+        first_hour_started = asyncio.Event()
+        release_first_hour = asyncio.Event()
+        second_minute_written = asyncio.Event()
+        hardware = {"hour": 0, "minute": 0}
+        calls: list[tuple[str, str]] = []
+        success = MagicMock()
+        success.success = True
+
+        async def _write_parameter(
+            write_serial: str, param: str, value: str
+        ) -> MagicMock:
+            assert write_serial == serial
+            calls.append((param, value))
+            if param.endswith("_HOUR"):
+                hardware["hour"] = int(value)
+                if value == "8":
+                    first_hour_started.set()
+                    await release_first_hour.wait()
+            else:
+                hardware["minute"] = int(value)
+                if value == "45":
+                    second_minute_written.set()
+            return success
+
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            side_effect=_write_parameter
+        )
+        first = _entity(coordinator, serial=serial)
+        second = _entity(coordinator, serial=serial)
+        _prep(first)
+        _prep(second)
+
+        first_task = asyncio.create_task(first.async_set_value(time(8, 15)))
+        await first_hour_started.wait()
+        second_task = asyncio.create_task(second.async_set_value(time(20, 45)))
+        await asyncio.sleep(0)
+
+        assert not second_minute_written.is_set()
+        assert not second_task.done()
+        release_first_hour.set()
+
+        await asyncio.gather(first_task, second_task)
+
+        assert hardware == {"hour": 20, "minute": 45}
+        assert calls == [
+            ("HOLD_AC_CHARGE_START_HOUR", "8"),
+            ("HOLD_AC_CHARGE_START_MINUTE", "15"),
+            ("HOLD_AC_CHARGE_START_HOUR", "20"),
+            ("HOLD_AC_CHARGE_START_MINUTE", "45"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_cancelled_partial_cloud_write_converges_before_unlock(self):
+        """Cancellation after the hour ACK still re-reads the mixed state."""
+        serial = "1234567890"
+        coordinator = _mock_coordinator(
+            serial=serial,
+            has_local=False,
+            parameters={
+                "HOLD_AC_CHARGE_START_HOUR": "8",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            },
+        )
+        locks: dict[tuple[str, str], asyncio.Lock] = {}
+        coordinator.control_transaction_lock = MagicMock(
+            side_effect=lambda lock_serial, control: locks.setdefault(
+                (lock_serial, control), asyncio.Lock()
+            )
+        )
+        minute_started = asyncio.Event()
+        hold_minute = asyncio.Event()
+        success = MagicMock(success=True)
+
+        async def _write_parameter(
+            _write_serial: str, param: str, _value: str
+        ) -> MagicMock:
+            if param.endswith("_MINUTE"):
+                minute_started.set()
+                await hold_minute.wait()
+            return success
+
+        async def _refresh_mixed(refresh_serial: str) -> bool:
+            assert refresh_serial == serial
+            assert locks[(serial, "schedule:68")].locked()
+            coordinator.data["parameters"][serial] = {
+                "HOLD_AC_CHARGE_START_HOUR": "20",
+                "HOLD_AC_CHARGE_START_MINUTE": "0",
+            }
+            return True
+
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            side_effect=_write_parameter
+        )
+        coordinator.async_refresh_device_parameters = AsyncMock(
+            side_effect=_refresh_mixed
+        )
+        entity = _entity(coordinator, serial=serial)
+        _prep(entity)
+
+        task = asyncio.create_task(entity.async_set_value(time(20, 30)))
+        await minute_started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        coordinator.async_refresh_device_parameters.assert_awaited_once_with(serial)
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(20, 0)
+        assert not locks[(serial, "schedule:68")].locked()
 
     @pytest.mark.asyncio
     async def test_cloud_write_failure_raises(self):
