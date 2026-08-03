@@ -1,0 +1,144 @@
+name: Issue Log Validation
+
+# Enforces the bug-report template's debug-log requirement with content
+# inspection, which the issue form itself cannot do (it only checks that
+# fields are non-empty — a phone logcat or screenshot passes the form).
+#
+# On issue open/edit: downloads every attachment in the "Debug Logs"
+# section and greps for integration markers (custom_components.eg4_web_monitor
+# / pylxpweb). If none match — e.g. an Android companion-app logcat — the
+# issue is labeled `needs-logs`, gets an explanatory comment, and is closed
+# as "not planned". Editing the body or commenting with a valid log reopens
+# it automatically.
+
+on:
+  issues:
+    types: [opened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'issues' ||
+      (github.event_name == 'issue_comment' &&
+       !github.event.issue.pull_request &&
+       github.event.issue.state == 'closed' &&
+       github.event.comment.user.type != 'Bot')
+    steps:
+      - name: Validate debug logs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          EVENT_NAME: ${{ github.event_name }}
+          AUTHOR_ASSOC: ${{ github.event.issue.author_association }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+
+          MARKER='custom_components\.eg4_web_monitor|pylxpweb|eg4_web_monitor'
+          BOT_TAG='<!-- eg4-log-validation -->'
+
+          # Any attachment (new user-attachments style or legacy repo /files/ style)
+          extract_urls() {
+            grep -oE 'https://github\.com/(user-attachments/files/[0-9]+/[^ )"<>]+|[^ )"<>]+/files/[0-9]+/[^ )"<>]+)' <<<"$1" || true
+          }
+
+          # Returns 0 if any URL's content (or zip member) matches the marker
+          urls_contain_marker() {
+            local url tmp
+            while IFS= read -r url; do
+              [ -z "$url" ] && continue
+              tmp=$(mktemp)
+              if curl -sL --max-filesize 26214400 --max-time 60 -o "$tmp" "$url"; then
+                if file "$tmp" | grep -qi 'zip archive'; then
+                  if unzip -p "$tmp" 2>/dev/null | grep -qaiE "$MARKER"; then rm -f "$tmp"; return 0; fi
+                elif grep -qaiE "$MARKER" "$tmp"; then
+                  rm -f "$tmp"; return 0
+                fi
+              fi
+              rm -f "$tmp"
+            done <<<"$1"
+            return 1
+          }
+
+          issue_json=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json body,state,labels)
+          BODY=$(jq -r '.body // ""' <<<"$issue_json")
+          STATE=$(jq -r '.state' <<<"$issue_json")
+          HAS_NEEDS_LOGS=$(jq -r '[.labels[].name] | contains(["needs-logs"])' <<<"$issue_json")
+
+          if [ "$EVENT_NAME" = "issue_comment" ]; then
+            # Only re-check closed needs-logs issues for a comment carrying valid logs
+            if [ "$HAS_NEEDS_LOGS" != "true" ]; then exit 0; fi
+            URLS=$(extract_urls "$COMMENT_BODY")
+            VALID=false
+            if [ -n "$URLS" ] && urls_contain_marker "$URLS"; then VALID=true; fi
+            if [ "$VALID" = false ] && grep -qiE "$MARKER" <<<"$COMMENT_BODY"; then VALID=true; fi
+            if [ "$VALID" = true ]; then
+              gh issue reopen "$ISSUE_NUMBER" --repo "$REPO"
+              gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "needs-logs"
+              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$BOT_TAG
+          Thanks — the attached file looks like a valid integration debug log, so this issue has been reopened for triage."
+            fi
+            exit 0
+          fi
+
+          # --- issues: opened / edited ---
+
+          # Maintainers and collaborators are exempt from enforcement
+          case "$AUTHOR_ASSOC" in
+            OWNER|MEMBER|COLLABORATOR) exit 0 ;;
+          esac
+
+          # Only bug-template issues have a Debug Logs section; skip everything else
+          if ! grep -q '^### Debug Logs' <<<"$BODY"; then exit 0; fi
+
+          SECTION=$(awk '/^### Debug Logs/{f=1;next} /^### /{f=0} f' <<<"$BODY")
+          URLS=$(extract_urls "$SECTION")
+          VALID=false
+          if [ -n "$URLS" ] && urls_contain_marker "$URLS"; then VALID=true; fi
+          # Accept logs pasted inline instead of attached
+          if [ "$VALID" = false ] && grep -qiE "$MARKER" <<<"$SECTION"; then VALID=true; fi
+
+          if [ "$VALID" = true ]; then
+            if [ "$STATE" = "CLOSED" ] && [ "$HAS_NEEDS_LOGS" = "true" ]; then
+              gh issue reopen "$ISSUE_NUMBER" --repo "$REPO"
+              gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "needs-logs"
+              gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$BOT_TAG
+          Thanks — the updated report now includes a valid integration debug log, so this issue has been reopened for triage."
+            elif [ "$HAS_NEEDS_LOGS" = "true" ]; then
+              gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --remove-label "needs-logs"
+            fi
+            exit 0
+          fi
+
+          # Invalid: label, explain once, close
+          gh label create "needs-logs" --repo "$REPO" \
+            --description "Waiting on integration debug logs" --color D93F0B 2>/dev/null || true
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" --add-label "needs-logs"
+
+          if ! gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json comments \
+              --jq '.comments[].body' | grep -q 'eg4-log-validation'; then
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body "$BOT_TAG
+          Thanks for the report! Unfortunately the file in the **Debug Logs** field doesn't appear to be a debug log from the EG4 Web Monitor integration, so there is nothing we can act on yet. This issue has been **closed automatically** and will **reopen automatically** as soon as a valid log is attached (edit the issue or post it in a comment — no need to open a new issue).
+
+          Common mix-ups:
+          - The **Home Assistant companion app's** \"share logs\" file is a phone-side log — it contains no integration data.
+          - The default Home Assistant log (warnings only) is not enough — the DEBUG level is where the cloud/Modbus payloads appear.
+          - Screenshots of logs can't be searched — please attach the file itself.
+
+          To capture the right log, from a **web browser** (not the mobile app):
+          1. Go to **Settings → Devices & Services → EG4 Web Monitor**
+          2. Click **⋮ (three dots) → Enable debug logging**
+          3. Reproduce the problem (or wait ~2 minutes for a few update cycles)
+          4. Click **⋮ → Disable debug logging** — the log file downloads automatically
+          5. Attach that file here (drag & drop into a comment)"
+          fi
+
+          gh issue close "$ISSUE_NUMBER" --repo "$REPO" --reason "not planned" || true
