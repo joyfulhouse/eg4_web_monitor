@@ -157,13 +157,21 @@ def check_strict_typing() -> bool:
     # Note: API package (pylxpweb) is external and has its own typing
     print("  ℹ️  External API library (pylxpweb) provides its own type hints")
 
-    # Try to run mypy
+    # Run mypy in the same Python environment as this validator. Merely having
+    # strict=True in the config does not satisfy the tier if mypy is absent or
+    # the code does not pass the configured check.
     try:
         print("  🔍 Running mypy type checking...")
-        # Running from repo root
         integration_dir = Path("custom_components/eg4_web_monitor")
         result = subprocess.run(
-            ["mypy", "--config-file", str(mypy_config_path), str(integration_dir)],
+            [
+                sys.executable,
+                "-m",
+                "mypy",
+                "--config-file",
+                str(mypy_config_path),
+                str(integration_dir),
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -172,22 +180,16 @@ def check_strict_typing() -> bool:
         if result.returncode == 0:
             print("  ✅ mypy type checking passed with no errors")
             return True
-        else:
-            print("  ⚠️  mypy found type errors (this is expected during development):")
-            # Show first 10 lines of errors
-            error_lines = result.stdout.split("\n")[:10]
-            for line in error_lines:
-                if line.strip():
-                    print(f"      {line}")
-            print("  ℹ️  Platinum tier requires strict typing configuration (present)")
-            print("  ℹ️  Type errors should be resolved before final submission")
-            # Don't fail the validation for type errors - just warn
-            return True
+        print(f"  ❌ mypy failed with exit code {result.returncode}:")
+        output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+        for line in output.splitlines()[:10]:
+            if line.strip():
+                print(f"      {line}")
+        return False
 
-    except FileNotFoundError:
-        print("  ⚠️  mypy not installed (install with: pip install mypy)")
-        print("  ℹ️  Platinum tier requires strict typing configuration (present)")
-        return True
+    except OSError as err:
+        print(f"  ❌ mypy could not run: {err}")
+        return False
 
 
 def main() -> int:
@@ -222,7 +224,8 @@ def main() -> int:
             "Note: This integration also meets all Bronze, Silver, and Gold tier requirements."
         )
         print(
-            "      Run validate_bronze_tier.py, validate_silver_tier.py, and validate_gold_tier.py"
+            "      Bronze is enforced by the quality workflow; run "
+            "validate_silver_tier.py and validate_gold_tier.py"
         )
         print("      to verify lower tier compliance.")
         return 0

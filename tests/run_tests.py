@@ -1,31 +1,35 @@
 #!/usr/bin/env python3
 """Test runner for EG4 Inverter integration."""
 
-import sys
-import subprocess
-from pathlib import Path
 import argparse
-from typing import Optional
+import subprocess
+import sys
+from pathlib import Path
+
+
+def _normalized_exit_code(returncode: int) -> int:
+    """Return a shell-safe failure code for subprocess signal termination."""
+    if returncode < 0:
+        return 1
+    return returncode
 
 
 def install_test_requirements() -> None:
     """Install test requirements."""
-    # Now run_tests.py is in the tests directory, so parent is the integration root
-    integration_root = Path(__file__).parent.parent
-    requirements_file = integration_root / "requirements-test.txt"
-    if requirements_file.exists():
-        print("📦 Installing test requirements...")
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)],
-            check=True,
-        )
-        print("✅ Test requirements installed")
-    else:
-        print("⚠️  Test requirements file not found")
+    requirements_file = Path(__file__).with_name("requirements-test.txt")
+    if not requirements_file.exists():
+        raise FileNotFoundError(f"Test requirements not found: {requirements_file}")
+
+    print("📦 Installing test requirements...")
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-r", str(requirements_file)],
+        check=True,
+    )
+    print("✅ Test requirements installed")
 
 
 def run_tests(
-    coverage: bool = False, verbose: bool = False, test_filter: Optional[str] = None
+    coverage: bool = False, verbose: bool = False, test_filter: str | None = None
 ) -> int:
     """Run the test suite."""
     # Now run_tests.py is in the tests directory
@@ -33,12 +37,18 @@ def run_tests(
     integration_root = tests_dir.parent
 
     # Build pytest command
-    cmd = [sys.executable, "-m", "pytest"]
+    cmd = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-c",
+        str(integration_root / "pytest.ini"),
+    ]
 
     if coverage:
         cmd.extend(
             [
-                "--cov=.",
+                "--cov=custom_components/eg4_web_monitor",
                 "--cov-report=html:htmlcov",
                 "--cov-report=term-missing",
                 "--cov-fail-under=80",
@@ -70,7 +80,7 @@ def run_tests(
                 print("📊 Coverage report generated in htmlcov/")
         else:
             print("❌ Some tests failed")
-        return result.returncode
+        return _normalized_exit_code(result.returncode)
     except KeyboardInterrupt:
         print("\n⚠️  Tests interrupted by user")
         return 1
@@ -80,45 +90,34 @@ def run_tests(
 
 
 def run_linting() -> int:
-    """Run code linting."""
+    """Run the canonical Ruff lint and formatting checks."""
     print("🔍 Running code linting...")
 
-    # Now run_tests.py is in the tests directory, so parent is the integration root
     integration_root = Path(__file__).parent.parent
+    checks = (
+        ("Ruff lint", [sys.executable, "-m", "ruff", "check", "."]),
+        (
+            "Ruff format",
+            [sys.executable, "-m", "ruff", "format", "--check", "."],
+        ),
+    )
 
-    # Check if flake8 is available
     try:
-        subprocess.run(
-            [sys.executable, "-m", "flake8", "--version"],
-            capture_output=True,
-            check=True,
-        )
+        for label, command in checks:
+            result = subprocess.run(
+                command,
+                cwd=integration_root,
+                check=False,
+            )
+            if result.returncode != 0:
+                print(f"❌ {label} failed (exit {result.returncode})")
+                return _normalized_exit_code(result.returncode)
+    except OSError as err:
+        print(f"❌ Could not run Ruff: {err}")
+        return 1
 
-        # Run flake8 on the integration code
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "flake8",
-                ".",
-                "--exclude=tests,homeassistant-dev,samples,__pycache__,.git",
-                "--max-line-length=120",
-                "--ignore=E501,W503",
-            ],
-            cwd=integration_root,
-            check=False,
-        )
-
-        if result.returncode == 0:
-            print("✅ Code linting passed!")
-        else:
-            print("⚠️  Code linting issues found")
-
-        return result.returncode
-
-    except subprocess.CalledProcessError:
-        print("⚠️  flake8 not available, skipping linting")
-        return 0
+    print("✅ Code linting and formatting passed!")
+    return 0
 
 
 def main() -> int:
@@ -144,7 +143,7 @@ def main() -> int:
     if args.install:
         try:
             install_test_requirements()
-        except subprocess.CalledProcessError as e:
+        except (OSError, subprocess.CalledProcessError) as e:
             print(f"❌ Failed to install requirements: {e}")
             return 1
 
