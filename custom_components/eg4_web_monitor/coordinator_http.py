@@ -240,6 +240,7 @@ class HTTPUpdateMixin(_MixinBase):
             if transport is None:
                 no_transport.append(device)
                 continue
+            transport = self._bind_device_endpoint_lock(device)
             # Group by the PUBLIC host/port (network transports — TCP dongle).
             host = getattr(transport, "host", None)
             port = getattr(transport, "port", None)

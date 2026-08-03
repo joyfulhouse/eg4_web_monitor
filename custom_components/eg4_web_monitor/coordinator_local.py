@@ -832,12 +832,12 @@ class LocalTransportMixin(_MixinBase):
         )
 
         transport_name = connection_type.capitalize()
+        transport = self._bind_endpoint_operation_lock(transport)
 
         try:
             _LOGGER.debug("Fetching %s data for inverter %s", transport_name, serial)
 
-            if not transport.is_connected:
-                await transport.connect()
+            await self._connect_endpoint_transport(transport)
 
             # Create or reuse BaseInverter via factory
             if serial not in self._inverter_cache:
@@ -859,6 +859,11 @@ class LocalTransportMixin(_MixinBase):
                 self._inverter_cache[serial] = inverter
             else:
                 inverter = self._inverter_cache[serial]
+
+            # Cached legacy inverters retain the raw global transport. Bind it
+            # before any refresh so direct writes/background work cannot
+            # overlap this poll.
+            self._bind_device_endpoint_lock(inverter)
 
             include_params = self._local_parameters_loaded
             await inverter.refresh(include_parameters=include_params)
@@ -1151,8 +1156,8 @@ class LocalTransportMixin(_MixinBase):
                     device_availability[serial] = False
                     return
 
-                if not transport.is_connected:
-                    await transport.connect()
+                transport = self._bind_endpoint_operation_lock(transport)
+                await self._connect_endpoint_transport(transport)
 
                 # Propagate split-phase config for per-leg power fallback
                 grid_type = config.get(CONF_GRID_TYPE)
@@ -1206,9 +1211,9 @@ class LocalTransportMixin(_MixinBase):
             if is_gridboss:
                 mid_device = self._mid_device_cache[serial]
 
-                transport = mid_device.transport
-                if transport and not transport.is_connected:
-                    await transport.connect()
+                transport = self._bind_device_endpoint_lock(mid_device)
+                if transport:
+                    await self._connect_endpoint_transport(transport)
 
                 await mid_device.refresh()
 
@@ -1260,9 +1265,9 @@ class LocalTransportMixin(_MixinBase):
             else:
                 inverter = self._inverter_cache[serial]
 
-                transport = inverter.transport
-                if transport and not transport.is_connected:
-                    await transport.connect()
+                transport = self._bind_device_endpoint_lock(inverter)
+                if transport:
+                    await self._connect_endpoint_transport(transport)
 
                 # Use the per-cycle decision computed in _async_update_local_data
                 # (or fall back to the direct check for the deprecated single-
@@ -1650,6 +1655,7 @@ class LocalTransportMixin(_MixinBase):
             loaded = 0
             for serial, inverter in self._inverter_cache.items():
                 try:
+                    self._bind_device_endpoint_lock(inverter)
                     # force=False: reuse cached runtime/energy/battery from
                     # the poll cycle, only fetch parameters (holding registers)
                     await inverter.refresh(force=False, include_parameters=True)
@@ -2638,6 +2644,7 @@ class LocalTransportMixin(_MixinBase):
                 self._align_inverter_cache_ttls(inverter, tt)
                 if tt == "modbus_tcp":
                     modbus_inverters.append(inverter)
+                self._bind_device_endpoint_lock(inverter)
 
         # Propagate validation to MID devices.  set_max_system_power()
         # cannot be called here because inverter features have not been
@@ -2645,6 +2652,7 @@ class LocalTransportMixin(_MixinBase):
         for mid in self.station.all_mid_devices:
             if mid.transport is not None:
                 mid.validate_data = validation_enabled
+                self._bind_device_endpoint_lock(mid)
         return modbus_inverters
 
     async def _maybe_retry_failed_attaches(self) -> None:
@@ -2988,7 +2996,8 @@ class LocalTransportMixin(_MixinBase):
                     inverter_family=config.inverter_family,
                     **input_block_size_kwargs(self._max_input_block_size),
                 )
-                await transport.connect()
+                transport = self._bind_endpoint_operation_lock(transport)
+                await self._connect_endpoint_transport(transport)
                 device._transport = transport
                 result.matched += 1
 
@@ -3049,6 +3058,7 @@ class LocalTransportMixin(_MixinBase):
         await asyncio.sleep(2)  # Let setup and first static refresh complete
         for inverter in inverters:
             try:
+                self._bind_device_endpoint_lock(inverter)
                 _LOGGER.debug(
                     "Draining Modbus buffer for %s after restart",
                     inverter.serial_number,
