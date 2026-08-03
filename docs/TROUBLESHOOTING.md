@@ -125,6 +125,33 @@ endpoints, and SSL certificate verification by default.
 prompts you to re-enter credentials through the UI — no need to delete and re-add
 the integration.
 
+**How do I remove a device that is no longer part of my system?** Open its device
+page (**Settings → Devices & Services → EG4 Web Monitor → the device**) and choose
+**Delete** from the three-dot menu. Removal is only allowed for devices the
+integration has not reported for a while — an inverter removed from your station
+or configuration, a battery module no longer present, or leftovers from older
+versions. Because a single poll can under-report what is really connected
+(battery slots rotate, cloud responses omit modules), deletion requires the
+device to have been continuously absent for an observation window of updates
+that were verified complete: 15 minutes for inverters, GridBOSS units,
+parallel groups, and the station; 6 hours for battery modules and battery
+banks. The window counts only complete observed time — it restarts after a
+Home Assistant restart, an integration reload, a stretch of failed updates,
+or any cycle where the cloud device list or a battery fetch silently failed
+(so a live device is never aged toward deletion off a table that only looked
+empty). For a physically removed battery module the practical wait is about
+12 hours: battery tracking keeps a missing module visible for its first 6
+hours of absence, and the deletion window starts once it stops being
+reported. A device already gone before the current session started — one this
+running instance has never once observed — is held to the 6-hour window
+whatever its type, since its class cannot be confirmed. A device that is
+still being reported is always refused (its entities would immediately
+recreate it), as is any deletion while an update is failing or is being served
+from cache. A degraded inverter (link down, or not yet reporting its
+batteries) blocks deletion of its own battery modules only — a healthy
+inverter's modules still age out normally — and the safe direction is always
+to refuse.
+
 ## Enabling Debug Logging
 
 Add the following to `configuration.yaml` and restart Home Assistant:

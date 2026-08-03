@@ -34,6 +34,14 @@ def _bare_coordinator(data: dict | None = None) -> EG4DataUpdateCoordinator:
     # seeds immediately before publishing; a bare coordinator needs the state.
     coordinator._parameter_write_seeds = {}
     coordinator._parameter_write_generation = 0
+    # The device-removal observation ledger (#174) is likewise stamped on the
+    # publish path.
+    coordinator._removal_identifier_last_seen = {}
+    coordinator._removal_device_observed_since = None
+    coordinator._removal_battery_observed_since = None
+    coordinator._removal_battery_parent_since = {}
+    coordinator._removal_device_list_ok = False
+    coordinator._removal_battery_ok = False
     return coordinator
 
 
