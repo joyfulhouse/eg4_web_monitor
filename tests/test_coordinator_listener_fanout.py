@@ -30,6 +30,10 @@ def _bare_coordinator(data: dict | None = None) -> EG4DataUpdateCoordinator:
     coordinator._active_listener_contexts = None
     coordinator._last_listener_update_success = True
     coordinator.last_update_success = True
+    # The composed production path (#527) overlays retained parameter write
+    # seeds immediately before publishing; a bare coordinator needs the state.
+    coordinator._parameter_write_seeds = {}
+    coordinator._parameter_write_generation = 0
     return coordinator
 
 

@@ -414,7 +414,11 @@ class TestNumberRetainsAcknowledgedWrite:
     async def test_production_listener_runs_retention_convergence_and_ttl(self, caplog):
         """The registered coordinator callback must be the retention handler."""
         coordinator = _coordinator(
-            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_all_ok=False
+            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80},
+            # The composed post-write path (#533) refreshes serial-scoped
+            # parameters, not the broad all-device refresh.
+            refresh_device_ok=False,
+            refresh_all_ok=False,
         )
         entity = self._entity(coordinator)
         await entity.async_added_to_hass()

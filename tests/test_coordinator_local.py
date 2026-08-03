@@ -4123,7 +4123,7 @@ class TestLinkDownParameterRefreshGate:
             await release_read.wait()
             inverter.parameters = {"HOLD_CHG_POWER_PERCENT_CMD": 60}
 
-        inverter.refresh = AsyncMock(side_effect=stale_refresh)
+        inverter._fetch_parameters = AsyncMock(side_effect=stale_refresh)
         refresh_task = asyncio.create_task(
             coordinator._refresh_device_parameters("INV1")
         )
@@ -4146,7 +4146,7 @@ class TestLinkDownParameterRefreshGate:
             }
             inverter.parameters_complete = False
 
-        inverter.refresh = AsyncMock(side_effect=partial_refresh)
+        inverter._fetch_parameters = AsyncMock(side_effect=partial_refresh)
         assert await coordinator._refresh_device_parameters("INV1") is True
         assert coordinator.data["parameters"]["INV1"] == {
             "HOLD_CHG_POWER_PERCENT_CMD": 90,
@@ -4159,7 +4159,7 @@ class TestLinkDownParameterRefreshGate:
             inverter.parameters = {"HOLD_CHG_POWER_PERCENT_CMD": 75}
             inverter.parameters_complete = True
 
-        inverter.refresh = AsyncMock(side_effect=complete_refresh)
+        inverter._fetch_parameters = AsyncMock(side_effect=complete_refresh)
         assert await coordinator._refresh_device_parameters("INV1") is True
         assert coordinator.data["parameters"]["INV1"] == {
             "HOLD_CHG_POWER_PERCENT_CMD": 75
@@ -4801,10 +4801,12 @@ class TestLocalProcessingFailureStaleness:
             "parameters": {},
         }
 
-        def fail_one_mapping(runtime: InverterRuntimeData) -> dict[str, Any]:
+        def fail_one_mapping(
+            runtime: InverterRuntimeData, **kwargs: Any
+        ) -> dict[str, Any]:
             if runtime is runtimes[broken_serial]:
                 raise ValueError("deterministic mapping failure")
-            return _build_runtime_sensor_mapping(runtime)
+            return _build_runtime_sensor_mapping(runtime, **kwargs)
 
         with (
             patch.object(coordinator, "_should_poll_transport", return_value=True),
