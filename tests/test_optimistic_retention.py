@@ -411,6 +411,29 @@ class TestNumberRetainsAcknowledgedWrite:
         return entity
 
     @pytest.mark.asyncio
+    async def test_production_listener_runs_retention_convergence_and_ttl(self, caplog):
+        """The registered coordinator callback must be the retention handler."""
+        coordinator = _coordinator(
+            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_all_ok=False
+        )
+        entity = self._entity(coordinator)
+        await entity.async_added_to_hass()
+
+        callback = coordinator.async_add_listener.call_args.args[0]
+        assert callback == entity._handle_coordinator_update
+
+        await entity.async_set_native_value(95)
+        assert entity._optimistic_retained is True
+        _expire(entity)
+
+        with caplog.at_level("WARNING"):
+            callback()
+
+        assert entity._optimistic_retained is False
+        assert entity.native_value == 80
+        assert "expired without device confirmation" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_retains_on_failed_refresh(self):
         """Write ack'd + refresh failed → the written value stays published."""
         coordinator = _coordinator(
