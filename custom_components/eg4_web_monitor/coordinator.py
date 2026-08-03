@@ -462,9 +462,12 @@ class EG4DataUpdateCoordinator(
             else DEFAULT_DONGLE_UPDATE_INTERVAL,
         )
 
-        # Per-transport last-poll timestamps (monotonic)
-        self._last_modbus_poll: float = 0.0
-        self._last_dongle_poll: float = 0.0
+        # Per-transport last-poll timestamps (monotonic).  ``None`` means the
+        # transport gate has never fired; a numeric zero is not a safe sentinel
+        # because monotonic time is host uptime and may still be below the poll
+        # interval immediately after boot.
+        self._last_modbus_poll: float | None = None
+        self._last_dongle_poll: float | None = None
 
         # Store HTTP polling interval for client cache alignment
         self._http_polling_interval: int = http_interval_seconds
@@ -859,27 +862,41 @@ class EG4DataUpdateCoordinator(
         ttl = timedelta(seconds=interval)
         inverter.set_cache_ttls(runtime=ttl, energy=ttl, battery=ttl)
 
+    @staticmethod
+    def _poll_gate_key(transport_type: str) -> str:
+        """Return the interval-gate key for a concrete transport type.
+
+        Modbus TCP and serial intentionally share one configured interval and
+        timestamp.  Callers that pre-compute due transports must therefore ask
+        the gate once for the normalized key and apply that decision to both
+        concrete types in the same coordinator tick.
+        """
+        if transport_type in ("modbus_tcp", "modbus_serial"):
+            return "modbus"
+        return transport_type
+
     def _should_poll_transport(self, transport_type: str) -> bool:
         """Check whether enough time has elapsed to poll this transport type.
 
-        Uses monotonic timestamps. Returns True on first call (timestamp==0.0).
+        Uses monotonic timestamps. Returns True on the first call (timestamp is
+        ``None``), including immediately after a fresh host boot.
         Updates the timestamp when returning True.
         """
+        gate_key = self._poll_gate_key(transport_type)
         interval_map: dict[str, tuple[str, str]] = {
-            "modbus_tcp": ("_last_modbus_poll", "_modbus_interval"),
-            "modbus_serial": ("_last_modbus_poll", "_modbus_interval"),
+            "modbus": ("_last_modbus_poll", "_modbus_interval"),
             "wifi_dongle": ("_last_dongle_poll", "_dongle_interval"),
         }
-        attrs = interval_map.get(transport_type)
+        attrs = interval_map.get(gate_key)
         if attrs is None:
             return True  # Unknown type: always poll
 
         ts_attr, interval_attr = attrs
         now = time.monotonic()
-        last_poll: float = getattr(self, ts_attr)
+        last_poll: float | None = getattr(self, ts_attr)
         interval: int = getattr(self, interval_attr)
 
-        if now - last_poll < interval:
+        if last_poll is not None and now - last_poll < interval:
             return False
 
         setattr(self, ts_attr, now)

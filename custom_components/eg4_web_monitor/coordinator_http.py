@@ -142,12 +142,19 @@ class HTTPUpdateMixin(_MixinBase):
         """
         if not self._local_transport_configs:
             return True  # No local transports -> always refresh (HTTP-only fallback)
-        unique_types = {
-            c.get("transport_type", "modbus_tcp") for c in self._local_transport_configs
+        gate_representatives: dict[str, str] = {}
+        for config in self._local_transport_configs:
+            transport_type = config.get("transport_type", "modbus_tcp")
+            gate_representatives.setdefault(
+                self._poll_gate_key(transport_type), transport_type
+            )
+        # Eagerly evaluate ALL independent gates so every monotonic timestamp
+        # is stamped even when an earlier one is True. TCP and serial share the
+        # normalized Modbus gate and therefore consume one decision per tick.
+        results = {
+            gate: self._should_poll_transport(transport_type)
+            for gate, transport_type in gate_representatives.items()
         }
-        # Eagerly evaluate ALL types so every transport's monotonic timestamp
-        # is stamped even when an earlier one is True.
-        results = {tt: self._should_poll_transport(tt) for tt in unique_types}
         # MID device is on the dongle — gate its refresh by dongle interval.
         # If no dongle transport exists, fall back to any-transport-ready.
         if "wifi_dongle" in results:
