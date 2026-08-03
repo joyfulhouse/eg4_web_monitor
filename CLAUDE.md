@@ -458,7 +458,7 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 | Discharge Power | 65 | 0-100% |
 | AC Charge Power | 66 | 0-100% |
 | AC Charge SOC Limit | 67 | 0-100% (grid-tied families only; removed on EG4_OFFGRID, #331/#332) |
-| AC Charge Start / End Battery SOC | 160 / 161 | 0-100% (EG4_OFFGRID family only, #332) |
+| AC Charge Start / End Battery SOC | 160 / 161 | Start 0-90% on EG4_OFFGRID + EG4_HYBRID (#331/#488; reg-160 write cap per pylxpweb); End 0-100% on EG4_OFFGRID only (read-only on grid-tied, #332 note) |
 | Charge Current | 101 | Amps |
 | Discharge Current | 102 | Amps |
 | On-Grid SOC Cutoff | 105 | 10-90% |

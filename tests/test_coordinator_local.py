@@ -397,13 +397,16 @@ class TestReadModbusParameters:
         assert result["HOLD_PTOUSER_START_DISCHARGE"] == 100
         assert result["117"] == 65486
 
-    async def test_ac_charge_soc_window_registers_offgrid_only(
+    async def test_ac_charge_soc_window_registers_by_family(
         self, hass, local_config_entry
     ):
-        """GH #331: regs 160-161 are polled on EG4_OFFGRID (widened 158-161
-        read) and NOT on other/unknown families, which keep the (158, 2)
-        voltage-only read. Both registers surface under pylxpweb's name-map
-        keys (reg 161 named from 0.9.36b28).
+        """GH #331 / PR #488: regs 160-161 are polled on the families whose
+        AC Charge Start/End Battery SOC numbers consume them — EG4_OFFGRID
+        (both entities) and EG4_HYBRID (Start; a pure-LOCAL grid-tied unit
+        reads only from this cache, review item 1). Unknown families keep
+        the (158, 2) voltage-only read, mirroring the fails-closed
+        is_hybrid_family() entity gate. Both registers surface under
+        pylxpweb's name-map keys (reg 161 named from 0.9.36b28).
         """
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
@@ -417,18 +420,19 @@ class TestReadModbusParameters:
                 }
             return {}
 
-        mock_transport = make_transport_spec()
-        mock_transport.read_named_parameters.side_effect = mock_read
+        for family in ("EG4_OFFGRID", "EG4_HYBRID"):
+            mock_transport = make_transport_spec()
+            mock_transport.read_named_parameters.side_effect = mock_read
 
-        result, _ = await coordinator._read_modbus_parameters(
-            mock_transport,
-            {"features": {"inverter_family": "EG4_OFFGRID"}},
-        )
-        assert result["HOLD_AC_CHARGE_START_BATTERY_SOC"] == 90
-        assert result["HOLD_AC_CHARGE_END_BATTERY_SOC"] == 100
+            result, _ = await coordinator._read_modbus_parameters(
+                mock_transport,
+                {"features": {"inverter_family": family}},
+            )
+            assert result["HOLD_AC_CHARGE_START_BATTERY_SOC"] == 90, family
+            assert result["HOLD_AC_CHARGE_END_BATTERY_SOC"] == 100, family
 
-        # Non-offgrid families (and the family-agnostic default) keep (158, 2).
-        for device_data in (None, {"features": {"inverter_family": "EG4_HYBRID"}}):
+        # Unknown/unidentified families keep the (158, 2) voltage-only read.
+        for device_data in (None, {"features": {"inverter_family": "LXP"}}):
             mock_transport = make_transport_spec()
             mock_transport.read_named_parameters.return_value = {}
             await coordinator._read_modbus_parameters(mock_transport, device_data)

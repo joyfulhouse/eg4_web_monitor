@@ -668,16 +668,26 @@ class LocalTransportMixin(_MixinBase):
                 (116, 2),
                 (125, 1),  # Off-grid SOC cutoff (HOLD_SOC_LOW_LIMIT_EPS_DISCHG)
                 *ac_first_range,  # (152, 6) on EG4_OFFGRID only (GH #295)
-                # AC charge start/stop voltage (158-159); on EG4_OFFGRID the
-                # read widens to cover the AC-charge SOC window (160-161,
-                # GH #331) consumed by the family's AC Charge Start/End
-                # Battery SOC numbers — same widen-don't-split rationale as
-                # (64, 26): one Modbus read either way. Both registers
-                # surface under pylxpweb's name-map keys
+                # AC charge start/stop voltage (158-159); on the families
+                # that create the reg-160 AC Charge Start Battery SOC
+                # entity (EG4_OFFGRID + EG4_HYBRID — the same gates
+                # number.py applies) the read widens to cover the AC-charge
+                # SOC window (160-161, GH #331) — same widen-don't-split
+                # rationale as (64, 26): one Modbus read either way. A
+                # pure-LOCAL grid-tied unit reads exclusively from this
+                # cache, so without the widened read its Start entity would
+                # sit at unknown forever (PR #488 review item 1). Both
+                # registers surface under pylxpweb's name-map keys
                 # (HOLD_AC_CHARGE_{START,END}_BATTERY_SOC; reg 161 named
                 # from 0.9.36b28 — older releases emit the raw "161"
                 # fallback key, which nothing consumes until the pin bump).
-                (158, 4 if is_offgrid else 2),
+                # Hybrid read evidence is a single FlexBOSS21; a family
+                # member whose firmware NAKs reads past 159 would take the
+                # working 158-159 voltage params down with the widened read
+                # and mark every parameter cycle incomplete (#282 retry
+                # loop) — split into (158, 2) + (160, 2) if that report
+                # ever arrives.
+                (158, 4 if (is_offgrid or is_hybrid) else 2),
                 (169, 1),  # On-grid end-of-discharge voltage (HOLD_ONGRID_EOD_VOLTAGE)
                 (
                     179,
