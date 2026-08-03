@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.9] - 2026-08-03
+
+### Fixed
+
+- **Bank Capacity Percent stuck at 0 in Cloud mode** ([#514](https://github.com/joyfulhouse/eg4_web_monitor/issues/514), reported by @brendonlobo123 on a 12000XP): some units report no per-battery module array to EG4's cloud (`batteryArray=[]`), which leaves the cloud's array-computed `capacityPercent` — and only that field — frozen at 0 while the BMS-level pair in the same payload stays live and correct (the reporter's log: 260/500 Ah = 52% matching SOC exactly, across every polled cycle). The sensor relayed that fake 0 verbatim. Fixed in [pylxpweb 0.9.39b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.39b9) (pin raised): the raw cloud value stays primary, and only a 0/absent reading with the BMS pair present derives the percentage from `currentBatteryCharge / maxBatteryCharge`. Devices whose cloud accounts populate the field (live-verified 18kPV and FlexBOSS21, where the raw value already equals the pair ratio exactly) are byte-for-byte unchanged, as are GridBOSS (no pair) and genuinely empty banks (whose pair derives ~0 anyway). Local mode was never affected — its register path already derived the ratio.
+
 ## [3.5.1-beta.8] - 2026-08-03
 
 This release delivers the two long-open community PRs from @notexpected, merged after their final review rounds, plus same-day hardening follow-ups from those reviews.
