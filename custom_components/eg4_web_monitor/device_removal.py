@@ -93,6 +93,7 @@ even on a failed supplement) and self-heals the instant the module reappears.
 """
 
 from collections.abc import Iterator
+from datetime import datetime, timedelta
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
@@ -212,7 +213,11 @@ async def _device_list_ok(
     if client is None or plant_id is None:
         return False
     try:
-        response = await client.api.devices.get_devices(int(plant_id))
+        # Under the shared per-account cloud request budget (#533): this
+        # confirmation call competes with the coordinator's own fan-out and
+        # must not stack an unbounded extra request on a saturated portal.
+        async with coordinator._api_semaphore:
+            response = await client.api.devices.get_devices(int(plant_id))
     except Exception:  # noqa: BLE001 -- any failure means the list is unconfirmed
         return False
     if getattr(response, "rows", None):
@@ -222,6 +227,37 @@ async def _device_list_ok(
         coordinator.station = None
         return False
     return True
+
+
+# How recently a parent's battery fetch must have succeeded for its battery
+# set to count as confirmed.  Every healthy path re-stamps well inside this
+# (transport/combined reads at the poll cadence, cloud battery info at its
+# 5-minute TTL), so tripping it means a sustained battery-only outage --
+# the silent partial failure where the parent's runtime row stays healthy
+# while its module dict is served from an ever-older cache.
+_BATTERY_CONFIRMATION_MAX_AGE = timedelta(minutes=30)
+
+
+def _battery_confirmed(inverter: Any) -> bool:
+    """Whether this inverter's battery fetch succeeded recently.
+
+    pylxpweb's ``_battery_cache_time`` is a success signal: as of 0.9.39b8
+    every leg (transport, combined, HTTP) stamps it only when a battery fetch
+    actually delivered data (on 0.9.39b7 the individual transport leg still
+    stamps per attempt -- the freshness gate is simply never stale there, so
+    this degrades to the None-check until the pin moves).  ``None`` means the
+    session has never once confirmed the battery set -- the cold-restart
+    outage of PR #489 finding 2.  A *stale* stamp means it succeeded once but
+    has been failing since -- the review's residual: after
+    ``BATTERY_CARRY_FORWARD_MAX_AGE`` of such silent failure the evicted
+    module dict would read as genuine absence.  Both refuse.
+    """
+    stamp = getattr(inverter, "_battery_cache_time", None)
+    if stamp is None:
+        return False
+    if not isinstance(stamp, datetime):
+        return False
+    return datetime.now() - stamp <= _BATTERY_CONFIRMATION_MAX_AGE
 
 
 def _battery_fetch_ok(
@@ -236,12 +272,10 @@ def _battery_fetch_ok(
     - an ``"error"`` row (LOCAL link-down, cloud per-device failure) or the
       mode-independent :meth:`is_transport_link_down` verdict (HYBRID cloud
       fallback carries no row marker) -- the whole device is degraded;
-    - pylxpweb stamps ``_battery_cache_time`` only on a SUCCESSFUL battery
-      fetch (both the transport and HTTP legs keep cached data and leave the
-      stamp untouched on failure), so a battery-capable inverter whose stamp
-      is still ``None`` has never once confirmed its battery set this session
-      -- exactly the cold-restart battery-endpoint outage of finding 2, where
-      a live module absent from a failing fetch would otherwise age out.
+    - a parent whose battery fetch is unconfirmed or stale per
+      :func:`_battery_confirmed` -- the cold-restart battery-endpoint outage
+      of finding 2 and its silent-partial-failure tail, where a live module
+      absent from a failing fetch would otherwise age out.
 
     A MID/GridBOSS row carries no battery bank and no inverter object, so it
     is skipped; a battery-less inverter stamps ``_battery_cache_time`` on its
@@ -258,7 +292,7 @@ def _battery_fetch_ok(
         inverter = coordinator.get_inverter_object(serial)
         if inverter is None:
             continue
-        if getattr(inverter, "_battery_cache_time", None) is None:
+        if not _battery_confirmed(inverter):
             return False
     return True
 
@@ -273,8 +307,8 @@ def _parent_battery_ok(
     degraded parent cannot freeze battery cleanup under a healthy sibling.
     Same three signals as the global verdict, but scoped to one parent -- an
     ``"error"`` row or a down local transport link on that device, or an
-    inverter whose ``_battery_cache_time`` is still ``None`` (never once
-    confirmed a fetch this session).  Only inverter-bearing devices carry a
+    inverter whose battery fetch is unconfirmed or stale per
+    :func:`_battery_confirmed`.  Only inverter-bearing devices carry a
     battery bank; MID/GridBOSS rows (no inverter object) are skipped, so a
     GridBOSS error never resets an inverter's clock.
     """
@@ -287,10 +321,8 @@ def _parent_battery_ok(
             continue
         if "error" in device_data or coordinator.is_transport_link_down(serial):
             result[str(serial)] = False
-        elif getattr(inverter, "_battery_cache_time", None) is None:
-            result[str(serial)] = False
         else:
-            result[str(serial)] = True
+            result[str(serial)] = _battery_confirmed(inverter)
     return result
 
 
@@ -318,9 +350,6 @@ def record_provided_identifiers(
     """
     now = monotonic()
     recovered = not coordinator.last_update_success
-
-    coordinator._removal_device_list_ok = device_list_ok
-    coordinator._removal_battery_ok = battery_ok
 
     # An incomplete cycle is no observation at all -> clear the clock. A
     # complete cycle that either recovers from a broken run (a failed cycle,
