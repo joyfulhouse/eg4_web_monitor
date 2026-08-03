@@ -216,6 +216,35 @@ def _classify_store_limits(limits: Any) -> bool | None:
     return None
 
 
+async def _async_drain_teardown(teardown: Awaitable[None]) -> None:
+    """Finish one owned teardown before propagating caller cancellation."""
+    teardown_future = asyncio.ensure_future(teardown)
+    caller_cancellation: asyncio.CancelledError | None = None
+
+    # asyncio.wait observes completion without cancelling the owned teardown
+    # when this caller is cancelled. Recreate only waiters, never the teardown,
+    # so repeated cancellation cannot skip a later cleanup stage.
+    while not teardown_future.done():
+        try:
+            await asyncio.wait({teardown_future})
+        except asyncio.CancelledError as err:
+            if caller_cancellation is None:
+                caller_cancellation = err
+
+    teardown_error: BaseException | None = None
+    try:
+        teardown_future.result()
+    except BaseException as err:
+        teardown_error = err
+
+    if caller_cancellation is not None:
+        if teardown_error is not None:
+            raise caller_cancellation from teardown_error
+        raise caller_cancellation
+    if teardown_error is not None:
+        raise teardown_error
+
+
 class _CloudSidefetchSkipped(Exception):
     """Raised in place of a side-fetch's cloud call while the breaker is open.
 
@@ -4497,6 +4526,10 @@ class BackgroundTaskMixin(_MixinBase):
             self._background_tasks.difference_update(tasks)
 
     async def _async_handle_shutdown(self, event: Any) -> None:
+        """Drain the full HA-stop sequence before cancellation propagates."""
+        await _async_drain_teardown(self._async_handle_shutdown_work(event))
+
+    async def _async_handle_shutdown_work(self, event: Any) -> None:
         """Handle Home Assistant stop event to cancel background tasks.
 
         When this fires, the listener auto-removes itself from the event bus.
@@ -4520,6 +4553,10 @@ class BackgroundTaskMixin(_MixinBase):
         _LOGGER.debug("All background tasks cancelled and cleaned up")
 
     async def async_shutdown(self) -> None:
+        """Drain the full unload sequence before cancellation propagates."""
+        await _async_drain_teardown(self._async_shutdown_work())
+
+    async def _async_shutdown_work(self) -> None:
         """Clean up transports, background tasks, and event listeners on shutdown.
 
         Transport disconnection happens FIRST so that any in-flight

@@ -719,6 +719,112 @@ async def test_constructor_failure_leaves_no_shared_owners_or_unload_callback(ha
     assert "eg4_web_monitor_firmware_status_flights" not in hass.data
 
 
+@pytest.mark.parametrize(
+    "shutdown_method", ["async_shutdown", "_async_handle_shutdown"]
+)
+async def test_early_shutdown_cancellation_drains_shared_account_owners(
+    hass, shutdown_method: str
+):
+    """Unload/HA-stop cancellation cannot skip account-registry release."""
+    client = _CountingClient()
+    entry = _http_entry(
+        f"cancel_{shutdown_method}",
+        username=f"cancel-account-{shutdown_method}",
+    )
+    entry.add_to_hass(hass)
+    with patch(
+        "custom_components.eg4_web_monitor.coordinator.LuxpowerClient",
+        return_value=client,
+    ):
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+    assert "eg4_web_monitor_cloud_request_budgets" in hass.data
+    assert "eg4_web_monitor_firmware_status_flights" in hass.data
+
+    disconnect_started = asyncio.Event()
+    release_disconnect = asyncio.Event()
+    events: list[str] = []
+    original_budget_release = coordinator._release_shared_cloud_request_budget
+    original_firmware_release = coordinator._release_shared_firmware_status
+
+    async def _blocked_disconnect() -> None:
+        events.append("disconnect-start")
+        disconnect_started.set()
+        await release_disconnect.wait()
+        events.append("disconnect-end")
+
+    async def _background_cleanup() -> None:
+        events.append("background-cleanup")
+
+    def _release_budget() -> None:
+        events.append("budget-release")
+        original_budget_release()
+
+    async def _release_firmware() -> None:
+        events.append("firmware-release")
+        await original_firmware_release()
+
+    shutdown_task: asyncio.Task[None] | None = None
+    try:
+        with (
+            patch.object(
+                coordinator,
+                "_disconnect_all_transports",
+                side_effect=_blocked_disconnect,
+            ),
+            patch.object(
+                coordinator,
+                "_cancel_background_tasks",
+                side_effect=_background_cleanup,
+            ),
+            patch.object(
+                coordinator,
+                "_release_shared_cloud_request_budget",
+                side_effect=_release_budget,
+            ),
+            patch.object(
+                coordinator,
+                "_release_shared_firmware_status",
+                side_effect=_release_firmware,
+            ),
+        ):
+            shutdown = getattr(coordinator, shutdown_method)
+            shutdown_task = asyncio.create_task(
+                shutdown(None)
+                if shutdown_method == "_async_handle_shutdown"
+                else shutdown()
+            )
+            await disconnect_started.wait()
+
+            shutdown_task.cancel()
+            await asyncio.sleep(0)
+            shutdown_task.cancel()
+            release_disconnect.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await shutdown_task
+
+        assert events == [
+            "disconnect-start",
+            "disconnect-end",
+            "background-cleanup",
+            "budget-release",
+            "firmware-release",
+        ]
+        assert "eg4_web_monitor_cloud_request_budgets" not in hass.data
+        assert "eg4_web_monitor_firmware_status_flights" not in hass.data
+        assert coordinator._cloud_request_budget_released
+        assert coordinator._firmware_status_released
+    finally:
+        release_disconnect.set()
+        if shutdown_task is not None and not shutdown_task.done():
+            shutdown_task.cancel()
+        if shutdown_task is not None:
+            await asyncio.gather(shutdown_task, return_exceptions=True)
+        original_budget_release()
+        await original_firmware_release()
+
+
 async def test_saturated_budget_admits_shared_reactive_auth_child_chain(hass):
     """Three parents awaiting #261's auth task cannot consume its login slot."""
     client = _ReactiveAuthTaskClient()
