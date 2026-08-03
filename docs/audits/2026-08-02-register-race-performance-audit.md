@@ -2,7 +2,8 @@
 
 Date: 2026-08-02
 
-Status: read-only audit; no implementation changes
+Status: audit complete; 18 integration remediation drafts and four dependency
+drafts published for review; high-risk composed full suite passed; no PRs merged
 
 Tracking issue: `eg4-vy1b`
 
@@ -15,12 +16,15 @@ This audit found four classes of work that should be kept separate:
    migration, number entities whose optimistic retention never receives its
    production convergence/TTL callback, shared-physical-endpoint serialization
    gaps, and concurrent classic schedule writes that can produce a time requested
-   by neither caller.
+   by neither caller. Every cloud entry and config-flow probe also shares one
+   process-wide portal cookie jar, letting one account overwrite another account's
+   live authentication context while defeating the configured SSL policy.
 2. **`pylxpweb` dependency defects.** Local Quick Charge performs an unlocked
    read/modify/write of shared register 233, FC16 accepts a malformed multi-value
    read-style ACK as success, authentication renewal is not single-flight, and
    generic register-120 decoding treats compound fields as unrelated single bits.
-3. **Pre-merge `#511` breaker defects.** The current in-flight breaker can remain
+3. **Pre-merge issue `#511` / PR `#516` breaker defects.** The audited in-flight
+   breaker could remain
    half-open after a neutral store result, does not cover battery-backup and
    firmware-status side fetches, and constructs the PV-lifetime `gather()` before
    checking whether the breaker is open. A separate concurrent-success defect was
@@ -40,6 +44,13 @@ many controls without EG4 family gates. This project is more conservative and ha
 substantially better in-process RMW safety, but its higher feature depth creates
 more lifecycle, cache, cloud-fanout, and entity-churn surfaces.
 
+After the read-only audit was accepted, the confirmed software defects were
+implemented as deliberately isolated draft pull requests. The original RCA below
+is retained as the baseline finding record; the remediation index links each
+finding to its integration or dependency change. Hardware-dependent register and
+bit hypotheses remain unimplemented unless the evidence threshold described in
+this document was met.
+
 ### Immediate decisions
 
 - Do not port H22 bit 15 as Feed-In Grid. EG4 evidence pins Feed-In to H21 bit 15;
@@ -58,10 +69,12 @@ more lifecycle, cache, cloud-fanout, and entity-churn surfaces.
 
 | Source | Revision used | Role |
 | --- | --- | --- |
-| `eg4_web_monitor` clean baseline | `0934083371456269f8a37f05c07b2562e1a0a64f` | Released integration baseline and isolated documentation branch |
-| Main working-tree index | `coordinator_mixins.py` blob `6b59088e851c20273f9bf7b7c8f0e102d6a7a25e`; `test_sidefetch_breaker.py` blob `5850297a94208f8a2b58e592adac36113b2e0660` | In-flight `#511` snapshot initially scanned |
+| `eg4_web_monitor` discovery baseline | `0934083371456269f8a37f05c07b2562e1a0a64f` | Released integration baseline used during discovery |
+| `eg4_web_monitor` remediation/documentation base | `90c9807ee15129c41e5b70417a0db336b3979b2b` | Canonical `origin/main` after PR [#516](https://github.com/joyfulhouse/eg4_web_monitor/pull/516), which fixed issue `#511`; base of the isolated implementation PRs and current documentation branch |
+| Main working-tree index | `coordinator_mixins.py` blob `6b59088e851c20273f9bf7b7c8f0e102d6a7a25e`; `test_sidefetch_breaker.py` blob `5850297a94208f8a2b58e592adac36113b2e0660` | In-flight issue `#511` / eventual PR `#516` snapshot initially scanned |
 | Main working tree after concurrent review edits | `coordinator_mixins.py` blob `bc30a11e65c1c49978f991ec9cf81fc276c3a886`; `test_sidefetch_breaker.py` blob `c1e616f7562201de0bcc9209d36dd44087cf98c7` | Moving snapshot used to distinguish fixed vs outstanding breaker findings |
 | `pylxpweb` | `ee16a6aff99d4366b7026a55e606656f21a932ad`, tag `v0.9.39b6` | Canonical runtime parser/transport dependency; matches manifest floor `pylxpweb>=0.9.39b6` |
+| `pylxpweb` authentication remediation | `61b799232a25a84b9282bf53764ad92d5bac5f9f`, draft PR [#261](https://github.com/joyfulhouse/pylxpweb/pull/261) | Exact auth/session composition source used by integration PRs #533 and #535 |
 | `ant0nkr/luxpower-ha-integration` | `d3d101498bc2796d6d57142b0e8d7351fdd3cab6` | Independent LuxPower-oriented comparison oracle |
 
 The upstream comparison was pinned to
@@ -80,7 +93,13 @@ added a regression test. Therefore:
   `6b59088e` snapshot and fixed in current unstaged `bc30a11e`**;
 - neutral-result half-open state, eager lifetime `gather()`, and unwrapped
   supplemental paths remain present in `bc30a11e`;
-- released baseline findings are independent of the in-flight `#511` diff.
+- released baseline findings are independent of the in-flight issue `#511` /
+  eventual PR `#516` diff.
+
+Before implementation began, PR [#516](https://github.com/joyfulhouse/eg4_web_monitor/pull/516),
+which fixed issue `#511`, merged into canonical `main` as `90c9807`. Draft #518
+is therefore based on the merged behavior and addresses the retained
+breaker/call-site gaps without depending on the user's original dirty snapshot.
 
 ## Methodology
 
@@ -126,10 +145,11 @@ Severity convention:
 | INT-04 | P1 | Confirmed/reproduced | Released integration | Two classic schedule writes can interleave into a time requested by neither caller |
 | DEP-01 | P1 | Confirmed/reproduced | `pylxpweb` | Quick Charge performs an unlocked RMW of shared H233 and can erase sibling bits |
 | DEP-02 | P1/P2 | Confirmed/reproduced | `pylxpweb` | Expired authentication is renewed independently by every concurrent request |
-| BRK-01 | P1 pre-merge | Confirmed/reproduced | Dirty `#511` | A neutral half-open probe returns with `_sidefetch_half_open=True` |
-| BRK-02 | P1 pre-merge | Confirmed | Dirty `#511` | Battery-backup and firmware status bypass the shared breaker; battery backup has no outer timeout |
-| BRK-03 | P2 pre-merge | Confirmed | Dirty `#511` | PV lifetime `gather()` schedules children before an open-breaker check |
-| BRK-04 | Fixed during audit | Confirmed/reproduced | Dirty `#511` | In-flight success formerly failed to clear a sibling-opened deadline; current unstaged tree fixes it |
+| INT-13 | P1 | Confirmed control flow | Integration + `pylxpweb` session contract | Every cloud client and config-flow probe shares one domain cookie jar, so a login for one account overwrites another account's live authentication cookie |
+| BRK-01 | P1 pre-merge | Confirmed/reproduced | Issue `#511` / PR `#516` snapshot | A neutral half-open probe returns with `_sidefetch_half_open=True` |
+| BRK-02 | P1 pre-merge | Confirmed | Issue `#511` / PR `#516` snapshot | Battery-backup and firmware status bypass the shared breaker; battery backup has no outer timeout |
+| BRK-03 | P2 pre-merge | Confirmed | Issue `#511` / PR `#516` snapshot | PV lifetime `gather()` schedules children before an open-breaker check |
+| BRK-04 | Fixed during audit | Confirmed/reproduced | Issue `#511` / PR `#516` snapshot | In-flight success formerly failed to clear a sibling-opened deadline; the merged PR fixed it |
 | INT-05 | P2 | High | Released integration | Failed initial refresh/platform setup has no coordinator/client/transport unwind path |
 | INT-06 | P2 | High | Released integration | Persistent integration-side processing errors can carry stale device data as available |
 | INT-07 | P2 | Confirmed | Released integration | Static-phase follow-up refresh is an untracked task and can race unload |
@@ -148,6 +168,170 @@ Severity convention:
 | PERF-03 | P2 | Confirmed | Integration | Missing-parameter tasks can overlap, and firmware status duplicates an account-wide request per inverter |
 | PERF-04 | P2/P3 | Confirmed architecture | Integration | Fastest-transport ticks notify the full entity/discovery graph even when slower transports are carried forward |
 | CFG-01 | P2 | High | Released integration | The same plant can be configured in HTTP and HYBRID modes with two coordinators |
+
+## Remediation implementation index
+
+Every implementation branch was created from the then-current canonical
+`origin/main`, kept separate from the user's dirty primary worktree, committed,
+pushed, and opened as a draft. No PR in this matrix was merged as part of the
+audit. Verification summaries below are local acceptance evidence; GitHub retains
+the authoritative per-head CI and review record.
+
+### Home Assistant integration
+
+| Finding or added gap | Draft PR | Resolution | Acceptance evidence |
+| --- | --- | --- | --- |
+| INT-02 | [#517](https://github.com/joyfulhouse/eg4_web_monitor/pull/517) | Match legacy parallel groups only from unique member evidence; preserve registry identity; never delete on empty or ambiguous input | 2,549 passed / 3 skipped; strict mypy, Ruff, hooks, and CI |
+| BRK-01, BRK-02, BRK-03; two INT-08 sites | [#518](https://github.com/joyfulhouse/eg4_web_monitor/pull/518) | Resolve neutral/cancelled probes, make work lazy behind the breaker, cover every supplemental path, add outer timeouts, and use explicit first-fetch state | 2,552 passed / 3 skipped; 405 focused tests; strict mypy, Ruff, hooks, and CI |
+| INT-03 | [#519](https://github.com/joyfulhouse/eg4_web_monitor/pull/519) | Register the real optimistic convergence/TTL handler for number entities | 2,544 passed / 3 skipped; production-listener regression; strict mypy, Ruff, hooks, and CI |
+| INT-05, INT-07 | [#520](https://github.com/joyfulhouse/eg4_web_monitor/pull/520) | Unwind partial setup, close clients/transports, clear failed runtime data, and own the static follow-up task | 2,547 passed / 3 skipped; 591 focused tests; strict mypy, Ruff, hooks, and CI |
+| MAP-01 | [#521](https://github.com/joyfulhouse/eg4_web_monitor/pull/521) | Expose canonical I67 battery temperature as read-only diagnostic data with the firmware sentinel preserved as unknown | 2,546 passed / 3 skipped; 67 focused tests and dependency-to-entity contract; strict mypy, Ruff, hooks, and CI |
+| Safe read-only map subset | [#522](https://github.com/joyfulhouse/eg4_web_monitor/pull/522) | Add phase-contextual I25, I69-I70, proven I77 bit 0, and I113 topology/role diagnostics; distinguish I25 R-phase from non-three-phase aggregate, hide unresolved topology, and keep running time out of reset-sensitive statistics | 2,558 passed / 3 skipped; 395 focused mapping/coordinator contracts; strict mypy, Ruff, hooks, and CI |
+| INT-01; transport INT-08 site | [#523](https://github.com/joyfulhouse/eg4_web_monitor/pull/523) | Use one due decision per cadence class so mixed TCP/serial both poll, with an explicit never-polled sentinel | 2,546 passed / 3 skipped; multi-tick mixed-transport regression; strict mypy, Ruff, hooks, and CI |
+| INT-06 | [#525](https://github.com/joyfulhouse/eg4_web_monitor/pull/525) | Error-mark carried data after integration-side processing failures and taint dependent parallel aggregates without falsifying freshness | 2,544 passed / 3 skipped; deterministic failure/recovery regression; strict mypy, Ruff, hooks, and CI |
+| INT-04, INT-12 | [#526](https://github.com/joyfulhouse/eg4_web_monitor/pull/526) | Serialize schedule and battery-mode logical transactions per serial/control across entity instances, including cancellation convergence | 2,549 passed / 3 skipped; deterministic interleavings; strict mypy, hooks, and CI |
+| INT-08, INT-11 | [#527](https://github.com/joyfulhouse/eg4_web_monitor/pull/527) | Replace remaining first-run sentinels and protect acknowledged parameter generations from in-flight stale publications | 2,551 passed / 3 skipped; blocked-read and young-host regressions; strict mypy, Ruff, hooks, and CI |
+| Test-infrastructure gaps | [#528](https://github.com/joyfulhouse/eg4_web_monitor/pull/528) | Make dependency install, Ruff, mypy, signal exits, bare-root pytest collection/async configuration, hardware-script import, and development-documentation paths fail honestly | Bare-root 2,556 passed / 3 skipped; 13 runner contracts; strict mypy, Ruff, hooks, and product CI |
+| ARC-01 | [#529](https://github.com/joyfulhouse/eg4_web_monitor/pull/529) | Bind task-reentrant operation locks to the physical endpoint across device objects/config entries without serializing independent endpoints; invoke dependency terminal shutdown for every concrete transport, including a still-disconnected dial, so unload can interrupt the lock owner without duplicate closes | 2,556 passed / 3 skipped; 24 focused endpoint/shutdown interleavings; strict mypy, Ruff, hooks, and all 35 product CI checks |
+| CFG-01 | [#530](https://github.com/joyfulhouse/eg4_web_monitor/pull/530) | Canonicalize HTTP/HYBRID cloud identity and migrate duplicates deterministically without deleting the losing entry | 2,553 passed / 3 skipped; 173 focused migration/config tests; strict mypy, Ruff, hooks, and CI |
+| Registry and global-logging follow-ups | [#531](https://github.com/joyfulhouse/eg4_web_monitor/pull/531) | Compose process-global library logging across entries; prune only provably absent serial/station ownership and preserve shared devices | 2,550 passed / 3 skipped; lifecycle/registry matrix; strict mypy, hooks, and CI |
+| PERF-04 | [#532](https://github.com/joyfulhouse/eg4_web_monitor/pull/532) | Route coordinator listeners by private station/discovery/device context and inspect only changed serials; foreign, direct, in-flight, unknown, and availability dispatches retain full safety fanout | 2,553 passed / 3 skipped; 10 focused fanout/race contracts; 300-listener budget; strict mypy, hooks, and product CI |
+| PERF-01, PERF-02, PERF-03 | [#533](https://github.com/joyfulhouse/eg4_web_monitor/pull/533) | Share a lease-safe raw request budget across same-account entries; narrow parameter verification and publication; single-flight missing-parameter work; share account-wide firmware progress with owner transfer and transactional lifecycle; drain the complete ordered teardown before cancellation propagates | 2,581 passed / 3 skipped; 33 cloud-fanout contracts including a four-case early teardown cancellation matrix; actual dependency #261 auth cancellation at peak three; strict mypy, Ruff, hooks, and independent adversarial review |
+| INT-09, INT-10; control identity/availability gaps | [#534](https://github.com/joyfulhouse/eg4_web_monitor/pull/534) | Add convergent late control discovery, recover/remove/retry behavior, deterministic parallel-group IDs, safe legacy migration, and stable serial/purpose number/time identity and availability | 2,562 passed / 3 skipped; 54 focused contracts; strict mypy, Ruff, hooks, and product CI |
+| INT-13; injected-session SSL/lifecycle gap | [#535](https://github.com/joyfulhouse/eg4_web_monitor/pull/535) | Give every coordinator/config-flow client an independent HA-created cookie session on the selected SSL connector; drain dependency auth/client work before detach; retain constructor-failure fallback; make config-flow and repeated-shutdown cleanup cancellation-safe | 2,560 passed / 3 skipped; 17 focused session contracts and 597 config/setup/coordinator tests against dependency #261; strict mypy across 42 files, Ruff, hooks, and product CI |
+
+### `pylxpweb` dependency
+
+| Finding | Draft PR | Resolution | Acceptance evidence |
+| --- | --- | --- | --- |
+| DEP-01 | [#260](https://github.com/joyfulhouse/pylxpweb/pull/260) | Route Quick Charge through lock-held named-parameter RMW so H233 sibling bits cannot be lost | 3,071 unit tests; three deterministic races; 94-file strict mypy and CI |
+| DEP-02 | [#261](https://github.com/joyfulhouse/pylxpweb/pull/261) | Coalesce public login, proactive expiry, and one bounded reactive 401/HTML replay through one generation-aware shielded primitive; exclude replacement authentication while close drains owned work, including with an injected session | 3,085 unit tests; 32 client contracts covering ten-waiter herds, stale responses, persistent rejection, cancellation, failure/retry, and close-during-renewal; 94-file strict mypy and product CI |
+| DEP-03, DEP-04, DEP-06 | [#262](https://github.com/joyfulhouse/pylxpweb/pull/262) | Model H120 compound fields explicitly, reject multi-value FC16 pseudo-ACKs, and advertise the dongle's true serial capability | 3,087 unit tests; 35 focused contracts; strict mypy and CI |
+| DEP-05; dongle lifecycle race | [#263](https://github.com/joyfulhouse/pylxpweb/pull/263) | Assemble length-framed replies under one timeout, serialize reusable connect/disconnect, and provide terminal interruptible shutdown that cannot resurrect a late socket or begin another dial/write retry after shutdown during backoff | 3,071 passed / 1 skipped; 106 dongle contracts including real loopback and terminal lifecycle interleavings; 94-file strict mypy and product CI |
+
+These dependency rows are implemented and reviewable, but are not yet deployed by
+the Home Assistant integration. They must merge, ship in a new `pylxpweb` release,
+and be adopted by `manifest.json`/test requirements. That release gate is tracked
+as `eg4-06er.14`; until it closes, DEP-01 through DEP-06 remain runtime gaps in the
+currently published integration dependency floor.
+
+### Integration and merge boundaries
+
+“Isolated PR” does not mean every branch edits disjoint files. The separation is
+for reviewable RCA and rollback, not permission to merge the whole series without
+rebasing and rerunning its combined contracts.
+
+- `__init__.py` is shared by #517, #520, #530, and #531. A safe integration order
+  is setup ownership (#520), parallel-group migration (#517), cloud identity
+  migration (#530), then multi-entry logging/registry cleanup (#531). The final
+  rebase must preserve both #517's non-destructive group matching and #531's
+  authoritative-root cleanup.
+- `coordinator.py`, its HTTP/LOCAL/mixin modules, and their broad test modules are
+  shared by #518, #520, #522, #523, #525-#527, #529, and #532-#535. Integrate
+  correctness/lifecycle boundaries before request/callback/session optimizations,
+  rebase each head, and run the complete suite after every conflict resolution. A
+  textual conflict resolution is insufficient evidence for these interleavings.
+- Entity-layer overlap is smaller but semantic: #519, #521-#522, #532-#533, and
+  #526/#534 touch number/sensor/button/control lifecycle paths. Scoped
+  listener routing deliberately continues to notify unscoped listeners, so an
+  independently merged late-discovery callback remains correct until it adopts a
+  discovery context during rebase.
+- #518 and #533 overlap at firmware prefetch. The combined result must admit the
+  one account-wide raw call through #518's breaker before #533 shares it; a
+  pre-opened breaker must start zero firmware getters. Marking a direct raw fetch
+  as prefetched would silently bypass BRK-02.
+- #527 and #533 overlap at narrow parameter refresh. The combined result must
+  retain #527's write-generation snapshot and seed reconciliation around #533's
+  parameter-only fetch. Directly assigning the narrow result allows an in-flight
+  stale read to revert an acknowledged write.
+- Dependency #261 and #533 meet at the raw request limiter. #261 performs renewal
+  in a client-owned child task; exact-task-only re-entrancy lets three parent
+  requests consume all three slots while awaiting a login that cannot acquire a
+  fourth. The reconciled limiter admits only the inherited, exact pylxpweb login
+  chain (including its account discovery) and keeps arbitrary child tasks inside
+  the budget. Its lease remains owned until the complete auth task ends, not only
+  until the login request returns. If the originating waiter is cancelled before
+  delayed login starts, the first actually-cancelling parent transfers one live
+  admission to that exact client-owned task before releasing its own reference;
+  this prevents both a circular wait behind a queued fourth parent and an
+  uncounted fourth raw operation after all original parents time out. The combined
+  contract must retain saturated-three, cancel-all-parents, delayed-login,
+  final-owner/replacement, and unrelated-child counterexamples.
+- #520, #533, and dependency #261 meet at account-wide firmware ownership. A raw
+  status request can be bound to entry A's client while entry B shares it; unload
+  must not close A's auth lifecycle underneath B's waiter. The shared-flight
+  release/transfer contract must be exercised through originating-owner unload,
+  not only by decrementing a synthetic reference count.
+- #520, #533, #535, and dependency #261 share cloud teardown ownership. The
+  reconciled order is: stop transport/background producers; close limiter
+  admission and release or transfer firmware-flight ownership; call
+  `LuxpowerClient.close()` to cancel and drain client-owned authentication; then
+  detach only that entry's private session wrapper. Constructor failure must
+  leave no coordinator unload callback/shared owner and retain Home Assistant's
+  session-cleanup fallback. Config-flow cancellation and repeated shutdown
+  cancellation must drain the exact close operation before detach while still
+  propagating caller cancellation after cleanup settles.
+- A final ephemeral rehearsal stacked #518 -> #520 -> #527 -> #532 -> #533 ->
+  #535 from exact `origin/main` `90c9807`, with dependency #261 pinned directly on
+  `PYTHONPATH`. Two test-only reconciliations made older isolated fixtures express
+  the composed production contracts: #532's bare coordinator fixture initializes
+  #527's write-seed state, and #527's stale-read race mocks #533's narrow
+  `_fetch_parameters()` seam instead of the superseded broad `refresh()`. Manual
+  production conflict resolution preserved #518's lazy breaker, #527's generation
+  reconciliation, #532's private listener scopes, #533's transactional request/
+  firmware ownership, and #535's private session plus close-before-detach order.
+  The production follow-up passed 246 selected high-risk seam tests, its final
+  test head passed the four-case early teardown matrix, and the complete composed
+  stack passed 2,630 tests / 3 skipped, plus Ruff, format, strict mypy across 43
+  modules, hooks, and diff checks. An independent exact two-owner trace confirmed
+  budget/firmware refcounts `2 -> 1 -> 0`, both registries absent before the final
+  client close/session detach, and the first caller cancellation re-raised last.
+  Six actual dependency #261 reactive-auth lifecycle tests also passed in the
+  dependency environment. This rehearsal is disposable evidence only; it was not
+  pushed or merged.
+- #529 and dependency #263 share a shutdown contract. Reusable dongle disconnect
+  is serialized with transactions, while coordinator unload must close the
+  socket before cancelling the task that owns that transaction. Their follow-up
+  heads therefore use an explicit terminal `async_shutdown()` seam that bypasses
+  the held transaction lock, is invoked even while `is_connected` is still false,
+  prevents socket resurrection or a post-backoff dial, and retains ordinary
+  connect/disconnect serialization. A cross-repository run loaded #263 directly
+  under #529 and passed all 17 selected endpoint/shutdown contracts.
+- #528 is operationally independent of product behavior, but its honest Platinum
+  validator requires the CI job and documented test environment to install the
+  same mypy dependency it invokes.
+- In `pylxpweb`, #260 and #261 are file-disjoint from the protocol work. #262 and
+  #263 both change `transports/dongle.py` and its tests; the second merge must be
+  rebased and rerun against the compound/ACK/capability contract rather than
+  resolving the file mechanically. An ephemeral #262-then-#263 merge rehearsal
+  applied without textual conflict and passed all 3,102 unit tests with the
+  rehearsal source explicitly pinned on `PYTHONPATH` (the shared editable
+  virtualenv otherwise imports the primary checkout and gives false evidence).
+
+### Safety boundaries retained after implementation
+
+- The remediation series adds no speculative writable bit. H110 bits 7, 10, and
+  15 and H233 bit 12 remain behind the family/capture requirements below.
+- I77 bits 1-2 remain unmapped; only captured bit 0 is decoded. I113 retains the
+  dependency's hardware-tested zero-based phase encoding despite the reference
+  integration's conflicting labels.
+- I25 is never presented as a universal aggregate: known three-phase hardware
+  gets an explicit R-phase diagnostic, known non-three-phase hardware gets the
+  phase-neutral diagnostic, and unresolved topology exposes neither. I69-I70
+  remains a diagnostic duration measurement until reboot/reset evidence supports
+  `total_increasing` statistics.
+- I10 remains blocked on product semantics versus the signed net-battery entity;
+  I68 and per-battery limits/cutoffs remain blocked on populated multi-family
+  captures and sentinel behavior.
+- Dependency #262's head makes H120 structurally safe, but that change is neither
+  deployed nor a Home Assistant control. Family applicability and UX still need
+  independent proof, followed by the dependency release/adoption gate.
+- Duplicate cloud losers and childless parallel-group roots are preserved rather
+  than destructively guessed. User-visible duplicate Repair guidance is tracked
+  by `eg4-06er.12`; evidence-based obsolete group cleanup is tracked by
+  `eg4-06er.13`.
+- Dependency branch fixes are not described as deployed integration fixes until
+  the published-version adoption gate `eg4-06er.14` is complete.
 
 ## Detailed root-cause analysis
 
@@ -209,7 +393,8 @@ callback is the state writer. Existing retention tests manually invoke
 wiring.
 
 **Impact:** a number can display a device-rejected or superseded optimistic value
-indefinitely. This keeps the still-open `#379` follow-up materially relevant.
+indefinitely. This made `#379` materially relevant during discovery; draft #519
+implements the fix and passed review without being merged.
 
 ### ARC-01 — endpoint serialization does not cover all operations
 
@@ -226,9 +411,21 @@ endpoint lock shared by all devices on the physical endpoint.
 hardware documented as one-request-at-a-time. Per-transport frame attribution and
 locks do not protect across instances.
 
-**Confidence note:** the object/lock topology is confirmed; a hardware or fake
-single-slot endpoint interleaving test is still needed before choosing the lock
-ownership design.
+**Remediation and cross-repository review:** #529 installs one task-reentrant
+operation lock per normalized physical endpoint and proves poll/write/background,
+reconnect, cross-entry, and independent-endpoint interleavings against a fake
+single-slot endpoint. A later combined review found three lifecycle
+contradictions. Dependency #263 correctly moved reusable dongle `disconnect()`
+behind its transaction lock, but integration unload called disconnect before
+cancelling the task that could own that lock. The first terminal follow-up was
+then found to run only when `is_connected=True`, even though a dial does not set
+that flag until after socket creation and initial-data processing. Finally, the
+dependency checked its terminal flag before connect-retry backoff but not again
+after the awaited sleep, permitting one obsolete post-shutdown dial. The paired
+follow-ups use a terminal dependency `async_shutdown()` that closes without the
+transaction lock, reject subsequent/late/retry connects, invoke the seam even
+while a transport is still dialing, de-duplicate every transport identity, and
+retain connected-only reusable `disconnect()` for older transports.
 
 ### INT-04 — classic schedule writes can synthesize an unintended time
 
@@ -265,18 +462,84 @@ the race more likely unless this is fixed first.
 
 ### DEP-02 — authentication renewal thundering herd
 
-**Trigger:** concurrent cloud requests see an expired session.
+**Trigger:** concurrent cloud requests see a locally expired session, or the
+server invalidates a still-locally-valid cookie and returns concurrent 401/HTML
+responses.
 
 **Root cause:** `_ensure_authenticated()` checks expiry and calls `login()` with no
-shared lock or in-flight task. The integration and dependency both use broad
-`gather()` fanout.
+shared lock or in-flight task. The reactive `_request()` paths also called
+`login()` directly, bypassing the first single-flight follow-up. The owned auth
+task was not cancelled/drained by `close()` when Home Assistant injected the HTTP
+session. The integration and dependency both use broad `gather()` fanout.
+
+A post-implementation adversarial review exposed three second-order gaps in the
+first #261 head: public `login()` (used by `__aenter__` and HTTP transport
+`connect()`) still bypassed both single-flight and generation accounting;
+persistent post-login 401/HTML responses recursively submitted credentials with
+no retry bound; and `close()` snapshotted one auth task before awaited cleanup, so
+a replacement could start during those awaits and survive the close.
 
 **Observed:** ten concurrent non-network probes resulted in ten concurrent login
 calls before any completed.
 
-**Impact:** avoidable authentication traffic and concurrent mutation of shared
-cookies/session metadata. A single-flight renewal primitive should live in the
-client, not at every integration call site.
+**Impact:** avoidable authentication traffic, concurrent mutation of shared
+cookies/session metadata, unbounded recursive retries against a rejecting server,
+and renewal work that can outlive unload. The reconciled #261 contract routes
+proactive expiry, reactive expiry, and public login through one generation-aware
+client primitive. Stale responses observed before a completed renewal reuse that
+result rather than starting another login, one original request receives at most
+one reactive replay, and close excludes replacement auth work while preserving
+injected-session ownership.
+
+### INT-13 — cloud accounts share one cookie jar
+
+**Trigger:** two cloud entries use the same portal origin with different accounts,
+or a config-flow credential probe logs into another account while an existing
+entry is running.
+
+**Root cause:** the coordinator and config flow inject Home Assistant's default
+`async_get_clientsession()` into every `LuxpowerClient`. The dependency correctly
+relies on aiohttp's cookie jar for the portal session cookie, but the default Home
+Assistant session is shared by SSL/family settings and aiohttp keys cookies by
+origin/path—not by `LuxpowerClient` or account. A successful login therefore
+replaces the one portal cookie visible to every client while each client's
+independent `_session_expires` timestamp can still say its old login is valid.
+Home Assistant's own helper contract explicitly identifies
+`async_create_clientsession()` as the path for integrations that require cookies.
+The default-session call also omitted the entry's `verify_ssl` argument. Because
+an injected session owns its connector policy, `LuxpowerClient(verify_ssl=False)`
+could not override that verified HA connector; the integration's disable-SSL
+option was therefore ineffective on these cloud requests.
+
+**Impact:** entries can invalidate or impersonate one another's authentication
+context, causing 401/HTML renewal loops, account flapping, or requests to execute
+under the wrong portal session until authorization rejects them. A config-flow
+test is enough to disturb already-loaded entries because it uses the same default
+session. Clearing the shared cookie jar before login is not a fix; that also
+invalidates every sibling client.
+
+**Required boundary:** each client/probe needs an HA-created session with an
+independent cookie jar while retaining Home Assistant's connector and SSL
+ownership, selected with the entry/flow's configured `verify_ssl` value. Normal
+setup failure, unload, and Home Assistant stop paths must close the client and
+drain authentication before explicitly detaching the private wrapper. A
+synchronous coordinator-constructor failure may instead use Home Assistant's
+registered config-entry/HA-close auto-cleanup fallback because no coordinator is
+returned. Config-flow probes own `auto_cleanup=False` sessions and must close,
+drain, and detach them in cancellation-resistant cleanup.
+
+[#535](https://github.com/joyfulhouse/eg4_web_monitor/pull/535) implements that
+boundary. Its first head isolated cookie jars and selected the configured SSL
+connector, but independent review found a second-order lifecycle bug: cancellation
+during `LuxpowerClient.__aenter__()` bypasses `__aexit__()`, while dependency #261
+intentionally shields its client-owned authentication task. The config-flow
+`finally` could therefore detach a session still used by orphaned auth work; a
+second cancellation could similarly interrupt coordinator close and jump to
+detach. The follow-up binds the client before login and uses one shared cleanup
+primitive that waits for the exact close operation through repeated caller
+cancellations, observes close exceptions without event-loop leakage, detaches
+last, and only then propagates cancellation. This composes with dependency #261's
+per-client single-flight rather than replacing it.
 
 ### BRK-01 — neutral half-open result leaves the state machine armed
 
@@ -303,8 +566,8 @@ seconds in cloud-only mode. It has neither `_breakered_cloud_call()` nor an oute
 supplemental calls are paused. Firmware progress is also polled in per-inverter
 processing outside the breaker, and the underlying status request is account-wide.
 
-The `#511` acceptance claim should enumerate actual call sites. “All supplemental
-cloud fetches” is not true in the audited snapshot.
+The issue `#511` / eventual PR `#516` acceptance claim should enumerate actual
+call sites. “All supplemental cloud fetches” is not true in the audited snapshot.
 
 ### BRK-03 — eager PV-lifetime gather defeats skip-before-start
 
@@ -557,12 +820,25 @@ canonical dependency or current coordinator data.
 | --- | --- | --- | --- |
 | I67 | Battery temperature entity | High; current mapping bug | Add entity description; preserve `0x7f -> unknown` normalization |
 | I10 | Separate battery charge power | High mapping confidence | Decide product semantics vs signed net battery power; correct stale docs either way |
-| I25 | Aggregate EPS apparent power | High | Avoid duplicating/confusing per-leg I131/I132; validate all supported phase layouts |
+| I25 | Phase-contextual EPS apparent power | High value confidence; context-sensitive meaning | Expose phase-neutral aggregate only on known non-three-phase layouts, explicit R-phase on known three-phase layouts, and fail closed when phase is unresolved |
 | I68 | Battery control temperature | Medium | Diagnostic, disabled by default; verify non-sentinel population |
 | I69-I70 | 32-bit inverter running time | Medium/high | Correlate units/reset behavior to uptime before choosing device/state class |
 | I77 | AC input type bits | Medium/high | Expose decoded enum/diagnostic rather than opaque integer |
 | I113 | Parallel role/group fields | Medium | Diagnostic only; reuse the parser already used internally |
 | Battery-slot current limit and voltage cutoff | Per-battery diagnostics | High mapping, variable population | Disabled by default; keep bank-level equivalents authoritative |
+
+The remediation pass deliberately split this list by evidence quality. I67 is
+implemented in [#521](https://github.com/joyfulhouse/eg4_web_monitor/pull/521).
+I25, I69-I70, I77 bit 0, and I113 are implemented in
+[#522](https://github.com/joyfulhouse/eg4_web_monitor/pull/522), disabled by
+default and read-only. Its evidence follow-up corrects the initial overclaim:
+pinned ant0nkr calls I25 R-phase on three-phase systems, so the entity/key is
+phase-specific and unresolved devices get neither label. The I69-I70 seconds unit
+is corroborated, but reset/uptime continuity is not; it therefore remains a
+diagnostic `measurement`, not `total_increasing`. I10, I68, I77 bits 1-2, and
+battery-slot limits/cutoffs are not implemented: each still needs the semantic,
+population, sentinel, or family evidence named in the table. This is a positive
+safety decision, not an omitted port from the reference integration.
 
 I108-I112 auxiliary temperature channels were zero on sampled EG4 units. They are
 low-value until a model with populated readings is captured.
@@ -683,6 +959,19 @@ three requests times inverter count, not three total.
 The semaphore still usefully bounds mapping/side-fetch processing; documentation
 should not describe it as a global API concurrency cap.
 
+#533 moves admission to the client's common raw `_request` boundary and shares
+one three-chain budget by exact HA-local account identity (username, normalized
+portal URL, and SSL policy), so separate plant entries cannot each create their
+own three-request burst. Recursive retries are task-reentrant. Dependency #261's
+shielded child authentication is admitted by retaining an existing parent lease;
+if that parent is cancelled before delayed login begins, the first actually
+cancelling waiter transfers one lease to the exact client-owned auth task. This
+avoids both the saturated-parent deadlock and the subtler four-active-operation
+oversubscription after all original parents time out. Closing clients re-check
+admission after a queue wait, while account budgets remain registered until every
+active, queued, or auth-transferred lease drains; a replacement entry therefore
+cannot accidentally create a second semaphore during reload.
+
 ### PERF-02 — “parameter refresh” is a broad forced refresh
 
 Post-write verification and all-device parameter refresh call inverter
@@ -696,6 +985,15 @@ Number post-write handling also iterates related entities and calls
 prevents a completely unbounded poll storm, but this remains O(entity count) task
 and callback amplification with possible immediate plus trailing refreshes.
 
+#533 changes routine/post-write verification to the dependency's locked
+parameter-only fetch. It snapshots #527's write generation, reconciles the read
+before replacing the cache, and publishes the changed serial once through #532's
+scoped listener seam when present (one ordinary dispatch before #532). It removes
+the redundant per-entity `async_update()` sweep and broad pre-refreshes. Explicit
+user Refresh retains the promised full runtime/energy/battery/parameter read, and
+the firmware-defined group-wide battery-control mode still refreshes all member
+parameters rather than being incorrectly narrowed to one inverter.
+
 ### PERF-03 — duplicated background work
 
 - Missing-parameter refresh creates a task whenever parameters are absent. There
@@ -708,7 +1006,31 @@ and callback amplification with possible immediate plus trailing refreshes.
   breaker opens, aligned Quick Charge, events, AC Couple, Smart Load, and PV work
   can accumulate 10-30 second timeout budgets. Multiple inverters overlap only up
   to the later processing semaphore.
-- Battery-backup remains an unprotected 30-second tier in the `#511` snapshot.
+- Battery-backup remains an unprotected 30-second tier in the issue `#511` /
+  eventual PR `#516` snapshot.
+
+#533 makes missing-parameter loading a per-entry single-flight with a pending
+serial batch and a terminal scheduling gate. Shutdown closes the producer before
+draining the tracked task set, including the done-callback ordering where a
+normally completed task could otherwise spawn an untracked successor. Firmware
+availability remains per device, but account-wide progress is one lazy,
+breaker-protected, reference-counted flight shared across devices, plants, and
+entries. Unloading its origin client retires and transfers the raw request through
+a surviving owner's client; final-owner shutdown is bounded and constructor
+registration is transactional so partially built coordinators leave no shared
+registry owner behind.
+
+Final composition review found that #533's first shutdown head still placed the
+shared budget/firmware releases after cancelable transport and background awaits.
+Cancellation in either early stage skipped both releases; #535's outer cleanup
+correctly closed the client and detached its session but could not remove those
+stale account owners from `hass.data`. Follow-up `398f00f` runs the complete
+ordered unload/HA-stop sequence as one separately owned teardown and drains that
+exact task through repeated caller cancellation. The `79de9f2` test follow-up
+covers cancellation during both disconnect and background drain across both
+entry-unload and Home Assistant-stop paths. Producers stop and shared ownership
+releases before #535 closes client auth/detaches; only then is the original
+`CancelledError` re-raised.
 
 ### PERF-04 — callback and discovery churn
 
@@ -722,6 +1044,18 @@ callback/state-write attempts per day, before discovery scans. Home Assistant ma
 suppress identical recorder events, so this is a callback/decoding budget—not a
 claim of 5.18 million database rows.
 
+#532 classifies successful data transitions by private station, discovery, and
+device scopes. A reviewer follow-up found that its first tuple-shaped scope was
+not private at runtime: an unrelated hashable Home Assistant context could be
+silently filtered, while an unrelated unhashable context raised `TypeError` and
+aborted dispatch. An empty pending scope also leaked while network I/O was
+awaiting and after scoped dispatch, so a direct/public listener notification
+could starve even integration-owned listeners. The published follow-up uses a
+private runtime context type, treats every foreign context as an always-notify
+safety listener, and reserves `None` for idle/public full fanout. A scoped set is
+staged only after a concrete successful or tolerated result is synchronously
+classified.
+
 ### CFG-01 — duplicate plant coordinators across modes
 
 Config unique IDs intentionally differ between HTTP (`username_plant`) and HYBRID
@@ -730,8 +1064,11 @@ cloud plant in both modes. Two coordinators can poll the same station and conten
 for the same HA entity/device identities. Updating an entry's mode/data also does
 not update the unique ID.
 
-This needs an explicit product decision: prohibit cross-mode duplicates, migrate
-the same entry between modes, or define safe namespace/request-sharing behavior.
+[#530](https://github.com/joyfulhouse/eg4_web_monitor/pull/530) chooses canonical
+cross-mode cloud identity and deterministic duplicate migration. It prevents a
+second HTTP/HYBRID coordinator for the same account/plant while preserving,
+rather than deleting, the losing entry. User-visible Repair guidance remains
+tracked by `eg4-06er.12`.
 
 ### Reference performance and race comparison
 
@@ -747,6 +1084,13 @@ hold a reentrant operation lock across RMW for one transport instance. DEP-01 an
 ARC-01 are the important exceptions/remaining boundaries.
 
 ## Entity, registry, and lifecycle follow-ups
+
+The list below is the original secondary-gap baseline. #534 resolves number/time
+presence-aware availability, model-stable identities, and late control discovery;
+#531 resolves multi-entry logging composition and evidence-based serial/station
+pruning. Insufficient-authority registry deletion remains deliberately
+conservative, and module-global lock-key retention remains the low-impact open
+item.
 
 Additional high-confidence gaps retained below the main P1 set:
 
@@ -807,12 +1151,28 @@ Additional high-confidence gaps retained below the main P1 set:
 15. Independent register truth fixtures from captured frames—not tables shared by
    production and tests.
 16. Primary cloud cold-cache concurrency, forced parameter refresh call counts,
-   missing-task deduplication, and multi-inverter firmware status counts.
+    missing-task deduplication, and multi-inverter firmware status counts.
 17. Cross-mode duplicate plant setup and multi-entry library logging preferences.
+18. Two portal accounts plus a concurrent config-flow login must retain isolated
+    cookie jars and independently valid sessions through setup failure and unload.
+
+The remediation series turns this list into an acceptance matrix: items 1-14 are
+covered respectively by #523, #517, #519, dependency #260, #529, #526, #518,
+#518, #518/#533, dependency #261, #520/#535, #525, #518/#523/#527, and dependency
+#262. Item 16 is covered by #533; item 17 by #530/#531. Item 18 is covered by
+#535, including configured SSL selection and cancellation-safe config-flow/auth
+cleanup. Item 15 remains open by design because a fixture derived from the same
+production tables is not an independent hardware oracle.
 
 ### Test infrastructure gaps
 
-- `tests/pytest.ini` declares unsupported `rootdir`, producing a warning.
+- The nested `tests/pytest.ini` declared unsupported `rootdir`, producing a
+  warning, and was not discovered by a bare root invocation.
+- Bare root pytest consequently used default collection, imported
+  `scripts/collision_test.py`, and fed its module-level integer parser pytest's
+  `-q`. Making the script import-safe exposed the second layer: without
+  `asyncio_mode=auto`, all Home Assistant async fixtures were yielded as
+  generators and 2,558 tests errored.
 - `tests/run_tests.py --install` searches for a root `requirements-test.txt`, but
   the file is under `tests/`; it reports success without installing.
 - That runner uses optional Flake8 while declared/CI linting uses Ruff, and it can
@@ -824,6 +1184,16 @@ Additional high-confidence gaps retained below the main P1 set:
   `pyproject.toml`/lock, a missing Bronze validator, and a nonexistent root
   `mypy.ini`.
 - Coverage is collected without an enforced threshold despite a documented target.
+
+[#528](https://github.com/joyfulhouse/eg4_web_monitor/pull/528) resolves the
+executable-path, false-success, unsupported-pytest-option, and documentation
+defects. Its CI follow-up also installs the same requirements used locally before
+running the now-honest Platinum validator and pins that workflow contract in a
+regression test. The final follow-up moves the canonical pytest configuration to
+repository root, constrains bare collection to `tests/`, and makes the live
+hardware script parse CLI arguments only under `__main__`; bare `pytest -q` then
+passes the full suite. Coverage threshold policy remains a separate project
+decision; the runner no longer claims a threshold that CI does not enforce.
 
 ## Rejected or narrowed scan claims
 
@@ -863,6 +1233,11 @@ The following were explicitly not promoted:
 
 ## Prioritized follow-up plan
 
+This is the original remediation order, retained for traceability. Its software
+items are mapped to isolated draft PRs in the implementation index above. The
+hardware-evidence queue is intentionally still open, as are the two non-destructive
+UX/registry follow-ups `eg4-06er.12` and `eg4-06er.13`.
+
 ### P1 — correctness and pre-merge blockers
 
 1. Fix INT-01 and add mixed-type multi-tick coverage.
@@ -876,9 +1251,9 @@ The following were explicitly not promoted:
    primitive for battery control mode.
 6. Fix DEP-01 in `pylxpweb` before adding H233 controls.
 7. Make authentication renewal single-flight in the dependency.
-8. Before merging `#511`, resolve BRK-01, wrap or explicitly exempt every
-   supplemental path, make lifetime work lazy, and retain the concurrent-success
-   regression test already added unstaged.
+8. Before merging the eventual PR `#516` for issue `#511`, resolve BRK-01, wrap or
+   explicitly exempt every supplemental path, make lifetime work lazy, and retain
+   the concurrent-success regression test already added unstaged.
 
 ### P2 — lifecycle, state truth, and protocol contracts
 
@@ -918,13 +1293,19 @@ The following were explicitly not promoted:
 | `eg4-xa9f` | Logical multi-call schedule/battery-mode write serialization |
 | `eg4-xvf1` | Dependency Quick Charge H233 atomic RMW |
 | `eg4-bl9f` | Dependency authentication single-flight |
-| `eg4-scg1` | `#511` breaker state machine and call-site coverage |
+| `eg4-scg1` | Issue `#511` / PR `#516` breaker state machine and call-site coverage |
 | `eg4-vp2r` | Dependency H120/FC16/dongle contracts |
 | `eg4-06er` | Lifecycle, staleness, startup sentinel, and performance bundle |
+| `eg4-06er.1`-`eg4-06er.11` | Isolated setup, staleness, control, fanout, identity, runner, dongle, logging/registry, and callback remediation lanes |
+| `eg4-06er.12` | User-visible Repair guidance for safely rejected duplicate cloud entries |
+| `eg4-06er.13` | Evidence-based cleanup for obsolete parallel-group registry roots |
+| `eg4-06er.14` | Publish and adopt the dependency PR series in the integration manifest/test floor |
+| `eg4-06er.15` | Isolate cross-account cloud cookies and injected-session SSL/lifecycle cleanup |
 | `eg4-uwa0` | Register provenance, read-only gaps, and hardware captures |
 
-The existing open `eg4-1784213053000-189-c167c51a` (`#379`) was updated with
-INT-03, and `eg4-ooox` was updated with the new bit-evidence ranking.
+`eg4-1784213053000-189-c167c51a` (`#379`) was updated with INT-03 and closed after
+draft PR #519 passed review; #519 remains unmerged. `eg4-ooox` was updated with
+the new bit-evidence ranking.
 
 ## Verification evidence from this audit
 
@@ -990,8 +1371,9 @@ mypy strict: success across 41 source files
 
 The 42 warnings include the already-assessed unsupported `rootdir` pytest
 option, deprecated family aliases, and unawaited `AsyncMock` coroutine warnings
-from coordinator carry-forward tests. No production code was changed for this
-audit.
+from coordinator carry-forward tests. No production code was changed in the
+documentation/discovery worktree during those gates; later remediations were made
+only in isolated branches and pull requests.
 
 These green gates do not refute the findings: most defects are uncovered
 interleavings, production listener registration, independent-oracle gaps, or
@@ -1014,3 +1396,13 @@ already-decoded read-only data and four hardware-backed bit candidates—not the
 hundreds of upstream-only holding entities. Correctness, provenance, family gates,
 and an explicit “unknown/unsafe” state should remain the defining advantages of
 this integration.
+
+The confirmed software gaps now have isolated implementation PRs and deterministic
+acceptance contracts. A focused composed stack exercised the highest-risk breaker,
+generation, listener, fanout, auth, setup, and session seams; its final-head full
+suite is recorded in the merge-boundary evidence above. The remaining software
+release risks are integration composition and dependency publication/adoption:
+#260-#263 must merge, ship, and be pinned by the integration before their fixes are
+deployed. The remaining mapping risk is evidence risk: unresolved bits and
+registers should stay absent until captures establish family, scale, sentinel, and
+write/restore behavior.
