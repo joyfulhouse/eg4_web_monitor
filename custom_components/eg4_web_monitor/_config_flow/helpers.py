@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_USERNAME
 from homeassistant.core import HomeAssistant
 
 from ..const import (
@@ -21,6 +24,7 @@ from ..const import (
     CONF_MODBUS_HOST,
     CONF_MODBUS_PORT,
     CONF_MODBUS_UNIT_ID,
+    CONF_PLANT_ID,
     CONNECTION_TYPE_LOCAL,
     DOMAIN,
 )
@@ -72,7 +76,7 @@ def format_entry_title(_mode: str, name: str) -> str:
 def build_unique_id(
     mode: str,
     username: str | None = None,
-    plant_id: str | None = None,
+    plant_id: str | int | None = None,
     serial: str | None = None,
     station_name: str | None = None,
 ) -> str:
@@ -81,12 +85,14 @@ def build_unique_id(
     Raises ValueError if required parameters are missing for the mode.
     """
     if mode in ("http", "hybrid"):
-        if not username or not plant_id:
+        normalized_plant_id = str(plant_id) if plant_id is not None else ""
+        if not username or not normalized_plant_id:
             raise ValueError(
                 f"{'HTTP' if mode == 'http' else 'Hybrid'} mode requires username and plant_id"
             )
-        prefix = "hybrid_" if mode == "hybrid" else ""
-        return f"{prefix}{username}_{plant_id}"
+        # Cloud ownership is the account+plant pair. Connection mode is mutable
+        # and must not allow HTTP and HYBRID entries for the same remote plant.
+        return f"{username}_{normalized_plant_id}"
 
     if mode in ("modbus", "dongle"):
         if not serial:
@@ -100,6 +106,44 @@ def build_unique_id(
         return f"local_{normalized}"
 
     raise ValueError(f"Unknown mode: {mode}")
+
+
+def cloud_unique_id_from_data(data: Mapping[str, Any]) -> str | None:
+    """Return the canonical cloud account+plant identity stored in entry data."""
+    username = data.get(CONF_USERNAME)
+    plant_id = data.get(CONF_PLANT_ID)
+    if not isinstance(username, str) or not username or plant_id is None:
+        return None
+
+    normalized_plant_id = str(plant_id)
+    if not normalized_plant_id:
+        return None
+    return build_unique_id("http", username=username, plant_id=normalized_plant_id)
+
+
+def find_config_entry_identity_conflicts(
+    hass: HomeAssistant,
+    unique_id: str,
+    *,
+    cloud_unique_id: str | None = None,
+    exclude_entry_id: str | None = None,
+) -> list[ConfigEntry]:
+    """Find entries that already own a prospective local or cloud identity.
+
+    Exact unique-ID matching protects every connection mode. For cloud entries,
+    comparing canonical identity derived from data also catches legacy HYBRID IDs
+    that still carry the old ``hybrid_`` prefix.
+    """
+    conflicts: list[ConfigEntry] = []
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.entry_id == exclude_entry_id:
+            continue
+        if entry.unique_id == unique_id or (
+            cloud_unique_id is not None
+            and cloud_unique_id_from_data(entry.data) == cloud_unique_id
+        ):
+            conflicts.append(entry)
+    return conflicts
 
 
 def find_serial_conflict(

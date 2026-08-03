@@ -145,6 +145,136 @@ async def test_reconfigure_flow_update_credentials(
     assert updated_entry.data[CONF_PLANT_ID] == "123"
 
 
+async def test_reconfigure_cloud_account_updates_canonical_identity(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+):
+    """Changing cloud account updates the account+plant config-entry identity."""
+    from tests.conftest import create_mock_station
+
+    with _mock_luxpower_client(stations=[create_mock_station("123", "Test Plant")]):
+        result = await _init_reconfigure(hass, mock_config_entry)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"next_step_id": "reconfigure_cloud_update"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "new@example.com",
+                CONF_PASSWORD: "newpassword",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    updated_entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    assert updated_entry is not None
+    assert updated_entry.data[CONF_USERNAME] == "new@example.com"
+    assert updated_entry.unique_id == "new@example.com_123"
+
+
+async def test_reconfigure_cloud_account_conflict_is_non_destructive(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+):
+    """A conflicting account+plant change aborts before mutating the entry."""
+    from tests.conftest import create_mock_station
+
+    MockConfigEntry(
+        version=2,
+        domain=DOMAIN,
+        title="EG4 Electronics - Other Owner",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+            CONF_USERNAME: "owner@example.com",
+            CONF_PASSWORD: "ownerpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
+            CONF_PLANT_ID: "123",
+            CONF_PLANT_NAME: "Other Owner",
+            CONF_LOCAL_TRANSPORTS: [],
+        },
+        source=config_entries.SOURCE_USER,
+        unique_id="owner@example.com_123",
+    ).add_to_hass(hass)
+    original_data = dict(mock_config_entry.data)
+    original_unique_id = mock_config_entry.unique_id
+
+    with _mock_luxpower_client(stations=[create_mock_station("123", "Other Owner")]):
+        result = await _init_reconfigure(hass, mock_config_entry)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {"next_step_id": "reconfigure_cloud_update"},
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "owner@example.com",
+                CONF_PASSWORD: "replacement",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert dict(mock_config_entry.data) == original_data
+    assert mock_config_entry.unique_id == original_unique_id
+
+
+async def test_canonical_owner_remains_reconfigurable_with_rejected_legacy_duplicate(
+    hass: HomeAssistant, mock_config_entry: MockConfigEntry
+):
+    """A data-only legacy duplicate must not lock the elected canonical owner."""
+    from tests.conftest import create_mock_station
+
+    duplicate = MockConfigEntry(
+        version=2,
+        domain=DOMAIN,
+        title="EG4 Electronics - Rejected Legacy Hybrid",
+        data={
+            CONF_CONNECTION_TYPE: "hybrid",
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "duplicate",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
+            CONF_PLANT_ID: "123",
+            CONF_PLANT_NAME: "Test Plant",
+            CONF_LOCAL_TRANSPORTS: [],
+        },
+        source=config_entries.SOURCE_USER,
+        unique_id="hybrid_test@example.com_123",
+    )
+    duplicate.add_to_hass(hass)
+
+    with _mock_luxpower_client(stations=[create_mock_station("123", "Test Plant")]):
+        result = await _init_reconfigure(hass, mock_config_entry)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_cloud_update"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            {
+                CONF_USERNAME: "test@example.com",
+                CONF_PASSWORD: "newpassword",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+            },
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert mock_config_entry.data[CONF_PASSWORD] == "newpassword"
+    assert mock_config_entry.unique_id == "test@example.com_123"
+    assert duplicate.unique_id == "hybrid_test@example.com_123"
+
+
 async def test_reconfigure_flow_invalid_auth(
     hass: HomeAssistant, mock_config_entry: MockConfigEntry
 ):
@@ -389,6 +519,7 @@ class TestReconfigureCloudRemove:
         assert CONF_PLANT_ID not in updated_entry.data
         assert updated_entry.data[CONF_DST_SYNC] is False
         assert len(updated_entry.data[CONF_LOCAL_TRANSPORTS]) == 1
+        assert updated_entry.unique_id == "local_hybrid_plant"
 
 
 # =====================================================
@@ -462,6 +593,7 @@ class TestReconfigureCloudAdd:
         assert updated_entry.data[CONF_PLANT_ID] == "789"
         assert updated_entry.data[CONF_PLANT_NAME] == "Cloud Plant"
         assert len(updated_entry.data[CONF_LOCAL_TRANSPORTS]) == 1
+        assert updated_entry.unique_id == "test@example.com_789"
 
     async def test_add_cloud_with_multiple_plants(self, hass: HomeAssistant):
         """Test adding cloud with multiple plants shows station selection."""
@@ -530,6 +662,7 @@ class TestReconfigureCloudAdd:
         assert updated_entry is not None
         assert updated_entry.data[CONF_PLANT_ID] == "222"
         assert updated_entry.data[CONF_PLANT_NAME] == "Plant B"
+        assert updated_entry.unique_id == "test@example.com_222"
 
     async def test_add_cloud_multi_station_string_submission_int_ids(
         self, hass: HomeAssistant
@@ -604,8 +737,7 @@ class TestReconfigureCloudAdd:
         assert updated_entry.data[CONF_PLANT_ID] == "222"
         assert isinstance(updated_entry.data[CONF_PLANT_ID], str)
         assert updated_entry.data[CONF_PLANT_NAME] == "Plant B"
-        # Reconfigure must never change the unique_id
-        assert updated_entry.unique_id == "local_local_setup"
+        assert updated_entry.unique_id == "test@example.com_222"
 
     async def test_add_cloud_single_station_int_id_stores_str(
         self, hass: HomeAssistant
@@ -663,6 +795,7 @@ class TestReconfigureCloudAdd:
         assert updated_entry.data[CONF_PLANT_ID] == "789"
         assert isinstance(updated_entry.data[CONF_PLANT_ID], str)
         assert updated_entry.data[CONF_PLANT_NAME] == "Cloud Plant"
+        assert updated_entry.unique_id == "test@example.com_789"
 
     async def test_reconfigure_normalizes_legacy_int_plant_id(
         self, hass: HomeAssistant
@@ -724,8 +857,78 @@ class TestReconfigureCloudAdd:
         assert updated_entry is not None
         assert updated_entry.data[CONF_PLANT_ID] == "123"
         assert isinstance(updated_entry.data[CONF_PLANT_ID], str)
-        # Unique ID must be untouched for existing installs
+        # The canonical account+plant identity is stable after normalization.
         assert updated_entry.unique_id == "test@example.com_123"
+
+    async def test_add_cloud_conflict_is_non_destructive(self, hass: HomeAssistant):
+        """Adding a plant already owned under a legacy ID leaves local data intact."""
+        from tests.conftest import create_mock_station
+
+        entry = MockConfigEntry(
+            version=2,
+            domain=DOMAIN,
+            title="EG4 Electronics - Local Setup",
+            data={
+                CONF_CONNECTION_TYPE: "local",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1234567890",
+                        "model": "FlexBOSS21",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                    }
+                ],
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="local_local_setup",
+        )
+        entry.add_to_hass(hass)
+        MockConfigEntry(
+            version=2,
+            domain=DOMAIN,
+            title="EG4 Electronics - Existing Hybrid",
+            data={
+                CONF_CONNECTION_TYPE: "hybrid",
+                CONF_USERNAME: "test@example.com",
+                CONF_PASSWORD: "existing",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+                CONF_PLANT_ID: "789",
+                CONF_PLANT_NAME: "Cloud Plant",
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="hybrid_test@example.com_789",
+        ).add_to_hass(hass)
+        original_data = dict(entry.data)
+
+        with _mock_luxpower_client(
+            stations=[create_mock_station("789", "Cloud Plant")]
+        ):
+            result = await _init_reconfigure(hass, entry)
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_cloud_add"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    CONF_USERNAME: "test@example.com",
+                    CONF_PASSWORD: "testpassword",
+                    CONF_BASE_URL: DEFAULT_BASE_URL,
+                    CONF_VERIFY_SSL: True,
+                    CONF_DST_SYNC: True,
+                },
+            )
+
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result["reason"] == "already_configured"
+        assert dict(entry.data) == original_data
+        assert entry.unique_id == "local_local_setup"
 
     async def test_add_cloud_invalid_auth(self, hass: HomeAssistant):
         """Test adding cloud with invalid auth shows error."""
@@ -863,6 +1066,119 @@ class TestReconfigureDeviceManagement:
         assert result["description_placeholders"]["device_count"] == "0"
         assert "reconfigure_device_remove" not in result["menu_options"]
 
+    async def test_hybrid_to_http_keeps_canonical_cloud_identity(
+        self, hass: HomeAssistant
+    ):
+        """Removing the last local device drops mode, not cloud ownership."""
+        entry = MockConfigEntry(
+            version=2,
+            domain=DOMAIN,
+            title="EG4 Electronics - Test Plant",
+            data={
+                CONF_CONNECTION_TYPE: "hybrid",
+                CONF_USERNAME: "test@example.com",
+                CONF_PASSWORD: "testpassword",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+                CONF_PLANT_ID: "123",
+                CONF_PLANT_NAME: "Test Plant",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1111111111",
+                        "model": "FlexBOSS21",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                    }
+                ],
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="hybrid_test@example.com_123",
+        )
+        entry.add_to_hass(hass)
+
+        result = await _init_reconfigure(hass, entry)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_devices"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_device_remove"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"device": "1111111111"}
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_devices_save"}
+        )
+
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert entry.data[CONF_CONNECTION_TYPE] == CONNECTION_TYPE_HTTP
+        assert entry.data[CONF_LOCAL_TRANSPORTS] == []
+        assert entry.unique_id == "test@example.com_123"
+
+    async def test_http_to_hybrid_keeps_canonical_cloud_identity(
+        self, hass: HomeAssistant
+    ):
+        """Adding the first local device must not create a mode-specific identity."""
+        device = _make_discovered_device(serial="3333333333", model="12kPV")
+        entry = MockConfigEntry(
+            version=2,
+            domain=DOMAIN,
+            title="EG4 Electronics - Test Plant",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_HTTP,
+                CONF_USERNAME: "test@example.com",
+                CONF_PASSWORD: "testpassword",
+                CONF_BASE_URL: DEFAULT_BASE_URL,
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: True,
+                CONF_PLANT_ID: "123",
+                CONF_PLANT_NAME: "Test Plant",
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="test@example.com_123",
+        )
+        entry.add_to_hass(hass)
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(return_value=device),
+        ):
+            result = await _init_reconfigure(hass, entry)
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_devices"}
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_device_add"}
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_add_modbus"}
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "modbus_host": "192.168.1.101",
+                    "modbus_port": 502,
+                    "modbus_unit_id": 1,
+                },
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"grid_type": "split_phase"}
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_devices_save"},
+            )
+
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert entry.data[CONF_CONNECTION_TYPE] == "hybrid"
+        assert len(entry.data[CONF_LOCAL_TRANSPORTS]) == 1
+        assert entry.unique_id == "test@example.com_123"
+
     async def test_remove_device_during_reconfigure(self, hass: HomeAssistant):
         """Test removing a local device during reconfigure."""
         entry = MockConfigEntry(
@@ -933,6 +1249,7 @@ class TestReconfigureDeviceManagement:
         assert updated_entry is not None
         assert len(updated_entry.data[CONF_LOCAL_TRANSPORTS]) == 1
         assert updated_entry.data[CONF_LOCAL_TRANSPORTS][0]["serial"] == "1111111111"
+        assert updated_entry.unique_id == "local_multi_setup"
 
     async def test_add_modbus_device_during_reconfigure(self, hass: HomeAssistant):
         """Test adding a Modbus device during reconfigure."""

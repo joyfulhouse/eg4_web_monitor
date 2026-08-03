@@ -828,8 +828,8 @@ class TestAsyncRemoveEntry:
 class TestAsyncMigrateEntry:
     """Test async_migrate_entry function."""
 
-    async def test_migrate_v1_modbus_to_v2(self, hass: HomeAssistant):
-        """Test migration of version 1 modbus entry to version 2."""
+    async def test_migrate_v1_modbus_to_v3(self, hass: HomeAssistant):
+        """Version 1 local entries pass through both migrations atomically."""
         entry = MockConfigEntry(
             domain=DOMAIN,
             version=1,
@@ -848,7 +848,7 @@ class TestAsyncMigrateEntry:
         result = await async_migrate_entry(hass, entry)
 
         assert result is True
-        assert entry.version == 2
+        assert entry.version == 3
         assert entry.data["connection_type"] == "local"
         assert "local_transports" in entry.data
         assert len(entry.data["local_transports"]) == 1
@@ -858,8 +858,8 @@ class TestAsyncMigrateEntry:
         assert transport["serial"] == "1234567890"
         assert transport["host"] == "192.168.1.100"
 
-    async def test_migrate_v1_dongle_to_v2(self, hass: HomeAssistant):
-        """Test migration of version 1 dongle entry to version 2."""
+    async def test_migrate_v1_dongle_to_v3(self, hass: HomeAssistant):
+        """Version 1 dongle entries pass through both migrations atomically."""
         entry = MockConfigEntry(
             domain=DOMAIN,
             version=1,
@@ -878,7 +878,7 @@ class TestAsyncMigrateEntry:
         result = await async_migrate_entry(hass, entry)
 
         assert result is True
-        assert entry.version == 2
+        assert entry.version == 3
         assert entry.data["connection_type"] == "local"
         assert "local_transports" in entry.data
 
@@ -888,8 +888,8 @@ class TestAsyncMigrateEntry:
         assert transport["host"] == "192.168.1.200"
         assert transport["dongle_serial"] == "DONGLE123"
 
-    async def test_migrate_v1_http_unchanged(self, hass: HomeAssistant):
-        """Test migration of version 1 HTTP entry (should be unchanged but version updated)."""
+    async def test_migrate_v1_http_to_canonical_identity(self, hass: HomeAssistant):
+        """Version 1 cloud data receives the canonical account+plant identity."""
         entry = MockConfigEntry(
             domain=DOMAIN,
             version=1,
@@ -900,20 +900,21 @@ class TestAsyncMigrateEntry:
                 CONF_PLANT_ID: "12345",
             },
             entry_id="test_http_entry",
+            unique_id="legacy_http_entry",
         )
         entry.add_to_hass(hass)
 
         result = await async_migrate_entry(hass, entry)
 
         assert result is True
-        assert entry.version == 2
-        # HTTP entry data should be unchanged
+        assert entry.version == 3
         assert entry.data["connection_type"] == "http"
         assert entry.data[CONF_USERNAME] == "user@example.com"
         assert entry.data[CONF_PLANT_ID] == "12345"
+        assert entry.unique_id == "user@example.com_12345"
 
-    async def test_migrate_v2_no_change(self, hass: HomeAssistant):
-        """Test that version 2 entries are not modified."""
+    async def test_migrate_v2_local_preserves_identity(self, hass: HomeAssistant):
+        """Local-only entries advance without speculative identity changes."""
         entry = MockConfigEntry(
             domain=DOMAIN,
             version=2,
@@ -928,13 +929,126 @@ class TestAsyncMigrateEntry:
                 ],
             },
             entry_id="test_v2_entry",
+            unique_id="local_existing_installation",
         )
         entry.add_to_hass(hass)
 
         result = await async_migrate_entry(hass, entry)
 
         assert result is True
-        assert entry.version == 2
+        assert entry.version == 3
+        assert entry.unique_id == "local_existing_installation"
+
+    async def test_migrate_v2_hybrid_to_canonical_identity(self, hass: HomeAssistant):
+        """A lone legacy hybrid entry drops the mode-specific ID prefix."""
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            data={
+                "connection_type": "hybrid",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "secret",
+                CONF_PLANT_ID: 12345,
+                "local_transports": [{"serial": "1234567890"}],
+            },
+            entry_id="test_hybrid_entry",
+            unique_id="hybrid_user@example.com_12345",
+        )
+        entry.add_to_hass(hass)
+
+        result = await async_migrate_entry(hass, entry)
+
+        assert result is True
+        assert entry.version == 3
+        assert entry.data[CONF_PLANT_ID] == "12345"
+        assert entry.unique_id == "user@example.com_12345"
+
+    async def test_migration_keeps_existing_canonical_owner_and_rejects_duplicate(
+        self, hass: HomeAssistant
+    ):
+        """Migration order cannot let a legacy hybrid displace its HTTP owner."""
+        owner = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            data={
+                "connection_type": "http",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "owner-secret",
+                CONF_PLANT_ID: "12345",
+                "local_transports": [],
+            },
+            entry_id="canonical_owner",
+            unique_id="user@example.com_12345",
+        )
+        duplicate = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            data={
+                "connection_type": "hybrid",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "duplicate-secret",
+                CONF_PLANT_ID: "12345",
+                "local_transports": [{"serial": "1234567890"}],
+            },
+            entry_id="legacy_duplicate",
+            unique_id="hybrid_user@example.com_12345",
+        )
+        owner.add_to_hass(hass)
+        duplicate.add_to_hass(hass)
+        duplicate_data = dict(duplicate.data)
+
+        # Exercise the hazardous order: the non-canonical entry migrates first.
+        assert await async_migrate_entry(hass, duplicate) is False
+        assert duplicate.version == 2
+        assert duplicate.unique_id == "hybrid_user@example.com_12345"
+        assert dict(duplicate.data) == duplicate_data
+
+        assert await async_migrate_entry(hass, owner) is True
+        assert owner.version == 3
+        assert owner.unique_id == "user@example.com_12345"
+
+    async def test_migration_elects_oldest_owner_when_no_canonical_id_exists(
+        self, hass: HomeAssistant
+    ):
+        """Equivalent legacy IDs converge on one deterministic, non-destructive owner."""
+        oldest = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            data={
+                "connection_type": "hybrid",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "oldest-secret",
+                CONF_PLANT_ID: "12345",
+                "local_transports": [{"serial": "1111111111"}],
+            },
+            entry_id="000_oldest",
+            unique_id="legacy_a_user@example.com_12345",
+        )
+        newest = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            data={
+                "connection_type": "hybrid",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "newest-secret",
+                CONF_PLANT_ID: "12345",
+                "local_transports": [{"serial": "2222222222"}],
+            },
+            entry_id="111_newest",
+            unique_id="legacy_b_user@example.com_12345",
+        )
+        oldest.add_to_hass(hass)
+        newest.add_to_hass(hass)
+        newest_data = dict(newest.data)
+
+        # Exercise reverse setup order; ownership is based on creation time.
+        assert await async_migrate_entry(hass, newest) is False
+        assert newest.version == 2
+        assert dict(newest.data) == newest_data
+
+        assert await async_migrate_entry(hass, oldest) is True
+        assert oldest.version == 3
+        assert oldest.unique_id == "user@example.com_12345"
 
     async def test_migrate_future_version_fails(self, hass: HomeAssistant):
         """Test that migration from future version fails."""

@@ -120,11 +120,11 @@ class TestBuildUniqueId:
             build_unique_id("http", username="user@example.com")
 
     def test_hybrid_mode(self):
-        """Test unique ID for Hybrid mode."""
+        """Hybrid uses the same canonical cloud identity as HTTP mode."""
         result = build_unique_id(
             "hybrid", username="user@example.com", plant_id="12345"
         )
-        assert result == "hybrid_user@example.com_12345"
+        assert result == "user@example.com_12345"
 
     def test_hybrid_mode_missing_params(self):
         """Test Hybrid mode raises error without required params."""

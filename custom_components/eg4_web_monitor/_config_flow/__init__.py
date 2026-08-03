@@ -44,6 +44,8 @@ from .discovery import (
 )
 from .helpers import (
     build_unique_id,
+    cloud_unique_id_from_data,
+    find_config_entry_identity_conflicts,
     find_plant_by_id,
     find_serial_conflict,
     format_entry_title,
@@ -132,7 +134,7 @@ class EG4ConfigFlow(
     Connection type is derived from configured data, not chosen upfront.
     """
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize flow state."""
@@ -875,8 +877,8 @@ class EG4ConfigFlow(
         self._dst_sync = entry.data.get(CONF_DST_SYNC, True)
         # library_debug now in options flow, not loaded here
         # Entries created before the #275 fix may store the plant id as int
-        # (single-station auto-select path); normalize to str. The unique_id
-        # is not touched by reconfigure, so this is safe for existing installs.
+        # (single-station auto-select path); normalize to str before deriving
+        # the canonical account+plant identity on update.
         plant_id = entry.data.get(CONF_PLANT_ID)
         self._plant_id = str(plant_id) if plant_id is not None else None
         self._plant_name = entry.data.get(CONF_PLANT_NAME)
@@ -1461,6 +1463,17 @@ class EG4ConfigFlow(
         """Create a new config entry from current flow state."""
         unique_id = self._build_unique_id()
         await self.async_set_unique_id(unique_id)
+
+        cloud_unique_id = unique_id if self._has_cloud else None
+        if find_config_entry_identity_conflicts(
+            self.hass,
+            unique_id,
+            cloud_unique_id=cloud_unique_id,
+        ):
+            return self.async_abort(
+                reason="already_configured",
+                description_placeholders={"brand_name": BRAND_NAME},
+            )
         self._abort_if_unique_id_configured(
             description_placeholders={"brand_name": BRAND_NAME},
         )
@@ -1487,6 +1500,44 @@ class EG4ConfigFlow(
             return self.async_abort(reason="entry_not_found")
 
         new_data = self._build_entry_data()
+        # Preserve an established local-only identity: local display names were
+        # not historically persisted in entry data, so recomputing would collapse
+        # unrelated installs to ``local_local``. A cloud -> local transition must
+        # still release its cloud identity and therefore derives a new local ID.
+        if (
+            not self._has_cloud
+            and cloud_unique_id_from_data(entry.data) is None
+            and entry.unique_id is not None
+        ):
+            unique_id = entry.unique_id
+        else:
+            unique_id = self._build_unique_id()
+        cloud_unique_id = unique_id if self._has_cloud else None
+        conflicts = find_config_entry_identity_conflicts(
+            self.hass,
+            unique_id,
+            cloud_unique_id=cloud_unique_id,
+            exclude_entry_id=entry.entry_id,
+        )
+        # A canonical owner remains usable while a legacy data-only duplicate is
+        # left in migration error. Only another exact canonical owner can block
+        # an update that retains the current identity.
+        blocking_conflicts = (
+            [conflict for conflict in conflicts if conflict.unique_id == unique_id]
+            if entry.unique_id == unique_id
+            else conflicts
+        )
+        if blocking_conflicts:
+            _LOGGER.warning(
+                "Refusing to reconfigure entry %s because its identity is owned by "
+                "entry %s",
+                entry.entry_id,
+                blocking_conflicts[0].entry_id,
+            )
+            return self.async_abort(
+                reason="already_configured",
+                description_placeholders={"brand_name": BRAND_NAME},
+            )
 
         # Auto-enable data validation when a WiFi dongle is added during
         # reconfigure (if not already explicitly set by the user).
@@ -1499,6 +1550,7 @@ class EG4ConfigFlow(
             data=new_data,
             title=self._build_title(),
             options=new_options,
+            unique_id=unique_id,
         )
         return self.async_abort(
             reason="reconfigure_successful",

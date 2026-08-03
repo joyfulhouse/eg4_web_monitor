@@ -423,6 +423,54 @@ async def test_user_flow_already_configured(hass: HomeAssistant, mock_api):
     assert result["reason"] == "already_configured"
 
 
+async def test_user_flow_rejects_legacy_hybrid_for_same_cloud_plant(
+    hass: HomeAssistant, mock_api
+):
+    """A stale mode-prefixed ID must not bypass canonical plant ownership."""
+    MockConfigEntry(
+        version=2,
+        domain=DOMAIN,
+        title="EG4 Electronics - Test Plant 1",
+        data={
+            CONF_CONNECTION_TYPE: "hybrid",
+            CONF_USERNAME: "test@example.com",
+            CONF_PASSWORD: "testpassword",
+            CONF_BASE_URL: DEFAULT_BASE_URL,
+            CONF_VERIFY_SSL: True,
+            CONF_DST_SYNC: True,
+            CONF_PLANT_ID: "123",
+            CONF_PLANT_NAME: "Test Plant 1",
+            CONF_LOCAL_TRANSPORTS: [
+                {
+                    "transport_type": "modbus_tcp",
+                    "serial": "1234567890",
+                    "host": "192.168.1.100",
+                    "port": 502,
+                }
+            ],
+        },
+        source=config_entries.SOURCE_USER,
+        unique_id="hybrid_test@example.com_123",
+    ).add_to_hass(hass)
+
+    result = await _init_and_select_cloud(hass)
+    result = await _submit_cloud_credentials(hass, result)
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "cloud_station"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_PLANT_ID: "123"}
+    )
+    assert result["type"] == data_entry_flow.FlowResultType.MENU
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "cloud_finish"}
+    )
+
+    assert result["type"] == data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
 async def test_plant_selection_flow(hass: HomeAssistant, mock_api):
     """Test plant selection step."""
     result = await _init_and_select_cloud(hass)
@@ -1848,6 +1896,7 @@ class TestLocalThenCloudHybrid:
             assert result["data"][CONF_CONNECTION_TYPE] == "hybrid"
             assert result["data"][CONF_USERNAME] == "test@example.com"
             assert len(result["data"][CONF_LOCAL_TRANSPORTS]) == 1
+            assert result["result"].unique_id == "test@example.com_123"
 
 
 # =====================================================
@@ -2220,6 +2269,7 @@ class TestCloudThenAddLocal:
             assert result["data"][CONF_USERNAME] == "test@example.com"
             assert result["data"][CONF_PLANT_ID] == "123"
             assert len(result["data"][CONF_LOCAL_TRANSPORTS]) == 1
+            assert result["result"].unique_id == "test@example.com_123"
 
 
 # =====================================================
