@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -414,12 +415,61 @@ class _CookieWritingClient:
         self.connector = session.connector
         type(self).instances.append(self)
 
-    async def __aenter__(self) -> _CookieWritingClient:
+    async def login(self) -> None:
+        """Emulate the login side effect used by the production client."""
         _set_cookie(self.session, "account-b-session")
+
+    async def close(self) -> None:
+        """Injected sessions remain owned by the integration."""
+
+    async def __aenter__(self) -> _CookieWritingClient:
+        await self.login()
         return self
 
     async def __aexit__(self, *args) -> None:
         del args
+
+
+class _ShieldedAuthenticationClient:
+    """Client double whose login work deliberately outlives its caller."""
+
+    instances: list[_ShieldedAuthenticationClient] = []
+
+    def __init__(self, *args, session: ClientSession, **kwargs) -> None:
+        del args, kwargs
+        self.session = session
+        self.events: list[str] = []
+        self.authentication_started = asyncio.Event()
+        self.authentication_task: asyncio.Task[None] | None = None
+        type(self).instances.append(self)
+
+    async def _authenticate(self) -> None:
+        self.events.append("auth-start")
+        self.authentication_started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.events.append("auth-end")
+
+    async def login(self) -> None:
+        self.authentication_task = asyncio.create_task(self._authenticate())
+        await asyncio.shield(self.authentication_task)
+
+    async def __aenter__(self) -> _ShieldedAuthenticationClient:
+        await self.login()
+        return self
+
+    async def __aexit__(self, *args) -> None:
+        del args
+        await self.close()
+
+    async def close(self) -> None:
+        self.events.append("close-start")
+        task = self.authentication_task
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        self.events.append("close-end")
 
 
 async def test_config_flow_login_cannot_overwrite_loaded_account_cookie(
@@ -524,3 +574,122 @@ async def test_config_flow_uses_configured_unverified_connector(
     assert temporary_client.connector is unverified_default.connector
     assert temporary_client.connector is not verified_default.connector
     assert temporary_client.session.closed
+
+
+async def test_config_flow_cancellation_drains_shielded_login_before_detach(
+    hass: HomeAssistant,
+) -> None:
+    """Cancellation during login must not orphan auth on a detached session."""
+    flow = EG4ConfigFlow()
+    flow.hass = hass
+    flow._username = "account-b"
+    flow._password = "secret"
+    flow._base_url = BASE_URL
+    flow._verify_ssl = True
+    _ShieldedAuthenticationClient.instances.clear()
+
+    with patch(
+        "custom_components.eg4_web_monitor._config_flow.LuxpowerClient",
+        _ShieldedAuthenticationClient,
+    ):
+        validation_task = asyncio.create_task(flow._test_cloud_credentials())
+        while not _ShieldedAuthenticationClient.instances:
+            await asyncio.sleep(0)
+        client = _ShieldedAuthenticationClient.instances[-1]
+        await client.authentication_started.wait()
+
+        real_detach = client.session.detach
+
+        def _detach_session() -> None:
+            client.events.append("session-detach")
+            real_detach()
+
+        with patch.object(
+            client.session,
+            "detach",
+            new=MagicMock(side_effect=_detach_session),
+        ):
+            validation_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await validation_task
+
+    events_before_test_cleanup = list(client.events)
+    authentication_task = client.authentication_task
+    try:
+        assert events_before_test_cleanup == [
+            "auth-start",
+            "close-start",
+            "auth-end",
+            "close-end",
+            "session-detach",
+        ]
+        assert authentication_task is not None
+        assert authentication_task.done()
+        assert client.session.closed
+    finally:
+        if authentication_task is not None and not authentication_task.done():
+            authentication_task.cancel()
+            await asyncio.gather(authentication_task, return_exceptions=True)
+        if not client.session.closed:
+            client.session.detach()
+
+
+async def test_repeated_shutdown_cancellation_waits_for_close_before_detach(
+    hass: HomeAssistant,
+) -> None:
+    """A second cancellation must not detach beneath dependency cleanup."""
+    coordinator = EG4DataUpdateCoordinator(
+        hass, _http_entry("repeated-cancel", "account-a")
+    )
+    client = coordinator.require_client()
+    session = _client_session(coordinator)
+    default_session = aiohttp_client.async_get_clientsession(hass)
+    close_started = asyncio.Event()
+    allow_close = asyncio.Event()
+    events: list[str] = []
+    loop_errors: list[dict[str, object]] = []
+    loop = asyncio.get_running_loop()
+    previous_exception_handler = loop.get_exception_handler()
+    real_detach = session.detach
+
+    async def _close_client() -> None:
+        events.append("close-start")
+        close_started.set()
+        await allow_close.wait()
+        events.append("close-end")
+        raise ValueError("close failed after cancellation")
+
+    def _detach_session() -> None:
+        events.append("session-detach")
+        real_detach()
+
+    try:
+        loop.set_exception_handler(
+            lambda _loop, context: loop_errors.append(dict(context))
+        )
+        with (
+            patch.object(client, "close", new=AsyncMock(side_effect=_close_client)),
+            patch.object(session, "detach", new=MagicMock(side_effect=_detach_session)),
+        ):
+            shutdown_task = asyncio.create_task(coordinator.async_shutdown())
+            await close_started.wait()
+            shutdown_task.cancel()
+            await asyncio.sleep(0)
+            shutdown_task.cancel()
+            allow_close.set()
+
+            with pytest.raises(asyncio.CancelledError) as cancelled:
+                await shutdown_task
+
+        await asyncio.sleep(0)
+        assert events == ["close-start", "close-end", "session-detach"]
+        assert isinstance(cancelled.value.__cause__, ValueError)
+        assert loop_errors == []
+        assert session.closed
+        assert not default_session.closed
+        assert not default_session.connector.closed
+    finally:
+        loop.set_exception_handler(previous_exception_handler)
+        allow_close.set()
+        if not session.closed:
+            session.detach()

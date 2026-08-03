@@ -1,7 +1,6 @@
 """Data update coordinator for EG4 Web Monitor integration using pylxpweb device objects."""
 
 import asyncio
-import inspect
 import logging
 import time
 from datetime import datetime, timedelta
@@ -91,6 +90,7 @@ from .const import (
     HYBRID_LOCAL_MODBUS,
 )
 from .battery_migration import async_migrate_battery_keys
+from .cloud_session import async_close_client_session
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -669,22 +669,9 @@ class EG4DataUpdateCoordinator(
 
     async def _async_close_cloud_session(self) -> None:
         """Stop dependency-owned work, then detach the injected session."""
-        try:
-            # Current pylxpweb ignores injected sessions here; versions with
-            # auth single-flight also cancel their private auth task. That task
-            # must stop before its session is detached.
-            close = getattr(self.client, "close", None)
-            if close is not None:
-                close_result: Any = close()
-                if inspect.isawaitable(close_result):
-                    await close_result
-        finally:
-            # HA owns the connector; detach closes only this account's session
-            # wrapper and private CookieJar.
-            cloud_session = self._cloud_session
-            self._cloud_session = None
-            if cloud_session is not None and not cloud_session.closed:
-                cloud_session.detach()
+        cloud_session = self._cloud_session
+        self._cloud_session = None
+        await async_close_client_session(self.client, cloud_session)
 
     async def _async_handle_shutdown(self, event: Any) -> None:
         """Release the cloud wrapper when Home Assistant stops without unload."""

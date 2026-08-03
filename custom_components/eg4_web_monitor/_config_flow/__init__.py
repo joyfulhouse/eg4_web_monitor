@@ -65,6 +65,7 @@ from .schemas import (
     build_serial_schema,
 )
 from .serial_ports import build_port_selector_options, list_serial_ports
+from ..cloud_session import async_close_client_session
 from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
@@ -1403,31 +1404,34 @@ class EG4ConfigFlow(
             verify_ssl=self._verify_ssl,
             auto_cleanup=False,
         )
+        client: LuxpowerClient | None = None
         try:
-            async with LuxpowerClient(
+            client = LuxpowerClient(
                 username=self._username,
                 password=self._password,
                 base_url=self._base_url,
                 verify_ssl=self._verify_ssl,
                 session=session,
-            ) as client:
-                from pylxpweb.devices import Station
+            )
+            await client.login()
 
-                stations = await Station.load_all(client)
-                # Normalize plant ids to str at the API boundary: pylxpweb returns
-                # Station.id as int, but the HA frontend submits form selections as
-                # str and CONF_PLANT_ID is stored as str (#275).
-                self._plants = [
-                    {"plantId": str(station.id), "name": station.name}
-                    for station in stations
-                ]
-                if not self._plants:
-                    raise LuxpowerAPIError("No plants found for this account")
+            from pylxpweb.devices import Station
+
+            stations = await Station.load_all(client)
+            # Normalize plant ids to str at the API boundary: pylxpweb returns
+            # Station.id as int, but the HA frontend submits form selections as
+            # str and CONF_PLANT_ID is stored as str (#275).
+            self._plants = [
+                {"plantId": str(station.id), "name": station.name}
+                for station in stations
+            ]
+            if not self._plants:
+                raise LuxpowerAPIError("No plants found for this account")
         finally:
-            # The injected pylxpweb session is integration-owned; detach the
-            # wrapper while leaving Home Assistant's shared connector alive.
-            if not session.closed:
-                session.detach()
+            # Bind the client before login: cancellation during its shielded
+            # authentication must still drain client-owned work before this
+            # account-private cookie jar is detached.
+            await async_close_client_session(client, session)
 
     def _build_entry_data(self) -> dict[str, Any]:
         """Build config entry data from current flow state."""
