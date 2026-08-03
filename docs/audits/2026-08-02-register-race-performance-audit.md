@@ -1243,7 +1243,7 @@ UX/registry follow-ups `eg4-06er.12` and `eg4-06er.13`.
 1. Fix INT-01 and add mixed-type multi-tick coverage.
 2. Make INT-02 migration evidence-based and non-destructive on ambiguity/no match;
    add a registry rollback matrix.
-3. Repair INT-03 production listener wiring and extend the open `#379` tests to
+3. Repair INT-03 production listener wiring and extend the `#379` tests to
    inspect registered callbacks.
 4. Choose physical-endpoint lock ownership for ARC-01 and test poll/write/background
    interactions across device objects.
