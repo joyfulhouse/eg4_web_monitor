@@ -36,7 +36,11 @@ from .const import (
     MANUFACTURER,
     SENSOR_TYPES,
 )
-from .coordinator import EG4DataUpdateCoordinator
+from .coordinator import (
+    STATION_LISTENER_CONTEXT,
+    EG4DataUpdateCoordinator,
+    device_listener_context,
+)
 from .utils import (
     async_write_with_cloud_fallback,
     clean_model_name,
@@ -80,7 +84,7 @@ class EG4DeviceEntity(CoordinatorEntity):
             coordinator: The data update coordinator.
             serial: The device serial number.
         """
-        super().__init__(coordinator)
+        super().__init__(coordinator, context=device_listener_context(serial))
         self.coordinator: EG4DataUpdateCoordinator = coordinator
         self._serial = serial
 
@@ -137,7 +141,7 @@ class EG4BatteryEntity(CoordinatorEntity):
             parent_serial: The serial number of the parent inverter device.
             battery_key: The unique key identifying this battery.
         """
-        super().__init__(coordinator)
+        super().__init__(coordinator, context=device_listener_context(parent_serial))
         self.coordinator: EG4DataUpdateCoordinator = coordinator
         self._parent_serial = parent_serial
         self._battery_key = battery_key
@@ -192,7 +196,7 @@ class EG4StationEntity(CoordinatorEntity):
         Args:
             coordinator: The data update coordinator.
         """
-        super().__init__(coordinator)
+        super().__init__(coordinator, context=STATION_LISTENER_CONTEXT)
         self.coordinator: EG4DataUpdateCoordinator = coordinator
 
     @property

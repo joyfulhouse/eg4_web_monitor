@@ -1,6 +1,8 @@
 """Data update coordinator for EG4 Web Monitor integration using pylxpweb device objects."""
 
 import asyncio
+from copy import deepcopy
+from dataclasses import dataclass
 import logging
 import time
 from datetime import datetime, timedelta
@@ -9,7 +11,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.storage import Store
@@ -117,6 +119,91 @@ from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
 _ENDPOINT_OPERATION_LOCKS_DATA = f"{DOMAIN}_endpoint_operation_locks"
+
+
+@dataclass(frozen=True, slots=True)
+class _ListenerContext:
+    """Private runtime key for listener scopes owned by this integration."""
+
+    kind: str
+    serial: str = ""
+
+
+STATION_LISTENER_CONTEXT = _ListenerContext("station")
+DISCOVERY_LISTENER_CONTEXT = _ListenerContext("discovery")
+
+
+def device_listener_context(serial: str) -> _ListenerContext:
+    """Return the listener context shared by one device and its descendants."""
+    return _ListenerContext("device", str(serial))
+
+
+def _listener_contexts_for_data_change(
+    old: dict[str, Any] | None,
+    new: dict[str, Any],
+) -> set[_ListenerContext] | None:
+    """Return scoped listeners affected by a coordinator data transition.
+
+    ``None`` means an unclassified/initial transition and therefore requests a
+    full dispatch. The coordinator-level ``last_update`` timestamp is ignored:
+    it changes on every fastest-transport tick but no entity reads it directly.
+    Device timestamps remain inside their device records and are compared.
+    """
+    if old is None:
+        return None
+
+    contexts: set[_ListenerContext] = set()
+    old_devices = old.get("devices") or {}
+    new_devices = new.get("devices") or {}
+    changed_serials = {
+        str(serial)
+        for serial in old_devices.keys() | new_devices.keys()
+        if old_devices.get(serial) != new_devices.get(serial)
+    }
+
+    old_parameters = old.get("parameters") or {}
+    new_parameters = new.get("parameters") or {}
+    changed_serials.update(
+        str(serial)
+        for serial in old_parameters.keys() | new_parameters.keys()
+        if old_parameters.get(serial) != new_parameters.get(serial)
+    )
+
+    contexts.update(device_listener_context(serial) for serial in changed_serials)
+    if changed_serials:
+        contexts.add(DISCOVERY_LISTENER_CONTEXT)
+
+    if old.get("station") != new.get("station"):
+        contexts.add(STATION_LISTENER_CONTEXT)
+
+    scoped_keys = {"devices", "parameters", "station", "last_update"}
+    old_unscoped = {key: value for key, value in old.items() if key not in scoped_keys}
+    new_unscoped = {key: value for key, value in new.items() if key not in scoped_keys}
+    if old_unscoped != new_unscoped:
+        return None
+
+    return contexts
+
+
+def listener_changed_device_items(
+    coordinator: "EG4DataUpdateCoordinator",
+) -> list[tuple[str, dict[str, Any]]]:
+    """Return only device records selected for the active listener dispatch.
+
+    Outside a filtered dispatch (including simple coordinator doubles in unit
+    tests), return every device to preserve the historical discovery contract.
+    """
+    devices = (coordinator.data or {}).get("devices", {})
+    active_contexts = getattr(coordinator, "_active_listener_contexts", None)
+    if not isinstance(active_contexts, set):
+        return list(devices.items())
+    changed_serials = {
+        context.serial
+        for context in active_contexts
+        if context.kind == "device" and context.serial in devices
+    }
+    return [(serial, devices[serial]) for serial in sorted(changed_serials)]
+
 
 PV_STRING_LIFETIME_STORAGE_VERSION = 1
 PV_STRING_LIFETIME_STORAGE_KEY = f"{DOMAIN}_pv_string_lifetime"
@@ -542,6 +629,14 @@ class EG4DataUpdateCoordinator(
             update_interval=update_interval,
         )
 
+        # Listener fan-out accounting. Device/station entities register the
+        # smallest context they consume. Each refresh compares against a deep
+        # pre-route snapshot because LOCAL carry-forward deliberately reuses
+        # device dict objects and may mutate them while marking link failures.
+        self._pending_listener_contexts: set[_ListenerContext] | None = None
+        self._active_listener_contexts: set[_ListenerContext] | None = None
+        self._last_listener_update_success: bool | None = None
+
         # Register shutdown listener to cancel background tasks on Home Assistant stop
         # Initialize flag before registering to ensure it exists
         self._shutdown_listener_fired = False
@@ -566,6 +661,10 @@ class EG4DataUpdateCoordinator(
             ConfigEntryAuthFailed: If authentication fails (always immediate).
             UpdateFailed: If connection or API errors occur after 3 consecutive failures.
         """
+        try:
+            previous_data = deepcopy(self.data)
+        except Exception:  # pragma: no cover - defensive for future opaque values
+            previous_data = None
         # Clear device_info caches at the start of each update cycle
         # so fresh data is used for any new entity registrations
         self.clear_device_info_caches()
@@ -593,6 +692,9 @@ class EG4DataUpdateCoordinator(
                         if key in sensors and sensors[key] == 0:
                             sensors[key] = None
 
+            self._pending_listener_contexts = _listener_contexts_for_data_change(
+                previous_data, data
+            )
             return data
         except ConfigEntryAuthFailed:
             raise
@@ -604,8 +706,59 @@ class EG4DataUpdateCoordinator(
                     self._consecutive_update_failures,
                     err,
                 )
-                return cast(dict[str, Any], self.data)
+                cached_data = cast(dict[str, Any], self.data)
+                self._pending_listener_contexts = _listener_contexts_for_data_change(
+                    previous_data, cached_data
+                )
+                return cached_data
             raise
+
+    @callback
+    def async_update_listeners(self) -> None:
+        """Notify only listeners whose consumed coordinator scope changed.
+
+        Unscoped and foreign-context listeners retain Home Assistant's default
+        always-notify contract. Initial data and availability transitions always
+        notify the full graph. Only this integration's private scoped contexts
+        are filtered, including on a repeated failure after their unavailable
+        state was already published.
+        """
+        contexts = self._pending_listener_contexts
+        availability_changed = (
+            self._last_listener_update_success is None
+            or self._last_listener_update_success != self.last_update_success
+        )
+        notify_all = availability_changed or contexts is None
+        self._active_listener_contexts = None if notify_all else contexts
+        selected_contexts = contexts if contexts is not None else set()
+        try:
+            for update_callback, context in list(self._listeners.values()):
+                if (
+                    notify_all
+                    or not isinstance(context, _ListenerContext)
+                    or context in selected_contexts
+                ):
+                    update_callback()
+        finally:
+            self._last_listener_update_success = self.last_update_success
+            self._pending_listener_contexts = None
+            self._active_listener_contexts = None
+
+    @callback
+    def async_set_updated_data(self, data: dict[str, Any]) -> None:
+        """Set externally supplied data while retaining scoped dispatch semantics."""
+        try:
+            previous_data = deepcopy(self.data)
+        except Exception:  # pragma: no cover - defensive for future opaque values
+            previous_data = None
+        self._pending_listener_contexts = _listener_contexts_for_data_change(
+            previous_data, data
+        )
+        super().async_set_updated_data(data)
+
+    def iter_listener_changed_devices(self) -> list[tuple[str, dict[str, Any]]]:
+        """Return device records relevant to the current discovery callback."""
+        return listener_changed_device_items(self)
 
     async def _route_update_by_connection_type(self) -> dict[str, Any]:
         """Route to the appropriate update method based on connection type."""
@@ -759,6 +912,10 @@ class EG4DataUpdateCoordinator(
                 seeds[key] = (value, generation)
         params = self.data.setdefault("parameters", {}).setdefault(serial, {})
         params.update(values)
+        self._pending_listener_contexts = {
+            device_listener_context(serial),
+            DISCOVERY_LISTENER_CONTEXT,
+        }
         self.async_update_listeners()
 
     def _reconcile_parameter_read(
@@ -916,6 +1073,10 @@ class EG4DataUpdateCoordinator(
         store[key] = value
         store["fetched_at"] = now
         device[spec.store_key] = store
+        self._pending_listener_contexts = {
+            device_listener_context(serial),
+            DISCOVERY_LISTENER_CONTEXT,
+        }
         self.async_update_listeners()
 
     def _has_modbus_transport(self) -> bool:

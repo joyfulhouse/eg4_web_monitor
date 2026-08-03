@@ -16,7 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ENTITY_PREFIX
-from .coordinator import EG4DataUpdateCoordinator
+from .coordinator import EG4DataUpdateCoordinator, device_listener_context
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ class EG4FirmwareUpdateEntity(
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the update entity."""
-        super().__init__(coordinator)
+        super().__init__(coordinator, context=device_listener_context(serial))
         self._serial = serial
 
         # Get device data for naming

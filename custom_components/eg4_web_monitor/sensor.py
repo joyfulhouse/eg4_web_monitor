@@ -32,7 +32,11 @@ from .const import (
     THREE_PHASE_ONLY_SENSORS,
     VOLT_WATT_SENSORS,
 )
-from .coordinator import EG4DataUpdateCoordinator
+from .coordinator import (
+    DISCOVERY_LISTENER_CONTEXT,
+    EG4DataUpdateCoordinator,
+    listener_changed_device_items,
+)
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     _supports_three_phase_context,
@@ -283,7 +287,7 @@ async def async_setup_entry(
         if not coordinator.data or "devices" not in coordinator.data:
             return
         new_entities: list[SensorEntity] = []
-        for serial, device_data in coordinator.data["devices"].items():
+        for serial, device_data in listener_changed_device_items(coordinator):
             if device_data.get("type") != "inverter":
                 continue
             for battery_key, battery_sensors in device_data.get(
@@ -306,7 +310,11 @@ async def async_setup_entry(
             )
             async_add_entities(new_entities, True)
 
-    entry.async_on_unload(coordinator.async_add_listener(_async_discover_new_batteries))
+    entry.async_on_unload(
+        coordinator.async_add_listener(
+            _async_discover_new_batteries, DISCOVERY_LISTENER_CONTEXT
+        )
+    )
 
     # Track known smart port sensor keys for late registration.
     # Smart port power keys are excluded from static entity creation because
@@ -328,7 +336,7 @@ async def async_setup_entry(
         if not coordinator.data or "devices" not in coordinator.data:
             return
         new_entities: list[SensorEntity] = []
-        for serial, device_data in coordinator.data["devices"].items():
+        for serial, device_data in listener_changed_device_items(coordinator):
             if device_data.get("type") != "gridboss":
                 continue
             known = known_smart_port_keys.setdefault(serial, set())
@@ -354,7 +362,9 @@ async def async_setup_entry(
             async_add_entities(new_entities, True)
 
     entry.async_on_unload(
-        coordinator.async_add_listener(_async_discover_smart_port_sensors)
+        coordinator.async_add_listener(
+            _async_discover_smart_port_sensors, DISCOVERY_LISTENER_CONTEXT
+        )
     )
 
     # Track known device sensor keys for late registration.
@@ -395,7 +405,7 @@ async def async_setup_entry(
         if not coordinator.data or "devices" not in coordinator.data:
             return
         new_entities: list[SensorEntity] = []
-        for serial, device_data in coordinator.data["devices"].items():
+        for serial, device_data in listener_changed_device_items(coordinator):
             dtype = device_data.get("type", "unknown")
             if dtype not in ("inverter", "gridboss", "parallel_group"):
                 continue
@@ -440,7 +450,9 @@ async def async_setup_entry(
             async_add_entities(new_entities, True)
 
     entry.async_on_unload(
-        coordinator.async_add_listener(_async_discover_device_sensors)
+        coordinator.async_add_listener(
+            _async_discover_device_sensors, DISCOVERY_LISTENER_CONTEXT
+        )
     )
 
     # Track known battery bank sensor keys for late registration.
@@ -468,7 +480,7 @@ async def async_setup_entry(
         if not coordinator.data or "devices" not in coordinator.data:
             return
         new_entities: list[SensorEntity] = []
-        for serial, device_data in coordinator.data["devices"].items():
+        for serial, device_data in listener_changed_device_items(coordinator):
             if device_data.get("type") != "inverter":
                 continue
             known = known_bank_sensor_keys.setdefault(serial, set())
@@ -493,7 +505,9 @@ async def async_setup_entry(
             async_add_entities(new_entities, True)
 
     entry.async_on_unload(
-        coordinator.async_add_listener(_async_discover_battery_bank_sensors)
+        coordinator.async_add_listener(
+            _async_discover_battery_bank_sensors, DISCOVERY_LISTENER_CONTEXT
+        )
     )
 
 

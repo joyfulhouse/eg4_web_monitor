@@ -96,7 +96,7 @@ class TestLateBatteryRegistration:
         # Store registered listeners so we can invoke them
         coord._listeners: list = []
 
-        def add_listener(callback):
+        def add_listener(callback, context=None):
             coord._listeners.append(callback)
             return lambda: coord._listeners.remove(callback)
 
@@ -285,7 +285,7 @@ class TestLateDeviceSensorRegistration:
         )
         coord._listeners: list = []
 
-        def add_listener(callback):
+        def add_listener(callback, context=None):
             coord._listeners.append(callback)
             return lambda: coord._listeners.remove(callback)
 
@@ -496,7 +496,7 @@ class TestSmartPortListenerOwnership:
         )
         coord._listeners: list = []
 
-        def add_listener(callback):
+        def add_listener(callback, context=None):
             coord._listeners.append(callback)
             return lambda: coord._listeners.remove(callback)
 
