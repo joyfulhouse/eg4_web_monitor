@@ -1,6 +1,7 @@
 """EG4 Web Monitor integration for Home Assistant."""
 
 import asyncio
+from dataclasses import dataclass, field
 import logging
 from typing import Any, TypeAlias
 
@@ -29,6 +30,8 @@ from ._config_flow.helpers import (
 from .const import (
     CONF_CONNECTION_TYPE,
     CONF_HTTP_POLLING_INTERVAL,
+    CONF_LIBRARY_DEBUG,
+    CONF_LOCAL_TRANSPORTS,
     CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_HTTP,
@@ -153,6 +156,182 @@ RECONCILE_HISTORY_SCHEMA = vol.Schema(
 
 # Config entry only - no YAML configuration supported
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+_LIBRARY_LOGGING_DATA_KEY = f"{DOMAIN}_library_logging"
+
+
+@dataclass(slots=True)
+class _LibraryLoggingState:
+    """Home Assistant-scoped ownership of the process-global library logger."""
+
+    original_level: int
+    entry_preferences: dict[str, bool] = field(default_factory=dict)
+
+
+@callback
+def _async_register_library_logging(hass: HomeAssistant, entry: EG4ConfigEntry) -> None:
+    """Register one loaded entry's preference and reconcile the shared logger."""
+    pylxpweb_logger = logging.getLogger("pylxpweb")
+    state = hass.data.get(_LIBRARY_LOGGING_DATA_KEY)
+    if not isinstance(state, _LibraryLoggingState):
+        state = _LibraryLoggingState(original_level=pylxpweb_logger.level)
+        hass.data[_LIBRARY_LOGGING_DATA_KEY] = state
+
+    state.entry_preferences[entry.entry_id] = bool(
+        entry.options.get(
+            CONF_LIBRARY_DEBUG,
+            entry.data.get(CONF_LIBRARY_DEBUG, False),
+        )
+    )
+    debug_enabled = any(state.entry_preferences.values())
+    pylxpweb_logger.setLevel(logging.DEBUG if debug_enabled else logging.WARNING)
+    _LOGGER.debug(
+        "Reconciled pylxpweb logging for %d loaded entries: %s",
+        len(state.entry_preferences),
+        "DEBUG" if debug_enabled else "WARNING",
+    )
+
+
+@callback
+def _async_unregister_library_logging(
+    hass: HomeAssistant, entry: EG4ConfigEntry
+) -> None:
+    """Drop one entry's preference and restore the remaining/baseline level."""
+    state = hass.data.get(_LIBRARY_LOGGING_DATA_KEY)
+    if not isinstance(state, _LibraryLoggingState):
+        return
+
+    state.entry_preferences.pop(entry.entry_id, None)
+    pylxpweb_logger = logging.getLogger("pylxpweb")
+    if state.entry_preferences:
+        debug_enabled = any(state.entry_preferences.values())
+        pylxpweb_logger.setLevel(logging.DEBUG if debug_enabled else logging.WARNING)
+        return
+
+    pylxpweb_logger.setLevel(state.original_level)
+    hass.data.pop(_LIBRARY_LOGGING_DATA_KEY, None)
+
+
+def _domain_device_identifiers(device: dr.DeviceEntry) -> set[str]:
+    """Return this integration's identifiers from one registry device."""
+    return {identifier for domain, identifier in device.identifiers if domain == DOMAIN}
+
+
+@callback
+def _async_remove_registry_ownership(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    *,
+    device_ids: set[str] | None = None,
+) -> tuple[int, int]:
+    """Remove this entry's entities/devices without deleting shared identities.
+
+    If ``device_ids`` is provided, only that device subtree is detached (the
+    reconfigure path).  Otherwise all records owned by the entry are removed
+    (the config-entry deletion path).  A device linked to another config entry
+    is retained and only this entry's ownership is removed.
+    """
+    entity_registry = er.async_get(hass)
+    device_registry = dr.async_get(hass)
+    entry_devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+    if device_ids is not None:
+        entry_devices = [device for device in entry_devices if device.id in device_ids]
+
+    removed_entities = 0
+    for entity in list(
+        er.async_entries_for_config_entry(entity_registry, entry.entry_id)
+    ):
+        if device_ids is not None and entity.device_id not in device_ids:
+            continue
+        entity_registry.async_remove(entity.entity_id)
+        removed_entities += 1
+
+    removed_devices = 0
+    for device in entry_devices:
+        # The registry itself deletes a device when its final config-entry link
+        # is removed.  Keep shared devices by detaching only this entry; remove
+        # exclusively-owned devices explicitly after their entities are gone.
+        other_config_entries = device.config_entries - {entry.entry_id}
+        if other_config_entries:
+            device_registry.async_update_device(
+                device.id, remove_config_entry_id=entry.entry_id
+            )
+            continue
+        device_registry.async_remove_device(device.id)
+        removed_devices += 1
+
+    return removed_entities, removed_devices
+
+
+@callback
+def _async_cleanup_removed_registry_devices(
+    hass: HomeAssistant,
+    entry: EG4ConfigEntry,
+    coordinator: EG4DataUpdateCoordinator,
+) -> None:
+    """Prune serial/plant device trees absent after a successful first refresh.
+
+    Only authoritative root identities are considered: station identifiers and
+    physical devices carrying a serial number.  Battery banks and individual
+    batteries are never inferred absent from the LOCAL static first refresh;
+    they are removed only as descendants of a definitively absent parent.
+    """
+    data = coordinator.data or {}
+    live_root_identifiers = {str(serial) for serial in data.get("devices", {})}
+    live_root_identifiers.update(
+        str(transport["serial"])
+        for transport in entry.data.get(CONF_LOCAL_TRANSPORTS, [])
+        if transport.get("serial")
+    )
+    if coordinator.station is not None:
+        for collection_name in ("all_inverters", "all_mid_devices"):
+            for device in getattr(coordinator.station, collection_name, ()) or ():
+                if serial := getattr(device, "serial_number", None):
+                    live_root_identifiers.add(str(serial))
+    if "station" in data and coordinator.plant_id is not None:
+        live_root_identifiers.add(f"station_{coordinator.plant_id}")
+
+    device_registry = dr.async_get(hass)
+    entry_devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+    stale_device_ids: set[str] = set()
+    for device in entry_devices:
+        identifiers = _domain_device_identifiers(device)
+        if not identifiers:
+            continue
+        is_station = any(
+            identifier.startswith("station_") for identifier in identifiers
+        )
+        is_physical_device = device.serial_number is not None
+        if (is_station or is_physical_device) and identifiers.isdisjoint(
+            live_root_identifiers
+        ):
+            stale_device_ids.add(device.id)
+
+    # Remove every descendant of a stale root, but do not inspect battery
+    # membership independently: it is intentionally incomplete at LOCAL setup.
+    while True:
+        descendants = {
+            device.id
+            for device in entry_devices
+            if device.via_device_id in stale_device_ids
+        }
+        expanded = stale_device_ids | descendants
+        if expanded == stale_device_ids:
+            break
+        stale_device_ids = expanded
+
+    if not stale_device_ids:
+        return
+
+    entity_count, device_count = _async_remove_registry_ownership(
+        hass, entry, device_ids=stale_device_ids
+    )
+    _LOGGER.info(
+        "Removed %d stale entities and %d stale devices after reconfigure for %s",
+        entity_count,
+        device_count,
+        entry.entry_id,
+    )
 
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
@@ -831,24 +1010,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
 
 async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up EG4 Web Monitor from a config entry."""
+    _async_register_library_logging(hass, entry)
+    try:
+        setup_ok = await _async_setup_entry(hass, entry)
+    except BaseException:
+        # Setup failures and cancellation must not leave a process-global
+        # logger preference owned by an entry that never became loaded.
+        _async_unregister_library_logging(hass, entry)
+        raise
+    if not setup_ok:
+        _async_unregister_library_logging(hass, entry)
+    return setup_ok
+
+
+async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
+    """Set up an entry after its shared logging ownership is registered."""
     _LOGGER.debug("Setting up EG4 Web Monitor entry: %s", entry.entry_id)
 
     # A failed constructor must not accidentally clean up stale runtime data
     # retained by a test harness or an interrupted previous setup attempt.
     entry.runtime_data = None  # type: ignore[assignment]
-
-    # Configure library debug logging based on user preference (options, data fallback)
-    library_debug = entry.options.get(
-        "library_debug", entry.data.get("library_debug", False)
-    )
-    pylxpweb_logger = logging.getLogger("pylxpweb")
-
-    if library_debug:
-        pylxpweb_logger.setLevel(logging.DEBUG)
-        _LOGGER.info("Enabled DEBUG logging for pylxpweb library")
-    else:
-        # Set to WARNING to suppress INFO logs from library
-        pylxpweb_logger.setLevel(logging.WARNING)
 
     # Force-migrate: add HTTP polling interval for existing entries
     # and bump HTTP-only users below 60s minimum to 90s default
@@ -894,6 +1075,11 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
 
     # Perform initial data fetch
     await coordinator.async_config_entry_first_refresh()
+
+    # Reconfigure reloads retain Home Assistant registry records by default.
+    # Remove only physical serial/station trees proven absent by this fresh
+    # first refresh, preserving shared devices and incomplete battery data.
+    _async_cleanup_removed_registry_devices(hass, entry, coordinator)
 
     # One-time migration: remove stale local-format battery entities
     # Old local keys used numeric-only battery indices (e.g., "0", "1")
@@ -1062,6 +1248,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         if coordinator.client is not None:
             await coordinator.client.close()
 
+        _async_unregister_library_logging(hass, entry)
+
     return bool(unload_ok)
 
 
@@ -1072,8 +1260,8 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
     It purges all statistics for this integration's entities, allowing
     TOTAL_INCREASING sensors to reset when the integration is re-added.
 
-    Entity Registry entries (names, areas, labels) are NOT deleted,
-    so they will be automatically restored when re-adding the integration.
+    Entity/device registry records owned only by this entry are deleted. Shared
+    devices survive with their remaining config-entry ownership intact.
     """
     _LOGGER.info("Removing EG4 Web Monitor entry: %s", entry.entry_id)
 
@@ -1116,6 +1304,13 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
             _LOGGER.warning("Failed to purge entity statistics: %s", e)
     else:
         _LOGGER.debug("No entities found to purge statistics for")
+
+    removed_entities, removed_devices = _async_remove_registry_ownership(hass, entry)
+    _LOGGER.info(
+        "Removed %d entity registry entries and %d exclusively-owned devices",
+        removed_entities,
+        removed_devices,
+    )
 
     await Store(
         hass,
