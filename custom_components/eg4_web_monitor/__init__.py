@@ -1000,7 +1000,7 @@ async def _async_cleanup_failed_entry_setup(
 async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up an entry and unwind every acquired resource on failure."""
     try:
-        return await _async_setup_entry(hass, entry)
+        return await _async_setup_entry_logged(hass, entry)
     except (Exception, asyncio.CancelledError):
         coordinator = entry.runtime_data
         if coordinator is not None:
@@ -1008,7 +1008,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
         raise
 
 
-async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
+async def _async_setup_entry_logged(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up EG4 Web Monitor from a config entry."""
     _async_register_library_logging(hass, entry)
     try:
