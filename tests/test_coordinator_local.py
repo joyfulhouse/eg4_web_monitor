@@ -8,6 +8,7 @@ Covers methods not already tested in test_coordinator.py:
 - _log_transport_error
 """
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -3571,6 +3572,178 @@ class TestBatteryControlModeMethods:
         calls = coordinator.client.api.control.control_function.call_args_list
         assert calls[0][0] == ("INV001", "FUNC_BAT_CHARGE_CONTROL", False)
         assert calls[1][0] == ("INV001", "FUNC_BAT_DISCHARGE_CONTROL", True)
+
+    async def test_concurrent_battery_control_mode_writes_do_not_interleave(
+        self, hass, local_config_entry
+    ):
+        """Charge/discharge bit pairs are serialized as one logical write."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        first_charge_started = asyncio.Event()
+        release_first_charge = asyncio.Event()
+        second_discharge_written = asyncio.Event()
+        hardware = {"charge": False, "discharge": False}
+        calls: list[tuple[str, bool]] = []
+
+        async def _write_named_parameter(
+            param: str, value: bool, *, serial: str
+        ) -> bool:
+            assert serial == "INV001"
+            calls.append((param, value))
+            if param == "FUNC_BAT_CHARGE_CONTROL":
+                hardware["charge"] = value
+                if value:
+                    first_charge_started.set()
+                    await release_first_charge.wait()
+            else:
+                hardware["discharge"] = value
+                if value:
+                    second_discharge_written.set()
+            return True
+
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=_write_named_parameter
+        )
+
+        first_task = asyncio.create_task(
+            coordinator.async_write_battery_control_mode("INV001", "voltage", "soc")
+        )
+        await first_charge_started.wait()
+        second_task = asyncio.create_task(
+            coordinator.async_write_battery_control_mode("INV001", "soc", "voltage")
+        )
+        await asyncio.sleep(0)
+
+        assert not second_discharge_written.is_set()
+        assert not second_task.done()
+        release_first_charge.set()
+
+        await asyncio.gather(first_task, second_task)
+
+        assert hardware == {"charge": False, "discharge": True}
+        assert calls == [
+            ("FUNC_BAT_CHARGE_CONTROL", True),
+            ("FUNC_BAT_DISCHARGE_CONTROL", False),
+            ("FUNC_BAT_CHARGE_CONTROL", False),
+            ("FUNC_BAT_DISCHARGE_CONTROL", True),
+        ]
+
+    async def test_control_transaction_locks_are_scoped_by_device_and_control(
+        self, hass, local_config_entry
+    ):
+        """Only writes to the same logical resource contend."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+
+        battery = coordinator.control_transaction_lock("INV001", "battery_control_mode")
+
+        assert battery is coordinator.control_transaction_lock(
+            "INV001", "battery_control_mode"
+        )
+        assert battery is not coordinator.control_transaction_lock(
+            "INV002", "battery_control_mode"
+        )
+        assert battery is not coordinator.control_transaction_lock(
+            "INV001", "schedule:68"
+        )
+
+    async def test_cancelled_partial_local_battery_write_refreshes_before_unlock(
+        self, hass, local_config_entry
+    ):
+        """Cancellation re-reads because the in-flight discharge is ambiguous."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=True)
+        coordinator.note_parameters_written = MagicMock()
+
+        async def _refresh_under_lock(serial: str) -> None:
+            assert serial == "INV001"
+            assert coordinator.control_transaction_lock(
+                serial, "battery_control_mode"
+            ).locked()
+
+        coordinator._refresh_device_parameters = AsyncMock(
+            side_effect=_refresh_under_lock
+        )
+        discharge_started = asyncio.Event()
+        hold_discharge = asyncio.Event()
+
+        async def _write_named_parameter(
+            param: str, _value: bool, *, serial: str
+        ) -> bool:
+            assert serial == "INV001"
+            if param == "FUNC_BAT_DISCHARGE_CONTROL":
+                discharge_started.set()
+                await hold_discharge.wait()
+            return True
+
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=_write_named_parameter
+        )
+
+        task = asyncio.create_task(
+            coordinator.async_write_battery_control_mode("INV001", "voltage", "soc")
+        )
+        await discharge_started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        coordinator._refresh_device_parameters.assert_awaited_once_with("INV001")
+        coordinator.note_parameters_written.assert_not_called()
+        assert not coordinator.control_transaction_lock(
+            "INV001", "battery_control_mode"
+        ).locked()
+
+    async def test_cancelled_partial_cloud_battery_write_refreshes_before_unlock(
+        self, hass, local_config_entry
+    ):
+        """Cloud cancellation after the charge ACK re-reads the mixed regime."""
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.has_local_transport = MagicMock(return_value=False)
+
+        async def _refresh_under_lock(serial: str) -> None:
+            assert serial == "INV001"
+            assert coordinator.control_transaction_lock(
+                serial, "battery_control_mode"
+            ).locked()
+
+        coordinator._refresh_device_parameters = AsyncMock(
+            side_effect=_refresh_under_lock
+        )
+        discharge_started = asyncio.Event()
+        hold_discharge = asyncio.Event()
+        success = MagicMock(success=True)
+
+        async def _control_function(
+            _serial: str, param: str, _value: bool
+        ) -> MagicMock:
+            if param == "FUNC_BAT_DISCHARGE_CONTROL":
+                discharge_started.set()
+                await hold_discharge.wait()
+            return success
+
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.control_function = AsyncMock(
+            side_effect=_control_function
+        )
+
+        task = asyncio.create_task(
+            coordinator.async_write_battery_control_mode("INV001", "voltage", "soc")
+        )
+        await discharge_started.wait()
+        task.cancel()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        coordinator._refresh_device_parameters.assert_awaited_once_with("INV001")
+        assert not coordinator.control_transaction_lock(
+            "INV001", "battery_control_mode"
+        ).locked()
 
     async def test_async_write_battery_control_mode_hybrid_fallback(
         self, hass, local_config_entry

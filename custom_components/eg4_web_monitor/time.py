@@ -34,6 +34,7 @@ hour/minute values (or Peak Shaving's LSP params).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import time
 from typing import TYPE_CHECKING, Any
@@ -333,6 +334,13 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         data arrives or the retention TTL expires (#379,
         :class:`EG4OptimisticEntity`).
         """
+        async with self.coordinator.control_transaction_lock(
+            self.serial, f"schedule:{self._register}"
+        ):
+            await self._async_set_value_locked(value)
+
+    async def _async_set_value_locked(self, value: time) -> None:
+        """Execute a schedule write with its logical control lock held."""
         boundary_value = time(hour=value.hour, minute=value.minute)
         packed = pack_time(boundary_value.hour, boundary_value.minute)
         _LOGGER.info(
@@ -446,6 +454,10 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
                 result = await client.api.control.write_parameter(
                     self.serial, param, str(field)
                 )
+            except asyncio.CancelledError as err:
+                if wrote_any:
+                    await self._async_converge_partial_write(param, err)
+                raise
             except Exception as err:
                 if wrote_any:
                     await self._async_raise_partial_write(param, err)
@@ -476,6 +488,23 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         (LOCAL) cannot read the just-written register anyway; cloud param
         poll or link recovery converges the entity later.
         """
+        await self._async_converge_partial_write(failed_param, err)
+        raise HomeAssistantError(
+            f"Failed to set {failed_param} for {self.serial}: the schedule "
+            "time may be partially applied (hour and minute are written "
+            "separately) — device state was re-read"
+        ) from err
+
+    async def _async_converge_partial_write(
+        self, failed_param: str, err: BaseException | None
+    ) -> None:
+        """Best-effort re-read after an acknowledged first field write.
+
+        Returning instead of translating the error lets cancellation callers
+        preserve ``CancelledError`` after convergence. The logical-control
+        lock remains held during cleanup so a later writer cannot race the
+        re-read.
+        """
         _LOGGER.warning(
             "Cloud schedule write for %s partially applied (%s failed%s); "
             "re-reading device parameters to reflect the actual state",
@@ -485,11 +514,6 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         )
         if not self.coordinator.is_transport_link_down(self.serial):
             await self._async_refresh_parameters()
-        raise HomeAssistantError(
-            f"Failed to set {failed_param} for {self.serial}: the schedule "
-            "time may be partially applied (hour and minute are written "
-            "separately) — device state was re-read"
-        ) from err
 
     async def _async_refresh_parameters(self) -> bool:
         """Re-read parameters so all schedule entities converge on the write.
