@@ -54,6 +54,12 @@ from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     SMART_PORT_VALIDATED_KEY,
 )
+
+# Home Assistant resolves the per-device Delete hook by name on the
+# component module; the redundant alias marks the re-export (#174).
+from .device_removal import (
+    async_remove_config_entry_device as async_remove_config_entry_device,
+)
 from .history_import import (
     IMPORT_HISTORICAL_DATA_SCHEMA,
     SERVICE_IMPORT_HISTORICAL_DATA,

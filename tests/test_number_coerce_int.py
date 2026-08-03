@@ -32,7 +32,8 @@ ENTITY_CASES: "Sequence[ParameterSet]" = (
     pytest.param(
         ACChargeStartBatterySOCNumber,
         0,
-        100,
+        # Write cap is 90 (pylxpweb's reg-160 definition, PR #488 item 3).
+        90,
         "AC charge start battery SOC",
         id="ac-charge-start-battery-soc",
     ),

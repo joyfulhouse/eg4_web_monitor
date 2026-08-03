@@ -215,6 +215,10 @@ parameter sync.
 - AC Charge SOC Limit (%) — grid-tied families only; on the EG4 Off-Grid family
   it is replaced by **AC Charge Start Battery SOC** and **AC Charge End Battery
   SOC** (%) (registers 160/161, enabled by default; #332)
+- AC Charge Start Battery SOC (%) — also created on EG4 hybrid inverters
+  (FlexBOSS/18kPV family), where register 160 starts grid charging whenever
+  battery SOC is below it, alongside AC Charge SOC Limit as the stop
+  threshold (writes cap at 90%; #331/#488)
 - On-Grid SOC Cut-Off (%), Off-Grid SOC Cut-Off (%)
 - System Charge Voltage Limit (V), AC Charge Start / End Voltage (V),
   On-Grid / Off-Grid Cut-Off Voltage (V) — voltage-mode limits (see below)
