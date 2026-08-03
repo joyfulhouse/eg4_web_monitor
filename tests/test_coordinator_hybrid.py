@@ -632,6 +632,45 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_first_retry_fires_on_a_young_monotonic_clock(self) -> None:
+        """An absent retry stamp must not suppress work during early uptime."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        attach_result = MagicMock()
+        attach_result.failed_serials = []
+        attach_result.unmatched_serials = []
+
+        mock_self = MagicMock()
+        mock_self.station = MagicMock()
+        mock_self.station.attach_local_transports = AsyncMock(
+            return_value=attach_result
+        )
+        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._last_attach_retry = None
+        mock_self._local_transport_configs = [
+            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+        ]
+
+        cfg = self._net_cfg("4524850115")
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
+                return_value=[cfg],
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local.time.monotonic",
+                return_value=1.0,
+            ),
+            patch("custom_components.eg4_web_monitor.coordinator_local.ir"),
+        ):
+            await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
+
+        mock_self.station.attach_local_transports.assert_awaited_once_with([cfg])
+        assert mock_self._last_attach_retry == 1.0
+
+    @pytest.mark.asyncio
     async def test_retry_noop_without_failures(self) -> None:
         """No failed serials -> no retry work at all."""
         from custom_components.eg4_web_monitor.coordinator import (
@@ -902,6 +941,31 @@ class TestAttachRetryAndDegradedFallback:
         assert mock_self._last_attach_retry > 0.0
 
     @pytest.mark.asyncio
+    async def test_first_full_reattach_fires_on_a_young_monotonic_clock(self) -> None:
+        """The no-attempt sentinel is distinct from monotonic timestamp zero."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self = MagicMock()
+        mock_self.connection_type = CONNECTION_TYPE_HYBRID
+        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transports_attached = False
+        mock_self._failed_attach_serials = set()
+        mock_self._last_attach_retry = None
+        mock_self._attach_local_transports_to_station = AsyncMock()
+        mock_self._maybe_retry_failed_attaches = AsyncMock()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_http._time.monotonic",
+            return_value=1.0,
+        ):
+            await EG4DataUpdateCoordinator._ensure_local_transports(mock_self)
+
+        mock_self._attach_local_transports_to_station.assert_awaited_once()
+        assert mock_self._last_attach_retry == 1.0
+
+    @pytest.mark.asyncio
     async def test_ensure_local_transports_full_reattach_backoff(self) -> None:
         """The full re-attach respects the bounded retry interval."""
         import time as time_mod
@@ -1054,6 +1118,27 @@ class TestTransportLinkDown:
             _maybe_bust_degraded_cloud_cache(client, stamps, 60, "1111111111") is False
         )
         client.invalidate_cache_for_device.assert_called_once()
+
+    def test_bust_helper_first_call_fires_on_a_young_monotonic_clock(self) -> None:
+        """Missing stamp is not timestamp zero, even just after process start."""
+        from custom_components.eg4_web_monitor.coordinator_http import (
+            _maybe_bust_degraded_cloud_cache,
+        )
+
+        client = MagicMock()
+        stamps: dict[str, float] = {}
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_http._time.monotonic",
+            return_value=1.0,
+        ):
+            assert (
+                _maybe_bust_degraded_cloud_cache(client, stamps, 60, "1111111111")
+                is True
+            )
+
+        client.invalidate_cache_for_device.assert_called_once_with("1111111111")
+        assert stamps == {"1111111111": 1.0}
 
     def test_bust_helper_no_client(self) -> None:
         """Without a cloud client there is nothing to bust."""

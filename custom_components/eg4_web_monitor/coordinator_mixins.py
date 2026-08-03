@@ -719,8 +719,9 @@ if TYPE_CHECKING:
         _local_transport_configs: list[dict[str, Any]]
         _local_transports_attached: bool
         _failed_attach_serials: set[str]
-        _last_attach_retry: float
+        _last_attach_retry: float | None
         _last_degraded_cloud_refresh: dict[str, float]
+        _last_pg_energy_fetch: float | None
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
         _data_validation_enabled: bool
@@ -734,6 +735,8 @@ if TYPE_CHECKING:
         _param_completed_this_cycle: set[str]
         _param_attempted_this_cycle: bool
         _parameter_refresh_interval: timedelta
+        _parameter_write_generation: int
+        _parameter_write_seeds: dict[str, dict[str, tuple[Any, int]]]
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta
         _last_status_fetch: dict[str, float]
@@ -768,6 +771,15 @@ if TYPE_CHECKING:
         async def async_request_refresh(self) -> None: ...
         def _rebuild_inverter_cache(self) -> None: ...
         def _poll_gate_key(self, transport_type: str) -> str: ...
+        def _reconcile_parameter_read(
+            self,
+            serial: str,
+            values: dict[str, Any],
+            *,
+            read_complete: bool,
+            read_generation: int,
+            observed_keys: Collection[str] | None = None,
+        ) -> dict[str, Any]: ...
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...
@@ -4013,7 +4025,14 @@ class ParameterManagementMixin(_MixinBase):
                 _LOGGER.warning("Cannot find inverter object for serial %s", serial)
                 return False
 
-            # Use force=True to bypass cache when refreshing parameters after changes
+            # Use force=True to bypass cache when refreshing parameters after changes.
+            # Snapshot the integration's write generation before the read: the
+            # pylxpweb cache generation keeps a raced result stale for its next
+            # fetch, but the returned parameter dict can still be pre-write.
+            current_generation = getattr(self, "_parameter_write_generation", 0)
+            parameter_read_generation = (
+                current_generation if isinstance(current_generation, int) else 0
+            )
             await inverter.refresh(force=True, include_parameters=True)
 
             if hasattr(inverter, "parameters") and inverter.parameters:
@@ -4023,7 +4042,22 @@ class ParameterManagementMixin(_MixinBase):
                 if "parameters" not in self.data:
                     self.data["parameters"] = {}
 
-                self.data["parameters"][serial] = inverter.parameters
+                parameter_values = dict(inverter.parameters)
+                read_complete = (
+                    getattr(inverter, "parameters_complete", True) is not False
+                )
+                write_seeds = getattr(self, "_parameter_write_seeds", None)
+                if isinstance(write_seeds, dict):
+                    parameter_values = self._reconcile_parameter_read(
+                        serial,
+                        parameter_values,
+                        read_complete=read_complete,
+                        read_generation=parameter_read_generation,
+                        # pylxpweb merges its own sticky carry-forward on partial
+                        # reads, so none of those keys can be proven freshly read.
+                        observed_keys=parameter_values if read_complete else (),
+                    )
+                self.data["parameters"][serial] = parameter_values
                 return True
 
             _LOGGER.warning(

@@ -884,8 +884,16 @@ class LocalTransportMixin(_MixinBase):
             }
 
             if include_params:
+                parameter_read_generation = self._parameter_write_generation
                 param_data, param_read_complete = await self._read_modbus_parameters(
                     transport, device_data, device=inverter
+                )
+                param_data = self._reconcile_parameter_read(
+                    serial,
+                    param_data,
+                    read_complete=param_read_complete,
+                    read_generation=parameter_read_generation,
+                    observed_keys=param_data,
                 )
                 if not param_read_complete:
                     # Sticky carry-forward (#282): keep last-known values for
@@ -1508,11 +1516,19 @@ class LocalTransportMixin(_MixinBase):
                 param_transport = inverter.transport
                 if read_entity_params and param_transport:
                     self._param_attempted_this_cycle = True
+                    parameter_read_generation = self._parameter_write_generation
                     (
                         param_data,
                         param_read_complete,
                     ) = await self._read_modbus_parameters(
                         param_transport, device_data, device=inverter
+                    )
+                    param_data = self._reconcile_parameter_read(
+                        serial,
+                        param_data,
+                        read_complete=param_read_complete,
+                        read_generation=parameter_read_generation,
+                        observed_keys=param_data,
                     )
                     if param_read_complete:
                         self._param_completed_this_cycle.add(serial)
@@ -2632,7 +2648,10 @@ class LocalTransportMixin(_MixinBase):
         if not self._failed_attach_serials or self.station is None:
             return
         now = time.monotonic()
-        if now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS:
+        if (
+            self._last_attach_retry is not None
+            and now - self._last_attach_retry < ATTACH_RETRY_INTERVAL_SECONDS
+        ):
             return
         self._last_attach_retry = now
 

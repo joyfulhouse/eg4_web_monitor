@@ -464,6 +464,44 @@ class TestProcessStationData:
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
+    async def test_first_cloud_parallel_energy_fetch_fires_on_young_clock(
+        self, mock_aiohttp, mock_client_cls, hass, http_config_entry
+    ):
+        """No prior PG fetch must be distinct from monotonic timestamp zero."""
+        http_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, http_config_entry)
+        coordinator.station = _mock_station()
+
+        member = MagicMock()
+        member.serial_number = "INV001"
+        group = MagicMock()
+        group.name = "A"
+        group.inverters = [member]
+        group.mid_device = None
+        group._has_local_energy.return_value = False
+        group._fetch_energy_data = AsyncMock()
+        group._energy = None
+        group.today_yielding = 0.0
+        coordinator.station.parallel_groups = [group]
+
+        with (
+            patch.object(
+                coordinator,
+                "_process_parallel_group_object",
+                new=AsyncMock(return_value={"type": "parallel_group", "sensors": {}}),
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_http._time.monotonic",
+                return_value=1.0,
+            ),
+        ):
+            await coordinator._process_station_data()
+
+        group._fetch_energy_data.assert_awaited_once_with("INV001")
+        assert coordinator._last_pg_energy_fetch == 1.0
+
+    @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
+    @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
     async def test_api_metrics_when_client_exists(
         self, mock_aiohttp, mock_client_cls, hass, http_config_entry
     ):

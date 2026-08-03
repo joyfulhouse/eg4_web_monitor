@@ -280,12 +280,16 @@ class EG4DataUpdateCoordinator(
         # cleared on success — without this, a transient boot-time failure
         # parked the device on cloud data until a manual reload (eg4-05l).
         self._failed_attach_serials: set[str] = set()
-        self._last_attach_retry: float = 0.0
+        self._last_attach_retry: float | None = None
         # Per-serial monotonic stamps for DEGRADED cloud refreshes: a hybrid
         # coordinator can tick at the fastest LOCAL interval (5s) — degraded
         # devices' cloud fallback must stay throttled to the cloud-safe HTTP
         # interval regardless (review HIGH on eg4-o5m).
         self._last_degraded_cloud_refresh: dict[str, float] = {}
+        # ``None`` means the cloud parallel-group energy fetch has never run.
+        # Numeric zero is a valid monotonic timestamp and would suppress the
+        # first fetch while process uptime is under the throttle interval.
+        self._last_pg_energy_fetch: float | None = None
         # Serials with an open transport_link_down Repairs issue (eg4-57g):
         # one-shot per down transition, cleared when the link recovers.
         self._link_down_notified: set[str] = set()
@@ -309,6 +313,11 @@ class EG4DataUpdateCoordinator(
         self._param_retry_due: bool = False
         self._param_completed_this_cycle: set[str] = set()
         self._param_attempted_this_cycle: bool = False
+        # Acknowledged parameter writes must survive an older local parameter
+        # poll already in flight. Raw reads capture this generation at start;
+        # newer seeds remain authoritative until a later read observes them.
+        self._parameter_write_generation: int = 0
+        self._parameter_write_seeds: dict[str, dict[str, tuple[Any, int]]] = {}
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -551,6 +560,10 @@ class EG4DataUpdateCoordinator(
 
         try:
             data = await self._route_update_by_connection_type()
+            # A write can be acknowledged after one endpoint's parameter read
+            # completes while another endpoint/group is still awaited. Apply
+            # retained seeds at the final no-await publish boundary too.
+            self._overlay_parameter_write_seeds(data)
             self._consecutive_update_failures = 0
 
             # On startup (no prior cache), suppress 0 values for
@@ -716,14 +729,88 @@ class EG4DataUpdateCoordinator(
         reverting the entity after its optimistic value clears. The written
         value IS device truth (the cloud write was acknowledged), expressed
         in the same local-raw representation the attached-transport cache
-        uses. A later successful parameter read overwrites it with fresh
-        device data.
+        uses. A later successful parameter read that starts after the write
+        overwrites it with fresh device data. Reads already in flight retain
+        this acknowledged value instead of publishing their stale snapshot.
         """
         if not self.data:
             return
+        # Cloud-fed parameter caches get their own authoritative refresh and
+        # must not retain a local-raw seed indefinitely. The generation
+        # envelope is only needed when raw local register reads can race the
+        # acknowledged write.
+        if self.params_are_local_raw(serial):
+            self._parameter_write_generation += 1
+            generation = self._parameter_write_generation
+            seeds = self._parameter_write_seeds.setdefault(serial, {})
+            for key, value in values.items():
+                seeds[key] = (value, generation)
         params = self.data.setdefault("parameters", {}).setdefault(serial, {})
         params.update(values)
         self.async_update_listeners()
+
+    def _reconcile_parameter_read(
+        self,
+        serial: str,
+        values: dict[str, Any],
+        *,
+        read_complete: bool,
+        read_generation: int,
+        observed_keys: Collection[str] | None = None,
+    ) -> dict[str, Any]:
+        """Reconcile a raw read with acknowledged writes around its lifetime.
+
+        A complete read, or a partial read that contains a seeded key, may
+        retire seeds that existed before the read began. A seed written after
+        the read began is overlaid and retained for the next read. Partial
+        reads keep seeds for ranges they did not observe. ``observed_keys``
+        must contain only freshly read keys, never sticky carry-forward keys.
+        """
+        seeds = self._parameter_write_seeds.get(serial)
+        if not seeds:
+            return values
+
+        reconciled = dict(values)
+        remaining: dict[str, tuple[Any, int]] = {}
+        for key, (seed_value, seed_generation) in seeds.items():
+            observed_by_read = read_complete or (
+                observed_keys is not None and key in observed_keys
+            )
+            if seed_generation <= read_generation and observed_by_read:
+                continue
+            reconciled[key] = seed_value
+            remaining[key] = (seed_value, seed_generation)
+
+        if remaining:
+            self._parameter_write_seeds[serial] = remaining
+        else:
+            self._parameter_write_seeds.pop(serial, None)
+        return reconciled
+
+    def _overlay_parameter_write_seeds(self, data: dict[str, Any]) -> None:
+        """Overlay retained parameter ACKs immediately before publishing data."""
+        if not self._parameter_write_seeds:
+            return
+
+        devices = data.get("devices")
+        device_serials = set(devices) if isinstance(devices, dict) else set()
+        parameters = data.get("parameters")
+        if not isinstance(parameters, dict):
+            parameters = {}
+            data["parameters"] = parameters
+
+        for serial, seeds in self._parameter_write_seeds.items():
+            serial_parameters = parameters.get(serial)
+            if serial_parameters is None:
+                # Do not resurrect a device removed from this coordinator.
+                if serial not in device_serials:
+                    continue
+                serial_parameters = {}
+                parameters[serial] = serial_parameters
+            if not isinstance(serial_parameters, dict):
+                continue
+            for key, (value, _generation) in seeds.items():
+                serial_parameters[key] = value
 
     def note_ac_couple_soc_written(
         self, serial: str, key: str, value: float | bool
