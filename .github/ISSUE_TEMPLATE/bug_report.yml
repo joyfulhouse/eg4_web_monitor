@@ -14,6 +14,12 @@ body:
         them usually stall on a round-trip asking for exactly this, so we now collect it up
         front. It takes about two minutes:
 
+        🤖 **Attachments are checked automatically.** Issues whose Debug Logs field does not
+        contain an actual integration debug log are closed automatically — and reopen
+        automatically the moment a valid log is added (edit or comment; no new issue needed).
+        The **mobile companion app's "share logs" file is NOT the right file** — it is a
+        phone-side log with no integration data. Follow the steps below from a web browser.
+
         **Debug logs**
         1. Go to **Settings → Devices & Services → EG4 Web Monitor**
         2. Click **⋮ (three dots) → Enable debug logging**
@@ -116,7 +122,10 @@ body:
         top of this form (Settings → Devices & Services → EG4 Web Monitor → ⋮ → Enable debug
         logging, reproduce, Disable debug logging, attach the downloaded file).
         Default warnings-only logs are not enough: the DEBUG level is where the actual
-        cloud/Modbus payloads appear.
+        cloud/Modbus payloads appear. The mobile companion app's "share logs" file is a
+        phone-side log and will be rejected — capture the log from the web UI as described.
+        Attachments are validated automatically; issues without a real integration debug
+        log are auto-closed until one is provided.
         ⚠️ Debug logs contain your device serial numbers and plant id as-is (unlike the
         diagnostics download, they are not redacted) — mask them before attaching if that
         matters to you.
