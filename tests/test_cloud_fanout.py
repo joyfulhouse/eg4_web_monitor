@@ -722,8 +722,9 @@ async def test_constructor_failure_leaves_no_shared_owners_or_unload_callback(ha
 @pytest.mark.parametrize(
     "shutdown_method", ["async_shutdown", "_async_handle_shutdown"]
 )
+@pytest.mark.parametrize("cancel_stage", ["disconnect", "background"])
 async def test_early_shutdown_cancellation_drains_shared_account_owners(
-    hass, shutdown_method: str
+    hass, shutdown_method: str, cancel_stage: str
 ):
     """Unload/HA-stop cancellation cannot skip account-registry release."""
     client = _CountingClient()
@@ -741,20 +742,25 @@ async def test_early_shutdown_cancellation_drains_shared_account_owners(
     assert "eg4_web_monitor_cloud_request_budgets" in hass.data
     assert "eg4_web_monitor_firmware_status_flights" in hass.data
 
-    disconnect_started = asyncio.Event()
-    release_disconnect = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
     events: list[str] = []
     original_budget_release = coordinator._release_shared_cloud_request_budget
     original_firmware_release = coordinator._release_shared_firmware_status
 
     async def _blocked_disconnect() -> None:
         events.append("disconnect-start")
-        disconnect_started.set()
-        await release_disconnect.wait()
+        if cancel_stage == "disconnect":
+            cleanup_started.set()
+            await release_cleanup.wait()
         events.append("disconnect-end")
 
     async def _background_cleanup() -> None:
-        events.append("background-cleanup")
+        events.append("background-start")
+        if cancel_stage == "background":
+            cleanup_started.set()
+            await release_cleanup.wait()
+        events.append("background-end")
 
     def _release_budget() -> None:
         events.append("budget-release")
@@ -794,12 +800,12 @@ async def test_early_shutdown_cancellation_drains_shared_account_owners(
                 if shutdown_method == "_async_handle_shutdown"
                 else shutdown()
             )
-            await disconnect_started.wait()
+            await cleanup_started.wait()
 
             shutdown_task.cancel()
             await asyncio.sleep(0)
             shutdown_task.cancel()
-            release_disconnect.set()
+            release_cleanup.set()
 
             with pytest.raises(asyncio.CancelledError):
                 await shutdown_task
@@ -807,7 +813,8 @@ async def test_early_shutdown_cancellation_drains_shared_account_owners(
         assert events == [
             "disconnect-start",
             "disconnect-end",
-            "background-cleanup",
+            "background-start",
+            "background-end",
             "budget-release",
             "firmware-release",
         ]
@@ -816,7 +823,7 @@ async def test_early_shutdown_cancellation_drains_shared_account_owners(
         assert coordinator._cloud_request_budget_released
         assert coordinator._firmware_status_released
     finally:
-        release_disconnect.set()
+        release_cleanup.set()
         if shutdown_task is not None and not shutdown_task.done():
             shutdown_task.cancel()
         if shutdown_task is not None:
