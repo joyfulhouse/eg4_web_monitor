@@ -81,6 +81,13 @@ _LOGGER = logging.getLogger(__name__)
 # isolation is a pylxpweb architectural item deliberately not attempted here.
 QUICK_CHARGE_CLOUD_STATUS_TIMEOUT = 10.0
 
+# Firmware status and battery-backup are supplemental cloud reads just like
+# quick-charge status. Bound them independently so neither can monopolize a
+# coordinator slot while the shared client is backing off.
+FIRMWARE_UPDATE_CLOUD_TIMEOUT = 10.0
+BATTERY_BACKUP_CLOUD_TIMEOUT = 10.0
+BATTERY_BACKUP_FETCH_INTERVAL = 30.0
+
 # Portal event-log poll throttle (#327).  Events are pushed to the cloud
 # out-of-band by the device (some never surface in registers), so the Last
 # Event sensor polls /WManage/api/analyze/event/list — but events are rare,
@@ -1005,6 +1012,13 @@ class DeviceProcessingMixin(_MixinBase):
                 _SIDEFETCH_BREAKER_COOLDOWN,
             )
 
+    def _sidefetch_note_inconclusive(self) -> None:
+        """Return an inconclusive half-open probe to a bounded open state."""
+        if not self._sidefetch_half_open:
+            return
+        self._sidefetch_half_open = False
+        self._sidefetch_open_until = time.monotonic() + _SIDEFETCH_BREAKER_COOLDOWN
+
     @staticmethod
     def _discard_skipped_awaitable(call: "Awaitable[Any]") -> None:
         """Dispose of a never-to-be-awaited call without asyncio complaints.
@@ -1029,7 +1043,7 @@ class DeviceProcessingMixin(_MixinBase):
 
     async def _breakered_cloud_call(
         self,
-        call: "Awaitable[Any]",
+        call: "Awaitable[Any] | Callable[[], Awaitable[Any]]",
         *,
         timeout: float,
         classify: "Callable[[Any], bool | None] | None" = None,
@@ -1056,12 +1070,16 @@ class DeviceProcessingMixin(_MixinBase):
         getter swallows its internal per-range errors). Sites with such
         shapes pass ``classify``: return True for reachability proven, False
         for a connectivity failure to count, None for no evidence either way.
+        A zero-argument factory may be supplied instead of an already-created
+        awaitable when constructing the operation itself schedules work (for
+        example ``asyncio.gather``); the factory runs only after admission.
         """
         now = time.monotonic()
         open_until = self._sidefetch_open_until
         if open_until is not None:
             if now < open_until:
-                self._discard_skipped_awaitable(call)
+                if not callable(call):
+                    self._discard_skipped_awaitable(call)
                 raise _CloudSidefetchSkipped(
                     f"cloud side-fetch skipped, breaker open for another "
                     f"{open_until - now:.0f}s (portal unreachable)"
@@ -1072,7 +1090,13 @@ class DeviceProcessingMixin(_MixinBase):
             self._sidefetch_open_until = None
             self._sidefetch_half_open = True
         try:
-            result = await asyncio.wait_for(call, timeout=timeout)
+            awaitable = call() if callable(call) else call
+            result = await asyncio.wait_for(awaitable, timeout=timeout)
+        except asyncio.CancelledError:
+            # Cancellation says nothing about portal connectivity. A cancelled
+            # half-open probe still needs a bounded state before propagating.
+            self._sidefetch_note_inconclusive()
+            raise
         except SIDEFETCH_CONNECTIVITY_ERRORS:
             self._sidefetch_note_connectivity_failure()
             raise
@@ -1087,7 +1111,12 @@ class DeviceProcessingMixin(_MixinBase):
                 self._sidefetch_note_reachable()
             elif verdict is False:
                 self._sidefetch_note_connectivity_failure()
-            # None: ambiguous result — no evidence in either direction.
+            elif self._sidefetch_half_open:
+                # The probe completed but supplied no connectivity evidence.
+                # It cannot close the breaker, and leaving half_open=True with
+                # no deadline would admit every later side-fetch indefinitely.
+                # Return to OPEN for one cooldown without counting a failure.
+                self._sidefetch_note_inconclusive()
             return result
 
     def _get_device_grid_type(self, serial: str) -> str | None:
@@ -1211,16 +1240,27 @@ class DeviceProcessingMixin(_MixinBase):
         elif hasattr(inverter, "get_quick_charge_detail"):
             # Prefer the full detail (remaining time + task metadata);
             # version-guard for older pylxpweb exposing only the boolean.
-            status = await inverter.get_quick_charge_detail()
+            if getattr(inverter, "transport", None) is None:
+                status = await self._breakered_cloud_call(
+                    lambda: inverter.get_quick_charge_detail(),
+                    timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
+                )
+            else:
+                status = await inverter.get_quick_charge_detail()
             # Raw holding reg 234 (minutes); None on cloud. Lets the duration
             # number mirror the live register on LOCAL/HYBRID instead of a
             # stored preference. getattr guards older pylxpweb without it.
             quick_charge_minute = getattr(status, "quickChargeMinute", None)
         elif hasattr(inverter, "get_quick_charge_status"):
+            if getattr(inverter, "transport", None) is None:
+                active = await self._breakered_cloud_call(
+                    lambda: inverter.get_quick_charge_status(),
+                    timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
+                )
+            else:
+                active = await inverter.get_quick_charge_status()
             return {
-                "hasUnclosedQuickChargeTask": (
-                    await inverter.get_quick_charge_status()
-                ),
+                "hasUnclosedQuickChargeTask": active,
                 "fetched_at": time.monotonic(),
             }
         else:
@@ -1269,7 +1309,8 @@ class DeviceProcessingMixin(_MixinBase):
         now = time.monotonic()
         serial = inverter.serial_number
         qc_key = f"qc_{serial}"
-        if now - self._last_status_fetch.get(qc_key, 0.0) >= interval:
+        last_fetch = self._last_status_fetch.get(qc_key)
+        if last_fetch is None or now - last_fetch >= interval:
             try:
                 status_dict = await self._read_quick_charge_status(inverter, target)
                 if status_dict is not None:
@@ -1640,7 +1681,7 @@ class DeviceProcessingMixin(_MixinBase):
             if due_lifetime_strings:
                 try:
                     responses = await self._breakered_cloud_call(
-                        asyncio.gather(
+                        lambda: asyncio.gather(
                             *(
                                 fetch_lifetime(serial, f"ePv{string_number}Day")
                                 for string_number in due_lifetime_strings
@@ -2165,9 +2206,15 @@ class DeviceProcessingMixin(_MixinBase):
         if not hasattr(device, "check_firmware_updates"):
             return None
         try:
-            await device.check_firmware_updates()
+            await self._breakered_cloud_call(
+                lambda: device.check_firmware_updates(),
+                timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
+            )
             if hasattr(device, "get_firmware_update_progress"):
-                await device.get_firmware_update_progress()
+                await self._breakered_cloud_call(
+                    lambda: device.get_firmware_update_progress(),
+                    timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
+                )
         except Exception as e:
             _LOGGER.debug(
                 "Could not refresh firmware updates for %s (using last cached state): %s",
@@ -2176,6 +2223,51 @@ class DeviceProcessingMixin(_MixinBase):
             )
         # Extract from the device's cached state regardless of refresh outcome.
         return self._extract_firmware_update_info(device)
+
+    async def _fetch_battery_backup_status(
+        self,
+        inverter: "BaseInverter",
+        processed: dict[str, Any],
+        *,
+        now: float,
+    ) -> None:
+        """Fetch cloud battery-backup state with timeout, breaker, and carry-forward."""
+        if inverter.transport is not None:
+            return
+        fetch = getattr(inverter, "get_battery_backup_status", None)
+        if not callable(fetch):
+            return
+        if not hasattr(self, "_last_status_fetch"):
+            self._last_status_fetch = {}
+
+        serial = inverter.serial_number
+        key = f"bb_{serial}"
+        last_fetch = self._last_status_fetch.get(key)
+        if last_fetch is not None and now - last_fetch < BATTERY_BACKUP_FETCH_INTERVAL:
+            if self.data and serial in self.data.get("devices", {}):
+                previous = self.data["devices"][serial].get("battery_backup_status")
+                if previous is not None:
+                    processed["battery_backup_status"] = previous
+            return
+
+        try:
+            enabled = await self._breakered_cloud_call(
+                lambda: fetch(), timeout=BATTERY_BACKUP_CLOUD_TIMEOUT
+            )
+        except Exception as exc:
+            self._last_status_fetch[key] = now
+            if self.data and serial in self.data.get("devices", {}):
+                previous = self.data["devices"][serial].get("battery_backup_status")
+                if previous is not None:
+                    processed["battery_backup_status"] = previous
+            _LOGGER.debug(
+                "Could not fetch battery backup status for %s: %s", serial, exc
+            )
+            return
+
+        processed["battery_backup_status"] = {"enabled": enabled}
+        self._last_status_fetch[key] = now
+        _LOGGER.debug("Battery backup status for %s: %s", serial, enabled)
 
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
@@ -2634,9 +2726,8 @@ class DeviceProcessingMixin(_MixinBase):
                 if key in processed["sensors"]:
                     processed["sensors"][key] = None
 
-        # Fetch quick charge and battery backup status with 30s throttle
-        # These are cloud API calls that should not run every update cycle
-        _STATUS_FETCH_INTERVAL = 30  # seconds
+        # Fetch quick charge and battery backup status with independent throttles.
+        # These are cloud API calls that should not run every update cycle.
         if not hasattr(self, "_last_status_fetch"):
             self._last_status_fetch: dict[str, float] = {}
         now = time.monotonic()
@@ -2658,41 +2749,9 @@ class DeviceProcessingMixin(_MixinBase):
         # 5-minute throttle and getter.
         await self._fetch_smart_load(inverter, processed)
 
-        # Battery backup (EPS) status
-        # Skip cloud API call when local transport is attached — the parameter
-        # data from local Modbus already provides FUNC_EPS_EN which the switch
-        # entity uses as a fallback. The cloud remoteRead endpoint frequently
-        # returns apiBlocked anyway since the dongle relay is often busy.
-        has_local_transport = inverter.transport is not None
-        if not has_local_transport:
-            bb_key = f"bb_{serial}"
-            last_bb = self._last_status_fetch.get(bb_key, 0.0)
-            if now - last_bb >= _STATUS_FETCH_INTERVAL:
-                try:
-                    if hasattr(inverter, "get_battery_backup_status"):
-                        battery_backup_enabled = (
-                            await inverter.get_battery_backup_status()
-                        )
-                        processed["battery_backup_status"] = {
-                            "enabled": battery_backup_enabled,
-                        }
-                        self._last_status_fetch[bb_key] = now
-                        _LOGGER.debug(
-                            "Battery backup status for %s: %s",
-                            serial,
-                            battery_backup_enabled,
-                        )
-                except Exception as e:
-                    self._last_status_fetch[bb_key] = now
-                    _LOGGER.debug(
-                        "Could not fetch battery backup status for %s: %s",
-                        serial,
-                        e,
-                    )
-            elif self.data and serial in self.data.get("devices", {}):
-                prev = self.data["devices"][serial].get("battery_backup_status")
-                if prev is not None:
-                    processed["battery_backup_status"] = prev
+        # Battery backup (EPS) status. Local transport already supplies
+        # FUNC_EPS_EN, so only cloud-only devices use this supplemental path.
+        await self._fetch_battery_backup_status(inverter, processed, now=now)
 
         # Add last_polled timestamps so users can see when data was last fetched
         # (not just when it last changed)

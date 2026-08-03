@@ -11,7 +11,8 @@ portal is reachable and closes the breaker like a success does.
 
 import asyncio
 import itertools
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
@@ -315,3 +316,145 @@ async def test_fresh_boot_none_sentinel(coordinator):
         coordinator_mixins.time, "monotonic", side_effect=itertools.count(1.0).__next__
     ):
         assert await coordinator._breakered_cloud_call(_ok(), timeout=5) == "payload"
+
+
+async def test_neutral_half_open_probe_returns_to_open_state(coordinator):
+    """An inconclusive probe must not leave an unbounded half-open state."""
+    await _trip(coordinator)
+    opened_at = coordinator._sidefetch_open_until
+    assert opened_at is not None
+
+    async def _neutral():
+        return {"start_soc": None, "enabled": None}
+
+    with patch.object(coordinator_mixins.time, "monotonic", return_value=opened_at + 1):
+        await coordinator._breakered_cloud_call(
+            _neutral(), timeout=5, classify=lambda _result: None
+        )
+
+    assert coordinator._sidefetch_half_open is False
+    assert coordinator._sidefetch_open_until is not None
+    with pytest.raises(_CloudSidefetchSkipped):
+        await coordinator._breakered_cloud_call(_ok(), timeout=5)
+
+
+async def test_cancelled_half_open_probe_returns_to_open_state(coordinator):
+    """Caller cancellation is inconclusive and cannot strand half-open state."""
+    await _trip(coordinator)
+    opened_at = coordinator._sidefetch_open_until
+    assert opened_at is not None
+
+    async def _cancelled():
+        raise asyncio.CancelledError
+
+    with patch.object(coordinator_mixins.time, "monotonic", return_value=opened_at + 1):
+        with pytest.raises(asyncio.CancelledError):
+            await coordinator._breakered_cloud_call(_cancelled(), timeout=5)
+
+    assert coordinator._sidefetch_half_open is False
+    assert coordinator._sidefetch_open_until is not None
+
+
+async def test_lazy_call_factory_runs_only_after_breaker_admission(coordinator):
+    """A factory avoids scheduling gather children before the open check."""
+    created = 0
+
+    def _factory():
+        nonlocal created
+        created += 1
+        return _ok()
+
+    assert await coordinator._breakered_cloud_call(_factory, timeout=5) == "payload"
+    assert created == 1
+
+    await _trip(coordinator)
+    with pytest.raises(_CloudSidefetchSkipped):
+        await coordinator._breakered_cloud_call(_factory, timeout=5)
+    assert created == 1
+
+
+async def test_firmware_calls_are_bounded_by_shared_breaker(coordinator):
+    """An open breaker starts neither firmware endpoint."""
+    await _trip(coordinator)
+    device = MagicMock()
+    device.serial_number = "1234567890"
+    device.check_firmware_updates = AsyncMock()
+    device.get_firmware_update_progress = AsyncMock()
+    device.firmware_update_available = False
+
+    assert await coordinator._poll_firmware_update_info(device) is None
+    device.check_firmware_updates.assert_not_awaited()
+    device.get_firmware_update_progress.assert_not_awaited()
+
+
+async def test_cloud_quick_charge_detail_is_bounded_by_shared_breaker(coordinator):
+    """Cloud-only quick-charge helpers cannot bypass an open breaker."""
+    await _trip(coordinator)
+    inverter = MagicMock()
+    inverter.serial_number = "1234567890"
+    inverter.transport = None
+    inverter.get_quick_charge_detail = AsyncMock(
+        return_value=SimpleNamespace(
+            hasUnclosedQuickChargeTask=False,
+            remainTimeBeforeQuickChargeStop=0,
+            unclosedQuickChargeTaskId=None,
+            unclosedQuickChargeTaskStatus=None,
+            quickChargeMinute=0,
+        )
+    )
+    coordinator.client = None
+
+    await coordinator._fetch_quick_charge_status(inverter, {})
+
+    inverter.get_quick_charge_detail.assert_not_awaited()
+
+
+async def test_battery_backup_call_is_bounded_by_shared_breaker(coordinator):
+    """An open breaker starts no battery-backup request."""
+    await _trip(coordinator)
+    inverter = MagicMock()
+    inverter.serial_number = "1234567890"
+    inverter.transport = None
+    inverter.get_battery_backup_status = AsyncMock(return_value=True)
+    processed: dict = {}
+
+    await coordinator._fetch_battery_backup_status(inverter, processed, now=1.0)
+
+    inverter.get_battery_backup_status.assert_not_awaited()
+    assert "battery_backup_status" not in processed
+
+
+async def test_battery_backup_first_fetch_runs_at_low_host_uptime(coordinator):
+    """A missing stamp is due even when monotonic uptime is below 30 seconds."""
+    inverter = MagicMock()
+    inverter.serial_number = "1234567890"
+    inverter.transport = None
+    inverter.get_battery_backup_status = AsyncMock(return_value=True)
+    processed: dict = {}
+
+    await coordinator._fetch_battery_backup_status(inverter, processed, now=1.0)
+
+    inverter.get_battery_backup_status.assert_awaited_once()
+    assert processed["battery_backup_status"] == {"enabled": True}
+
+
+async def test_quick_charge_first_fetch_runs_at_low_host_uptime(coordinator):
+    """Quick-charge has the same explicit never-fetched sentinel contract."""
+    inverter = MagicMock()
+    inverter.serial_number = "1234567890"
+    inverter.transport = None
+    inverter.get_quick_charge_detail = AsyncMock(
+        return_value=SimpleNamespace(
+            hasUnclosedQuickChargeTask=False,
+            remainTimeBeforeQuickChargeStop=0,
+            unclosedQuickChargeTaskId=None,
+            unclosedQuickChargeTaskStatus=None,
+            quickChargeMinute=0,
+        )
+    )
+    coordinator.client = None
+
+    with patch.object(coordinator_mixins.time, "monotonic", return_value=1.0):
+        await coordinator._fetch_quick_charge_status(inverter, {})
+
+    inverter.get_quick_charge_detail.assert_awaited_once()
