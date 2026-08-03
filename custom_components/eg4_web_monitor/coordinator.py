@@ -280,11 +280,11 @@ class EG4DataUpdateCoordinator(
         self._cloud_request_budget_released = True
         self._cloud_session: aiohttp.ClientSession | None = None
         cloud_base_url = entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
-        verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        cloud_verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
         if self.connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID):
             cloud_session = aiohttp_client.async_create_clientsession(
                 hass,
-                verify_ssl=verify_ssl,
+                verify_ssl=cloud_verify_ssl,
                 auto_cleanup=True,
             )
             self._cloud_session = cloud_session
@@ -293,7 +293,7 @@ class EG4DataUpdateCoordinator(
                     username=entry.data[CONF_USERNAME],
                     password=entry.data[CONF_PASSWORD],
                     base_url=cloud_base_url,
-                    verify_ssl=verify_ssl,
+                    verify_ssl=cloud_verify_ssl,
                     session=cloud_session,
                     iana_timezone=iana_timezone,
                 )

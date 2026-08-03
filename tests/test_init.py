@@ -7,8 +7,6 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 from homeassistant.config_entries import ConfigEntryState
