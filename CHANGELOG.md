@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.7] - 2026-08-03
+
+### Changed
+
+- **pylxpweb pin raised to [0.9.39b7](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.39b7)** — the library half of the same audit wave 3.5.1-beta.6 shipped, reviewed by the same four-model gate: atomic Quick Charge bitfield updates (a concurrent sibling-bit write can no longer be erased by a Quick Charge start/stop), coalesced cloud session renewal (one login instead of a herd when the session expires — this also activates the per-account request limiter's auth-task handoff from #533), corrected holding-register-120 field modeling (the AC-charge/discharge selectors were decoded and written at wrong bit positions on the local path), strict FC16 write-acknowledgement validation, and dongle TCP frame assembly with a terminal `async_shutdown()` — which activates the fast-teardown seam #529 already feature-detects, so unloading the integration no longer waits behind an in-flight dongle retry loop.
+
 ## [3.5.1-beta.6] - 2026-08-03
 
 This is a **hardening release**: alongside the diagnostics platform, it delivers the full remediation wave from a codebase-wide register, race and performance audit ([#524](https://github.com/joyfulhouse/eg4_web_monitor/pull/524) documents the findings) — nineteen reviewed PRs merged as one composed train and gated by a four-model adversarial review. Most fixes target failure windows (concurrent writes, stale polls, partial setup, shared gateways) rather than day-to-day behavior. The release was validated against live hardware in all three connection modes (Cloud/Local/Hybrid docker sweep: 572/592/630 entities, zero unavailable, values cross-checked against the production install and the EG4 portal).
