@@ -1,5 +1,6 @@
 """Tests for EG4 Data Update Coordinator with pylxpweb 0.3.5 device objects API."""
 
+import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -1851,6 +1852,32 @@ class TestStaticLocalData:
         assert sensors["firmware_version"] == "ARM-1.0"
         assert sensors["connection_transport"] == "Modbus"
         assert sensors["transport_host"] == "192.168.1.100"
+
+    async def test_static_follow_up_refresh_is_tracked_and_cancelled(
+        self, hass, local_config_entry
+    ):
+        """The zero-read phase must not leave an unload-racing refresh task."""
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        refresh_started = asyncio.Event()
+        keep_refresh_running = asyncio.Event()
+
+        async def blocked_refresh() -> None:
+            refresh_started.set()
+            await keep_refresh_running.wait()
+
+        coordinator.async_request_refresh = blocked_refresh
+
+        await coordinator._async_update_local_data()
+        await refresh_started.wait()
+
+        assert len(coordinator._background_tasks) == 1
+        refresh_task = next(iter(coordinator._background_tasks))
+        assert not refresh_task.done()
+
+        await coordinator.async_shutdown()
+
+        assert refresh_task.cancelled()
+        assert coordinator._background_tasks == set()
 
     async def test_static_data_has_all_inverter_sensor_keys(
         self, hass, local_config_entry

@@ -317,6 +317,10 @@ class EG4DataUpdateCoordinator(
         # Background task tracking for proper cleanup
         self._background_tasks: set[asyncio.Task[Any]] = set()
         self._shutdown_listener_fired: bool = False
+        # Entry setup sets this immediately before forwarding the first
+        # platform.  Failed setup uses it to avoid unloading platforms that
+        # were never started while still rolling back partial forwarding.
+        self._platform_setup_started: bool = False
 
         # Track availability state for Silver tier logging requirement
         self._last_available_state: bool = True
