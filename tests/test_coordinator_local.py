@@ -4055,6 +4055,8 @@ class TestLocalLinkDownFlow:
             spec=[
                 "transport",
                 "transport_link_down",
+                "transport_energy",
+                "transport_battery",
                 "transport_runtime",
                 "refresh",
                 "serial_number",
@@ -4063,6 +4065,8 @@ class TestLocalLinkDownFlow:
         inverter.serial_number = "CE11111111"
         inverter.transport = transport
         inverter.transport_link_down = True
+        inverter.transport_energy = None
+        inverter.transport_battery = None
         inverter.transport_runtime = None  # cleared at the down transition
         inverter.refresh = AsyncMock()
         coordinator._inverter_cache["CE11111111"] = inverter
@@ -4286,6 +4290,159 @@ class TestParallelGroupLinkDownMarking:
         assert "parallel_group_last_polled" not in pg_data["sensors"]
 
 
+class TestLocalProcessingFailureStaleness:
+    """A post-read integration error must not leave cached data looking fresh."""
+
+    async def test_mapping_failure_marks_member_and_parallel_group_stale(self, hass):
+        """One broken mapper taints its device and every dependent aggregate."""
+        from datetime import UTC, datetime
+
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+
+        broken_serial = "BROKEN0001"
+        healthy_serial = "HEALTHY001"
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            title="EG4 - Mapping Failure",
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": broken_serial,
+                        "host": "192.168.1.70",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": healthy_serial,
+                        "host": "192.168.1.71",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                ],
+            },
+            entry_id="mapping_failure_staleness",
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        coordinator._local_parameters_loaded = True
+        coordinator._last_parameter_refresh = dt_util.utcnow()
+
+        runtimes: dict[str, InverterRuntimeData] = {}
+        for serial, role, pv_power in (
+            (broken_serial, 1, 1000),
+            (healthy_serial, 2, 2000),
+        ):
+            runtime = InverterRuntimeData(
+                pv_total_power=pv_power,
+                battery_soc=50,
+                battery_voltage=53,
+                rectifier_power=0,
+                parallel_number=1,
+                parallel_master_slave=role,
+                parallel_phase=0,
+            )
+            runtimes[serial] = runtime
+            inverter = make_real_inverter(serial, "FlexBOSS21", runtime=runtime)
+            inverter.refresh = AsyncMock()
+            inverter.detect_features = AsyncMock()
+            inverter._transport = make_transport_spec(is_connected=True)
+            inverter._transport_energy = None
+            inverter._transport_battery = None
+            coordinator._inverter_cache[serial] = inverter
+            coordinator._firmware_cache[serial] = "TEST-FW"
+
+        old_stamp = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
+        coordinator.data = {
+            "devices": {
+                broken_serial: {
+                    "type": "inverter",
+                    "serial": broken_serial,
+                    "parallel_number": 1,
+                    "parallel_master_slave": 1,
+                    "sensors": {"pv_total_power": 1000},
+                },
+                healthy_serial: {
+                    "type": "inverter",
+                    "serial": healthy_serial,
+                    "parallel_number": 1,
+                    "parallel_master_slave": 2,
+                    "sensors": {"pv_total_power": 1500},
+                },
+                "parallel_group_a": {
+                    "type": "parallel_group",
+                    "member_serials": [broken_serial, healthy_serial],
+                    "sensors": {
+                        "pv_total_power": 2500,
+                        "parallel_group_last_polled": old_stamp,
+                    },
+                },
+            },
+            "parameters": {},
+        }
+
+        def fail_one_mapping(runtime: InverterRuntimeData) -> dict[str, Any]:
+            if runtime is runtimes[broken_serial]:
+                raise ValueError("deterministic mapping failure")
+            return _build_runtime_sensor_mapping(runtime)
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator, "_fetch_quick_charge_status", new_callable=AsyncMock
+            ),
+            patch(
+                "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
+                side_effect=fail_one_mapping,
+            ),
+        ):
+            result = await coordinator._async_update_local_data()
+
+        assert result["devices"][broken_serial]["error"] == (
+            "Local data processing failed"
+        )
+        assert "error" not in result["devices"][healthy_serial]
+        group = result["devices"]["parallel_group_a"]
+        assert group["error"] == f"Stale local data for member(s): {broken_serial}"
+        assert group["sensors"]["parallel_group_last_polled"] == old_stamp
+
+        coordinator.data = result
+        broken_sensor = EG4BaseSensor(
+            coordinator, broken_serial, "pv_total_power", device_type="inverter"
+        )
+        group_sensor = EG4BaseSensor(
+            coordinator,
+            "parallel_group_a",
+            "pv_total_power",
+            device_type="parallel_group",
+        )
+        assert broken_sensor.available is False
+        assert group_sensor.available is False
+
+        # A later successful mapping replaces both retained dictionaries, so
+        # unavailability converges without a reload or manual cleanup.
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=True),
+            patch.object(
+                coordinator, "_fetch_quick_charge_status", new_callable=AsyncMock
+            ),
+        ):
+            recovered = await coordinator._async_update_local_data()
+
+        assert "error" not in recovered["devices"][broken_serial]
+        recovered_group = recovered["devices"]["parallel_group_a"]
+        assert "error" not in recovered_group
+        assert recovered_group["sensors"]["parallel_group_last_polled"] != old_stamp
+        assert recovered_group["sensors"]["pv_total_power"] == 3000
+
+
 class TestFullOutageParallelGroupMarking:
     """eg4-57g review r2 HIGH: on a FULL outage, UpdateFailed raises before
     _process_local_parallel_groups() runs — the carried-forward PG entry
@@ -4303,6 +4460,8 @@ class TestFullOutageParallelGroupMarking:
             spec=[
                 "transport",
                 "transport_link_down",
+                "transport_energy",
+                "transport_battery",
                 "transport_runtime",
                 "refresh",
                 "serial_number",
@@ -4311,6 +4470,8 @@ class TestFullOutageParallelGroupMarking:
         inverter.serial_number = serial
         inverter.transport = transport
         inverter.transport_link_down = True
+        inverter.transport_energy = None
+        inverter.transport_battery = None
         inverter.transport_runtime = None  # cleared at the down transition
         inverter.refresh = AsyncMock()
         return inverter

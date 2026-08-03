@@ -111,6 +111,24 @@ _NO_SERIAL_EXPOSE_POLLS = 3
 # stale-TCP-slot window — typically 1-5 minutes — recovers promptly.
 ATTACH_RETRY_INTERVAL_SECONDS = 60.0
 
+_LOCAL_TRANSPORT_LINK_DOWN_ERROR = "Local transport link down"
+_LOCAL_DATA_PROCESSING_ERROR = "Local data processing failed"
+
+
+def _stale_parallel_member_error(
+    devices: dict[str, Any], member_serials: list[str]
+) -> str:
+    """Describe why a parallel aggregate cannot be considered fresh."""
+    serials = sorted(member_serials)
+    if all(
+        devices.get(serial, {}).get("error") == _LOCAL_TRANSPORT_LINK_DOWN_ERROR
+        for serial in serials
+    ):
+        reason = _LOCAL_TRANSPORT_LINK_DOWN_ERROR
+    else:
+        reason = "Stale local data"
+    return f"{reason} for member(s): {', '.join(serials)}"
+
 
 class LocalTransportMixin(_MixinBase):
     """Mixin handling local transport operations for the coordinator."""
@@ -1579,6 +1597,14 @@ class LocalTransportMixin(_MixinBase):
                 e,
             )
             device_availability[serial] = False
+            # The new result was pre-populated with the prior cycle so a
+            # skipped transport can carry data forward.  An attempted poll
+            # that reaches an unexpected integration/mapping failure is not a
+            # skip: those retained measurements are now stale and must stop
+            # passing the entity availability contract.  A successful later
+            # poll replaces this dictionary and naturally clears the marker.
+            if (device_data := processed.get("devices", {}).get(serial)) is not None:
+                device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
 
     async def _deferred_local_parameter_load(self) -> None:
         """Background task: load parameters and detect features for local devices.
@@ -2165,13 +2191,14 @@ class LocalTransportMixin(_MixinBase):
 
             first_serial = master_serial
 
-            # Members whose device data is error-marked (link-down — see
-            # _sync_transport_link_state, which runs before this method).
+            # Members whose device data is error-marked (link-down from
+            # _sync_transport_link_state, or an integration-side processing
+            # failure retained from _process_single_local_device).
             # Their carried-forward sensors are STALE: an aggregate mixing
             # stale and fresh members is wrong in both directions, so the
             # group is error-marked below — honest unavailability beats a
-            # quietly wrong total (eg4-57g review).
-            link_down_members = sorted(
+            # quietly wrong total (eg4-57g review; eg4-06er.2).
+            stale_members = sorted(
                 member_serial
                 for member_serial, member_data in group_devices
                 if "error" in member_data
@@ -2335,11 +2362,11 @@ class LocalTransportMixin(_MixinBase):
                     continue
                 has_mid_device = True
                 # The GridBOSS CTs are authoritative contributors to the
-                # group's grid/consumption values — a link-down (error-
-                # marked) GridBOSS taints the aggregate the same way a
-                # link-down inverter member does.
-                if "error" in device_data and serial not in link_down_members:
-                    link_down_members.append(serial)
+                # group's grid/consumption values — any stale/error-marked
+                # GridBOSS taints the aggregate the same way an inverter
+                # member does.
+                if "error" in device_data and serial not in stale_members:
+                    stale_members.append(serial)
                 gb_sensors = device_data.get("sensors", {})
 
                 # Apply the canonical GridBOSS workflow to the parallel group.
@@ -2379,7 +2406,7 @@ class LocalTransportMixin(_MixinBase):
 
             group_device_id = f"parallel_group_{group_name.lower()}"
 
-            if link_down_members:
+            if stale_members:
                 # Don't claim a fresh poll for an aggregate built from stale
                 # members — carry the previous stamp forward (if any) so it
                 # reflects the last genuinely fresh aggregate.
@@ -2406,13 +2433,12 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
             }
-            if link_down_members:
+            if stale_members:
                 # Error key -> all PG sensor entities go unavailable
                 # (base_entity availability contract), exactly like the
-                # link-down members themselves.
-                pg_device_data["error"] = (
-                    f"Local transport link down for member(s): "
-                    f"{', '.join(sorted(link_down_members))}"
+                # stale members themselves.
+                pg_device_data["error"] = _stale_parallel_member_error(
+                    processed["devices"], stale_members
                 )
             processed["devices"][group_device_id] = pg_device_data
 
@@ -2800,7 +2826,7 @@ class LocalTransportMixin(_MixinBase):
                 if processed is not None:
                     device_data = processed.get("devices", {}).get(serial)
                     if device_data is not None:
-                        device_data["error"] = "Local transport link down"
+                        device_data["error"] = _LOCAL_TRANSPORT_LINK_DOWN_ERROR
                 if serial in self._link_down_notified:
                     continue
                 self._link_down_notified.add(serial)
@@ -2840,9 +2866,11 @@ class LocalTransportMixin(_MixinBase):
         stale aggregate while the coordinator wrapper suppresses the first
         UpdateFailed cycles.  Apply the same rule the partial path uses: a
         group is tainted when any of its members — or the GridBOSS CT
-        contributor — is error-marked (link-down).  A transient full outage
-        with no link-down marks leaves the groups alone, matching the
-        member entities (which also stay available on cached values then).
+        contributor — is error-marked, whether from a declared link outage
+        or an unexpected processing failure.  A transient typed transport
+        failure below the link-down threshold has no mark and leaves the
+        groups alone, matching the member entities (which also keep serving
+        cached values during that bounded retry window).
         The carried ``parallel_group_last_polled`` stamp is left untouched
         (no fresh-poll claim is ever made on this path).
 
@@ -2877,9 +2905,8 @@ class LocalTransportMixin(_MixinBase):
             # GridBOSS CTs contribute to every group (partial-path parity).
             stale.update(gridboss_down)
             if stale:
-                device_data["error"] = (
-                    f"Local transport link down for member(s): "
-                    f"{', '.join(sorted(stale))}"
+                device_data["error"] = _stale_parallel_member_error(
+                    devices, list(stale)
                 )
 
     async def _attach_serial_transports_to_station(
