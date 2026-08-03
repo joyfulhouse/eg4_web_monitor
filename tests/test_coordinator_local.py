@@ -858,7 +858,9 @@ class TestStickyParameterCarryForward:
         with patch.object(
             coord_mod.time,
             "monotonic",
-            return_value=time.monotonic() + coord_mod.PARAMETER_SEED_CONFIRMED_GRACE + 1,
+            return_value=time.monotonic()
+            + coord_mod.PARAMETER_SEED_CONFIRMED_GRACE
+            + 1,
         ):
             coordinator._overlay_parameter_write_seeds(
                 {"devices": {"INV001": {}}, "parameters": {}}
@@ -4191,7 +4193,9 @@ class TestLinkDownParameterRefreshGate:
         with patch.object(
             coord_mod.time,
             "monotonic",
-            return_value=time.monotonic() + coord_mod.PARAMETER_SEED_CONFIRMED_GRACE + 1,
+            return_value=time.monotonic()
+            + coord_mod.PARAMETER_SEED_CONFIRMED_GRACE
+            + 1,
         ):
             coordinator._overlay_parameter_write_seeds(
                 {"devices": {"INV1": {}}, "parameters": {}}
