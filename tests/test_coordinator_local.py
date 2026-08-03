@@ -10,6 +10,7 @@ Covers methods not already tested in test_coordinator.py:
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, create_autospec, patch
@@ -847,6 +848,21 @@ class TestStickyParameterCarryForward:
             converged = await coordinator._async_update_local_data()
 
         assert converged["parameters"]["INV001"]["HOLD_CHG_POWER_PERCENT_CMD"] == 75
+        # Retirement is grace-deferred at the observed value (codex P1):
+        # the confirmed seed protects older in-flight snapshots, then expires.
+        assert coordinator._parameter_write_seeds.get("INV001") == {
+            "HOLD_CHG_POWER_PERCENT_CMD": (75, 1)
+        }
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        with patch.object(
+            coord_mod.time,
+            "monotonic",
+            return_value=time.monotonic() + coord_mod.PARAMETER_SEED_CONFIRMED_GRACE + 1,
+        ):
+            coordinator._overlay_parameter_write_seeds(
+                {"devices": {"INV001": {}}, "parameters": {}}
+            )
         assert coordinator._parameter_write_seeds.get("INV001") is None
 
     async def test_acknowledged_write_after_read_survives_remaining_cycle_work(
@@ -4164,6 +4180,22 @@ class TestLinkDownParameterRefreshGate:
         assert coordinator.data["parameters"]["INV1"] == {
             "HOLD_CHG_POWER_PERCENT_CMD": 75
         }
+        # Confirmed seeds are retained at the OBSERVED value for a grace
+        # window so an older in-flight cycle cannot publish its pre-write
+        # snapshot after retirement (codex P1), then expire.
+        assert coordinator._parameter_write_seeds.get("INV1") == {
+            "HOLD_CHG_POWER_PERCENT_CMD": (75, 1)
+        }
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        with patch.object(
+            coord_mod.time,
+            "monotonic",
+            return_value=time.monotonic() + coord_mod.PARAMETER_SEED_CONFIRMED_GRACE + 1,
+        ):
+            coordinator._overlay_parameter_write_seeds(
+                {"devices": {"INV1": {}}, "parameters": {}}
+            )
         assert coordinator._parameter_write_seeds.get("INV1") is None
 
     async def test_routine_parameter_refresh_logs_at_debug(

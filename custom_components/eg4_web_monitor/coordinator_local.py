@@ -6,6 +6,7 @@ aggregation, and static entity creation.
 """
 
 import asyncio
+from contextlib import AsyncExitStack
 import logging
 import time
 from datetime import datetime
@@ -77,6 +78,45 @@ from .utils import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def _attach_under_endpoint_locks(
+    coordinator: Any,
+    configs: Any,
+    attach: Any,
+) -> Any:
+    """Run a transport attach while holding its endpoints' shared locks.
+
+    pylxpweb's ``Station.attach_local_transports()`` constructs and CONNECTS
+    each transport before the integration can rebind its ``_op_lock``, so
+    without this a second coordinator (or an in-flight poll) can overlap the
+    dial on a single-slot gateway (#529 review). Locks are acquired in
+    sorted key order so two coordinators attaching overlapping endpoint sets
+    cannot deadlock. Coordinators without the Home Assistant-scoped lock
+    registry (isolated mixin tests) attach unlocked, as before.
+    """
+    from .transport_serialization import EndpointOperationLock
+
+    endpoint_locks = getattr(coordinator, "_endpoint_operation_locks", None)
+    if not isinstance(endpoint_locks, dict):
+        return await attach()
+    keys: set[str] = set()
+    for cfg in configs:
+        host = getattr(cfg, "host", None)
+        port = getattr(cfg, "port", None)
+        if host is None or port is None:
+            continue
+        # Must match physical_endpoint_key()'s network normalization.
+        keys.add(f"network:{str(host).strip().casefold()}:{port}")
+    async with AsyncExitStack() as stack:
+        for key in sorted(keys):
+            lock = endpoint_locks.get(key)
+            if lock is None:
+                lock = EndpointOperationLock()
+                endpoint_locks[key] = lock
+            await stack.enter_async_context(lock)
+        return await attach()
+
 
 if TYPE_CHECKING:
     from pylxpweb.transports.data import BatteryData
@@ -2535,7 +2575,11 @@ class LocalTransportMixin(_MixinBase):
 
         try:
             if network_configs:
-                result = await self.station.attach_local_transports(network_configs)
+                result = await _attach_under_endpoint_locks(
+                    self,
+                    network_configs,
+                    lambda: self.station.attach_local_transports(network_configs),
+                )
             else:
                 result = AttachResult()
 
@@ -2705,7 +2749,11 @@ class LocalTransportMixin(_MixinBase):
         )
         try:
             if network_configs:
-                result = await self.station.attach_local_transports(network_configs)
+                result = await _attach_under_endpoint_locks(
+                    self,
+                    network_configs,
+                    lambda: self.station.attach_local_transports(network_configs),
+                )
             else:
                 result = AttachResult()
             if serial_configs:

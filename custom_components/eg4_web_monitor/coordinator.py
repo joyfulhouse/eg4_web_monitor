@@ -136,6 +136,11 @@ _LOGGER = logging.getLogger(__name__)
 # until an authoritative read observes them — but never longer than this.
 PARAMETER_WRITE_SEED_TTL = 1800.0  # seconds
 
+# After an authoritative read confirms a seeded key, the seed is kept (at the
+# confirmed value) for this grace window so an OLDER update cycle still in
+# flight cannot publish its pre-write snapshot after retirement (codex P1).
+PARAMETER_SEED_CONFIRMED_GRACE = 120.0  # seconds
+
 # Reload-safe logical-control locks, keyed (serial, control). Survives the
 # coordinator across config-entry reloads so a mid-write reload cannot let a
 # second writer interleave a schedule hour/minute or battery-mode bit pair.
@@ -463,6 +468,8 @@ class EG4DataUpdateCoordinator(
         # overlaying a possibly raw-scaled value onto cloud-fed publishes
         # forever (#527 review). Per-serial monotonic stamp of the newest seed.
         self._parameter_write_seed_stamps: dict[str, float] = {}
+        # (serial, key) -> monotonic stamp of the confirming observation.
+        self._parameter_seed_confirmed: dict[tuple[str, str], float] = {}
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -1073,6 +1080,7 @@ class EG4DataUpdateCoordinator(
             seeds = self._parameter_write_seeds.setdefault(serial, {})
             for key, value in values.items():
                 seeds[key] = (value, generation)
+                self._parameter_seed_confirmed.pop((serial, key), None)
             self._parameter_write_seed_stamps[serial] = time.monotonic()
         params = self.data.setdefault("parameters", {}).setdefault(serial, {})
         params.update(values)
@@ -1105,11 +1113,27 @@ class EG4DataUpdateCoordinator(
 
         reconciled = dict(values)
         remaining: dict[str, tuple[Any, int]] = {}
+        now = time.monotonic()
         for key, (seed_value, seed_generation) in seeds.items():
             observed_by_read = read_complete or (
                 observed_keys is not None and key in observed_keys
             )
             if seed_generation <= read_generation and observed_by_read:
+                # Confirmed by an authoritative observation — but an OLDER
+                # update cycle may still hold a pre-write snapshot it has not
+                # published yet. Keep the seed at the freshly observed value
+                # for a grace window so the final overlay repairs that
+                # publication too, then let it expire.
+                observed_value = values.get(key, seed_value)
+                confirmed_key = (serial, key)
+                confirmed_at = self._parameter_seed_confirmed.setdefault(
+                    confirmed_key, now
+                )
+                if now - confirmed_at > PARAMETER_SEED_CONFIRMED_GRACE:
+                    self._parameter_seed_confirmed.pop(confirmed_key, None)
+                    continue
+                reconciled[key] = observed_value
+                remaining[key] = (observed_value, seed_generation)
                 continue
             reconciled[key] = seed_value
             remaining[key] = (seed_value, seed_generation)
@@ -1133,6 +1157,19 @@ class EG4DataUpdateCoordinator(
         for serial in list(self._parameter_write_seeds):
             stamp = self._parameter_write_seed_stamps.get(serial)
             if stamp is None or now - stamp > PARAMETER_WRITE_SEED_TTL:
+                self._parameter_write_seeds.pop(serial, None)
+                self._parameter_write_seed_stamps.pop(serial, None)
+                continue
+            seeds = self._parameter_write_seeds[serial]
+            for key in list(seeds):
+                confirmed_at = self._parameter_seed_confirmed.get((serial, key))
+                if (
+                    confirmed_at is not None
+                    and now - confirmed_at > PARAMETER_SEED_CONFIRMED_GRACE
+                ):
+                    seeds.pop(key, None)
+                    self._parameter_seed_confirmed.pop((serial, key), None)
+            if not seeds:
                 self._parameter_write_seeds.pop(serial, None)
                 self._parameter_write_seed_stamps.pop(serial, None)
         if not self._parameter_write_seeds:
