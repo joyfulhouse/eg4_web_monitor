@@ -8,6 +8,7 @@ from typing import Any, TypeAlias
 import homeassistant.helpers.config_validation as cv
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
+import homeassistant.helpers.issue_registry as ir
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
@@ -35,6 +36,7 @@ from .const import (
     CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_HTTP,
+    CONNECTION_TYPE_HYBRID,
     DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DOMAIN,
@@ -288,6 +290,17 @@ def _async_cleanup_removed_registry_devices(
             for device in getattr(coordinator.station, collection_name, ()) or ():
                 if serial := getattr(device, "serial_number", None):
                     live_root_identifiers.add(str(serial))
+    if not live_root_identifiers:
+        # Liveness floor: a refresh can succeed while the portal answers with
+        # an empty device list (#256/#479 class). Zero physical roots is not
+        # evidence that every configured device was removed — it is evidence
+        # that this snapshot is not authoritative. Never prune from it.
+        _LOGGER.debug(
+            "Skipping registry cleanup for %s: refresh produced no physical "
+            "device roots, so absence cannot be proven",
+            entry.entry_id,
+        )
+        return
     if "station" in data and coordinator.plant_id is not None:
         live_root_identifiers.add(f"station_{coordinator.plant_id}")
 
@@ -327,7 +340,7 @@ def _async_cleanup_removed_registry_devices(
         hass, entry, device_ids=stale_device_ids
     )
     _LOGGER.info(
-        "Removed %d stale entities and %d stale devices after reconfigure for %s",
+        "Removed %d stale entities and %d stale devices no longer present for %s",
         entity_count,
         device_count,
         entry.entry_id,
@@ -489,7 +502,15 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     if config_entry.version == 1:
         new_data = migrate_legacy_entry(new_data)
 
-    canonical_unique_id = cloud_unique_id_from_data(new_data)
+    # Cloud identity applies only to entries that actually operate a cloud
+    # connection. A legacy local entry that retained username/plant keys in
+    # its data must never be re-keyed to (or win) a cloud identity.
+    migrated_connection_type = new_data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)
+    canonical_unique_id = (
+        cloud_unique_id_from_data(new_data)
+        if migrated_connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID)
+        else None
+    )
     new_unique_id = config_entry.unique_id
     if canonical_unique_id is not None:
         conflicts = find_config_entry_identity_conflicts(
@@ -508,6 +529,20 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
                 "owned by %s; leaving the entry unchanged",
                 config_entry.entry_id,
                 owner_id,
+            )
+            owner_title = owner.title if owner is not None else "another entry"
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                f"duplicate_cloud_entry_{config_entry.entry_id}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.ERROR,
+                translation_key="duplicate_cloud_entry",
+                translation_placeholders={
+                    "entry_title": config_entry.title,
+                    "owner_title": owner_title,
+                    "unique_id": canonical_unique_id,
+                },
             )
             return False
 
@@ -621,7 +656,13 @@ def _parallel_group_migration_matches(
         members = device_data.get("member_serials")
         if not isinstance(members, (list, tuple, set, frozenset)) or not members:
             continue
-        current_members[group_id] = {str(member) for member in members if member}
+        evidence = {str(member) for member in members if member}
+        # The legacy ID was derived from the pre-pylxpweb-0.6.9 first device
+        # row, which is not always a member inverter; the modern master
+        # serial is equally valid proof of membership.
+        if first := device_data.get("first_device_serial"):
+            evidence.add(str(first))
+        current_members[group_id] = evidence
 
     stale_ids = existing_pg_ids - current_members.keys()
     candidates_by_old: dict[str, set[str]] = {}
@@ -646,6 +687,17 @@ def _parallel_group_migration_matches(
         candidate = next(iter(candidates))
         if len(claimants_by_new[candidate]) == 1:
             matches[stale_id] = candidate
+
+    if not matches and len(stale_ids) == 1 and len(current_members) == 1:
+        # GridBOSS-derived legacy IDs (pre-0.6.9 ``devices[0]`` included MID
+        # rows) never appear in ``member_serials`` or the modern master
+        # serial. With exactly one legacy ID and exactly one current group,
+        # the pairing is unambiguous — but only when the legacy serial is a
+        # live device of THIS plant, so a foreign or mistyped ID stays put.
+        stale_id = next(iter(stale_ids))
+        legacy_serial = stale_id.removeprefix("parallel_group_")
+        if legacy_serial in devices:
+            matches[stale_id] = next(iter(current_members))
     return matches
 
 
@@ -964,14 +1016,26 @@ async def _async_cleanup_failed_entry_setup(
     try:
         if not coordinator._platform_setup_started:
             return
-        try:
-            await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-        except Exception:
-            _LOGGER.warning(
-                "Error rolling back partially set up platforms for %s",
-                entry.title,
-                exc_info=True,
-            )
+        # Unload only what was actually attempted, one platform at a time:
+        # a group can fail mid-forward, and unloading a never-forwarded
+        # platform raises ValueError inside HA with an ERROR traceback that
+        # would bury the real setup failure in the user's log.
+        attempted = getattr(coordinator, "_forwarded_platforms", None) or PLATFORMS
+        results = await asyncio.gather(
+            *(
+                hass.config_entries.async_forward_entry_unload(entry, platform)
+                for platform in attempted
+            ),
+            return_exceptions=True,
+        )
+        for platform, result in zip(attempted, results, strict=True):
+            if isinstance(result, BaseException):
+                _LOGGER.debug(
+                    "Rollback unload of never-loaded platform %s for %s: %s",
+                    platform,
+                    entry.title,
+                    result,
+                )
     finally:
         try:
             try:
@@ -1004,7 +1068,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     except (Exception, asyncio.CancelledError):
         coordinator = entry.runtime_data
         if coordinator is not None:
-            await _async_cleanup_failed_entry_setup(hass, entry, coordinator)
+            try:
+                await _async_cleanup_failed_entry_setup(hass, entry, coordinator)
+            except BaseException:
+                # The original setup failure must reach Home Assistant so a
+                # ConfigEntryNotReady still schedules SETUP_RETRY; a cleanup
+                # error (including cancellation of the cleanup itself) must
+                # never replace it.
+                _LOGGER.warning(
+                    "Cleanup after failed setup itself failed for %s",
+                    entry.title,
+                    exc_info=True,
+                )
         raise
 
 
@@ -1070,6 +1145,7 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # Initialize the coordinator
     coordinator = EG4DataUpdateCoordinator(hass, entry)
     coordinator._platform_setup_started = False
+    coordinator._forwarded_platforms = []
     entry.runtime_data = coordinator
     await coordinator._async_load_pv_string_lifetime_state()
 
@@ -1206,7 +1282,11 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # reference them via via_device.
     coordinator._platform_setup_started = True
     try:
+        # Mark each group attempted BEFORE forwarding so a mid-group failure
+        # still rolls back the members that did load.
+        coordinator._forwarded_platforms = list(SENSOR_PLATFORM)
         await hass.config_entries.async_forward_entry_setups(entry, SENSOR_PLATFORM)
+        coordinator._forwarded_platforms = list(PLATFORMS)
         await hass.config_entries.async_forward_entry_setups(entry, OTHER_PLATFORMS)
     except asyncio.CancelledError:
         _LOGGER.warning(

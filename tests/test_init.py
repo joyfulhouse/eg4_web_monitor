@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor import (
+    PLATFORMS,
     async_migrate_entry,
     async_remove_entry,
     async_setup,
@@ -400,15 +401,19 @@ class TestAsyncSetupEntry:
             ),
             patch.object(
                 hass.config_entries,
-                "async_unload_platforms",
+                "async_forward_entry_unload",
                 side_effect=unload_platforms,
             ) as unload,
             pytest.raises(RuntimeError, match="platform setup failed"),
         ):
             await async_setup_entry(hass, mock_config_entry)
 
-        unload.assert_awaited_once()
-        assert calls == ["forward", "forward", "unload", "shutdown", "close"]
+        # Both groups were attempted, so every platform is unloaded
+        # individually (never-forwarded members tolerate ValueError).
+        assert unload.await_count == len(PLATFORMS)
+        assert calls == (
+            ["forward", "forward"] + ["unload"] * len(PLATFORMS) + ["shutdown", "close"]
+        )
         assert mock_config_entry.runtime_data is None
 
     @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
@@ -434,13 +439,14 @@ class TestAsyncSetupEntry:
             ),
             patch.object(
                 hass.config_entries,
-                "async_unload_platforms",
+                "async_forward_entry_unload",
                 new=AsyncMock(return_value=True),
             ) as unload,
             pytest.raises(asyncio.CancelledError),
         ):
             await async_setup_entry(hass, mock_config_entry)
 
+        # Only the sensor group was attempted before cancellation.
         unload.assert_awaited_once()
         coordinator.async_shutdown.assert_awaited_once_with()
         coordinator.client.close.assert_awaited_once_with()
@@ -464,7 +470,10 @@ class TestAsyncSetupEntry:
         coordinator.client.close = AsyncMock()
         mock_coordinator_class.return_value = coordinator
 
-        with pytest.raises(asyncio.CancelledError):
+        # The cleanup's own cancellation is contained: the ORIGINAL setup
+        # failure must reach Home Assistant so ConfigEntryNotReady semantics
+        # (SETUP_RETRY) survive a cancelled rollback step.
+        with pytest.raises(RuntimeError, match="initial refresh failed"):
             await async_setup_entry(hass, mock_config_entry)
 
         coordinator.client.close.assert_awaited_once_with()
@@ -696,6 +705,55 @@ class TestRegistryLifecycleCleanup:
         assert dr.async_get(hass).async_get_device({(DOMAIN, "CLOUDLIVE")}) is not None
         assert er.async_get(hass).async_get(live_entity.entity_id) is not None
 
+    async def test_empty_refresh_never_prunes_registry(
+        self, hass: HomeAssistant, mock_config_entry
+    ) -> None:
+        """A successful-but-empty device payload is not authoritative (#531 review).
+
+        Zero physical live roots must skip the prune entirely: an empty cloud
+        device list on a degraded-but-successful refresh would otherwise
+        delete the user's whole device tree and every entity customization.
+        """
+        mock_config_entry.add_to_hass(hass)
+        inverter = self._seed_device(
+            hass, mock_config_entry, "1234567890", serial_number="1234567890"
+        )
+        battery = self._seed_device(
+            hass,
+            mock_config_entry,
+            "1234567890_battery_01",
+            via_device=(DOMAIN, "1234567890"),
+        )
+        entity = self._seed_entity(
+            hass, mock_config_entry, inverter.id, "1234567890_output_power"
+        )
+        coordinator = self._coordinator(
+            {
+                "station": {"name": "Current"},
+                "devices": {},
+                "device_info": {},
+                "parameters": {},
+            },
+            plant_id="current",
+        )
+        coordinator.station = SimpleNamespace(all_inverters=[], all_mid_devices=[])
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        registry = dr.async_get(hass)
+        assert registry.async_get_device({(DOMAIN, "1234567890")}) is not None
+        assert registry.async_get(battery.id) is not None
+        assert er.async_get(hass).async_get(entity.entity_id) is not None
+
     async def test_setup_prunes_removed_serial_tree_and_old_station(
         self, hass: HomeAssistant, mock_config_entry
     ) -> None:
@@ -813,8 +871,14 @@ class TestRegistryLifecycleCleanup:
         other_entity = self._seed_entity(
             hass, other_entry, shared.id, "other_shared_power"
         )
+        # At least one live physical root must be present: an empty payload
+        # is non-authoritative and skips pruning entirely (liveness floor).
         coordinator = self._coordinator(
-            {"devices": {}, "device_info": {}, "parameters": {}}
+            {
+                "devices": {"LIVE999": {"type": "inverter"}},
+                "device_info": {},
+                "parameters": {},
+            }
         )
 
         with (

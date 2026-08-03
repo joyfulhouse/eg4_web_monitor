@@ -1628,6 +1628,7 @@ class LocalTransportMixin(_MixinBase):
                 transport_type,
                 e,
             )
+            was_published_fresh = device_availability.get(serial) is True
             device_availability[serial] = False
             # The new result was pre-populated with the prior cycle so a
             # skipped transport can carry data forward.  An attempted poll
@@ -1635,7 +1636,14 @@ class LocalTransportMixin(_MixinBase):
             # skip: those retained measurements are now stale and must stop
             # passing the entity availability contract.  A successful later
             # poll replaces this dictionary and naturally clears the marker.
-            if (device_data := processed.get("devices", {}).get(serial)) is not None:
+            # If THIS cycle already published a fresh dict for the serial
+            # before the failure, those measurements are current — do not
+            # mark them stale (#525 review).
+            if (
+                not was_published_fresh
+                and (device_data := processed.get("devices", {}).get(serial))
+                is not None
+            ):
                 device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
 
     async def _deferred_local_parameter_load(self) -> None:

@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "{serial}의 인버터 제품군을 모델명에서 추정함",
       "description": "기기 **{serial}**이(가) 인식 가능한 인버터 제품군을 보고하지 않아, 모델명 **{model}**(제품군 **{family}**)에서 기능을 도출했습니다. 데이터가 전혀 없던 상별 센서(예: 분상(split-phase) 하드웨어의 3상 R/S/T 센서)는 더 이상 생성되지 않습니다.\n\n해당 센서를 참조하던 자동화가 있다면 업데이트하세요. 이 기기가 실제로 3상이라면 통합구성요소 옵션에서 **그리드 유형**을 설정하세요. 또한 펌웨어의 기기 유형 코드(진단 센서 'Device Type Code' 참조)를 제보해 주시면 정식으로 매핑할 수 있습니다."
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

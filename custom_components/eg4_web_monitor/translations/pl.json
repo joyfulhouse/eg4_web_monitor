@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "Rodzina falownika dla {serial} wywnioskowana z modelu",
       "description": "Urządzenie **{serial}** nie zgłosiło rozpoznawanej rodziny falowników, więc jego możliwości wyprowadzono z nazwy modelu **{model}** (rodzina **{family}**). Czujniki fazowe, które nigdy nie miały danych (np. trójfazowe czujniki R/S/T na sprzęcie dwufazowym split-phase), nie są już tworzone.\n\nJeśli jakaś automatyzacja odwoływała się do tych czujników, zaktualizuj ją. Jeśli urządzenie naprawdę jest trójfazowe, ustaw **Typ sieci** w opcjach integracji. Prosimy też o zgłoszenie kodu typu urządzenia z oprogramowania układowego (patrz czujnik diagnostyczny „Device Type Code”), aby można go było zmapować."
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

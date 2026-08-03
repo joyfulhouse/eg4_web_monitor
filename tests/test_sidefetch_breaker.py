@@ -458,3 +458,33 @@ async def test_quick_charge_first_fetch_runs_at_low_host_uptime(coordinator):
         await coordinator._fetch_quick_charge_status(inverter, {})
 
     inverter.get_quick_charge_detail.assert_awaited_once()
+
+
+class TestSaturatedBudgetTimeoutIsInconclusive:
+    """A side-fetch timeout spent queued in the saturated account budget is
+    not connectivity evidence and must not advance the breaker (#533 review)."""
+
+    async def test_saturated_timeout_does_not_strike(self, coordinator):
+        coordinator._cloud_request_budget = MagicMock(saturated=True)
+        for _ in range(_SIDEFETCH_BREAKER_THRESHOLD + 1):
+            with pytest.raises(TimeoutError):
+                await coordinator._breakered_cloud_call(_timeout(), timeout=0.01)
+        assert coordinator._sidefetch_open_until is None
+        assert coordinator._sidefetch_consecutive_failures == 0
+
+    async def test_unsaturated_timeout_still_strikes(self, coordinator):
+        coordinator._cloud_request_budget = MagicMock(saturated=False)
+        for _ in range(_SIDEFETCH_BREAKER_THRESHOLD):
+            with pytest.raises(TimeoutError):
+                await coordinator._breakered_cloud_call(_timeout(), timeout=0.01)
+        assert coordinator._sidefetch_open_until is not None
+
+    async def test_saturated_timeout_bounds_half_open_probe(self, coordinator):
+        coordinator._cloud_request_budget = MagicMock(saturated=True)
+        coordinator._sidefetch_open_until = 0.0  # expired cooldown
+        with pytest.raises(TimeoutError):
+            await coordinator._breakered_cloud_call(_timeout(), timeout=0.01)
+        # The probe supplied no evidence: OPEN for one bounded cooldown,
+        # not half-open-forever and not a counted strike.
+        assert coordinator._sidefetch_half_open is False
+        assert coordinator._sidefetch_open_until is not None

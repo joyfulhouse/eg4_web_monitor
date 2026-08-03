@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "Famille d'onduleur déduite du modèle pour {serial}",
       "description": "L'appareil **{serial}** n'a pas signalé de famille d'onduleur reconnue ; ses capacités ont donc été déduites du nom de modèle **{model}** (famille **{family}**). Les capteurs propres à une phase qui n'ont jamais eu de données (p. ex. capteurs triphasés R/S/T sur du matériel biphasé) ne sont plus créés.\n\nSi une automatisation référençait ces capteurs, mettez-la à jour. Si cet appareil est réellement triphasé, définissez **Type de réseau** dans les options de l'intégration. Merci de signaler aussi le code de type d'appareil de votre micrologiciel (voir le capteur de diagnostic « Device Type Code ») afin qu'il puisse être référencé."
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

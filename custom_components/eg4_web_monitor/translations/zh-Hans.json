@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "已根据型号推断 {serial} 的逆变器系列",
       "description": "设备 **{serial}** 未报告可识别的逆变器系列，因此其功能已根据型号名称 **{model}** 推导（系列 **{family}**）。从未有过数据的相位类传感器（例如分相硬件上的三相 R/S/T 传感器）将不再创建。\n\n如有自动化引用了这些传感器，请更新。若该设备确实是三相设备，请在集成选项中设置**电网类型**。另请反馈固件的设备类型代码（见诊断传感器“Device Type Code”），以便正式收录映射。"
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "Семейство инвертора для {serial} определено по модели",
       "description": "Устройство **{serial}** не сообщило распознаваемое семейство инверторов, поэтому его возможности определены по названию модели **{model}** (семейство **{family}**). Фазоспецифичные сенсоры, у которых никогда не было данных (например, трёхфазные сенсоры R/S/T на двухфазном split-phase-оборудовании), больше не создаются.\n\nЕсли какая-либо автоматизация ссылалась на эти сенсоры, обновите её. Если устройство действительно трёхфазное, задайте **Тип сети** в настройках интеграции. Также сообщите код типа устройства вашей прошивки (см. диагностический сенсор «Device Type Code»), чтобы его можно было добавить в сопоставление."
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

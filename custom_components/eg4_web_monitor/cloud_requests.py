@@ -67,6 +67,16 @@ class SharedCloudRequestBudget:
         self._remove_if_idle()
         return True
 
+    @property
+    def saturated(self) -> bool:
+        """Return True while every request-chain slot is in use.
+
+        A supplemental fetch that times out while the budget is saturated
+        spent its deadline queued behind other chains, not on the wire — the
+        breaker must not read that as portal unreachability.
+        """
+        return self._semaphore.locked()
+
     async def async_acquire(self) -> None:
         """Acquire one chain slot while keeping queued work in lifecycle state."""
         if not self._accepting:

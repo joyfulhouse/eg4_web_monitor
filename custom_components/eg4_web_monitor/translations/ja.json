@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "{serial} のインバーターファミリーをモデル名から推定しました",
       "description": "デバイス **{serial}** が認識可能なインバーターファミリーを報告しなかったため、その機能はモデル名 **{model}**（ファミリー **{family}**）から導出されました。一度もデータを持たなかった相別センサー（例: 単相分割ハードウェア上の三相 R/S/T センサー）は作成されなくなります。\n\nこれらのセンサーを参照していたオートメーションがある場合は更新してください。このデバイスが本当に三相の場合は、統合オプションで**系統タイプ**を設定してください。また、ファームウェアのデバイスタイプコード（診断センサー「Device Type Code」を参照）を報告していただければ、正式に対応付けできます。"
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

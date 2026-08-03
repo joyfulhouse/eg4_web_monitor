@@ -797,7 +797,8 @@ jobs:
           # couldn't see run_firmware_update_to_completion).
           PYLXPWEB_PIN=$(grep -oE '^pylxpweb[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
           echo "Using pin: $PYLXPWEB_PIN"
-          uv pip install --system 'homeassistant>=2025.11.0' mypy "$PYLXPWEB_PIN"
+          # mypy pinned to match tests/requirements-test.txt (#528 review)
+          uv pip install --system 'homeassistant>=2025.11.0' 'mypy==2.3.0' "$PYLXPWEB_PIN"
 
       - name: Verify strict typing configuration
         run: |

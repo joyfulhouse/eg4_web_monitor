@@ -1097,6 +1097,11 @@ class DeviceProcessingMixin(_MixinBase):
         self._sidefetch_half_open = False
         self._sidefetch_open_until = time.monotonic() + _SIDEFETCH_BREAKER_COOLDOWN
 
+    def _cloud_budget_saturated(self) -> bool:
+        """Return True while the shared account request budget has no free slot."""
+        budget = getattr(self, "_cloud_request_budget", None)
+        return bool(budget is not None and getattr(budget, "saturated", False))
+
     @staticmethod
     def _discard_skipped_awaitable(call: "Awaitable[Any]") -> None:
         """Dispose of a never-to-be-awaited call without asyncio complaints.
@@ -1174,6 +1179,15 @@ class DeviceProcessingMixin(_MixinBase):
             # Cancellation says nothing about portal connectivity. A cancelled
             # half-open probe still needs a bounded state before propagating.
             self._sidefetch_note_inconclusive()
+            raise
+        except TimeoutError:
+            # A timeout while the account request budget is saturated was
+            # (at least partly) spent queued behind other request chains,
+            # not on the wire — no connectivity evidence either way.
+            if self._cloud_budget_saturated():
+                self._sidefetch_note_inconclusive()
+            else:
+                self._sidefetch_note_connectivity_failure()
             raise
         except SIDEFETCH_CONNECTIVITY_ERRORS:
             self._sidefetch_note_connectivity_failure()
@@ -2406,12 +2420,19 @@ class DeviceProcessingMixin(_MixinBase):
         if not firmware_devices:
             return
 
+        # The account budget admits three request chains; without a matching
+        # gate here, every device's 10 s deadline starts at once and the tail
+        # devices burn their whole timeout queued — a per-cycle self-inflicted
+        # breaker strike on large parallel groups.
+        prefetch_gate = asyncio.Semaphore(3)
+
         async def _check(device: Any) -> None:
             try:
-                await self._breakered_cloud_call(
-                    lambda: device.check_firmware_updates(),
-                    timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
-                )
+                async with prefetch_gate:
+                    await self._breakered_cloud_call(
+                        lambda: device.check_firmware_updates(),
+                        timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
+                    )
             except Exception as err:
                 _LOGGER.debug(
                     "Could not refresh firmware availability for %s "
@@ -2430,10 +2451,11 @@ class DeviceProcessingMixin(_MixinBase):
 
         async def _progress(device: Any) -> None:
             try:
-                await self._breakered_cloud_call(
-                    lambda: device.get_firmware_update_progress(),
-                    timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
-                )
+                async with prefetch_gate:
+                    await self._breakered_cloud_call(
+                        lambda: device.get_firmware_update_progress(),
+                        timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
+                    )
             except Exception as err:
                 _LOGGER.debug(
                     "Could not refresh firmware progress for %s "

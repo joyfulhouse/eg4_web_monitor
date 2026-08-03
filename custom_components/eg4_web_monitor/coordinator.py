@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import aiohttp_client
@@ -131,6 +131,15 @@ from .transport_serialization import (
 from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
+
+# Acknowledged local-raw parameter writes are retained (as overlay seeds)
+# until an authoritative read observes them — but never longer than this.
+PARAMETER_WRITE_SEED_TTL = 1800.0  # seconds
+
+# Reload-safe logical-control locks, keyed (serial, control). Survives the
+# coordinator across config-entry reloads so a mid-write reload cannot let a
+# second writer interleave a schedule hour/minute or battery-mode bit pair.
+_CONTROL_TRANSACTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
 _ENDPOINT_OPERATION_LOCKS_DATA = f"{DOMAIN}_endpoint_operation_locks"
 
 
@@ -449,6 +458,11 @@ class EG4DataUpdateCoordinator(
         # newer seeds remain authoritative until a later read observes them.
         self._parameter_write_generation: int = 0
         self._parameter_write_seeds: dict[str, dict[str, tuple[Any, int]]] = {}
+        # Wall-clock bound on retained ACK seeds: a device whose local
+        # parameter reads never complete again (dead adapter) must not keep
+        # overlaying a possibly raw-scaled value onto cloud-fed publishes
+        # forever (#527 review). Per-serial monotonic stamp of the newest seed.
+        self._parameter_write_seed_stamps: dict[str, float] = {}
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -462,6 +476,9 @@ class EG4DataUpdateCoordinator(
         # platform.  Failed setup uses it to avoid unloading platforms that
         # were never started while still rolling back partial forwarding.
         self._platform_setup_started: bool = False
+        # Platform groups whose forward was at least attempted; failed-setup
+        # rollback unloads exactly these (#520 review).
+        self._forwarded_platforms: list[Platform] = []
 
         # Multi-call controls must be serialized as one logical transaction.
         # The low-level transport lock protects each individual request, but it
@@ -470,7 +487,10 @@ class EG4DataUpdateCoordinator(
         # charge/discharge writes.  Coordinator ownership shares the lock across
         # separate entity instances while the control key keeps unrelated
         # controls on the same inverter independent.
-        self._control_transaction_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        # Module-level (see _CONTROL_TRANSACTION_LOCKS): a config-entry
+        # reload must not hand out a fresh lock while the old coordinator's
+        # write still holds the previous one — same reload-safety rationale
+        # as update.py's per-serial _INSTALL_LOCKS (#526 review).
 
         # One missing-parameter loader per coordinator. Repeated update cycles
         # reuse this task instead of queuing identical forced reads behind the
@@ -1053,6 +1073,7 @@ class EG4DataUpdateCoordinator(
             seeds = self._parameter_write_seeds.setdefault(serial, {})
             for key, value in values.items():
                 seeds[key] = (value, generation)
+            self._parameter_write_seed_stamps[serial] = time.monotonic()
         params = self.data.setdefault("parameters", {}).setdefault(serial, {})
         params.update(values)
         self._pending_listener_contexts = {
@@ -1097,10 +1118,23 @@ class EG4DataUpdateCoordinator(
             self._parameter_write_seeds[serial] = remaining
         else:
             self._parameter_write_seeds.pop(serial, None)
+            self._parameter_write_seed_stamps.pop(serial, None)
         return reconciled
 
     def _overlay_parameter_write_seeds(self, data: dict[str, Any]) -> None:
         """Overlay retained parameter ACKs immediately before publishing data."""
+        if not self._parameter_write_seeds:
+            return
+
+        # Expire whole-serial seed sets whose newest write is older than the
+        # retention bound: past that point an unobserved seed is more likely
+        # to mask real device state than to protect an acknowledged write.
+        now = time.monotonic()
+        for serial in list(self._parameter_write_seeds):
+            stamp = self._parameter_write_seed_stamps.get(serial)
+            if stamp is None or now - stamp > PARAMETER_WRITE_SEED_TTL:
+                self._parameter_write_seeds.pop(serial, None)
+                self._parameter_write_seed_stamps.pop(serial, None)
         if not self._parameter_write_seeds:
             return
 
@@ -1679,10 +1713,10 @@ class EG4DataUpdateCoordinator(
         the number of entities rather than by user-provided values.
         """
         key = (serial, control)
-        lock = self._control_transaction_locks.get(key)
+        lock = _CONTROL_TRANSACTION_LOCKS.get(key)
         if lock is None:
             lock = asyncio.Lock()
-            self._control_transaction_locks[key] = lock
+            _CONTROL_TRANSACTION_LOCKS[key] = lock
         return lock
 
     def get_configured_control_modes(self) -> tuple[str, str]:

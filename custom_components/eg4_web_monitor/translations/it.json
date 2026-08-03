@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "Famiglia inverter dedotta dal modello per {serial}",
       "description": "Il dispositivo **{serial}** non ha riportato una famiglia di inverter riconosciuta, quindi le sue capacità sono state dedotte dal nome del modello **{model}** (famiglia **{family}**). I sensori specifici di fase che non hanno mai avuto dati (ad es. i sensori trifase R/S/T su hardware split-phase) non vengono più creati.\n\nSe qualche automazione faceva riferimento a quei sensori, aggiornala. Se questo dispositivo è davvero trifase, imposta **Tipo di rete** nelle opzioni dell'integrazione. Segnala inoltre il codice tipo dispositivo del firmware (vedi il sensore diagnostico «Device Type Code») così che possa essere mappato."
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

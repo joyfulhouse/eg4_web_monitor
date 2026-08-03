@@ -794,7 +794,14 @@ class EG4OptimisticEntity(CoordinatorEntity):
         self._control_discovery_supported = supported
 
     def _control_device_available(self, expected_type: str = "inverter") -> bool:
-        """Return whether a discovered control still has an applicable device."""
+        """Return whether a discovered control still has an applicable device.
+
+        The LOCAL staleness ``error`` key is deliberately NOT consulted here:
+        controls are setpoints, not live readings, and stay available through
+        a transport link-down or a transient processing failure (the same
+        contract documented on ``_sync_transport_link_state`` and applied to
+        never-attached ``transport_attach_failed`` devices).
+        """
         devices = (self.coordinator.data or {}).get("devices", {})
         device_data = devices.get(self._retention_serial)
         return bool(
@@ -802,7 +809,6 @@ class EG4OptimisticEntity(CoordinatorEntity):
             and self._control_discovery_supported
             and device_data
             and device_data.get("type") == expected_type
-            and "error" not in device_data
         )
 
     def _stable_control_unique_id(self, entity_key: str) -> str:

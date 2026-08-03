@@ -672,3 +672,18 @@ class TestRefreshAllDeviceParametersReportsOutcome:
         coordinator.data = {"devices": {}}
 
         assert await coordinator.refresh_all_device_parameters() is False
+
+
+class TestControlAvailabilityIgnoresLocalStalenessError:
+    """Controls are setpoints: the LOCAL ``error`` staleness key must not
+    blank them (documented contract on ``_sync_transport_link_state``;
+    reasserted after the #534 review round)."""
+
+    def test_number_stays_available_with_device_error_key(self):
+        coordinator = _coordinator(parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80})
+        coordinator.data["devices"][SERIAL]["error"] = "Local transport link down"
+        entity = SystemChargeSOCLimitNumber(coordinator, SERIAL)
+        _prep(entity, "number")
+        entity._control_discovery_supported = True
+
+        assert entity._control_device_available() is True

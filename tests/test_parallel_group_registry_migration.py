@@ -221,3 +221,152 @@ async def test_existing_target_collision_is_idempotent(
     assert current_target is not None
     assert current_target.id == target_entity.id
     assert current_target.unique_id == "parallel_group_a_power"
+
+
+async def _run_setup_with_devices(
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    devices: dict,
+) -> None:
+    coordinator = MagicMock()
+    coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+    coordinator.async_config_entry_first_refresh = AsyncMock()
+    coordinator.data = {"devices": devices, "device_info": {}, "parameters": {}}
+
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+            return_value=coordinator,
+        ),
+        patch.object(
+            hass.config_entries,
+            "async_forward_entry_setups",
+            new=AsyncMock(),
+        ),
+    ):
+        assert await async_setup_entry(hass, entry)
+
+
+async def test_gridboss_legacy_id_migrates_via_one_to_one_fallback(
+    hass: HomeAssistant,
+) -> None:
+    """A GridBOSS-derived legacy ID (never in member_serials) still migrates
+    when there is exactly one legacy ID, one current group, and the legacy
+    serial is a live device of this plant (#517 review P1)."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    old_device, old_entity = _seed_group(hass, entry, "parallel_group_4524850115")
+
+    await _run_setup_with_devices(
+        hass,
+        entry,
+        {
+            "parallel_group_a": {
+                "type": "parallel_group",
+                "member_serials": ["52842P0581", "52842P0582"],
+                "first_device_serial": "52842P0581",
+            },
+            "4524850115": {"type": "mid", "model": "GridBOSS"},
+            "52842P0581": {"type": "inverter"},
+            "52842P0582": {"type": "inverter"},
+        },
+    )
+
+    device_registry = dr.async_get(hass)
+    assert device_registry.async_get(old_device.id).identifiers == {
+        (DOMAIN, "parallel_group_a")
+    }
+    entity_registry = er.async_get(hass)
+    migrated = entity_registry.async_get_entity_id(
+        "sensor", DOMAIN, "parallel_group_a_power"
+    )
+    assert migrated is not None
+    assert entity_registry.async_get(migrated).id == old_entity.id
+
+
+async def test_gridboss_legacy_id_with_two_groups_is_non_destructive(
+    hass: HomeAssistant,
+) -> None:
+    """The one-to-one fallback never guesses between multiple current groups."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    old_device, _ = _seed_group(hass, entry, "parallel_group_4524850115")
+
+    await _run_setup_with_devices(
+        hass,
+        entry,
+        {
+            "parallel_group_a": {
+                "type": "parallel_group",
+                "member_serials": ["52842P0581"],
+            },
+            "parallel_group_b": {
+                "type": "parallel_group",
+                "member_serials": ["52842P0583"],
+            },
+            "4524850115": {"type": "mid", "model": "GridBOSS"},
+        },
+    )
+
+    device_registry = dr.async_get(hass)
+    assert device_registry.async_get(old_device.id).identifiers == {
+        (DOMAIN, "parallel_group_4524850115")
+    }
+
+
+async def test_foreign_legacy_serial_is_non_destructive(
+    hass: HomeAssistant,
+) -> None:
+    """A legacy serial that is not a live device of this plant never matches."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    old_device, _ = _seed_group(hass, entry, "parallel_group_9999999999")
+
+    await _run_setup_with_devices(
+        hass,
+        entry,
+        {
+            "parallel_group_a": {
+                "type": "parallel_group",
+                "member_serials": ["52842P0581"],
+            },
+            "52842P0581": {"type": "inverter"},
+        },
+    )
+
+    device_registry = dr.async_get(hass)
+    assert device_registry.async_get(old_device.id).identifiers == {
+        (DOMAIN, "parallel_group_9999999999")
+    }
+
+
+async def test_master_serial_matches_via_first_device_serial(
+    hass: HomeAssistant,
+) -> None:
+    """The modern master serial is membership evidence even when absent from
+    member_serials."""
+    entry = _entry()
+    entry.add_to_hass(hass)
+    old_device, _ = _seed_group(hass, entry, "parallel_group_1111111111")
+    _seed_group(hass, entry, "parallel_group_2222222222")
+
+    await _run_setup_with_devices(
+        hass,
+        entry,
+        {
+            "parallel_group_a": {
+                "type": "parallel_group",
+                "member_serials": ["3333333333"],
+                "first_device_serial": "1111111111",
+            },
+            "parallel_group_b": {
+                "type": "parallel_group",
+                "member_serials": ["2222222222"],
+            },
+        },
+    )
+
+    device_registry = dr.async_get(hass)
+    assert device_registry.async_get(old_device.id).identifiers == {
+        (DOMAIN, "parallel_group_a")
+    }

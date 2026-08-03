@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "Wechselrichter-Familie für {serial} aus dem Modell abgeleitet",
       "description": "Gerät **{serial}** hat keine bekannte Wechselrichter-Familie gemeldet, daher wurden seine Fähigkeiten aus dem Modellnamen **{model}** abgeleitet (Familie **{family}**). Phasenspezifische Sensoren, die nie Daten hatten (z. B. Dreiphasen-R/S/T-Sensoren bei Split-Phase-Hardware), werden nicht mehr erstellt.\n\nFalls Automationen diese Sensoren referenziert haben, aktualisieren Sie sie. Falls dieses Gerät tatsächlich dreiphasig ist, stellen Sie **Netztyp** in den Integrationsoptionen ein. Bitte melden Sie außerdem den Gerätetyp-Code Ihrer Firmware (siehe den Diagnosesensor „Device Type Code“), damit er zugeordnet werden kann."
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

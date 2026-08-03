@@ -1120,6 +1120,10 @@
     "unknown_family_fallback": {
       "title": "Omvormerfamilie afgeleid van het model voor {serial}",
       "description": "Apparaat **{serial}** rapporteerde geen herkende omvormerfamilie, dus zijn de mogelijkheden afgeleid van de modelnaam **{model}** (familie **{family}**). Fasespecifieke sensoren die nooit gegevens hadden (bijv. driefasige R/S/T-sensoren op split-phase-hardware) worden niet meer aangemaakt.\n\nAls een automatisering naar die sensoren verwees, werk deze dan bij. Is dit apparaat werkelijk driefasig, stel dan **Nettype** in bij de integratieopties. Meld ook de apparaattypecode van uw firmware (zie de diagnostische sensor 'Device Type Code'), zodat deze kan worden toegevoegd."
+    },
+    "duplicate_cloud_entry": {
+      "title": "Duplicate cloud configuration could not be migrated",
+      "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
     }
   }
 }

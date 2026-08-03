@@ -245,11 +245,19 @@ class EG4FirmwareUpdateEntity(
 
         try:
             async with self._install_lock:
+                # in_progress derives from the lock, not coordinator data —
+                # publish the transition explicitly, because device-scoped
+                # listener routing (#532) will not re-notify this entity on a
+                # byte-identical device record while the chain runs.
+                if self.hass is not None:
+                    self.async_write_ha_state()
                 result = await device.run_firmware_update_to_completion()
         except Exception as err:
             _LOGGER.error("Failed to run firmware update for %s: %s", self._serial, err)
             raise
         finally:
+            if self.hass is not None:
+                self.async_write_ha_state()
             # Best-effort refresh so entity state reflects reality on every
             # outcome. Must not raise: an exception here would replace the
             # orchestrator's exception (or discard its failure result).
