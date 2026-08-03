@@ -40,8 +40,6 @@ def _bare_coordinator(data: dict | None = None) -> EG4DataUpdateCoordinator:
     coordinator._removal_device_observed_since = None
     coordinator._removal_battery_observed_since = None
     coordinator._removal_battery_parent_since = {}
-    coordinator._removal_device_list_ok = False
-    coordinator._removal_battery_ok = False
     return coordinator
 
 

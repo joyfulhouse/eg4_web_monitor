@@ -7,6 +7,8 @@ clock fixture drives the module's ``monotonic`` so tests can age identifiers
 past their class windows deterministically.
 """
 
+import asyncio
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -81,8 +83,7 @@ def _coordinator(data: dict | None = None) -> MagicMock:
     coordinator._removal_device_observed_since = None
     coordinator._removal_battery_observed_since = None
     coordinator._removal_battery_parent_since = {}
-    coordinator._removal_device_list_ok = False
-    coordinator._removal_battery_ok = False
+    coordinator._api_semaphore = asyncio.Semaphore(3)
     coordinator.is_transport_link_down = MagicMock(return_value=False)
     # Default: no inverter object per serial -> the battery-fetch confirmation
     # falls through to the error-row / link-down signals. Tests that exercise
@@ -343,16 +344,55 @@ async def test_assess_battery_incomplete_when_fetch_never_confirmed():
 
 
 async def test_assess_battery_complete_when_fetch_confirmed():
-    """A confirmed _battery_cache_time (even on a battery-less inverter's
+    """A fresh _battery_cache_time (even on a battery-less inverter's
     first empty fetch) passes the battery-completeness check."""
     coordinator = _coordinator()
     confirmed = MagicMock()
-    confirmed._battery_cache_time = object()  # any non-None stamp
+    confirmed._battery_cache_time = datetime.now()
     coordinator.get_inverter_object = MagicMock(return_value=confirmed)
     _device_list_ok, battery_ok = await assess_discovery_completeness(
         coordinator, coordinator.data
     )
     assert battery_ok is True
+
+
+async def test_assess_battery_incomplete_when_stamp_stale():
+    """A stale _battery_cache_time means the fetch succeeded once but has
+    been failing since (the #489 review's silent-partial-failure residual)
+    -- battery-incomplete, so the outage cannot age a live module out."""
+    coordinator = _coordinator()
+    stale = MagicMock()
+    stale._battery_cache_time = datetime.now() - timedelta(minutes=31)
+    coordinator.get_inverter_object = MagicMock(
+        side_effect=lambda serial: stale if serial == LIVE_INVERTER else None
+    )
+    _device_list_ok, battery_ok = await assess_discovery_completeness(
+        coordinator, coordinator.data
+    )
+    assert battery_ok is False
+
+
+async def test_empty_table_confirmation_respects_request_budget():
+    """The empty-table get_devices confirmation runs under the coordinator's
+    shared cloud request budget (#533) rather than stacking a free extra
+    request on a saturated portal."""
+    coordinator = _coordinator({"devices": {}, "station": {"name": "S"}})
+    coordinator._api_semaphore = asyncio.Semaphore(1)
+    response = MagicMock()
+    response.rows = []
+    coordinator.client.api.devices.get_devices = AsyncMock(return_value=response)
+
+    await coordinator._api_semaphore.acquire()
+    task = asyncio.ensure_future(
+        assess_discovery_completeness(coordinator, coordinator.data)
+    )
+    await asyncio.sleep(0)
+    # Budget saturated: the confirmation call must be queued, not issued.
+    coordinator.client.api.devices.get_devices.assert_not_awaited()
+    coordinator._api_semaphore.release()
+    device_list_ok, _battery_ok = await task
+    coordinator.client.api.devices.get_devices.assert_awaited_once()
+    assert device_list_ok is True
 
 
 # ── Currently provided devices are always refused ────────────────────
@@ -650,7 +690,7 @@ def _inverter(*, confirmed: bool = True) -> MagicMock:
     """A minimal inverter object carrying the battery-fetch confirmation
     signal: ``_battery_cache_time`` is stamped only on a successful fetch."""
     inverter = MagicMock()
-    inverter._battery_cache_time = object() if confirmed else None
+    inverter._battery_cache_time = datetime.now() if confirmed else None
     return inverter
 
 

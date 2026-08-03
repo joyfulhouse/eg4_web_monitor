@@ -562,8 +562,6 @@ class EG4DataUpdateCoordinator(
         self._removal_device_observed_since: float | None = None
         self._removal_battery_observed_since: float | None = None
         self._removal_battery_parent_since: dict[str, float | None] = {}
-        self._removal_device_list_ok: bool = False
-        self._removal_battery_ok: bool = False
 
         # Round-robin battery cache for LOCAL/HYBRID Modbus.
         # Some inverter firmware rotates which physical batteries appear in the
