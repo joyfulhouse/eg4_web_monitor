@@ -48,6 +48,7 @@ from .const import (
     CONTROL_MODE_SOC,
     CONTROL_MODE_VOLTAGE,
     DEFAULT_CONTROL_MODE,
+    DEFAULT_BASE_URL,
     DEFAULT_MODBUS_BLOCK_SIZE,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
@@ -86,11 +87,21 @@ from .const import (
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DEFAULT_SENSOR_UPDATE_INTERVAL_LOCAL,
+    DEFAULT_VERIFY_SSL,
     DOMAIN,
     HYBRID_LOCAL_DONGLE,
     HYBRID_LOCAL_MODBUS,
 )
 from .battery_migration import async_migrate_battery_keys
+from .cloud_requests import (
+    CloudRequestLimiter,
+    SharedCloudRequestBudget,
+    SharedFirmwareStatusFlight,
+    acquire_shared_cloud_request_budget,
+    acquire_shared_firmware_status,
+    install_cloud_request_limiter,
+    release_shared_cloud_request_budget,
+)
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -262,14 +273,17 @@ class EG4DataUpdateCoordinator(
 
         # Initialize HTTP client for HTTP and Hybrid modes
         self.client: LuxpowerClient | None = None
+        self._cloud_request_limiter: CloudRequestLimiter | None = None
+        self._cloud_request_budget: SharedCloudRequestBudget | None = None
+        self._cloud_request_budget_released = True
+        cloud_base_url = entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
+        cloud_verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
         if self.connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID):
             self.client = LuxpowerClient(
                 username=entry.data[CONF_USERNAME],
                 password=entry.data[CONF_PASSWORD],
-                base_url=entry.data.get(
-                    CONF_BASE_URL, "https://monitor.eg4electronics.com"
-                ),
-                verify_ssl=entry.data.get(CONF_VERIFY_SSL, True),
+                base_url=cloud_base_url,
+                verify_ssl=cloud_verify_ssl,
                 session=aiohttp_client.async_get_clientsession(hass),
                 iana_timezone=iana_timezone,
             )
@@ -424,6 +438,7 @@ class EG4DataUpdateCoordinator(
 
         # Background task tracking for proper cleanup
         self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._background_scheduling_stopped = False
         self._shutdown_listener_fired: bool = False
         # Entry setup sets this immediately before forwarding the first
         # platform.  Failed setup uses it to avoid unloading platforms that
@@ -438,6 +453,22 @@ class EG4DataUpdateCoordinator(
         # separate entity instances while the control key keeps unrelated
         # controls on the same inverter independent.
         self._control_transaction_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+        # One missing-parameter loader per coordinator. Repeated update cycles
+        # reuse this task instead of queuing identical forced reads behind the
+        # dependency's parameter locks.
+        self._missing_parameter_refresh_task: asyncio.Task[None] | None = None
+        self._missing_parameter_active_serials: set[str] = set()
+        self._missing_parameter_pending_serials: set[str] = set()
+        self._missing_parameter_pending_data: dict[str, Any] | None = None
+
+        # Firmware progress is an account-wide endpoint even though pylxpweb
+        # exposes it on every device. Entries for separate plants on the same
+        # account share a cancellation-shielded, refcounted single flight.
+        self._firmware_status_flight: SharedFirmwareStatusFlight | None = None
+        self._firmware_status_owner: object | None = None
+        self._firmware_status_released = True
+        self._firmware_prefetched_device_ids: set[int] = set()
 
         # Track availability state for Silver tier logging requirement
         self._last_available_state: bool = True
@@ -538,7 +569,9 @@ class EG4DataUpdateCoordinator(
             CONF_DATA_VALIDATION, False
         )
 
-        # Semaphore to limit concurrent API calls and prevent rate limiting
+        # Bound per-device mapping/side-fetch processing. Raw pylxpweb request
+        # chains have their own account budget installed above; this semaphore
+        # alone cannot see refresh()'s nested gather() calls.
         self._api_semaphore = asyncio.Semaphore(3)
 
         # Consecutive update failure counter for stale data tolerance
@@ -625,6 +658,11 @@ class EG4DataUpdateCoordinator(
         super().__init__(
             hass,
             _LOGGER,
+            # Delay ConfigEntry's unload callback until every fallible setup
+            # step succeeds. Passing the entry here would retain a partially
+            # constructed coordinator if the listener/shared registration
+            # below raised.
+            config_entry=None,
             name=DOMAIN,
             update_interval=update_interval,
         )
@@ -645,6 +683,73 @@ class EG4DataUpdateCoordinator(
                 "homeassistant_stop", self._async_handle_shutdown
             )
         )
+
+        # Account-scoped registrations are deliberately the final constructor
+        # step. DataUpdateCoordinator initialization and event-bus listener
+        # setup can raise; acquiring shared owners before those operations
+        # leaked an unreachable owner into hass.data after setup failed.
+        if self.client is not None:
+            budget: SharedCloudRequestBudget | None = None
+            limiter: CloudRequestLimiter | None = None
+            try:
+                firmware_endpoint = self.client.api.firmware
+                firmware_fetch = firmware_endpoint.get_firmware_update_status
+                budget = acquire_shared_cloud_request_budget(
+                    hass,
+                    username=str(entry.data[CONF_USERNAME]),
+                    base_url=cloud_base_url,
+                    verify_ssl=cloud_verify_ssl,
+                    limit=3,
+                )
+                # pylxpweb's Station and device refresh methods create their
+                # own nested gather() fanout. Bound the common request boundary
+                # so all plants on this exact account share three request
+                # chains across startup, parameters, and supplemental reads.
+                limiter = install_cloud_request_limiter(
+                    self.client,
+                    budget=budget,
+                )
+                setattr(
+                    firmware_endpoint,
+                    "get_firmware_update_status",
+                    self._get_firmware_update_status_shared,
+                )
+                firmware_flight, firmware_owner = acquire_shared_firmware_status(
+                    hass,
+                    username=str(entry.data[CONF_USERNAME]),
+                    base_url=cloud_base_url,
+                    verify_ssl=cloud_verify_ssl,
+                    fetch=firmware_fetch,
+                )
+            except BaseException:
+                if limiter is not None:
+                    limiter.close()
+                if budget is not None:
+                    release_shared_cloud_request_budget(hass, budget)
+                remove_listener = self._shutdown_listener_remove
+                if remove_listener is not None:
+                    try:
+                        remove_listener()
+                    except ValueError:
+                        pass
+                    self._shutdown_listener_remove = None
+                raise
+
+            # No operation that can fail follows the firmware-owner acquire.
+            # This makes construction transactional without needing async
+            # cleanup from this synchronous initializer.
+            self._cloud_request_budget = budget
+            self._cloud_request_limiter = limiter
+            self._cloud_request_budget_released = False
+            self._firmware_status_flight = firmware_flight
+            self._firmware_status_owner = firmware_owner
+            self._firmware_status_released = False
+
+        # Match DataUpdateCoordinator's normal ownership contract only after
+        # construction is complete; ConfigEntry.async_on_unload is a plain
+        # in-memory append and this is intentionally the final operation.
+        self.config_entry = entry
+        entry.async_on_unload(self.async_shutdown)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from appropriate transport based on connection type.
@@ -851,7 +956,7 @@ class EG4DataUpdateCoordinator(
         """
         inverter = self.get_inverter_object(serial)
         if inverter and not self.is_transport_link_down(serial):
-            await inverter.refresh(force=True, include_parameters=True)
+            await inverter._fetch_parameters()
 
     def params_are_local_raw(
         self, serial: str, *, include_configured: bool = False

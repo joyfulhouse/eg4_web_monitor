@@ -225,7 +225,16 @@ def wire_coordinator_write_helpers(coordinator: MagicMock) -> None:
     async def _refresh_if_linked(target: str) -> None:
         inv = coordinator.get_inverter_object(target)
         if inv and not coordinator.is_transport_link_down(target):
-            await inv.refresh(force=True, include_parameters=True)
+            fetch_parameters = inv._fetch_parameters
+            # Most entity tests use intentionally loose MagicMock inverter
+            # doubles. Teach that shared scaffold the new targeted async seam
+            # without giving every unrelated entity test dependency internals.
+            if isinstance(fetch_parameters, MagicMock) and not isinstance(
+                fetch_parameters, AsyncMock
+            ):
+                fetch_parameters = AsyncMock()
+                inv._fetch_parameters = fetch_parameters
+            await fetch_parameters()
 
     def _params_local_raw(target: str, *, include_configured: bool = False) -> bool:
         if coordinator.is_local_only():

@@ -46,6 +46,13 @@ from .const import (
     MANUFACTURER,
     operating_state_slug,
 )
+from .cloud_requests import (
+    CloudRequestLimiter,
+    SharedCloudRequestBudget,
+    SharedFirmwareStatusFlight,
+    release_shared_cloud_request_budget,
+    release_shared_firmware_status,
+)
 from .coordinator_mappings import (
     CLOUD_SUPPLEMENTAL_LOST_KEYS,
     SMART_PORT_VALIDATED_KEY,
@@ -211,6 +218,35 @@ def _classify_store_limits(limits: Any) -> bool | None:
     if isinstance(limits, dict) and any(value is not None for value in limits.values()):
         return True
     return None
+
+
+async def _async_drain_teardown(teardown: Awaitable[None]) -> None:
+    """Finish one owned teardown before propagating caller cancellation."""
+    teardown_future = asyncio.ensure_future(teardown)
+    caller_cancellation: asyncio.CancelledError | None = None
+
+    # asyncio.wait observes completion without cancelling the owned teardown
+    # when this caller is cancelled. Recreate only waiters, never the teardown,
+    # so repeated cancellation cannot skip a later cleanup stage.
+    while not teardown_future.done():
+        try:
+            await asyncio.wait({teardown_future})
+        except asyncio.CancelledError as err:
+            if caller_cancellation is None:
+                caller_cancellation = err
+
+    teardown_error: BaseException | None = None
+    try:
+        teardown_future.result()
+    except BaseException as err:
+        teardown_error = err
+
+    if caller_cancellation is not None:
+        if teardown_error is not None:
+            raise caller_cancellation from teardown_error
+        raise caller_cancellation
+    if teardown_error is not None:
+        raise teardown_error
 
 
 class _CloudSidefetchSkipped(Exception):
@@ -717,6 +753,18 @@ if TYPE_CHECKING:
         _pv_string_lifetime_store_lock: asyncio.Lock
         _background_tasks: set[asyncio.Task[Any]]
         _api_semaphore: asyncio.Semaphore
+        _missing_parameter_refresh_task: asyncio.Task[None] | None
+        _missing_parameter_active_serials: set[str]
+        _missing_parameter_pending_serials: set[str]
+        _missing_parameter_pending_data: dict[str, Any] | None
+        _cloud_request_limiter: CloudRequestLimiter | None
+        _cloud_request_budget: SharedCloudRequestBudget | None
+        _cloud_request_budget_released: bool
+        _firmware_status_flight: SharedFirmwareStatusFlight | None
+        _firmware_status_owner: object | None
+        _firmware_status_released: bool
+        _firmware_prefetched_device_ids: set[int]
+        _background_scheduling_stopped: bool
         _http_polling_interval: int
         _local_transport_configs: list[dict[str, Any]]
         _local_transports_attached: bool
@@ -771,6 +819,7 @@ if TYPE_CHECKING:
 
         # ── DataUpdateCoordinator / coordinator.py methods ──
         def get_inverter_object(self, serial: str) -> BaseInverter | None: ...
+        def async_update_listeners(self) -> None: ...
         async def async_request_refresh(self) -> None: ...
         def _rebuild_inverter_cache(self) -> None: ...
         def _poll_gate_key(self, transport_type: str) -> str: ...
@@ -802,6 +851,9 @@ if TYPE_CHECKING:
         async def _process_mid_device_object(
             self, mid_device: "MIDDevice"
         ) -> dict[str, Any]: ...
+        async def _prefetch_firmware_update_info(
+            self, devices: Collection[Any]
+        ) -> None: ...
         @staticmethod
         def _extract_inverter_features(
             inverter: BaseInverter,
@@ -824,14 +876,21 @@ if TYPE_CHECKING:
         # ── ParameterManagementMixin methods ──
         def _should_refresh_parameters(self) -> bool: ...
         async def _hourly_parameter_refresh(self) -> None: ...
-        async def _refresh_device_parameters(self, serial: str) -> bool: ...
+        async def _refresh_device_parameters(
+            self, serial: str, *, include_runtime_data: bool = False
+        ) -> bool: ...
         async def _refresh_missing_parameters(
             self, inverter_serials: list[str], processed_data: dict[str, Any]
         ) -> None: ...
+        def _schedule_missing_parameter_refresh(
+            self, inverter_serials: list[str], processed_data: dict[str, Any]
+        ) -> asyncio.Task[None] | None: ...
 
         # ── BackgroundTaskMixin methods ──
         def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None: ...
         def _log_task_exception(self, task: asyncio.Task[Any]) -> None: ...
+        def _release_shared_cloud_request_budget(self) -> None: ...
+        async def _release_shared_firmware_status(self) -> None: ...
 
         # ── DSTSyncMixin methods ──
         def _should_sync_dst(self) -> bool: ...
@@ -2226,6 +2285,8 @@ class DeviceProcessingMixin(_MixinBase):
         """
         if not hasattr(device, "check_firmware_updates"):
             return None
+        if id(device) in self._firmware_prefetched_device_ids:
+            return self._extract_firmware_update_info(device)
         try:
             await self._breakered_cloud_call(
                 lambda: device.check_firmware_updates(),
@@ -2289,6 +2350,107 @@ class DeviceProcessingMixin(_MixinBase):
         processed["battery_backup_status"] = {"enabled": enabled}
         self._last_status_fetch[key] = now
         _LOGGER.debug("Battery backup status for %s: %s", serial, enabled)
+
+    async def _get_firmware_update_status_shared(self) -> Any:
+        """Join one in-flight status request shared by this cloud account.
+
+        The completed response is intentionally not cached here. pylxpweb owns
+        its per-device 10-second/5-minute freshness policy, and firmware install
+        orchestration must be able to observe idle -> active transitions without
+        an integration-side stale result. A prefetch batch retains a fast result
+        only long enough for all sibling device calls to join it.
+        """
+        flight = self._firmware_status_flight
+        owner = self._firmware_status_owner
+        if flight is None or owner is None:
+            raise RuntimeError("Firmware status endpoint is not initialized")
+        return await flight.run(owner)
+
+    async def _release_shared_firmware_status(self) -> None:
+        """Release this config entry's account-wide firmware flight owner."""
+        if self._firmware_status_released:
+            return
+        self._firmware_status_released = True
+        flight = self._firmware_status_flight
+        owner = self._firmware_status_owner
+        self._firmware_status_flight = None
+        self._firmware_status_owner = None
+        if flight is not None and owner is not None:
+            await release_shared_firmware_status(self.hass, flight, owner)
+
+    def _release_shared_cloud_request_budget(self) -> None:
+        """Release this entry without disrupting draining account requests."""
+        if self._cloud_request_budget_released:
+            return
+        self._cloud_request_budget_released = True
+
+        limiter = self._cloud_request_limiter
+        self._cloud_request_limiter = None
+        if limiter is not None:
+            # Refuse request chains that begin after this client's unload.
+            # Chains already active or queued retain leases in the shared
+            # budget and drain normally.
+            limiter.close()
+
+        budget = self._cloud_request_budget
+        self._cloud_request_budget = None
+        if budget is not None:
+            release_shared_cloud_request_budget(self.hass, budget)
+
+    async def _prefetch_firmware_update_info(self, devices: Collection[Any]) -> None:
+        """Align device firmware polls so account progress is fetched once."""
+        firmware_devices = [
+            device for device in devices if hasattr(device, "check_firmware_updates")
+        ]
+        self._firmware_prefetched_device_ids.clear()
+        if not firmware_devices:
+            return
+
+        async def _check(device: Any) -> None:
+            try:
+                await self._breakered_cloud_call(
+                    lambda: device.check_firmware_updates(),
+                    timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Could not refresh firmware availability for %s "
+                    "(using last cached state): %s",
+                    getattr(device, "serial_number", "?"),
+                    err,
+                )
+
+        await asyncio.gather(*(_check(device) for device in firmware_devices))
+
+        progress_devices = [
+            device
+            for device in firmware_devices
+            if hasattr(device, "get_firmware_update_progress")
+        ]
+
+        async def _progress(device: Any) -> None:
+            try:
+                await self._breakered_cloud_call(
+                    lambda: device.get_firmware_update_progress(),
+                    timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
+                )
+            except Exception as err:
+                _LOGGER.debug(
+                    "Could not refresh firmware progress for %s "
+                    "(using last cached state): %s",
+                    getattr(device, "serial_number", "?"),
+                    err,
+                )
+
+        flight = self._firmware_status_flight
+        if flight is not None:
+            flight.begin_batch()
+        try:
+            await asyncio.gather(*(_progress(device) for device in progress_devices))
+        finally:
+            if flight is not None:
+                flight.end_batch()
+        self._firmware_prefetched_device_ids.update(map(id, firmware_devices))
 
     async def _process_inverter_object(
         self, inverter: "BaseInverter"
@@ -3915,14 +4077,39 @@ class ParameterManagementMixin(_MixinBase):
             results = await asyncio.gather(*refresh_tasks, return_exceptions=True)
 
             success_count = 0
+            refreshed_serials: list[str] = []
             for i, result in enumerate(results):
                 serial = inverter_serials[i]
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     _LOGGER.error(
                         "Failed to refresh parameters for %s: %s", serial, result
                     )
-                else:
-                    success_count += 1
+                    continue
+                if result is not True:
+                    _LOGGER.debug(
+                        "Parameter refresh for %s produced no cache update", serial
+                    )
+                    continue
+
+                refreshed_serials.append(serial)
+                inverter = self.get_inverter_object(serial)
+                if (
+                    inverter is not None
+                    and getattr(inverter, "parameters_complete", True) is False
+                ):
+                    _LOGGER.debug(
+                        "Parameter refresh incomplete for device %s; retaining "
+                        "last-known values",
+                        serial,
+                    )
+                    continue
+                success_count += 1
+
+            # All successful sibling cache mutations are already in place, so
+            # publish them together. Under #532 this selects every changed
+            # device plus discovery; before #532 it remains one ordinary full
+            # listener dispatch. Never dispatch once per inverter.
+            self._publish_parameter_updates(refreshed_serials)
 
             _LOGGER.debug(
                 "Successfully refreshed parameters for %d/%d inverters",
@@ -3972,6 +4159,38 @@ class ParameterManagementMixin(_MixinBase):
             serial,
         )
 
+    def _publish_parameter_updates(self, serials: Collection[str]) -> None:
+        """Publish cache mutations once, scoped when #532 is present.
+
+        The listener-context attributes are feature-detected so this seam is
+        safe both before and after the callback-churn work lands. Without that
+        work, Home Assistant performs one ordinary listener dispatch. With it,
+        only the changed devices and discovery listener contexts are selected.
+        """
+        changed_serials = set(serials)
+        if not changed_serials:
+            return
+        if hasattr(self, "_pending_listener_contexts"):
+            selected_contexts: set[Any] = set()
+            listeners = getattr(self, "_listeners", {})
+            values = listeners.values() if hasattr(listeners, "values") else ()
+            for registration in values:
+                if not isinstance(registration, tuple) or len(registration) < 2:
+                    continue
+                context = registration[1]
+                kind = getattr(context, "kind", None)
+                if kind == "discovery" or (
+                    kind == "device"
+                    and getattr(context, "serial", None) in changed_serials
+                ):
+                    selected_contexts.add(context)
+            setattr(self, "_pending_listener_contexts", selected_contexts)
+        self.async_update_listeners()
+
+    def _publish_device_parameter_update(self, serial: str) -> None:
+        """Publish one serial through the shared batched dispatch seam."""
+        self._publish_parameter_updates((serial,))
+
     async def async_refresh_device_parameters(self, serial: str) -> bool:
         """Public method to refresh parameters for a specific device.
 
@@ -4007,13 +4226,16 @@ class ParameterManagementMixin(_MixinBase):
                     "last-known values",
                     serial,
                 )
-            await self.async_request_refresh()
+            if refreshed:
+                self._publish_device_parameter_update(serial)
         except Exception as e:
             _LOGGER.error("Failed to refresh parameters for device %s: %s", serial, e)
             return False
         return refreshed and not incomplete
 
-    async def _refresh_device_parameters(self, serial: str) -> bool:
+    async def _refresh_device_parameters(
+        self, serial: str, *, include_runtime_data: bool = False
+    ) -> bool:
         """Refresh parameters for a specific device using device object.
 
         Link-down handling is delegated to pylxpweb's ``_fetch_parameters``
@@ -4028,10 +4250,10 @@ class ParameterManagementMixin(_MixinBase):
         Returns:
             True only when the parameter cache was actually updated. Every
             early return is a silent no-op that refreshed nothing — an
-            unknown serial, no coordinator data to write into, or an empty
-            parameter payload — and must not be reported as a completed
-            refresh, or the #362 post-write contract ("True means the refresh
-            completed") breaks exactly where it matters (#485).
+            unknown serial, missing coordinator data, or empty parameter set
+            must not be reported as completed, or the #362 post-write contract
+            ("True means the refresh completed") breaks where it matters
+            (#485).
         """
         try:
             inverter = self.get_inverter_object(serial)
@@ -4040,7 +4262,6 @@ class ParameterManagementMixin(_MixinBase):
                 return False
 
             self._bind_device_endpoint_lock(inverter)
-            # Use force=True to bypass cache when refreshing parameters after changes.
             # Snapshot the integration's write generation before the read: the
             # pylxpweb cache generation keeps a raced result stale for its next
             # fetch, but the returned parameter dict can still be pre-write.
@@ -4048,7 +4269,20 @@ class ParameterManagementMixin(_MixinBase):
             parameter_read_generation = (
                 current_generation if isinstance(current_generation, int) else 0
             )
-            await inverter.refresh(force=True, include_parameters=True)
+
+            if include_runtime_data:
+                # The explicit device Refresh button promises a full refresh;
+                # preserve that user-facing behavior while routine parameter
+                # jobs and post-write verification use the narrow default.
+                await inverter.refresh(force=True, include_parameters=True)
+            else:
+                # Fetch only holding parameters. ``refresh(force=True,
+                # include_parameters=True)`` also expires and concurrently
+                # fetches runtime, energy, and battery data in pylxpweb, turning
+                # one post-write verification into roughly six cloud calls.
+                # This is the dependency's same locked parameter implementation,
+                # invoked directly so its runtime caches are untouched.
+                await inverter._fetch_parameters()
 
             if hasattr(inverter, "parameters") and inverter.parameters:
                 if not self.data:
@@ -4109,6 +4343,71 @@ class ParameterManagementMixin(_MixinBase):
             await self.async_request_refresh()
         except Exception as e:
             _LOGGER.error("Error during missing parameter refresh: %s", e)
+
+    def _schedule_missing_parameter_refresh(
+        self, inverter_serials: list[str], processed_data: dict[str, Any]
+    ) -> asyncio.Task[None] | None:
+        """Return the one active missing-parameter loader for this entry."""
+        if self._background_scheduling_stopped:
+            self._missing_parameter_pending_serials.clear()
+            self._missing_parameter_pending_data = None
+            return None
+
+        existing = self._missing_parameter_refresh_task
+        if existing is not None and not existing.done():
+            # Device discovery can grow while an earlier batch is still in
+            # flight. Preserve only genuinely new serials for the next batch;
+            # the active serials must not be re-enqueued by the refresh this
+            # task requests on completion, or a failed read loops forever.
+            new_serials = set(inverter_serials).difference(
+                self._missing_parameter_active_serials,
+                self._missing_parameter_pending_serials,
+            )
+            if new_serials:
+                self._missing_parameter_pending_serials.update(new_serials)
+                self._missing_parameter_pending_data = processed_data
+            _LOGGER.debug(
+                "Missing-parameter refresh already in flight; sharing it for %s",
+                inverter_serials,
+            )
+            return existing
+
+        serials = set(inverter_serials)
+        serials.update(self._missing_parameter_pending_serials)
+        self._missing_parameter_pending_serials.clear()
+        self._missing_parameter_pending_data = None
+        self._missing_parameter_active_serials = serials
+        task = self.hass.async_create_task(
+            self._refresh_missing_parameters(sorted(serials), processed_data)
+        )
+        self._missing_parameter_refresh_task = task
+        self._background_tasks.add(task)
+        task.add_done_callback(self._remove_task_from_set)
+        task.add_done_callback(self._clear_missing_parameter_refresh_task)
+        task.add_done_callback(self._log_task_exception)
+        return task
+
+    def _clear_missing_parameter_refresh_task(self, task: asyncio.Task[None]) -> None:
+        """Release the missing-parameter single-flight owner."""
+        if self._missing_parameter_refresh_task is not task:
+            return
+        self._missing_parameter_refresh_task = None
+        self._missing_parameter_active_serials.clear()
+
+        if task.cancelled() or self._background_scheduling_stopped:
+            # Shutdown owns both cancellation and terminal scheduling state;
+            # never resurrect queued work while an entry is unloading. The
+            # explicit flag also covers a task that completed normally just
+            # before shutdown took its cancellation snapshot but whose done
+            # callback runs while that snapshot is being gathered.
+            self._missing_parameter_pending_serials.clear()
+            self._missing_parameter_pending_data = None
+            return
+
+        if self._missing_parameter_pending_serials:
+            pending_data = self._missing_parameter_pending_data
+            if pending_data is not None:
+                self._schedule_missing_parameter_refresh([], pending_data)
 
     async def _hourly_parameter_refresh(self) -> None:
         """Perform hourly parameter refresh for all inverters.
@@ -4286,15 +4585,27 @@ class BackgroundTaskMixin(_MixinBase):
 
     async def _cancel_background_tasks(self) -> None:
         """Cancel all background tasks and wait for them to finish."""
-        for task in self._background_tasks:
-            if not task.done():
-                task.cancel()
+        # Close the producer before snapshotting consumers. A normally-finished
+        # missing-parameter task can still have queued done callbacks; without
+        # this terminal gate, that callback can enqueue its pending successor
+        # while gather() yields and the subsequent clear() silently untracks it.
+        self._background_scheduling_stopped = True
+        self._missing_parameter_pending_serials.clear()
+        self._missing_parameter_pending_data = None
 
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
-            self._background_tasks.clear()
+        while self._background_tasks:
+            tasks = tuple(self._background_tasks)
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._background_tasks.difference_update(tasks)
 
     async def _async_handle_shutdown(self, event: Any) -> None:
+        """Drain the full HA-stop sequence before cancellation propagates."""
+        await _async_drain_teardown(self._async_handle_shutdown_work(event))
+
+    async def _async_handle_shutdown_work(self, event: Any) -> None:
         """Handle Home Assistant stop event to cancel background tasks.
 
         When this fires, the listener auto-removes itself from the event bus.
@@ -4313,9 +4624,15 @@ class BackgroundTaskMixin(_MixinBase):
             _LOGGER.debug("Cancelled debounced refresh")
 
         await self._cancel_background_tasks()
+        self._release_shared_cloud_request_budget()
+        await self._release_shared_firmware_status()
         _LOGGER.debug("All background tasks cancelled and cleaned up")
 
     async def async_shutdown(self) -> None:
+        """Drain the full unload sequence before cancellation propagates."""
+        await _async_drain_teardown(self._async_shutdown_work())
+
+    async def _async_shutdown_work(self) -> None:
         """Clean up transports, background tasks, and event listeners on shutdown.
 
         Transport disconnection happens FIRST so that any in-flight
@@ -4347,6 +4664,8 @@ class BackgroundTaskMixin(_MixinBase):
 
         # 3. Cancel our background tasks (parameter loads, DST sync, etc.)
         await self._cancel_background_tasks()
+        self._release_shared_cloud_request_budget()
+        await self._release_shared_firmware_status()
 
         # 4. Call base class shutdown to set _shutdown_requested, unsub
         #    the refresh timer, and shut down the debounced refresh.

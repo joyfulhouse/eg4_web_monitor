@@ -4060,7 +4060,7 @@ class TestLinkDownParameterRefreshGate:
     cleanly in LOCAL (parameters_complete=False).  The coordinator-side hard
     skip that preceded it (codex P1 on PR #301) blocked exactly that cloud
     fallback and was removed in #322 — down-link serials must still be
-    refreshed with force + parameters."""
+    refreshed through the targeted parameter fetch."""
 
     @staticmethod
     def _fake_inverter(*, link_down: bool, parameters: dict | None = None):
@@ -4068,6 +4068,7 @@ class TestLinkDownParameterRefreshGate:
         inv.transport = object()
         inv.transport_link_down = link_down
         inv.refresh = AsyncMock()
+        inv._fetch_parameters = AsyncMock()
         inv.parameters = parameters or {}
         return inv
 
@@ -4091,8 +4092,10 @@ class TestLinkDownParameterRefreshGate:
 
         await coordinator.refresh_all_device_parameters()
 
-        down.refresh.assert_awaited_once_with(force=True, include_parameters=True)
-        up.refresh.assert_awaited_once_with(force=True, include_parameters=True)
+        down._fetch_parameters.assert_awaited_once_with()
+        up._fetch_parameters.assert_awaited_once_with()
+        down.refresh.assert_not_awaited()
+        up.refresh.assert_not_awaited()
         assert coordinator.data["parameters"]["UP1"] == {"HOLD_X": 1}
         assert coordinator.data["parameters"]["DOWN1"] == {"HOLD_Y": 2}
 
@@ -4216,7 +4219,8 @@ class TestLinkDownParameterRefreshGate:
         result = await coordinator.async_refresh_device_parameters("DOWN1")
 
         assert result is True
-        down.refresh.assert_awaited_once_with(force=True, include_parameters=True)
+        down._fetch_parameters.assert_awaited_once_with()
+        down.refresh.assert_not_awaited()
 
     async def test_async_refresh_device_parameters_reports_incomplete_fetch(
         self, hass, local_config_entry
@@ -4227,8 +4231,8 @@ class TestLinkDownParameterRefreshGate:
         range fails, exposing the failure only through
         ``parameters_complete=False``.  The public wrapper must not report that
         as a completed refresh: its boolean drives the acknowledged-write
-        retention envelope (#362). The coordinator refresh side effect remains
-        intact for older callers that ignore the boolean.
+        retention envelope (#362). The partial cache mutation is published in
+        place without scheduling a duplicate full coordinator cycle.
         """
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
@@ -4237,22 +4241,25 @@ class TestLinkDownParameterRefreshGate:
         )
         incomplete.parameters_complete = True
 
-        async def _soft_fail_parameter_fetch(**_kwargs: Any) -> None:
+        async def _soft_fail_parameter_fetch() -> None:
             incomplete.parameters_complete = False
 
-        incomplete.refresh = AsyncMock(side_effect=_soft_fail_parameter_fetch)
+        incomplete._fetch_parameters = AsyncMock(side_effect=_soft_fail_parameter_fetch)
         coordinator._inverter_cache = {"INV1": incomplete}
         coordinator.data = {
             "devices": {"INV1": {"type": "inverter"}},
             "parameters": {"INV1": {"FUNC_TEST": True}},
         }
+        coordinator.async_update_listeners = MagicMock()
         coordinator.async_request_refresh = AsyncMock()
 
         result = await coordinator.async_refresh_device_parameters("INV1")
 
         assert result is False
-        incomplete.refresh.assert_awaited_once_with(force=True, include_parameters=True)
-        coordinator.async_request_refresh.assert_awaited_once_with()
+        incomplete._fetch_parameters.assert_awaited_once_with()
+        incomplete.refresh.assert_not_awaited()
+        coordinator.async_update_listeners.assert_called_once_with()
+        coordinator.async_request_refresh.assert_not_awaited()
 
     async def test_incomplete_fetch_logs_at_debug_not_warning(
         self, hass, local_config_entry, caplog: pytest.LogCaptureFixture
@@ -4345,7 +4352,9 @@ class TestLinkDownParameterRefreshGate:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
         broken = self._fake_inverter(link_down=False)
-        broken.refresh = AsyncMock(side_effect=ConnectionError("refresh died"))
+        broken._fetch_parameters = AsyncMock(
+            side_effect=ConnectionError("refresh died")
+        )
         coordinator._inverter_cache = {"INV1": broken}
         coordinator.data = {"devices": {"INV1": {"type": "inverter"}}}
         coordinator.async_request_refresh = AsyncMock()

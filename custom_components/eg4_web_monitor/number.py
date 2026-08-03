@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import math
-from abc import abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TYPE_CHECKING
@@ -266,15 +265,6 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             self.serial,
         )
 
-    @abstractmethod
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        """Return tuple of related entity types for parameter refresh."""
-
-    def _related_entity_predicate(self) -> Callable[[Any], bool]:
-        """Return the entity-selection predicate for parameter refreshes."""
-        related_types = self._get_related_entity_types()
-        return lambda entity: isinstance(entity, related_types)
-
     # ── Value read helpers ──────────────────────────────────────────
 
     def _params_are_local_raw(self) -> bool:
@@ -482,7 +472,6 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             success = await method(**(cloud_kwargs or {}))
             if not success:
                 raise HomeAssistantError(f"Failed to set {label}")
-            await inverter.refresh()
 
         with optimistic_value_context(self, value, label) as write:
             await async_write_with_cloud_fallback(
@@ -531,7 +520,6 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             )
             if not result.success:
                 raise HomeAssistantError(f"Failed to set {label}")
-            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
         with optimistic_value_context(self, value, label) as write:
             await async_write_with_cloud_fallback(
@@ -545,12 +533,12 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             write.refresh_ok = await self._refresh_related_entities()
 
     async def _refresh_related_entities(self) -> bool:
-        """Refresh parameters for all inverters and update related entities.
+        """Refresh and publish parameters for only this entity's inverter.
 
         Returns:
-            True when every device's parameter refresh completed; False when
-            any of them failed or this method raised. Errors are logged,
-            never raised (#362/#379): a post-write caller must be able to
+            True when this device's parameter refresh completed; False when
+            it failed or this method raised. Errors are logged, never raised
+            (#362/#379): a post-write caller must be able to
             tell "write+refresh ok" from "write ok, refresh failed" — the old
             swallow-and-return-None contract made a failed refresh look
             identical to success, so the number entity cleared its optimistic
@@ -558,29 +546,10 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             write the device had acknowledged.
         """
         try:
-            refreshed = await self.coordinator.refresh_all_device_parameters()
-            platform = self.platform
-            if platform is not None:
-                is_related_entity = self._related_entity_predicate()
-                related_entities = [
-                    entity
-                    for entity in platform.entities.values()
-                    if is_related_entity(entity)
-                ]
-                _LOGGER.info(
-                    "Updating %d related entities after parameter refresh",
-                    len(related_entities),
-                )
-                update_tasks = [
-                    entity.async_update()  # type: ignore[attr-defined]
-                    for entity in related_entities
-                ]
-                await asyncio.gather(*update_tasks, return_exceptions=True)
-                await self.coordinator.async_request_refresh()
+            return await self.coordinator.async_refresh_device_parameters(self.serial)
         except Exception as e:
-            _LOGGER.error("Failed to refresh parameters and entities: %s", e)
+            _LOGGER.error("Failed to refresh parameters for %s: %s", self.serial, e)
             return False
-        return refreshed
 
 
 # ── Platform setup ───────────────────────────────────────────────────
@@ -776,9 +745,6 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:battery-charging"
         self._attr_native_precision = 0
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (SystemChargeSOCLimitNumber,)
-
     @property
     def native_value(self) -> float | None:
         """Return the current System Charge SOC limit (reads params first)."""
@@ -817,7 +783,6 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
             )
             if not result.success:
                 raise HomeAssistantError(f"Failed to set SOC limit to {int_value}%")
-            await self.coordinator.refresh_inverter_params_if_linked(self.serial)
 
         label = f"system charge SOC limit to {int_value}%"
         with optimistic_value_context(self, value, label) as write:
@@ -926,9 +891,6 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
             last_data = await self.async_get_last_number_data()
             restored = getattr(last_data, "native_value", None)
         self._seed_restored_preference(restored)
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (QuickChargeDurationNumber,)
 
     @property
     def native_value(self) -> float | None:
@@ -1043,9 +1005,6 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:battery-charging-medium"
         self._attr_native_precision = 1
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargePowerNumber, PVChargePowerNumber)
-
     @property
     def native_value(self) -> float | None:
         """Return the current AC charge power in kW.
@@ -1104,9 +1063,6 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "kW"
         self._attr_icon = "mdi:solar-power"
         self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargePowerNumber, PVChargePowerNumber)
 
     @property
     def native_value(self) -> float | None:
@@ -1193,9 +1149,6 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
             # write-less config entity is opt-in. Users who attach cloud
             # credentials (or want the read-only view) can enable it.
             self._attr_entity_registry_enabled_default = False
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (GridPeakShavingPowerNumber,)
 
     @property
     def native_value(self) -> float | None:
@@ -1288,7 +1241,6 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                 raise HomeAssistantError(
                     f"Failed to set grid peak shaving power to {value:.1f} kW"
                 )
-            await inverter.refresh()
             write.refresh_ok = await self._refresh_related_entities()
 
 
@@ -1318,9 +1270,6 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "%"
         self._attr_icon = "mdi:battery-charging-medium"
         self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber)
 
     @property
     def native_value(self) -> float | None:
@@ -1376,9 +1325,6 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "%"
         self._attr_icon = "mdi:battery-charging-low"
         self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeStartBatterySOCNumber, ACChargeEndBatterySOCNumber)
 
     @property
     def native_value(self) -> float | None:
@@ -1453,9 +1399,6 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:battery-charging-high"
         self._attr_native_precision = 0
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeStartBatterySOCNumber, ACChargeEndBatterySOCNumber)
-
     @property
     def native_value(self) -> float | None:
         """Return the SOC that stops AC charging (whole percent, both paths)."""
@@ -1506,7 +1449,6 @@ async def _write_cloud_named_parameter(
     result = await client.api.control.write_parameter(entity.serial, param, str(value))
     if not result.success:
         raise HomeAssistantError(error_message)
-    await entity.coordinator.refresh_inverter_params_if_linked(entity.serial)
 
 
 class ACCoupleSOCNumberBase(EG4BaseNumberEntity):
@@ -1541,9 +1483,6 @@ class ACCoupleSOCNumberBase(EG4BaseNumberEntity):
     _store_key: str
     _cloud_method: str
     _label: str
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACCoupleStartSOCNumber, ACCoupleEndSOCNumber)
 
     @property
     def _stored_value(self) -> int | None:
@@ -1834,9 +1773,6 @@ class SmartLoadNumber(EG4BaseNumberEntity):
         self._attr_icon = spec.icon
         self._attr_native_precision = spec.precision
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (SmartLoadNumber,)
-
     @property
     def _stored_value(self) -> float | None:
         """This setting's value from the coordinator's ``smart_load`` store."""
@@ -1955,9 +1891,6 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:transmission-tower-export"
         self._attr_native_precision = 1
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (GridSellBackPowerNumber,)
-
     @property
     def native_value(self) -> float | None:
         """Return the current grid sell back power in kW.
@@ -2033,9 +1966,6 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
                 raise HomeAssistantError(
                     f"Failed to set grid sell back power to {value:.1f} kW"
                 )
-            inverter = self.coordinator.get_inverter_object(self.serial)
-            if inverter:
-                await inverter.refresh(force=True, include_parameters=True)
             write.refresh_ok = await self._refresh_related_entities()
 
 
@@ -2074,9 +2004,6 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "W"
         self._attr_icon = "mdi:transmission-tower-import"
         self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (StartDischargePowerNumber, StartChargePowerNumber)
 
     @property
     def native_value(self) -> float | None:
@@ -2169,9 +2096,6 @@ class StartChargePowerNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:battery-arrow-up"
         self._attr_native_precision = 0
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (StartDischargePowerNumber, StartChargePowerNumber)
-
     @property
     def native_value(self) -> float | None:
         """Return the current threshold in watts (signed decode)."""
@@ -2240,13 +2164,6 @@ class ForcedDischargePowerNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "kW"
         self._attr_icon = "mdi:battery-arrow-down"
         self._attr_native_precision = 1
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (
-            ForcedDischargePowerNumber,
-            ForcedDischargeSOCLimitNumber,
-            StopDischargeVoltageNumber,
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2329,13 +2246,6 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:battery-20"
         self._attr_native_precision = 0
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (
-            ForcedDischargePowerNumber,
-            ForcedDischargeSOCLimitNumber,
-            StopDischargeVoltageNumber,
-        )
-
     @property
     def native_value(self) -> float | None:
         """Return the current forced discharge SOC limit."""
@@ -2403,13 +2313,6 @@ class StopDischargeVoltageNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "V"
         self._attr_icon = "mdi:battery-arrow-down-outline"
         self._attr_native_precision = 1
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (
-            ForcedDischargePowerNumber,
-            ForcedDischargeSOCLimitNumber,
-            StopDischargeVoltageNumber,
-        )
 
     @property
     def native_value(self) -> float | None:
@@ -2479,9 +2382,6 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:battery-alert"
         self._attr_native_precision = 0
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber)
-
     @property
     def native_value(self) -> float | None:
         """Return the current on-grid SOC cutoff (reads from battery_soc_limits dict)."""
@@ -2530,9 +2430,6 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
         self._attr_icon = "mdi:battery-outline"
         self._attr_native_precision = 0
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (ACChargeSOCLimitNumber, OnGridSOCCutoffNumber, OffGridSOCCutoffNumber)
-
     @property
     def native_value(self) -> float | None:
         """Return the current off-grid SOC cutoff (reads from battery_soc_limits dict)."""
@@ -2578,9 +2475,6 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "A"
         self._attr_icon = "mdi:battery-plus"
         self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (BatteryChargeCurrentNumber, BatteryDischargeCurrentNumber)
 
     @property
     def native_value(self) -> float | None:
@@ -2628,9 +2522,6 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "A"
         self._attr_icon = "mdi:battery-minus"
         self._attr_native_precision = 0
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (BatteryChargeCurrentNumber, BatteryDischargeCurrentNumber)
 
     @property
     def native_value(self) -> float | None:
@@ -2683,9 +2574,6 @@ class SystemChargeVoltLimitNumber(EG4BaseNumberEntity):
         self._attr_native_unit_of_measurement = "V"
         self._attr_icon = "mdi:battery-charging"
         self._attr_native_precision = 1
-
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        return (SystemChargeVoltLimitNumber,)
 
     @property
     def native_value(self) -> float | None:
@@ -2877,13 +2765,6 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
         self._attr_icon = spec.icon
         self._attr_native_precision = spec.precision
 
-    def _get_related_entity_types(self) -> tuple[type, ...]:
-        # Contract-only: satisfies the base class's abstract method but is
-        # never consulted — _related_entity_predicate below narrows the
-        # refresh to spec.related_group instead (an isinstance check alone
-        # would over-refresh every voltage spec at once).
-        return (EG4VoltageNumber,)
-
     def _volts_from_spec_param(self, raw: Any) -> float:
         """Normalize a voltage parameter to volts using the spec's threshold.
 
@@ -2952,11 +2833,4 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
             register=spec.register,
             label=spec.name,
             cloud_write=cloud_write,
-        )
-
-    def _related_entity_predicate(self) -> Callable[[Any], bool]:
-        """Select voltage entities in this spec's parameter refresh group."""
-        return lambda entity: (
-            isinstance(entity, EG4VoltageNumber)
-            and entity._spec.key in self._spec.related_group
         )

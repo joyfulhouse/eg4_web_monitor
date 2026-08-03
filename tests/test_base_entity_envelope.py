@@ -170,7 +170,7 @@ async def test_switch_success_order_and_state_writes(
     refresh_params: bool,
     final_refresh: str,
 ) -> None:
-    """Switch writes seed and pre-refresh before delay and final refresh."""
+    """Switches perform one refresh appropriate to their backing state."""
     events: list[str] = []
     entity, _coordinator, inverter = _make_entity(events)
     inverter.enable_test = AsyncMock(side_effect=lambda: events.append("write") or True)
@@ -186,15 +186,23 @@ async def test_switch_success_order_and_state_writes(
         seed_param_key="FUNC_TEST",
     )
 
-    assert events == [
+    expected = [
         "optimistic-set",
         "write",
         "seed",
-        "inverter-refresh",
-        "sleep",
-        final_refresh,
-        "clear",
     ]
+    if not refresh_params:
+        expected.append("inverter-refresh")
+    expected.extend(["sleep", final_refresh, "clear"])
+    assert events == expected
+    if refresh_params:
+        inverter.refresh.assert_not_awaited()
+        _coordinator.async_refresh.assert_not_awaited()
+        _coordinator.async_refresh_device_parameters.assert_awaited_once_with(SERIAL)
+    else:
+        inverter.refresh.assert_awaited_once_with()
+        _coordinator.async_refresh.assert_awaited_once_with()
+        _coordinator.async_refresh_device_parameters.assert_not_awaited()
     _assert_state_write_counts(entity, optimistic_value=True, clear_count=1)
     entity._seed_cloud_written_parameter.assert_called_once_with("FUNC_TEST", True)
     base_entity_module.asyncio.sleep.assert_awaited_once_with(0.25)
@@ -489,7 +497,6 @@ async def test_switch_write_ok_refresh_reports_failure_retains_optimistic(
         "optimistic-set",
         "write",
         "seed",
-        "inverter-refresh",
         "sleep",
         "parameter-refresh",
     ]

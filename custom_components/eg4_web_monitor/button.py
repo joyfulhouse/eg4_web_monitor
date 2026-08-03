@@ -257,10 +257,12 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
                 # inverter.refresh(force=True, include_parameters=True) and
                 # stores the fresh parameters; link-down handling lives in
                 # pylxpweb's _fetch_parameters guard (cloud fallback in
-                # HYBRID, clean skip in LOCAL — no hang risk).  The private
-                # method is used instead of async_refresh_device_parameters()
-                # because the public wrapper triggers its own coordinator
-                # refresh (double-read) and this button does its own
+                # HYBRID, clean skip in LOCAL — no hang risk). The private
+                # method's include_runtime_data=True path is intentional: the
+                # public parameter wrapper now performs only a narrow holding-
+                # register fetch and in-place publication, while this explicit
+                # Refresh button promises fresh runtime, energy, battery, and
+                # parameter data. This button also performs its own
                 # completeness check: refresh() gathers its fetch tasks with
                 # return_exceptions=True, so read failures never raise — they
                 # surface only as parameters_complete=False.
@@ -268,7 +270,9 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
                     "Force-refreshing inverter %s including parameters",
                     self._serial,
                 )
-                await self.coordinator._refresh_device_parameters(self._serial)
+                await self.coordinator._refresh_device_parameters(
+                    self._serial, include_runtime_data=True
+                )
                 inverter = self.coordinator.get_inverter_object(self._serial)
                 incomplete = inverter is not None and not getattr(
                     inverter, "parameters_complete", True

@@ -11,8 +11,8 @@ bounded by ``RETAINED_OPTIMISTIC_TTL`` so a firmware-silently-NAKed write
 - ``select.py`` — all four selects cleared their optimistic state BEFORE (or
   regardless of) the post-write refresh and discarded its result.
 - ``number.py`` — ``optimistic_value_context`` cleared in a ``finally``, so a
-  failed refresh reverted the UI the same way; ``refresh_all_device_parameters``
-  swallowed failures and reported nothing at all.
+  failed refresh reverted the UI the same way; the post-write parameter
+  refresh outcome must drive its bounded retention envelope.
 - ``time.py`` — retention existed since PR #283 but was UNBOUNDED, so a silent
   NAK plus one failed refresh showed a wrong value indefinitely.
 
@@ -437,7 +437,7 @@ class TestNumberRetainsAcknowledgedWrite:
     async def test_retains_on_failed_refresh(self):
         """Write ack'd + refresh failed → the written value stays published."""
         coordinator = _coordinator(
-            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_all_ok=False
+            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_device_ok=False
         )
         entity = self._entity(coordinator)
         assert entity.native_value == 80
@@ -451,7 +451,7 @@ class TestNumberRetainsAcknowledgedWrite:
     async def test_clears_on_successful_refresh(self):
         """A completed refresh settles on coordinator data as before."""
         coordinator = _coordinator(
-            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_all_ok=True
+            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_device_ok=True
         )
         entity = self._entity(coordinator)
 
@@ -482,7 +482,7 @@ class TestNumberRetainsAcknowledgedWrite:
     async def test_retention_expires_after_ttl(self, caplog):
         """Number retention is bounded, exactly like the switch's."""
         coordinator = _coordinator(
-            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_all_ok=False
+            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_device_ok=False
         )
         entity = self._entity(coordinator)
         await entity.async_set_native_value(95)
@@ -499,7 +499,7 @@ class TestNumberRetainsAcknowledgedWrite:
     async def test_retention_clears_when_device_confirms(self):
         """Fresh data carrying the written value ends retention."""
         coordinator = _coordinator(
-            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_all_ok=False
+            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": 80}, refresh_device_ok=False
         )
         entity = self._entity(coordinator)
         await entity.async_set_native_value(95)
@@ -612,7 +612,7 @@ class TestRefreshAllDeviceParametersReportsOutcome:
         config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, config_entry)
         coordinator.data = {"devices": {SERIAL: {"type": "inverter"}}}
-        coordinator._refresh_device_parameters = AsyncMock()
+        coordinator._refresh_device_parameters = AsyncMock(return_value=True)
         coordinator.async_request_refresh = AsyncMock()
 
         assert await coordinator.refresh_all_device_parameters() is True
@@ -632,11 +632,29 @@ class TestRefreshAllDeviceParametersReportsOutcome:
             }
         }
         coordinator._refresh_device_parameters = AsyncMock(
-            side_effect=[None, RuntimeError("range timeout")]
+            side_effect=[True, RuntimeError("range timeout")]
         )
         coordinator.async_request_refresh = AsyncMock()
 
         assert await coordinator.refresh_all_device_parameters() is False
+
+    @pytest.mark.asyncio
+    async def test_reports_failure_when_a_device_updates_no_cache(
+        self, hass, config_entry
+    ):
+        """A silent no-op cannot be counted as a completed group refresh."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, config_entry)
+        coordinator.data = {"devices": {SERIAL: {"type": "inverter"}}}
+        coordinator._refresh_device_parameters = AsyncMock(return_value=False)
+        coordinator.async_update_listeners = MagicMock()
+
+        assert await coordinator.refresh_all_device_parameters() is False
+        coordinator.async_update_listeners.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reports_failure_when_no_devices_are_known(self, hass, config_entry):

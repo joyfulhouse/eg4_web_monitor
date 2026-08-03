@@ -71,7 +71,9 @@ class TestEG4RefreshButton:
 
         # The inverter path delegates to the coordinator's force refresh
         # (which includes holding-register parameters).
-        coordinator._refresh_device_parameters.assert_awaited_once_with("1234567890")
+        coordinator._refresh_device_parameters.assert_awaited_once_with(
+            "1234567890", include_runtime_data=True
+        )
         coordinator.async_request_refresh.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -121,7 +123,7 @@ class TestEG4RefreshButton:
         guard (pylxpweb#206, in the b24 floor pinned by manifest.json):
         it skips the local Modbus read (no hang risk) and falls back to
         cloud named-parameter reads in HYBRID.  A coordinator-side gate
-        would block exactly that fallback, so refresh() must still be
+        would block exactly that fallback, so the full refresh must still be
         awaited with force + parameters even when the link is down.
         """
         coordinator = MagicMock()
