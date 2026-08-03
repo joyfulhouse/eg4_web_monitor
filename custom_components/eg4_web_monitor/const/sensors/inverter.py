@@ -142,6 +142,29 @@ SENSOR_TYPES = {
         "state_class": "measurement",
         "icon": "mdi:power-plug",
     },
+    # Phase-neutral EPS apparent power from input register 25.  This entity is
+    # fail-closed to positively known non-three-phase context; I25 is R-phase
+    # on three-phase hardware (which uses eps_apparent_power_r below).
+    "eps_apparent_power": {
+        "name": "EPS Apparent Power",
+        "unit": "VA",
+        "device_class": "apparent_power",
+        "state_class": "measurement",
+        "icon": "mdi:power-plug-outline",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "eps_apparent_power",
+    },
+    "eps_apparent_power_r": {
+        "name": "EPS Apparent Power R",
+        "unit": "VA",
+        "device_class": "apparent_power",
+        "state_class": "measurement",
+        "icon": "mdi:power-plug-outline",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "eps_apparent_power_r",
+    },
     "eps_power_l1": {
         "name": "EPS Power L1",
         "unit": UnitOfPower.WATT,
@@ -1788,6 +1811,56 @@ SENSOR_TYPES = {
         "name": "Has Runtime Data",
         "icon": "mdi:database-check",
         "entity_category": "diagnostic",
+    },
+    # Read-only LOCAL/HYBRID operational diagnostics.  These are intentionally
+    # opt-in: useful for commissioning and topology debugging, but noisy on a
+    # normal energy dashboard.  No matching writable controls are provided.
+    "inverter_running_time": {
+        "name": "Inverter Running Time",
+        "unit": UnitOfTime.SECONDS,
+        "device_class": "duration",
+        # Register docs establish seconds, but no capture establishes reset or
+        # lifetime-counter behavior. Avoid total_increasing statistics until
+        # uptime continuity across reboot/replacement is observed.
+        "state_class": "measurement",
+        "icon": "mdi:timer-outline",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "inverter_running_time",
+    },
+    "ac_input_type": {
+        "name": "AC Input Type",
+        "device_class": "enum",
+        "options": ["grid", "generator"],
+        "icon": "mdi:power-source",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "ac_input_type",
+    },
+    "parallel_role": {
+        "name": "Parallel Role",
+        "device_class": "enum",
+        "options": ["standalone", "master", "slave", "three_phase_master"],
+        "icon": "mdi:vector-link",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "parallel_role",
+    },
+    "parallel_phase": {
+        "name": "Parallel Phase",
+        "device_class": "enum",
+        "options": ["r", "s", "t"],
+        "icon": "mdi:chart-timeline-variant",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "parallel_phase",
+    },
+    "parallel_unit_number": {
+        "name": "Parallel Unit Number",
+        "icon": "mdi:counter",
+        "entity_category": "diagnostic",
+        "enabled_default": False,
+        "translation_key": "parallel_unit_number",
     },
     # New runtime sensors
     "pv_total_power": {

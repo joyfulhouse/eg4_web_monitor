@@ -486,6 +486,42 @@
       "bt_temperature": {
         "name": "BT 온도"
       },
+      "eps_apparent_power": {
+        "name": "EPS Apparent Power"
+      },
+      "eps_apparent_power_r": {
+        "name": "EPS Apparent Power R"
+      },
+      "inverter_running_time": {
+        "name": "Inverter Running Time"
+      },
+      "ac_input_type": {
+        "name": "AC Input Type",
+        "state": {
+          "grid": "Grid",
+          "generator": "Generator"
+        }
+      },
+      "parallel_role": {
+        "name": "Parallel Role",
+        "state": {
+          "standalone": "Standalone",
+          "master": "Master",
+          "slave": "Slave",
+          "three_phase_master": "Three-Phase Master"
+        }
+      },
+      "parallel_phase": {
+        "name": "Parallel Phase",
+        "state": {
+          "r": "R",
+          "s": "S",
+          "t": "T"
+        }
+      },
+      "parallel_unit_number": {
+        "name": "Parallel Unit Number"
+      },
       "operating_state": {
         "name": "작동 상태",
         "state": {

@@ -63,6 +63,7 @@ from .coordinator_mappings import (
     _features_from_family,
     _get_transport_label,
     _parse_inverter_family,
+    _supports_three_phase_context,
     alias_common_voltage_sensors,
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
@@ -732,12 +733,19 @@ class LocalTransportMixin(_MixinBase):
             from pylxpweb.transports.exceptions import TransportReadError
 
             raise TransportReadError(f"No transport runtime data for {serial}")
+        features = self._extract_inverter_features(inverter)
+        grid_type_override = self._get_device_grid_type(serial)
+        if features and grid_type_override:
+            _apply_grid_type_override(features, grid_type_override)
         device_data: dict[str, Any] = {
             "type": "inverter",
             "model": model,
             "serial": serial,
             "firmware_version": firmware_version,
-            "sensors": _build_runtime_sensor_mapping(runtime),
+            "sensors": _build_runtime_sensor_mapping(
+                runtime,
+                supports_three_phase=_supports_three_phase_context(features),
+            ),
             "batteries": {},
         }
 
@@ -777,7 +785,7 @@ class LocalTransportMixin(_MixinBase):
         device_data["sensors"]["last_polled"] = dt_util.utcnow()
 
         # Extract features for capability-based sensor filtering
-        if features := self._extract_inverter_features(inverter):
+        if features:
             device_data["features"] = features
             _LOGGER.debug(
                 "%s: Features for %s: %s",
@@ -1348,7 +1356,10 @@ class LocalTransportMixin(_MixinBase):
                     "model": model,
                     "serial": serial,
                     "firmware_version": firmware_version,
-                    "sensors": _build_runtime_sensor_mapping(runtime_data),
+                    "sensors": _build_runtime_sensor_mapping(
+                        runtime_data,
+                        supports_three_phase=_supports_three_phase_context(features),
+                    ),
                     "batteries": {},
                     "features": features,
                     "parallel_number": parallel_number,

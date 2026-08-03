@@ -33,7 +33,10 @@ from .const import (
     VOLT_WATT_SENSORS,
 )
 from .coordinator import EG4DataUpdateCoordinator
-from .coordinator_mappings import GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+from .coordinator_mappings import (
+    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
+    _supports_three_phase_context,
+)
 from .utils import is_supported_control_model
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +52,12 @@ _PV_STRING_SENSOR = re.compile(
 # Default PV string count when the inverter model did not report one
 # (conservative residential norm — keeps the canonical pv1-3 set).
 _DEFAULT_PV_STRING_COUNT = 3
+
+# I25 changes meaning with phase topology: phase-neutral for known
+# non-three-phase systems, R-phase for known three-phase systems. Unlike the
+# older broad phase sets, ambiguity must fail closed rather than create both
+# contradictory entities.
+_I25_PHASE_CONTEXT_KEYS = frozenset({"eps_apparent_power", "eps_apparent_power_r"})
 
 
 def _should_create_sensor(
@@ -71,6 +80,12 @@ def _should_create_sensor(
     Returns:
         True if the sensor should be created, False if it should be skipped
     """
+    if (
+        sensor_key in _I25_PHASE_CONTEXT_KEYS
+        and _supports_three_phase_context(features) is None
+    ):
+        return False
+
     # EG4_OFFGRID-only sensors are FAIL-CLOSED for inverters: registers
     # confirmed working on 12000XP/6000XP only (issue #197).  Without a
     # positively detected/derived EG4_OFFGRID family these must not exist —

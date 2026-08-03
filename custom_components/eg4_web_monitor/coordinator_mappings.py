@@ -24,6 +24,7 @@ from .const import (
     INVERTER_FAMILY_DEFAULT_MODELS,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_LXP,
+    INVERTER_FAMILY_UNKNOWN,
     LEGACY_FAMILY_MAP,
     MODEL_NAME_FAMILY_FALLBACK,
     operating_state_slug,
@@ -427,6 +428,10 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "eps_voltage_l2",
         "eps_frequency",
         "eps_power",
+        # I25 is phase-scoped below: phase-neutral on known non-three-phase
+        # systems, explicitly R-phase on known three-phase systems.
+        "eps_apparent_power",
+        "eps_apparent_power_r",
         "output_power",
         "generator_voltage",
         "generator_frequency",
@@ -438,6 +443,14 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "radiator2_temperature",
         "bt_temperature",
         "status_code",
+        # Read-only operational/parallel diagnostics from canonical input
+        # registers 69-70, 77, and 113.  Values are decoded below rather than
+        # exposing opaque bitfields to Home Assistant.
+        "inverter_running_time",
+        "ac_input_type",
+        "parallel_role",
+        "parallel_phase",
+        "parallel_unit_number",
         # Friendly decode of status_code (issue #262); same value all modes.
         "operating_state",
         # Inverter fault/warning codes (regs 60-61 / 62-63, 32-bit bitfields;
@@ -479,6 +492,75 @@ INVERTER_RUNTIME_KEYS: frozenset[str] = frozenset(
         "generator_voltage_l2",
     }
 )
+
+_PARALLEL_ROLE_LABELS: dict[int, str] = {
+    0: "standalone",
+    1: "master",
+    2: "slave",
+    3: "three_phase_master",
+}
+_PARALLEL_PHASE_LABELS: dict[int, str] = {0: "r", 1: "s", 2: "t"}
+
+
+def _build_readonly_runtime_diagnostic_mapping(
+    runtime_data: "InverterRuntimeData",
+    *,
+    supports_three_phase: bool | None = None,
+) -> dict[str, Any]:
+    """Decode harmless operational diagnostics from canonical input data.
+
+    Input register 25 is only phase-neutral outside three-phase context. The
+    pinned comparison map identifies it as R-phase on three-phase hardware;
+    unresolved phase context therefore exposes neither label.
+
+    Register 77 is a bitfield, so only its proven bit-0 AC source is exposed.
+    Register 113's phase and unit number are meaningless on a standalone
+    inverter and deliberately remain unknown in that state.
+    """
+    ac_input_raw = runtime_data.ac_input_type
+    role = runtime_data.parallel_master_slave
+    is_parallel = role is not None and role != 0
+    mapping: dict[str, Any] = {
+        # I69-70 is an unsigned 32-bit count in seconds.  Keep the canonical
+        # unit; an old InverterRuntimeData comment incorrectly says hours.
+        "inverter_running_time": runtime_data.inverter_on_time,
+        "ac_input_type": (
+            None
+            if ac_input_raw is None
+            else "generator"
+            if ac_input_raw & 0x01
+            else "grid"
+        ),
+        "parallel_role": _PARALLEL_ROLE_LABELS.get(role) if role is not None else None,
+        "parallel_phase": (
+            _PARALLEL_PHASE_LABELS.get(runtime_data.parallel_phase)
+            if is_parallel and runtime_data.parallel_phase is not None
+            else None
+        ),
+        "parallel_unit_number": runtime_data.parallel_number if is_parallel else None,
+    }
+    if supports_three_phase is True:
+        mapping["eps_apparent_power_r"] = runtime_data.eps_apparent_power
+    elif supports_three_phase is False:
+        mapping["eps_apparent_power"] = runtime_data.eps_apparent_power
+    return mapping
+
+
+def _supports_three_phase_context(features: dict[str, Any] | None) -> bool | None:
+    """Return a positively resolved phase context for I25 naming."""
+    if not features:
+        return None
+    if features.get("inverter_family") == INVERTER_FAMILY_UNKNOWN and features.get(
+        "grid_type"
+    ) not in {
+        GRID_TYPE_SINGLE_PHASE,
+        GRID_TYPE_SPLIT_PHASE,
+        GRID_TYPE_THREE_PHASE,
+    }:
+        return None
+    supports_three_phase = features.get("supports_three_phase")
+    return supports_three_phase if isinstance(supports_three_phase, bool) else None
+
 
 INVERTER_ENERGY_KEYS: frozenset[str] = frozenset(
     {
@@ -815,6 +897,8 @@ PARALLEL_GROUP_GRIDBOSS_KEYS: frozenset[str] = frozenset(
 
 def _build_runtime_sensor_mapping(
     runtime_data: "InverterRuntimeData",
+    *,
+    supports_three_phase: bool | None = None,
 ) -> dict[str, Any]:
     """Build sensor mapping from runtime data object.
 
@@ -823,6 +907,8 @@ def _build_runtime_sensor_mapping(
 
     Args:
         runtime_data: RuntimeData object from pylxpweb transport.
+        supports_three_phase: Positively resolved phase context. ``None``
+            suppresses ambiguous I25 naming.
 
     Returns:
         Dictionary mapping sensor keys to values.
@@ -963,6 +1049,12 @@ def _build_runtime_sensor_mapping(
         "max_charge_current": runtime_data.bms_charge_current_limit,
         "max_discharge_current": runtime_data.bms_discharge_current_limit,
     }
+    mapping.update(
+        _build_readonly_runtime_diagnostic_mapping(
+            runtime_data,
+            supports_three_phase=supports_three_phase,
+        )
+    )
     # NOTE (#335): eps_load_power (the EPS-loads subset of the backup output)
     # is deliberately NOT mapped here.  Regs 129/130 are the COMBINED
     # backup-path legs (already on eps_power_l1/l2 above) — with a GEN-port
@@ -1788,12 +1880,15 @@ def _apply_grid_type_override(features: dict[str, Any], grid_type: str) -> None:
             or GRID_TYPE_THREE_PHASE.
     """
     if grid_type == GRID_TYPE_SPLIT_PHASE:
+        features["grid_type"] = grid_type
         features["supports_split_phase"] = True
         features["supports_three_phase"] = False
     elif grid_type == GRID_TYPE_SINGLE_PHASE:
+        features["grid_type"] = grid_type
         features["supports_split_phase"] = False
         features["supports_three_phase"] = False
     elif grid_type == GRID_TYPE_THREE_PHASE:
+        features["grid_type"] = grid_type
         features["supports_split_phase"] = False
         features["supports_three_phase"] = True
 
