@@ -601,26 +601,25 @@ class TestScheduleRegisterMapping:
         assert entity._cloud_time_param == f"HOLD_PEAK_SHAVING_{boundary}_TIME_{window}"
 
     def test_unique_ids(self):
-        """AC charge unique_ids stay exactly as shipped in #277 (zero churn);
-        new schedules follow the same pattern."""
+        """Schedule identities use immutable serial + purpose, never model."""
         coordinator = _mock_coordinator()
         assert (
             _entity(coordinator, window=1)._attr_unique_id
-            == "flexboss21_1234567890_ac_charge_start_time_1"
+            == "1234567890_ac_charge_start_time_1"
         )
         assert (
             _entity(coordinator, window=3, is_end=True)._attr_unique_id
-            == "flexboss21_1234567890_ac_charge_end_time_3"
+            == "1234567890_ac_charge_end_time_3"
         )
         assert (
             _entity(coordinator, schedule="ac_first", window=2)._attr_unique_id
-            == "flexboss21_1234567890_ac_first_start_time_2"
+            == "1234567890_ac_first_start_time_2"
         )
         assert (
             _entity(
                 coordinator, schedule="forced_discharge", window=1, is_end=True
             )._attr_unique_id
-            == "flexboss21_1234567890_forced_discharge_end_time_1"
+            == "1234567890_forced_discharge_end_time_1"
         )
 
     @pytest.mark.parametrize("schedule", SCHEDULE_KEYS)
