@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from collections.abc import Awaitable, Callable, Collection
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
+import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
@@ -102,6 +103,7 @@ from .cloud_requests import (
     install_cloud_request_limiter,
     release_shared_cloud_request_budget,
 )
+from .cloud_session import async_close_client_session
 from .coordinator_mappings import (
     _derive_model_from_family,
     _parse_inverter_family,
@@ -276,17 +278,33 @@ class EG4DataUpdateCoordinator(
         self._cloud_request_limiter: CloudRequestLimiter | None = None
         self._cloud_request_budget: SharedCloudRequestBudget | None = None
         self._cloud_request_budget_released = True
+        self._cloud_session: aiohttp.ClientSession | None = None
         cloud_base_url = entry.data.get(CONF_BASE_URL, DEFAULT_BASE_URL)
-        cloud_verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
         if self.connection_type in (CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID):
-            self.client = LuxpowerClient(
-                username=entry.data[CONF_USERNAME],
-                password=entry.data[CONF_PASSWORD],
-                base_url=cloud_base_url,
-                verify_ssl=cloud_verify_ssl,
-                session=aiohttp_client.async_get_clientsession(hass),
-                iana_timezone=iana_timezone,
+            cloud_session = aiohttp_client.async_create_clientsession(
+                hass,
+                verify_ssl=verify_ssl,
+                auto_cleanup=True,
             )
+            self._cloud_session = cloud_session
+            try:
+                self.client = LuxpowerClient(
+                    username=entry.data[CONF_USERNAME],
+                    password=entry.data[CONF_PASSWORD],
+                    base_url=cloud_base_url,
+                    verify_ssl=verify_ssl,
+                    session=cloud_session,
+                    iana_timezone=iana_timezone,
+                )
+            except BaseException:
+                # pylxpweb does not own injected sessions. If its synchronous
+                # constructor fails, no client exists to participate in later
+                # cleanup, so release this wrapper without closing HA's shared
+                # connector.
+                cloud_session.detach()
+                self._cloud_session = None
+                raise
 
         # Modbus input-register read block size (#254): preset option mapped
         # to pylxpweb's max registers per coalesced read. Conservative (40)
@@ -946,6 +964,26 @@ class EG4DataUpdateCoordinator(
                 "No local transport or cloud API available for parameter write."
             )
         return client
+
+    async def _async_close_cloud_session(self) -> None:
+        """Stop dependency-owned work, then detach the injected session."""
+        cloud_session = self._cloud_session
+        self._cloud_session = None
+        await async_close_client_session(self.client, cloud_session)
+
+    async def _async_handle_shutdown(self, event: Any) -> None:
+        """Release the cloud wrapper when Home Assistant stops without unload."""
+        try:
+            await super()._async_handle_shutdown(event)
+        finally:
+            await self._async_close_cloud_session()
+
+    async def async_shutdown(self) -> None:
+        """Shut down the coordinator and release its cookie-bearing session."""
+        try:
+            await super().async_shutdown()
+        finally:
+            await self._async_close_cloud_session()
 
     async def refresh_inverter_params_if_linked(self, serial: str) -> None:
         """Refresh a device's parameters after a cloud write, unless link is down.

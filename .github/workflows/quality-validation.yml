@@ -742,15 +742,15 @@ jobs:
         run: |
           echo "Checking websession injection support..."
 
-          # Check coordinator uses aiohttp session injection via async_get_clientsession
-          if ! grep -q "async_get_clientsession" custom_components/eg4_web_monitor/coordinator.py; then
+          # Cookie auth requires an isolated HA session per client/account.
+          if ! grep -q "async_create_clientsession" custom_components/eg4_web_monitor/coordinator.py; then
             echo "❌ Coordinator does not inject session"
             exit 1
           fi
           echo "✅ Coordinator injects Home Assistant session"
 
           # Check config flow uses session injection
-          if ! grep -q "async_get_clientsession" custom_components/eg4_web_monitor/_config_flow/__init__.py; then
+          if ! grep -q "async_create_clientsession" custom_components/eg4_web_monitor/_config_flow/__init__.py; then
             echo "❌ Config flow does not inject session"
             exit 1
           fi
@@ -764,7 +764,7 @@ jobs:
           echo "✅ LuxpowerClient API client is used"
 
           # Check that session is passed to LuxpowerClient
-          if ! grep -q "session=aiohttp_client" custom_components/eg4_web_monitor/coordinator.py; then
+          if ! grep -q "session=cloud_session" custom_components/eg4_web_monitor/coordinator.py; then
             echo "❌ Session not passed to LuxpowerClient"
             exit 1
           fi

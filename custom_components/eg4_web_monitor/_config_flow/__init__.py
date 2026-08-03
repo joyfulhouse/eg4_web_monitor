@@ -67,6 +67,7 @@ from .schemas import (
     build_serial_schema,
 )
 from .serial_ports import build_port_selector_options, list_serial_ports
+from ..cloud_session import async_close_client_session
 from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
@@ -1392,17 +1393,30 @@ class EG4ConfigFlow(
 
     async def _test_cloud_credentials(self) -> None:
         """Test cloud credentials and load stations list."""
-        session = aiohttp_client.async_get_clientsession(self.hass)
         assert self._username is not None
         assert self._password is not None
-
-        async with LuxpowerClient(
-            username=self._username,
-            password=self._password,
-            base_url=self._base_url,
+        # Cookie-authenticated clients cannot use HA's process-wide default
+        # session: another account on the same origin would overwrite its
+        # domain cookie. The dedicated session still reuses HA's connector,
+        # resolver, SSL context, and user-agent. Config flows are not config
+        # entry setup, so explicitly detach instead of retaining the wrapper
+        # until Home Assistant stops.
+        session = aiohttp_client.async_create_clientsession(
+            self.hass,
             verify_ssl=self._verify_ssl,
-            session=session,
-        ) as client:
+            auto_cleanup=False,
+        )
+        client: LuxpowerClient | None = None
+        try:
+            client = LuxpowerClient(
+                username=self._username,
+                password=self._password,
+                base_url=self._base_url,
+                verify_ssl=self._verify_ssl,
+                session=session,
+            )
+            await client.login()
+
             from pylxpweb.devices import Station
 
             stations = await Station.load_all(client)
@@ -1415,6 +1429,11 @@ class EG4ConfigFlow(
             ]
             if not self._plants:
                 raise LuxpowerAPIError("No plants found for this account")
+        finally:
+            # Bind the client before login: cancellation during its shielded
+            # authentication must still drain client-owned work before this
+            # account-private cookie jar is detached.
+            await async_close_client_session(client, session)
 
     def _build_entry_data(self) -> dict[str, Any]:
         """Build config entry data from current flow state."""
