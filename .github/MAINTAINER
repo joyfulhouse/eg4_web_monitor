@@ -1,0 +1,5 @@
+# Maintainer allowlist read by the external polly-review trust gate.
+# One GitHub login per line; lines starting with '#' are comments.
+# A PR review approval from a login listed here triggers an off-CI
+# polly review on the owner's local infrastructure.
+btli
