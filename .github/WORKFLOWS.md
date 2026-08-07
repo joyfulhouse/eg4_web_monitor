@@ -4,7 +4,7 @@ This repository uses streamlined GitHub Actions workflows for quality validation
 
 ## Active Workflows
 
-### 1. Quality Validation (`quality-validation.yml`)
+### Quality Validation (`quality-validation.yml`)
 
 **Purpose:** Comprehensive quality tier validation with proper dependency chain
 
@@ -51,6 +51,13 @@ Gold Tier (5 jobs)
 - User documentation quality
 - Comprehensive test coverage with pytest
 - Manifest completeness
+
+### Other Active Workflows
+
+- `home-assistant-validation.yml` — Hassfest and HACS validation (PRs, daily schedule)
+- `issue-log-validation.yml` — enforces the bug-report debug-log requirement (auto-close/reopen)
+- `issue-triage.yml` — automated triage of newly opened issues
+- `release.yml` — attaches the integration zip to published releases
 
 ## Polly Review (external)
 
