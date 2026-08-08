@@ -212,6 +212,43 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 | 190 | `inverter_rms_current_s` | ÷100 | A | `inverter_rms_current_s` | `grid_current_l2` |
 | 191 | `inverter_rms_current_t` | ÷100 | A | `inverter_rms_current_t` | `grid_current_l3` |
 
+### Generator Registers (121-126, 195/196) — family-dependent
+
+| Reg | Canonical Name | Scale | Unit | pylxpweb Field | HA Sensor Key |
+|-----|----------------|-------|------|----------------|---------------|
+| 121 | `generator_voltage` | ÷10 | V | `generator_voltage` | `generator_voltage` |
+| 122 | `generator_frequency` | ÷100 | Hz | `generator_frequency` | `generator_frequency` |
+| 123 | `generator_power` | 1 | W | `generator_power` | `generator_power` (**EG4_HYBRID only — see below**) |
+| 124 | `generator_energy_today` | ÷10 | kWh | `generator_energy_today` | `generator_energy` (**not energy on EG4_OFFGRID**) |
+| 125/126 | `generator_energy_total` | ÷10 | kWh | `generator_energy_total` | `generator_energy_lifetime` (**not energy on EG4_OFFGRID**) |
+| 195 | `generator_l1_voltage` | ÷10 | V | `generator_l1_voltage` | `generator_voltage_l1` (cloud `genVoltL1`) |
+| 196 | `generator_l2_voltage` | ÷10 | V | `generator_l2_voltage` | `generator_voltage_l2` (cloud `genVoltL2`) |
+
+> **Note:** regs 195/196 carry `ha_sensor_key=None` on their pylxpweb `RegisterDefinition`, but the
+> sensors still exist — the coordinator maps them explicitly from the pylxpweb properties
+> (`coordinator_mappings.py`), so the register's own `ha_sensor_key` is not the whole story for
+> this pair.
+
+> **⚠️ EG4_OFFGRID: register 123 is NOT generator power.** Proven from the 12000XP firmware
+> (`ceaa-0709`, issue [#544](https://github.com/joyfulhouse/eg4_web_monitor/issues/544)): the FC04
+> handler at `0x0801E9CA` returns `RAM16[0x2000D70A]`, an **ARM-local 16-bit counter incremented
+> once per second** at `0x08018BDA` with no bound check, so it wraps at 65536. It is never written
+> from DSP data. Registers 124/125/126 are likewise ARM-local status words
+> (`0x2000DB49`/`0x2000DB51` and the two halves of `RAM32[0x2000D890]`), not accumulators — the
+> "135,494.5 kWh" lifetime figure is the bitfield `0x0014ACC1`.
+>
+> The generator legs themselves **are** instrumented on off-grid: 121, 122, 195 and 196 all read
+> the DSP receive-frame block (`0x2000CE5C` base) and correctly report 0 with no generator
+> attached. There is **no** dedicated generator-power register in the off-grid dispatcher (188/189
+> are unimplemented); input 17 + input 27 are the untested candidates for a real substitute.
+>
+> On **EG4_HYBRID** register 123 is genuine — `low16(int16[0x2000EAE4] − int16[0x2000EAE6])`, both
+> DSP-fed — and on a GridBOSS parallel system the two inverters' values sum to the GridBOSS
+> AC-Couple-1 total within 0.13%. **Any suppression must be family-gated.**
+>
+> Full derivation with firmware addresses:
+> [`reference/firmware/OFFGRID_GENERATOR_REGISTERS.md`](reference/firmware/OFFGRID_GENERATOR_REGISTERS.md).
+
 ### Bus Voltage Registers
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |

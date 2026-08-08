@@ -4,6 +4,29 @@
 **Firmware version**: fAAB-2727 (FAAB-27xx_20260330)
 **Devices**: EG4 18kPV (4512670118), EG4 FlexBOSS21 (52842P0581)
 
+> ## ⚠️ Corrections (2026-08-08)
+>
+> This document predates the discovery of the OTA transport framing, and parts of it were derived
+> from mis-aligned images. The dual-processor architecture and the string/brand analysis hold; the
+> following specifics do **not**:
+>
+> 1. **"No standard ARM vector table at the start" is wrong.** It was an artifact of framing. After
+>    correct de-framing the App image begins with a textbook Cortex-M vector table: SP
+>    `0x20000598`, Reset `0x0802b24d`, NMI `0x080132f1`, HardFault `0x080132f3`. The
+>    per-region "Memory Map" offsets below are likewise shifted and should not be relied on.
+> 2. **§4 "Register Map Shared Between Processors" is unsupported.** Para offset `0x404-0x2936` is
+>    *not* a flat register-definition table — it is compiled C28x code, as
+>    [`re/00_SUMMARY.md`](re/00_SUMMARY.md) §3 states. This document contradicted itself; §3 is the
+>    correct reading. Nothing in this range should be cited as a register map.
+> 3. **The Para images are not 87% different.** They are **96.9% similar** (edit distance 17,828
+>    bytes); a positional byte diff is fooled by code relocation between builds.
+> 4. **Everything under [`re/`](re/) is invalid** and must not be cited — see the banner in
+>    [`re/00_SUMMARY.md`](re/00_SUMMARY.md).
+>
+> For the current, validated method — including how to download firmware for any family directly
+> from the portal — see [`FIRMWARE_ACQUISITION.md`](FIRMWARE_ACQUISITION.md). For a worked analysis
+> built on it, see [`OFFGRID_GENERATOR_REGISTERS.md`](OFFGRID_GENERATOR_REGISTERS.md).
+
 ## Architecture: Dual-Processor System
 
 The EG4 inverter firmware reveals a **dual-processor architecture**:
