@@ -64,15 +64,20 @@ Gold Tier (5 jobs)
 AI code review is no longer part of CI. Instead, an off-CI "polly review" runs on
 the repository owner's local infrastructure:
 
-1. A `pull_request_review` webhook fires when a PR is approved.
-2. A trust gate checks the approver against the maintainer allowlist in
-   [`.github/MAINTAINER`](MAINTAINER) — only maintainer approvals proceed.
+1. A `pull_request_review` webhook fires on every submitted review (approval,
+   changes-requested, or comment).
+2. A trust gate acts only on **approving** reviews from a login in the
+   maintainer allowlist, [`.github/MAINTAINER`](MAINTAINER). The gate always
+   reads that file from the base repository's **default branch** — never from
+   the PR head — so a PR that modifies the allowlist cannot self-authorize.
 3. The owner's local infrastructure runs an Omnigent polly review of the PR.
 4. The result is posted as an advisory PR comment marked
    `<!-- polly-review-bot sha=<head_sha> -->`.
 
 The polly review is advisory only: it is not a required check and never blocks
-merge. To retrigger a review (e.g. after pushing new commits), re-approve the PR.
+merge. A review covers the PR head commit at approval time — the `sha` in the
+comment marker; an approval of an older revision does not cover commits pushed
+afterwards. To have new commits reviewed, re-approve the PR after the push.
 
 ## Workflow Design Principles
 
@@ -89,12 +94,12 @@ merge. To retrigger a review (e.g. after pushing new commits), re-approve the PR
 - `silver-tier-validation.yml` → Consolidated into `quality-validation.yml`
 - `gold-tier-validation.yml` → Consolidated into `quality-validation.yml`
 - `claude-issue-assistant.yml` → Removed (was superseded by `claude.yml`, itself since removed)
-- `claude-code-review.yml.disabled` → Removed; in-CI AI review replaced by the external polly review
+- `claude-code-review.yml.disabled` → Removed in 8e6621f (workflow consolidation); in-CI AI review has since been replaced by the external polly review
 - `code-review.yml` → Removed (automatic on-open Claude review, deleted in 72a854f)
-- `claude.yml` → Removed (the `@claude` mention responder; maintainer decision to drop it)
+- `claude.yml` → Removed (the `@claude` mention responder; maintainer decision to drop it). With it gone, no workflow uses the `CLAUDE_CODE_OAUTH_TOKEN` repository secret — it can be removed or rotated.
 
 **Benefits of consolidation:**
-- 535 fewer lines of YAML (1,272 → 737 lines)
+- Substantially less YAML than the per-tier workflow files it replaced
 - Single source of truth for quality validation
 - Clear dependency chain prevents partial validation
 - Better CI/CD resource utilization
