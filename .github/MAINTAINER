@@ -1,0 +1,14 @@
+# Maintainer allowlist read by the external polly-review trust gate.
+# The gate ALWAYS reads this file from the base repository's default
+# branch — never from the PR head — so a PR that modifies this file
+# cannot self-authorize.
+#
+# Parsing semantics (must match the gate implementation):
+#   - one GitHub login per line
+#   - blank lines are ignored
+#   - lines starting with '#' are comments and are ignored
+#   - logins are matched case-insensitively
+#
+# A PR review approval from a login listed here triggers an off-CI
+# polly review on the owner's local infrastructure.
+btli
