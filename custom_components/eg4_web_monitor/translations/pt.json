@@ -1101,6 +1101,10 @@
       "title": "Horários de Forced Charge removidos de {model} {serial}",
       "description": "As definições de horário de **Forced Charge** (horas de início/fim, janelas 1-3) foram removidas de **{serial}** ({model}).\n\nA nuvem da EG4 rejeita a escrita destes parâmetros na família off-grid (REMOTE_SET_ERROR num 12000XP v2), e o próprio portal da EG4 não expõe nenhum horário de Forced Charge para estes equipamentos. Os horários **AC Charge** e **AC First** não são afetados.\n\nSe alguma automação ou painel referenciava estas entidades, remova essas referências. Se acredita que o seu dispositivo realmente suporta este horário, reporte nos issues do GitHub da integração."
     },
+    "offgrid_generator_sensors_removed": {
+      "title": "Sensores do gerador removidos em {model} {serial}",
+      "description": "Os sensores **Potência do gerador**, **Energia do gerador** e **Energia total do gerador** foram removidos de **{serial}** ({model}).\n\nA análise do firmware deste inversor mostrou que os registos correspondentes não são medições na família off-grid: o registo 123 devolve um contador interno que incrementa uma vez por segundo e transborda em 65536 (daí indicar dezenas de milhares de watts sem nada ligado à porta GEN), e os registos 124-126 são campos de bits de estado, não totais de energia.\n\n**Tensão do gerador**, **Tensão do gerador L1/L2** e **Frequência do gerador** são medições reais e foram mantidas.\n\nAtualize automações ou painéis que usavam as entidades removidas. Se o seu gerador estiver a funcionar e puder recolher leituras, adicione-as à issue #544."
+    },
     "dongle_validation_disabled": {
       "title": "Validação de dados recomendada para WiFi dongle",
       "description": "Um WiFi dongle está configurado, mas a **Validação de dados** está desativada. WiFi dongles compartilham um barramento Modbus, e leituras simultâneas podem causar dados de registro corrompidos (ex.: picos de energia).\n\nPara corrigir, vá em **Configurações > Dispositivos e serviços > EG4 Web Monitor > Configurar** e ative a **Validação de dados**."
