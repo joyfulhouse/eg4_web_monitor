@@ -91,7 +91,7 @@ Form emptiness alone is not enough — phone logcat or screenshots pass the form
 |-------|------|-------|
 | In-repo PR template | **None** under `.github/` | verified-against-code — absent |
 | Contribution guide | Org `CONTRIBUTING.md`: https://github.com/joyfulhouse/.github/blob/main/CONTRIBUTING.md | verified-against-code — `docs/DEVELOPMENT.md:39-41` |
-| CODEOWNERS | `* @btli` | verified-against-code — `.github/CODEOWNERS` (if present; confirm before relying) |
+| CODEOWNERS | `* @btli` | verified-against-code — `.github/CODEOWNERS` |
 | Branch naming | Not formally documented in-repo. Observed: `integration/3.4.0`, `integration/3.5.0`, `feat/…` (pylxpweb). Follow the current release-line style | inferred |
 | Labels | From templates (`bug`, `enhancement`) + triage (`support`, `duplicate`, `needs-info`, `needs-logs`) | verified-against-code |
 | Auto-merge | **Not** enabled for eg4_web_monitor workflows. pylxpweb has Dependabot auto-merge for non-major only | verified-against-code — dossier §4.4 |
