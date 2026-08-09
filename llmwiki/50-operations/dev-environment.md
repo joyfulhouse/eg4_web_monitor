@@ -2,7 +2,7 @@
 canonical-for: local development setup, HA docker bind mounts, four-mode testing, mode switch hazards
 sources:
   - docs/DEVELOPMENT.md
-  - CLAUDE.md
+  - CHANGELOG.md
   - prek.toml
   - tests/requirements-test.txt
   - scripts/probe_gridboss_nbu_regs.py
@@ -85,11 +85,13 @@ The same container also mounts two unrelated integrations — `intellicenter` (`
 `brilliant_mqtt` (`:26`) — so restarting it restarts those too — `verified-against-code` —
 `docker-compose.yaml:25-26`.
 
-Code is bind-mounted, so edits are visible immediately, but **Python import changes still require a
-container restart** — `asserted-unverified` — `CLAUDE.md` "Common Issues" ("Changes not reflecting:
-Container restart required for Python imports"). The bind mount itself is
-`verified-against-code` (`docker-compose.yaml:24`, `:27`); the restart requirement is the doc's
-claim about interpreter behavior, not something this tree proves.
+Code is bind-mounted, so an edit lands inside the container immediately — `verified-against-code` —
+`docker-compose.yaml:24`, `:27`. **But a running Python process does not re-import a changed
+module**, so the edit is live on disk and inert in the running integration until the container
+restarts. That gap is the trap: the file is visibly correct, the behavior is visibly old, and it
+reads as though the edit failed. Restart before concluding anything about a code change —
+`inferred` from the bind mount plus CPython's `sys.modules` caching; nothing in this tree enforces
+or asserts it.
 
 ```bash
 # Soft restart after import changes (integration or pylxpweb)
@@ -105,9 +107,13 @@ End-user install is HACS zip (`INSTALL.md` / `hacs.json`); agents use the docker
 
 ## Four test modes
 
-`CLAUDE.md` "Multi-Mode Testing" documents three modes. Compose and the switch script both support a
-fourth, `local-nomidbox` — `verified-against-code` — `homeassistant-dev/docker-compose.yaml:5-11`
-(mode comment block), `homeassistant-dev/scripts/eg4-switch-mode.sh:20-43` (the `case` statement).
+There are **four** modes — `verified-against-code` — `homeassistant-dev/docker-compose.yaml:5-11`
+(mode comment block) and `homeassistant-dev/scripts/eg4-switch-mode.sh:20-43`.
+
+**Take the mode list from the script's `case` statement, never from prose.** A mode exists if and
+only if it has a `case` arm; the arm is what maps the name to a config directory and what rejects an
+unknown name. `local-nomidbox` went undocumented for its entire existence while being fully
+supported there, so a prose list that omits a mode is the expected failure, not a surprising one.
 
 | Mode | Config dir (from `homeassistant-dev/`) | Purpose |
 |------|------------------------------------------|---------|
@@ -118,8 +124,10 @@ fourth, `local-nomidbox` — `verified-against-code` — `homeassistant-dev/dock
 
 ### Validation expectations
 
-These are project acceptance criteria, not properties of any file — nothing in the tree enforces
-them. `asserted-unverified` — `CLAUDE.md` "Validation requirements":
+Project acceptance criteria for a mode sweep, not properties of any file — no test or CI job
+enforces them, so a sweep is evidence only if its result was written down. The most recent one that
+was covers the three modes below — `asserted-unverified` — `CHANGELOG.md` 3.4.0-rc.1 ("three-mode
+entity-parity sweep passed (cloud/local/hybrid, registry-level)"):
 
 | Mode | Expectation |
 |------|-------------|
@@ -128,9 +136,9 @@ them. `asserted-unverified` — `CLAUDE.md` "Validation requirements":
 | Hybrid | Polls locally with cloud supplemental data |
 | All | Small margin OK for live readings (cloud lag) |
 
-Configs share HA user accounts/UI (copied from `./config`); each config has the EG4 entry removed for
-fresh configuration — `asserted-unverified` — `CLAUDE.md` "Setup details". The config directories are
-not in this repo, so the claim cannot be checked from the tree.
+Each mode is a **separate HA instance** with its own config directory, so entity registries, options
+and integration entries do not carry across a switch. None of it is in this repo, so nothing about
+those directories is checkable from the tree.
 
 ## Mode switch script
 
@@ -196,10 +204,10 @@ dev-environment consequence.
 
 | Hazard | Rule | Grade |
 |--------|------|-------|
-| One mode at a time | Compose declares exactly one `/config` bind and the script rewrites that single line, so the four modes are structurally mutually exclusive — `verified-against-code` — `docker-compose.yaml:23`, `eg4-switch-mode.sh:49-54`. The stated reasons (API rate limits, Modbus collisions) are `asserted-unverified` — `CLAUDE.md` "Setup details" | mixed, as noted |
+| One mode at a time | Compose declares exactly one `/config` bind and the script rewrites that single line, so the modes are structurally mutually exclusive — you cannot run two by accident. Running a *second* HA against the same hardware is a different problem, constrained by the single-client gateway ([above](#prod-owns-the-gateway)) | `verified-against-code` — `docker-compose.yaml:23`, `eg4-switch-mode.sh:49-54` |
 | Dongle single-client | Scripts that talk to the dongle require HA stopped or in cloud-only mode; `scripts/probe_gridboss_nbu_regs.py` states this in its module docstring under **Requirements** ("No other client connected to the dongle (single-client limitation)", "HA container should be stopped or in cloud-only mode") | `verified-against-code` for the script's stated requirement — `scripts/probe_gridboss_nbu_regs.py:15-19` |
-| pylxpweb dist-info loss | After a mode switch, a fresh container layer can lack pylxpweb dist-info → HA pip-installs over the bind mount and breaks the integration. Recreate minimal dist-info after a switch if that happens | `asserted-unverified` — `memory/dev-container-pylxpweb-pin-bump-gotcha.md`; narrated in `CLAUDE.md` v3.4.0-beta.21 |
-| Bind-mounted pylxpweb source can be wiped | A `docker restart` has been observed deleting bind-mounted `src/pylxpweb/`; commit before restarting, recover with `git restore src/pylxpweb/` | `asserted-unverified` — `memory/dev-container-deletes-pylxpweb-src.md`; recovery command in `CLAUDE.md` "Common Issues" |
+| pylxpweb dist-info loss | After a mode switch, a fresh container layer can lack pylxpweb dist-info → HA pip-installs over the bind mount and breaks the integration. Recreate minimal dist-info after a switch if that happens | `asserted-unverified` — `memory/dev-container-pylxpweb-pin-bump-gotcha.md` |
+| Bind-mounted pylxpweb source can be wiped | A `docker restart` has been observed deleting bind-mounted `src/pylxpweb/`; commit before restarting, recover with `git restore src/pylxpweb/` | `asserted-unverified` — `memory/dev-container-deletes-pylxpweb-src.md` |
 | Mode switch restarts whole stack | Script uses `down`/`up`, not `restart` | `verified-against-code` — `eg4-switch-mode.sh:66-68` |
 | `.bak` left behind | `sed -i.bak` creates `docker-compose.yaml.bak` on every run | `verified-against-code` — `eg4-switch-mode.sh:49` |
 

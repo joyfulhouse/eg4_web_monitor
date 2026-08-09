@@ -85,7 +85,7 @@ it is a resolvability check, not a trust check.
 
 `verified-against-code` — `custom_components/eg4_web_monitor/manifest.json:14` (`version`); pylxpweb
 `pyproject.toml` `[project].version`. The SemVer/Keep-a-Changelog convention around them is
-`asserted-unverified` — `docs/DEVELOPMENT.md:57-64`.
+`asserted-unverified` — `docs/DEVELOPMENT.md` "Releasing".
 
 Snapshot at `9f6d6e2` (will drift — re-read files, do not hard-code forever):
 
@@ -95,10 +95,11 @@ Snapshot at `9f6d6e2` (will drift — re-read files, do not hard-code forever):
 | Integration pin | `pylxpweb>=0.9.39b10` |
 | `tests/requirements-test.txt` | `pylxpweb>=0.9.39b10  # keep in sync with manifest.json` |
 
-**Note:** the shipped version is `3.5.1-beta.10` — `verified-against-code` —
-`custom_components/eg4_web_monitor/manifest.json:14`, which is what HA and HACS read. `CLAUDE.md`
-"Current Version" lags it (naming `v3.5.1-beta.1` at `9f6d6e2`) and must not be used as the version
-source.
+**`manifest.json` is the only version authority** — it is what HA and HACS actually read —
+`verified-against-code` — `custom_components/eg4_web_monitor/manifest.json:14` (`3.5.1-beta.10` at
+`9f6d6e2`). A version copied into prose is a snapshot that stops being true at the next release
+unless someone remembers to update it, and that has already gone wrong here by nine betas. Read the
+manifest; do not trust a version you find written in a document, including this one.
 
 ## Integration pin locations (must stay equal)
 
@@ -114,8 +115,8 @@ CHANGELOG convention: each beta/stable header states **Requires pylxpweb>=…** 
 
 ## Integration release steps
 
-Steps 1–4 are the documented procedure — `asserted-unverified` — `docs/DEVELOPMENT.md:57-64`. Steps
-5–6 (what publishing actually triggers) are `verified-against-code` — `.github/workflows/release.yml`.
+Steps 1–4 are the documented procedure — `asserted-unverified` — `docs/DEVELOPMENT.md` "Releasing".
+Steps 5–6 (what publishing actually triggers) are `verified-against-code` — `.github/workflows/release.yml`.
 
 1. Bump `version` in `manifest.json`.
 2. Move `Unreleased` CHANGELOG entries under the new version heading (Keep a Changelog).

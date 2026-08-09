@@ -2,7 +2,6 @@
 canonical-for: lint, format, typecheck, tests, coverage, quality-scale tier validators, CI blocking vs advisory
 sources:
   - docs/DEVELOPMENT.md
-  - CLAUDE.md
   - tests/requirements-test.txt
   - tests/mypy.ini
   - prek.toml
@@ -20,8 +19,8 @@ Canonical local and CI gates for eg4_web_monitor. Prefer `uv run` for agents.
 
 The tool invocations are `verified-against-code` — `prek.toml` (ruff `rev`, mypy hook `entry`) and
 `.github/workflows/quality-validation.yml` (jobs `bronze-code-quality`, `gold-test-coverage`,
-`platinum-strict-typing`). The command *listing* below also appears in `docs/DEVELOPMENT.md:21-52`,
-which is prose and is cited as corroboration only.
+`platinum-strict-typing`). The command *listing* below also appears in `docs/DEVELOPMENT.md`
+"Quality Checks", which is prose and is cited as corroboration only.
 
 ```bash
 # Lint + format (fix) — agent-preferred form
@@ -86,7 +85,7 @@ type checking** (`exit 1` on type errors).
 
 | Tier | How enforced | Local script |
 |------|--------------|--------------|
-| Bronze | Directly in `quality-validation.yml` (the `bronze-*` jobs) | None — `tests/` contains `validate_silver_tier.py`, `validate_gold_tier.py`, `validate_platinum_tier.py`, `validate_translations.py` and **no** `validate_bronze_tier.py` — `verified-against-code` — `tests/` listing; stated the same way in `docs/DEVELOPMENT.md:54-55` |
+| Bronze | Directly in `quality-validation.yml` (the `bronze-*` jobs) | None — `tests/` contains `validate_silver_tier.py`, `validate_gold_tier.py`, `validate_platinum_tier.py`, `validate_translations.py` and **no** `validate_bronze_tier.py` — `verified-against-code` — `tests/` listing; stated the same way in `docs/DEVELOPMENT.md` "Quality Scale" |
 | Silver | CI job + script | `tests/validate_silver_tier.py` |
 | Gold | CI job + script | `tests/validate_gold_tier.py` |
 | Platinum | CI job + script | `tests/validate_platinum_tier.py` |
@@ -159,7 +158,10 @@ uv run python tests/validate_gold_tier.py
 uv run python tests/validate_platinum_tier.py
 ```
 
-**Test-count drift:** `CLAUDE.md` "Local Testing" says “692 tests”; `CHANGELOG.md` release entries
-from the same period cite 2000+. Neither is authoritative — count it yourself with
-`uv run pytest tests/ --collect-only -q | tail -1` — `asserted-unverified` (the two docs disagree;
-`CLAUDE.md` "Local Testing" vs `CHANGELOG.md` v3.5.1-beta.1).
+**Never cite a written test count.** The suite total has been copied into prose repeatedly and every
+copy rots within a release or two — docs and release notes have disagreed by a factor of three. No
+document is authoritative for it, including this one. Collect it:
+
+```bash
+uv run pytest tests/ --collect-only -q | tail -1
+```

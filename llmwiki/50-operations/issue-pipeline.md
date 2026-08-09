@@ -91,7 +91,7 @@ Form emptiness alone is not enough — phone logcat or screenshots pass the form
 | Topic | Fact | Grade |
 |-------|------|-------|
 | In-repo PR template | **None** under `.github/` | `verified-against-code` — no `PULL_REQUEST_TEMPLATE` file exists |
-| Contribution guide | Org `CONTRIBUTING.md`: https://github.com/joyfulhouse/.github/blob/main/CONTRIBUTING.md | `asserted-unverified` — `docs/DEVELOPMENT.md:39-41` points there; the linked file lives in another repo and is not checked here |
+| Contribution guide | Org `CONTRIBUTING.md`: https://github.com/joyfulhouse/.github/blob/main/CONTRIBUTING.md | `asserted-unverified` — `docs/DEVELOPMENT.md` "Quality Checks" points there; the linked file lives in another repo and is not checked here |
 | CODEOWNERS | `* @btli` | `verified-against-code` — `.github/CODEOWNERS` |
 | Branch naming | Not formally documented in-repo. Observed: `integration/3.4.0`, `integration/3.5.0`, `feat/…` (pylxpweb). Follow the current release-line style | `inferred` — `CHANGELOG.md` release narratives |
 | Labels | From templates (`bug`, `enhancement`) + triage (`support`, `duplicate`, `needs-info`, `needs-logs`) | `verified-against-code` — `.github/ISSUE_TEMPLATE/*.yml`, `.github/workflows/issue-triage.yml`, `.github/workflows/issue-log-validation.yml` |
