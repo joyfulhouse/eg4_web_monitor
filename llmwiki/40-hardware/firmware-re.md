@@ -7,7 +7,7 @@ sources:
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
   - docs/reference/firmware/re/00_SUMMARY.md
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+last-verified: 2026-08-09
 ---
 
 # Firmware reverse engineering
@@ -104,16 +104,18 @@ Reading C28x words little-endian produced zero-function “decompilations” and
 
 Finding a number in an FC04 handler is not enough. The minimum proof chain is:
 
-| Stage | Required evidence | Evidence grade if complete |
+| Stage | Required trace | Evidence record produced |
 |---:|---|---|
-| 1. Producer | Identify every firmware writer or DSP/parser source for the backing value. Require a known-good writer as a positive control before accepting “no writers found.” | `firmware-proven` |
-| 2. Conversion | Decode signedness, scaling, subtraction/summing, clamping, byte selection, and truncation. | `firmware-proven` |
-| 3. Publisher | Trace how the converted value enters the ARM register publication structure; account for callee-saved bases and every dispatcher gap/decrement width. | `firmware-proven` |
-| 4. FC04 response | Trace the exact dispatcher case and response word(s), including family-specific address reuse. | `firmware-proven` |
-| 5. Positive controls | The same dispatcher walk must recover known-live I153 and I170, with correct numbering after gaps. | `firmware-proven` |
-| 6. Independent check | Re-run the decode adversarially and cross-check on live hardware before calling the real-world semantic verified. | `hardware-toggle-proven` when a controlled observation exists |
+| 1. Producer | Identify every firmware writer or DSP/parser source for the backing value. Require a known-good writer as a positive control before accepting “no writers found.” | Writer/source addresses, call path, and positive-control result. |
+| 2. Conversion | Decode signedness, scaling, subtraction/summing, clamping, byte selection, and truncation. | Reproducible conversion derivation tied to concrete instructions and data flow. |
+| 3. Publisher | Trace how the converted value enters the ARM register publication structure; account for callee-saved bases and every dispatcher gap/decrement width. | Publisher path, backing offsets, and gap/decrement accounting. |
+| 4. FC04 response | Trace the exact dispatcher case and response word(s), including family-specific address reuse. | Dispatcher case, response word positions, and explicit family boundary. |
+| 5. Positive controls | The same dispatcher walk must recover known-live I153 and I170, with correct numbering after gaps. | Positive-control recovery record for both anchors. |
+| 6. Independent check | Re-run the decode adversarially and cross-check on live hardware. For a writable semantic, preserve the named action, target family, raw integer before/after words, behavior, and restoration; for a read-only semantic, preserve the simultaneous raw-to-peer observation. | Independent decode result and the complete live observation record actually captured. |
 
 The required direction is **producer → conversion → publisher → FC04 response**. Reverse naming from a response slot alone can prove structure but not physical meaning.
+
+This table classifies evidence artifacts only. Which grade those artifacts earn is determined solely by the [evidence-grade legend](../README.md#evidence-grade-legend). Completing a stage does not award a grade, substitute for a legend requirement, or create an exception.
 
 ## Known-good artifact boundaries
 

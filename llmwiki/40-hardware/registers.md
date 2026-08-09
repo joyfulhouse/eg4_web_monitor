@@ -11,14 +11,18 @@ sources:
   - memory/issue-258-battery-rr-reg96-unreliable.md
   - memory/soc-charge-limit-101-top-balance.md
   - memory/cloud-raw-register-write-broken.md
+  - memory/voltage-param-scaling-cloud-vs-local.md
   - memory/quick-charge-local-control-registers.md
-verified-against: 9f6d6e2
+  - pylxpweb@204b95d:src/pylxpweb/transports/data.py
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-09
 ---
 
 # Register ground truth
 
-> **Audited result: 30 of 335 counted current register claims are proven: 27 `firmware-proven` + 3 `hardware-toggle-proven` = 30; 27 + 3 + 170 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions below are `verified-against-code`; the register semantics retain their own row grades.
+> **Audited result: 30 of 335 counted current register claims are proven: 27 `firmware-proven` + 3 `hardware-toggle-proven` = 30; 27 + 3 + 170 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
@@ -187,13 +191,13 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H120 | Compound charge/discharge-mode control word | supporting inverters | `lineage-inferred` | current | 1 | `DATA_MAPPING.md` compound-field audit assigns half-hour, AC-charge type, discharge type, on-grid EOD type, and generator-charge type subfields; do not decode it as consecutive booleans. |
 | H125 | EPS/off-grid discharge SOC cutoff | relevant devices | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H152-H157 | AC-first window 1-3 packed times | `EG4_OFFGRID`/SNA portal page | `portal-correlated` | current | 6 | `DATA_MAPPING.md` schedule table and SNA probe. |
-| H158 | AC-charge start voltage, 0.1 V | target family unrecorded | `portal-correlated` | current | 1 | Named action and 40→40.5→40 V restoration were recorded as scaled engineering values; raw register words were not preserved. `memory/cloud-raw-register-write-broken.md`. |
+| H158 | AC-charge start voltage, 0.1 V | supported inverters | `portal-correlated` | current | 1 | Named action and 40→40.5→40 V restoration were recorded as scaled engineering values; raw register words were not preserved; target family unrecorded. `memory/cloud-raw-register-write-broken.md`. |
 | H159 | AC-charge end voltage, 0.1 V | supported | `portal-correlated` | current | 1 | `DATA_MAPPING.md` identifies the field; the durable record lacks an equivalent named-action raw before/after/restore tuple. |
 | H160 | AC-charge start SOC | off-grid plus hybrid read scope | `portal-correlated` | current | 1 | Portal/control mapping. |
 | H161 | AC-charge end SOC mapping; **LOCAL writability unresolved** | family behavior conflicts across tested grid-tied and off-grid paths | `portal-correlated` | current; write unresolved | 1 | `memory/soc-charge-limit-101-top-balance.md` records inert grid-tied behavior; [contradictions C6/C7](../60-history/open-contradictions.md) preserve the conflict. Do not treat H161 as a safe local write. Promotion requires a family-specific controlled action, behavior, raw before/after pair, and restoration; component firmware is scope metadata. |
 | H169 | On-grid end-of-discharge voltage, 0.1 V | grid-tied voltage regime | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H179 | Shared extended-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | Canonical safe map only; grades are bit- and family-specific. |
-| H202 | Stop-discharge voltage, 0.1 V | target family unrecorded | `portal-correlated` | current | 1 | The source preserves raw 400 ↔ cloud 40 V at baseline, but the 40→41.5→40 V action/restoration is recorded only as scaled engineering values; integer register words for the changed and restored states were not preserved. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#battery-chargedischarge-control-mode-soc-vs-voltage). |
+| H202 | Stop-discharge voltage, 0.1 V | grid-tied forced-discharge voltage mode | `portal-correlated` | current | 1 | The source preserves raw 400 ↔ cloud 40 V at baseline, but the 40→41.5→40 V action/restoration is recorded only as scaled engineering values; integer register words for the changed and restored states were not preserved; target family unrecorded. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#battery-chargedischarge-control-mode-soc-vs-voltage). |
 | H206 | Peak-shaving period-1 power, **0.1 kW** | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md` records raw 41→4.1 kW and family applicability; the durable record lacks a complete named-action raw before/after/restore tuple. |
 | H207 | Peak-shaving period-1 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H208 | Peak-shaving period-1 voltage, 0.1 V | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
@@ -201,7 +205,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H218 | Peak-shaving period-2 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H219 | Peak-shaving period-2 voltage, 0.1 V | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H227 | System charge SOC limit, 0-101% | tested 18kPV | `hardware-toggle-proven` | current | 1 | Named System Charge SOC Limit action and raw 80→101→80 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/soc-charge-limit-101-top-balance.md`. |
-| H228 | System charge voltage limit, 0.1 V | target family unrecorded | `portal-correlated` | current | 1 | Named action and 59.5→59.4→59.5 V restoration were recorded as scaled engineering values; raw register words were not preserved. `memory/cloud-raw-register-write-broken.md`. |
+| H228 | System charge voltage limit, 0.1 V | voltage-control units | `portal-correlated` | current | 1 | The source preserves raw 595 ↔ cloud 59.5 V at baseline, but the 59.5→59.4→59.5 V action/restoration is recorded only as scaled engineering values; integer register words for the changed and restored states were not preserved; target family unrecorded. `memory/voltage-param-scaling-cloud-vs-local.md`; `memory/cloud-raw-register-write-broken.md`. |
 | H231 | Unknown field; historic peak-shaving/high-word label false | tested hybrid | `portal-correlated` | unresolved | 0 | Single-register reads and quantization contradict the old label; no current semantic is counted. |
 | H232 | Peak-shaving period-2 power, 0.1 kW | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md`; not H231’s high word. |
 | H233 | Shared quick-charge/extended word; individual meanings below | hybrid/LXP local; off-grid boundary below | `verified-against-code` | structural-only | 0 | Canonical safe map only. |
@@ -307,7 +311,7 @@ These claims elaborate the counted schedule rows; they do not add to the ratio.
 | Claim | Family scope | Evidence | Status | Durable basis |
 |---|---|---|---|---|
 | Each schedule block is consecutive start/end pairs: base/+1 window 1, +2/+3 window 2, and +4/+5 window 3 where configured. | Per-family `SCHEDULE_TIME_TYPES` gates | `portal-correlated` | current | [`DATA_MAPPING.md` schedule table](../../docs/DATA_MAPPING.md#schedule-time-window-registers-277--295--312) and live named-register probes. |
-| Packed time is `hour | (minute << 8)`; hour low byte, minute high byte. | Schedule families represented by the captured probes | `portal-correlated` | current | FlexBOSS21/SNA probes plus `time.py::_decode_from_cache`; example 01:05 → H211 raw 1281. |
+| Packed time is `hour \| (minute << 8)`; hour low byte, minute high byte. | Schedule families represented by the captured probes | `portal-correlated` | current | FlexBOSS21/SNA probes plus `time.py::_decode_from_cache`; example 01:05 → H211 raw 1281. |
 | Current LOCAL/HYBRID schedule writes issue one packed-register call documented as Modbus FC06 through `EG4ScheduleTimeEntity._async_set_value_locked()` and `EG4DataUpdateCoordinator.write_register()`. | Current integration path | `verified-against-code` | current | [`time.py`](../../custom_components/eg4_web_monitor/time.py) and [`coordinator.py`](../../custom_components/eg4_web_monitor/coordinator.py); no transport wire capture is claimed. |
 
 No raw wire evidence establishes a firmware-level FC16 rejection. The current integration’s single-register FC06 path is `verified-against-code`; the rejection comment remains `asserted-unverified` and is not a hardware claim.
@@ -320,7 +324,8 @@ No raw wire evidence establishes a firmware-level FC16 rejection. The current in
 |---|---|---|---|
 | I67 is the battery-temperature word. | `portal-correlated` | current | Local I67 and cloud `tBat` feed the same field in current mappings. |
 | Raw `0x007f`/127 represents no battery-temperature reading on a no-BMS secondary. | `portal-correlated` | current | Normalize only this field to unknown; do not publish 127 °C or confuse it with register I127. |
-| The observation is not `hardware-proven` under the canonical legend. | `verified-against-code` | current | The durable record lacks an induced before/after raw pair; the software normalization is independently locked in code. |
+| No qualifying induced before/after raw capture is present in the cited durable record. | `asserted-unverified` | unresolved | This is an evidence-inventory absence claim, not code behavior; a code citation cannot prove that no capture exists. |
+| pylxpweb normalizes the exact battery-temperature value 127 to `None` on every construction path. | `verified-against-code` | current | [`data.py` at `204b95d`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/transports/data.py#L62-L70) defines the sentinel; [`__post_init__`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/transports/data.py#L312-L321) performs the normalization. This code fact does not upgrade the hardware observation. |
 
 ### Four-slot individual-battery ceiling
 
@@ -328,7 +333,7 @@ No raw wire evidence establishes a firmware-level FC16 rejection. The current in
 |---|---|---|---|
 | The captured inverter/dongle Modbus path exposes at most four 30-register battery slots, B5002-B5121. | `asserted-unverified` | current; portability unresolved | Durable narrative: `memory/issue-258-battery-rr-reg96-unreliable.md`; the raw capture files are not in this repository. |
 | Explicit fifth/sixth-slot probe reads returned EMPTY; the attempted fifth-slot implementation was reverted. | `asserted-unverified` | current | `memory/issue-258-battery-rr-reg96-unreliable.md`; do not restate `DATA_MAPPING.md`’s “max 5” as established hardware fact. |
-| Systems with >4 packs can still surface more identities through firmware rotation. | `portal-correlated` | current | Accumulate by serial; slot count is not physical pack count. |
+| Systems with >4 packs may surface more identities through reported firmware rotation. | `asserted-unverified` | unresolved | No endpoint, field, widget, or preserved portal agreement is cited. Rotation is firmware-dependent and its trigger remains unknown; accumulate observed identities by serial, but do not treat slot count as physical pack count. |
 
 ## Must-not-regress register claims
 

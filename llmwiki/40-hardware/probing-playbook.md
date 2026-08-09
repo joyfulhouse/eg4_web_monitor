@@ -6,7 +6,7 @@ sources:
   - scripts/probe_all_registers.py
   - scripts/probe_gridboss_nbu_regs.py
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+last-verified: 2026-08-09
 runbook-status: untested-as-written
 last-executed: never
 ---
@@ -17,7 +17,9 @@ last-executed: never
 
 > **Execution status: UNTESTED AS WRITTEN; last executed: never.** Do not treat this page as a rehearsed production procedure until an authorized dry run records its date, probe lead, rollback owner, exact commands, and health-check result. `asserted-unverified`; durable operational context: [development environment](../50-operations/dev-environment.md).
 
-For reads, compare raw Modbus values with simultaneous portal/device behavior. For writes, make one named change on the target family, capture the complete raw before/after word and physical/UI behavior, and restore the original word. Record component firmware when available as scope metadata; an unrecorded version limits the claim to the tested unit but does not change the canonical grade criterion.
+For reads, compare raw Modbus values with simultaneous portal/device behavior. For writes, make one named change on the target family, capture the complete raw before/after word and physical/UI behavior, and restore the original word. Record component firmware when available as scope metadata. This runbook describes evidence collection; only the [evidence-grade legend](../README.md#evidence-grade-legend) determines a grade.
+
+> **An ambiguous or no-behavior write remains UNPROVEN. An ACK, readback, or stored delta never unlocks a named local write path.** Restore the original value, preserve the ambiguity, and stop.
 
 ## Live-household change control
 
@@ -44,15 +46,17 @@ If the environment cannot provide an idempotent restore action and automated fre
 
 ## Operation risk classes
 
-| Operation | Risk | Maximum evidence from the operation alone | Rule |
+| Operation | Risk | Record produced | Rule |
 |---|---|---|---|
-| FC04 input-register read | Read-only | No semantic claim | Preferred for runtime discovery. Retain raw words and split chunks within device limits. |
-| FC03 holding-register read | Read-only operation against writable storage | No semantic claim | Inspect the actual call path; a generic “parameter” helper may write. |
-| Portal `/remoteRead/read` | Read-only | `portal-correlated` | Dumps the cloud holding/configuration template, not inverter FC04 runtime data. |
-| Watch a word while changing one vendor setting | Read script plus intentional configuration change | `portal-correlated`; `hardware-toggle-proven` only with the canonical tuple and restore | Record action, family, raw before/after, behavior, and restored raw word. Record component firmware separately as scope metadata when available. |
-| FC06 single-register write | Write-risky | `portal-correlated` until controlled behavior and restoration are captured | Requires separate write authorization and a saved complete original word. |
-| FC16 multi-register write | Write-risky; behavior is range/family specific | `asserted-unverified` | Do not use FC16 for discovery. [The schedule evidence boundary](registers.md#schedule-write-evidence-boundary) records that no durable general rejection/support proof exists. |
-| Portal write/control API | Write-risky | `portal-correlated` | A success-shaped response does not establish raw targeting or behavior. |
+| FC04 input-register read | Read-only | Timestamped raw input words for the requested address range. | Preferred for runtime discovery. Retain raw words and split chunks within device limits. |
+| FC03 holding-register read | Read-only operation against writable storage | Timestamped raw holding words for the requested address range. | Inspect the actual call path; a generic “parameter” helper may write. |
+| Portal `/remoteRead/read` | Read-only | Cloud holding/configuration-template snapshot. | It is not inverter FC04 runtime data. Preserve the endpoint, request range, and raw response. |
+| Watch a word while changing one vendor setting | Read script plus intentional configuration change | Named action, target family, raw integer before/after words, observed behavior, and restored word—only when every item is actually captured. | Record component firmware separately as scope metadata when available. Missing or ambiguous behavior remains unproven. |
+| FC06 single-register write | Write-risky | Request, ACK/exception, stored value, observed behavior, and restoration records available from the authorized run. | Requires separate write authorization and a saved complete original word. ACK/readback alone proves only storage and transport. |
+| FC16 multi-register write | Write-risky; behavior is range/family specific | Request and device response if separately authorized. | Do not use FC16 for discovery. [The schedule evidence boundary](registers.md#schedule-write-evidence-boundary) records that no durable general rejection/support proof exists. |
+| Portal write/control API | Write-risky | Portal request and response plus any independently captured raw/behavioral observation. | A success-shaped response does not establish raw targeting or behavior. |
+
+This table records operation outputs, not grades. Apply only the README evidence-grade legend after the capture is complete; no operation in this table awards or caps a grade.
 
 ## Tooling
 
@@ -78,15 +82,15 @@ Redact plant IDs, hostnames, device identifiers, and all but the final four seri
 
 ## Read-only dump procedure
 
-| Step | Action | Required record | Maximum evidence produced |
+| Step | Action | Required record | Evidence artifact produced |
 |---:|---|---|---|
-| 1 | Obtain outage authorization and identify the device from a current identity source. Install the tested restore trap. | Authorizer, probe lead, rollback owner, device/family, all component firmware, approved window | No semantic claim until live identity is corroborated. |
-| 2 | Establish baseline grid/generator/PV/battery state and relevant portal fields. | Timestamped state snapshot and key-sensor freshness | `portal-correlated` only when a peer exists. |
-| 3 | Start the timer, let the trap pause the competing owner, and verify exclusive gateway ownership. | Pause timestamp and owner name | Process integrity only. |
-| 4 | Read raw FC04 runtime or FC03 configuration words in small chunks; split and retry failures. | Function code, start, count, raw hex/decimal words, timestamps | No semantic claim. |
-| 5 | Exit immediately so the trap restores the production owner. Do not consume the outage window formatting or interpreting output. | Restore timestamp | Process completion only. |
-| 6 | Require a fresh HYBRID poll and the pre-agreed sensor health checks. | Fresh timestamps, availability, gateway status, rollback-owner acceptance | Process completion only. |
-| 7 | Compare the preserved raw values with simultaneous portal fields or an independent meter, keeping missing, sentinel, zero, and wrap states distinct. | Conversion formula, peer value, error bound, state transition | At most `portal-correlated` without a controlled named action. |
+| 1 | Obtain outage authorization and identify the device from a current identity source. Install the tested restore trap. | Authorizer, probe lead, rollback owner, device/family, all component firmware, approved window | Identity and authorization record. |
+| 2 | Establish baseline grid/generator/PV/battery state and relevant portal fields. | Timestamped state snapshot and key-sensor freshness | Baseline and simultaneous peer snapshot. |
+| 3 | Start the timer, let the trap pause the competing owner, and verify exclusive gateway ownership. | Pause timestamp and owner name | Gateway-ownership record. |
+| 4 | Read raw FC04 runtime or FC03 configuration words in small chunks; split and retry failures. | Function code, start, count, raw hex/decimal words, timestamps | Raw register capture with transport coordinates. |
+| 5 | Exit immediately so the trap restores the production owner. Do not consume the outage window formatting or interpreting output. | Restore timestamp | Restore-attempt record. |
+| 6 | Require a fresh HYBRID poll and the pre-agreed sensor health checks. | Fresh timestamps, availability, gateway status, rollback-owner acceptance | Post-restore health record. |
+| 7 | Compare the preserved raw values with simultaneous portal fields or an independent meter, keeping missing, sentinel, zero, and wrap states distinct. | Conversion formula, peer value, error bound, state transition | Raw-to-peer comparison record, including ambiguity and missing states. |
 
 Cloud and local transports may scale the same physical value differently. Compare engineering values after documenting each conversion; do not compare only raw integers.
 
@@ -94,14 +98,16 @@ Cloud and local transports may scale the same physical value differently. Compar
 
 Writes are not a discovery shortcut. They require their own explicit authorization after a successful read-only rehearsal.
 
-| Step | Required action | Stop condition | Evidence/status |
+| Step | Required action | Stop condition | Required response |
 |---:|---|---|---|
-| 1 | Confirm family, every component firmware version, register, mask, accepted range, consequence, outage controls, and restore plan. | Any unresolved target, mask, family scope, or physical consequence | Stop; no promotion. |
-| 2 | Read and save the complete original word and peer values. | Inconsistent reads or another writer | Stop and restore ownership. |
-| 3 | Change one named setting through the safest supported vendor path while independently watching the raw word. | More than the intended field changes | Do not promote the mapping. |
-| 4 | Confirm intended physical/UI behavior—not ACK or readback alone. | No behavior or ambiguous behavior | Maximum `portal-correlated`. |
+| 1 | Confirm family, every component firmware version, register, mask, accepted range, consequence, outage controls, and restore plan. | Any unresolved target, mask, family scope, or physical consequence | Stop; the target remains unproven. |
+| 2 | Read and save the complete original word and peer values. | Inconsistent reads or another writer | Stop and restore ownership; record the conflict. |
+| 3 | Change one named setting through the safest supported vendor path while independently watching the raw word. | More than the intended field changes | Stop, restore, and record the mismatch as unresolved. |
+| 4 | Confirm intended physical/UI behavior—not ACK or readback alone. | No behavior or ambiguous behavior | Stop and restore. The semantic remains unproven and must not unlock a named local write path. |
 | 5 | Restore the named setting and exact original word; re-read and health-check production. | Restore mismatch or stale/unavailable production data | Escalate; no further writes. |
-| 6 | Repeat once or obtain an independent same-family capture. | Non-reproducible delta | Stop; no promotion. |
+| 6 | Repeat once or obtain an independent same-family capture. | Non-reproducible delta | Stop; record the semantic as unresolved. |
+
+The procedure above produces a capture record and stop/restore decisions only. It does not award a grade. Apply the README evidence-grade legend after the run, with no local shortcut or exception.
 
 ## The wrong-but-writable-bit failure mode
 
@@ -124,6 +130,6 @@ This is why a contract test, mapping-parity test, ACK, or readback can all succe
 - Exact portal/API action and engineering-unit conversion.
 - Intended physical/UI behavior, restore result, and fresh production poll.
 - Credential deletion/rotation and capture redaction.
-- The weakest grade supported by the completed evidence tuple.
+- The grade selected solely from the README evidence-grade legend, with no local shortcut or exception.
 
 See [registers.md](registers.md) for the current ledger and [open-questions.md](open-questions.md) for the captures that would settle remaining ambiguity.
