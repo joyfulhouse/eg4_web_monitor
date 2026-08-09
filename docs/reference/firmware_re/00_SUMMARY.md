@@ -32,9 +32,10 @@
 >   [`../firmware/OFFGRID_EPS_REGISTERS.md`](../firmware/OFFGRID_EPS_REGISTERS.md),
 >   [`../firmware/HYBRID_EPS_REGISTERS.md`](../firmware/HYBRID_EPS_REGISTERS.md)
 >
-> **Duplicate tree.** This directory is a byte-identical copy of
-> `docs/reference/firmware/re/` (only this summary differs). Both are invalid. Neither is
-> deleted, so the record of what was believed in 2026-04 stays intact.
+> **Duplicate tree.** This directory holds the same generated artifacts as
+> `docs/reference/firmware/re/`. Both are invalid, and both summaries carry this
+> tombstone. Neither tree is deleted, so the record of what was believed in 2026-04
+> stays intact.
 
 **Date**: 2026-04-13
 **Firmware files analyzed**:

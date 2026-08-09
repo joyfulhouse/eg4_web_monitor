@@ -357,12 +357,22 @@ data:
 
 ### Example entity IDs
 
+*This section is the canonical user-facing description of how entity IDs are formed;
+the README and the other guides link here rather than restating it.*
+
 Home Assistant builds every entity ID by slugifying **the device name followed by
 the entity name** — the integration does not set entity IDs itself. Device names
 are `{model} {serial}` for inverters and GridBOSS, `Battery {serial}-{NN}` for
 individual batteries, `Battery Bank {serial}`, `Parallel Group {name}`, and
 `Station {name}`. Serial numbers are 10-character alphanumeric strings, so they
-are not always all digits (e.g. `1234A56789`).
+are not always all digits (e.g. `1234A56789`), and slugification lowercases them.
+
+> **This describes the ID Home Assistant generates for a newly added entity — not
+> necessarily the ID in your system.** Once an entity ID is assigned, HA keeps it:
+> it does not change when the integration's naming changes. You may also have
+> renamed entities yourself. Installations that predate a naming change can
+> therefore hold older forms, including IDs with an `eg4_` prefix, indefinitely.
+> **Always confirm against your own registry** in **Developer Tools → States**.
 
 ```yaml
 # Inverter sensors
@@ -391,8 +401,18 @@ select.18kpv_1234567890_operating_mode
 number.18kpv_1234567890_system_charge_soc_limit
 
 # Station-level control (device name "Station <your plant name>")
+# UNVERIFIED — see the note below
 switch.station_my_plant_daylight_saving_time
 ```
+
+> The station DST switch above is **derived, not captured.** `EG4DSTSwitch`
+> (`switch.py:1540`) is the one control that does not inherit the shared base
+> classes — it is a direct `CoordinatorEntity` — and it is absent from the registry
+> capture the other examples were checked against, so its ID has not been confirmed
+> on a live system. It does set `_attr_has_entity_name = True` and return station
+> `device_info`, so the slugification rule should apply, but a sound-looking
+> derivation is exactly what produced an earlier wrong "correction" in this file.
+> Check your own registry before relying on it.
 
 > These are illustrative. Because IDs come from your own device and plant names,
 > confirm the real ones in **Developer Tools → States** before using them in

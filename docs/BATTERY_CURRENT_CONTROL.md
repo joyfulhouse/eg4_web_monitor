@@ -8,11 +8,11 @@ Starting in version 2.2.6, the EG4 Web Monitor integration provides direct contr
 
 ## Available Entities
 
-> **How entity IDs are formed.** Home Assistant slugifies the device name
-> (`{model} {serial}`) followed by the entity name, so a charge-current control on
-> an 18kPV with serial `1234567890` is `number.18kpv_1234567890_battery_charge_current`.
-> There is no `eg4_` prefix. Serials are 10-character alphanumeric strings and are
-> not always all digits. Confirm your own IDs in **Developer Tools → States**.
+> **Entity IDs below are illustrative.** A charge-current control on an 18kPV with
+> serial `1234567890` is generated as
+> `number.18kpv_1234567890_battery_charge_current`. Existing installations may carry
+> older or renamed IDs, so confirm yours in **Developer Tools → States**. See
+> [CONFIGURATION.md](CONFIGURATION.md#example-entity-ids) for how the IDs are formed.
 
 ### Battery Charge Current
 - **Entity ID Pattern**: `number.{model}_{serial}_battery_charge_current`
