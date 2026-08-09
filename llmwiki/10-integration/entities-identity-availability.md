@@ -93,22 +93,34 @@ availability rule.
 | `EG4BaseSensor` | `device_present_and_healthy()` | Yes | **Yes** | No | `base_entity.py:516-519`; helper `:282-299` |
 | `EG4BaseBatterySensor` | parent healthy **and** `battery_key in parent["batteries"]` | Yes | Yes (on parent) | Yes (battery key) | `base_entity.py:610-624` |
 | `EG4BatteryBankEntity` | device present, no `"error"`, **and `sensor_key in device["sensors"]`** | Yes | Yes | **Yes (sensor key)** | `base_entity.py:691-710` |
-| `EG4StationEntity` | `last_update_success` and `"station" in data` | Yes | n/a | No | `base_entity.py:212-228` |
-| `EG4OptimisticEntity` (all controls) | `_control_device_available()`: success + `_control_discovery_supported` + device exists + `device["type"] == "inverter"` | Yes | **Deliberately No** | No | `base_entity.py:796-812` |
+| `EG4BatteryEntity` | parent device present **and** `battery_key in parent["batteries"]` — **does not check `last_update_success`** | **No** | No | Yes (battery key) | `base_entity.py:162-180` |
+| `EG4StationEntity` | `last_update_success` and `"station" in data` — **never reads `data["devices"]`** | Yes | n/a | No | `base_entity.py:212-228` |
+| `EG4OptimisticEntity._control_device_available()` — a **helper**, not an `available` property; called by `EG4BaseNumber` / `EG4BaseTime` / `EG4BaseSwitch` | success + `_control_discovery_supported` + device exists + `device["type"] == expected_type` (**defaults** to `"inverter"`; see §2.4) | Yes | **Deliberately No** | No | `base_entity.py:796-812` |
 | `EG4OffGridBinarySensor` | mirrors `EG4BaseSensor` on purpose (calls the same helper) | Yes | Yes | No | `binary_sensor.py:94-105` |
 | `EG4FirmwareUpdateEntity` | `last_update_success` + serial present | Yes | No | No | `update.py:203-211` |
 
 Every row: `verified-against-code`.
 
-> **Frame: this table is the base layer, not the whole availability model.** Thirteen further
-> `available` properties are defined on **platform subclasses**, and several narrow availability
-> beyond what their base class does (§2.4). Resolving an entity's real behaviour means finding its
-> concrete class first, not stopping at the base. A table of base classes that reads as complete is
-> the same defect this chapter documents for write paths — see
-> [controls-and-writes.md §0](controls-and-writes.md#0-two-write-mechanisms-not-one).
+> **Frame: this table is not the whole availability model.** A component-wide
+> `grep -rn 'def available'` at `9f6d6e2` returns **21** definitions, broken down as:
 >
-> `verified-against-code` — `grep -rn 'def available'` over the component at `9f6d6e2` returns 21
-> definitions: the 8 above plus 13 platform overrides.
+> | Group | Count | Where |
+> |---|---|---|
+> | Listed above as `available` definitions | 8 | `base_entity.py` ×6 (`:102`, `:162`, `:213`, `:517`, `:611`, `:692`), `binary_sensor.py:96`, `update.py:204` |
+> | Control base classes that only delegate | 3 | `EG4BaseNumber` (`base_entity.py:1076`), `EG4BaseTime` (`:1162`), `EG4BaseSwitch` (`:1352`) — each `return self._control_device_available()` |
+> | Platform subclasses | 10 | **7 change the contract** (§2.4); 3 only delegate — `EG4OperatingModeSelect` (`select.py:238`), `EG4PVInputModeSelect` (`:345`), `EG4BatteryControlModeSelect` (`:607`) |
+>
+> 8 + 3 + 10 = 21. Per file: `base_entity.py` 9, `select.py` 4, `switch.py` 3, `number.py` 2,
+> `binary_sensor.py` / `update.py` / `time.py` 1 each.
+>
+> Note `EG4OptimisticEntity` defines **no** `available` at all — it defines the
+> `_control_device_available()` **helper** (`base_entity.py:796`) that the three control bases call.
+> The row above is the helper's contract, not an inherited property.
+>
+> Resolving an entity's real behaviour means finding its **concrete class** first. A base-class
+> table that reads as complete is the same defect this chapter documents for write paths — see
+> [controls-and-writes.md §0](controls-and-writes.md#0-the-write-surface-is-not-reliably-enumerable-from-documentation).
+> `verified-against-code` at `9f6d6e2`.
 
 ### 2.1 The asymmetry that causes flicker bugs
 
@@ -147,7 +159,7 @@ correct whether or not the key-presence behaviour is later changed.
 | `"error"` present in `device_data` | **unavailable** for measurement entities; controls stay **available** |
 | `has_data == False` on a device | `_process_inverter_object` early-returns a diagnostic-only dict → every runtime key absent → **unknown**, device still "present and healthy" (no `"error"` key set) |
 | Value present but `None` | **unknown** |
-| Device absent from `data["devices"]` | **unavailable** (all classes) |
+| Device absent from `data["devices"]` | **unavailable** for device-, battery- and control-scoped entities. **Not** for `EG4StationEntity`, whose `available` never reads `data["devices"]` — a station entity stays available while every device is gone |
 
 Evidence: `verified-against-code` for the availability rows; the `has_data` row is
 `verified-against-code` via `device_present_and_healthy` not setting `"error"` on that path.

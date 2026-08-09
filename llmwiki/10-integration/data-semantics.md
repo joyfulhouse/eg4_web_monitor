@@ -147,7 +147,7 @@ All rows: `verified-against-code`.
 > safety property for *writes*. **Never reason "the family gate would have caught it"** — for an
 > unresolved family the gate catches nothing. Whether a given write is reachable is answered by
 > the entity and its routing, not by a family gate; see
-> [controls-and-writes.md §0](controls-and-writes.md#0-two-write-mechanisms-not-one).
+> [controls-and-writes.md §0](controls-and-writes.md#0-the-write-surface-is-not-reliably-enumerable-from-documentation).
 >
 > `verified-against-code` — `utils.py` → `is_family_control_supported`, `is_offgrid_family`, and
 > their docstrings; `const/device_types.py` → `INVERTER_FAMILY_UNKNOWN`.
@@ -292,7 +292,7 @@ Grades for the **left** column — that these gates, purges and routings exist i
 > `lineage-inferred`, `asserted-unverified` or scope-unresolved grade in the ledger does not close
 > a write path, and nothing in the code consults the grade. Whether a register is reachable is
 > answered by the entity and its write routing — see
-> [controls-and-writes.md §0](controls-and-writes.md#0-two-write-mechanisms-not-one) for the procedure
+> [controls-and-writes.md §0](controls-and-writes.md#0-the-write-surface-is-not-reliably-enumerable-from-documentation) for the procedure
 > that derives the routing, and the README table above for the register-side criterion.
 
 > **The off-grid Quick Charge cloud routing is conditional on a cloud client.**

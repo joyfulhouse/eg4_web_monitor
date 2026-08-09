@@ -1,6 +1,6 @@
 ---
 canonical-for:
-  - the two control-write mechanisms and how to derive each one's population
+  - the known control-write shapes, the derivation, and its proven blind spots
   - async_write_with_cloud_fallback write routing
   - _execute_switch_action, where pylxpweb chooses the transport
   - local-vs-cloud write decision, incl. link-down short-circuit
@@ -40,53 +40,100 @@ Symbol names are the durable anchor.
 `async_write_with_cloud_fallback` so that fallback, cache seeding and the error contract come with
 them.
 
-**The rule is not a description of the current code, in two separate ways.** Two controls bypass
-the router and call a coordinator primitive directly (§1.3). And a **second write mechanism
-exists alongside the router entirely** (§2): `_execute_switch_action` hands a pylxpweb method name
-to the library and lets the library decide the transport. Nothing on that path is routed by eg4.
+**The rule is not a description of the current code.** Writes reach the device by several shapes,
+not all of which are routed by eg4 — some bypass the router (§1.3), and some hand a method name to
+pylxpweb and let the library decide the transport (§2). How many shapes exist is **not** something
+this page asserts; §0 explains why and gives you the derivation instead.
 
-**Read §0 before trusting any count of write paths on this page or elsewhere.**
+**Read §0 before trusting any count of write paths, on this page or anywhere else.**
 
-## 0. Two write mechanisms, not one
+## 0. The write surface is not reliably enumerable from documentation
 
-A control write reaches the device by one of two mechanisms, and **they differ in who decides the
-transport**. Every completeness claim on this page is scoped to one of them; a claim that does not
-say which is not a claim about the write surface.
+Three review rounds, three independent engines, and each round found a write shape the previous
+round's frame excluded. That is not a run of bad luck — it is the finding. **This page therefore
+does not tell you how many write mechanisms exist.** It describes the ones that are known,
+publishes the derivation, and names the blind spots that have actually bitten, so you can re-derive
+rather than trust a count.
 
-| | **Mechanism A — the router** | **Mechanism B — the switch action** |
+If you need to know whether a specific control writes a specific register locally: **run §0.2 for
+that control**, then read the pylxpweb method it lands on. Do not answer from this page's tables.
+
+### 0.1 Known write shapes
+
+Accurate as descriptions; **not asserted to be all of them.**
+
+| Shape | How the write is issued | Who chooses local vs cloud |
 |---|---|---|
-| Entry point | `utils.py` → `async_write_with_cloud_fallback`, reached via `base_entity.py` → `_execute_local_with_fallback` (switch), `number.py` → `_write_parameter` / `_write_voltage_register`, the select/time `local_write` closures, and the coordinator's battery-regime write | `base_entity.py` → `_execute_switch_action`, called **directly by an entity** |
-| How the write is issued | eg4 calls a coordinator primitive (`write_named_parameter` / `write_raw_parameter` / `write_register`) | eg4 resolves `getattr(inverter, method_ref)` — a pylxpweb method **name** — or takes a pre-bound callable, and awaits it. **pylxpweb performs the write** |
-| Who chooses local vs cloud | **eg4**, in one place, by one policy | **pylxpweb**, per method, and the policies are **not uniform** (§2.1) |
-| Cloud fallback on local failure | Yes, where a cloud client exists | No — nothing in the body calls the router |
-| Link-down short-circuit | Yes (§1.1) | No |
-| `local_values` → `note_parameters_written` seeding | Yes (§1.2) | No. A different channel, `seed_param_key`, is available and is used by some callers |
-| Optimistic envelope / retention | Yes | Yes — both go through `_optimistic_write_envelope` |
-| Visible to a grep of the three coordinator primitives | Yes | **No** |
+| **The router** | eg4 calls a coordinator primitive (`write_named_parameter` / `write_raw_parameter` / `write_register`) inside `utils.py` → `async_write_with_cloud_fallback`. Reached via `_execute_local_with_fallback` (switch), `number.py` → `_write_parameter` / `_write_voltage_register`, the select/time `local_write` closures, and the coordinator's battery-regime write | **eg4**, one policy, one place (§1) |
+| **Router bypass** | An entity calls a coordinator primitive directly, outside the router (§1.3) | eg4, ad hoc per entity |
+| **Switch action** | `base_entity.py` → `_execute_switch_action`, called **directly by an entity**: resolves `getattr(inverter, method_ref)` — a pylxpweb method *name* — or takes a pre-bound callable, and awaits it | **pylxpweb**, per method (§2) |
+| **Direct library call** | An entity awaits a pylxpweb method on the inverter object with no eg4 helper at all — e.g. `await inverter.set_grid_peak_shaving_power(...)` | **pylxpweb**, per method (§2) |
+| **Background (no entity)** | Coordinator-scheduled writes with no entity involved — e.g. the hourly portal DST reconciliation | The calling code |
 
-`verified-against-code` — `base_entity.py` → `_execute_switch_action` (`:1543-1668`) contains **no**
-call to `async_write_with_cloud_fallback`; the router is invoked at `base_entity.py:1788` inside
-`_execute_local_with_fallback`, which is a different helper.
+`verified-against-code` at `9f6d6e2` — call sites cited in §1, §1.3, §2.2 and §0.3.
 
-> **A grep over the three coordinator primitives under-reports the local-write surface.** It finds
-> mechanism A and its bypasses and is blind to mechanism B, because on that path the register
-> write happens inside pylxpweb and no `coordinator.write_*` call appears in this repo at all.
-> Any audit that greps only the primitives will report a clean, exhaustive-looking count over an
-> incomplete frame.
+> **Routing and fallback are properties of the pylxpweb method, not of the shape.** An earlier
+> version of this page tabulated "cloud fallback: no" against the switch-action shape. That is
+> wrong: several library methods implement their **own** cloud fallback internally, so a write eg4
+> issued with no fallback of its own may still fall back one layer down. What eg4 loses on the
+> non-router shapes is *its* fallback, *its* link-down short-circuit and *its* `local_values`
+> seeding — not necessarily fallback as such. **You cannot infer routing or fallback from the eg4
+> side at all; open the method.** (§2.1)
 
-> **One helper, two roles — do not conflate them.** `_execute_switch_action` is *also* used as the
-> router's own cloud leg (`base_entity.py:1766`, inside `_execute_local_with_fallback`'s
-> `cloud_write` closure). That usage is mechanism A. Mechanism B is specifically an **entity
-> calling `_execute_switch_action` directly**, with no router above it
-> (`verified-against-code` — the two direct call sites are enumerated in §2.2).
+### 0.2 The derivation
 
-Two further paths write, but neither can reach a register locally, so neither is part of the
-local-write surface: `_execute_cloud_function_action` (the generic cloud `control_function` API)
-and the cloud-store writes in `EG4CloudStoreSwitch._async_set_enabled` / `EG4DSTSwitch._set_dst`,
-which call `client.api.control.*` and `station.set_daylight_saving_time` respectively
-(`verified-against-code` — `base_entity.py`, `switch.py:721-752`, `switch.py` → `_set_dst`).
+| Step | Check |
+|---|---|
+| 1 | `grep -nE '\.write_(named_parameter\|raw_parameter\|register)\(' *.py` — router traffic and its bypasses (§1.4 has the closure-vs-bypass test) |
+| 2 | `grep -n '_execute_switch_action' *.py` — switch-action routes (§2.3) |
+| 3 | `grep -rnE 'await (inverter\|device)\.[a-z_]+\(' number.py select.py switch.py time.py button.py update.py` — direct library calls; discard reads (`refresh`) and docstring examples |
+| 4 | For every pylxpweb method reached by steps 2–3, **resolve the runtime class** and read that method's routing policy (§2.1) |
+| 5 | Search the coordinator for scheduled writes with no entity (§0.3, blind spot **d**) |
+| 6 | Cross every writable register against [`40-hardware/registers.md`](../40-hardware/registers.md) |
 
-## 1. Mechanism A — the router: `async_write_with_cloud_fallback`
+### 0.3 Four blind spots, each with the case that proved it
+
+Every one of these produced a confident, wrong completeness claim in this chapter.
+
+| # | Blind spot | Worked example |
+|---|---|---|
+| **a** | A coordinator-primitive grep misses **library-mediated writes** entirely, because no `coordinator.write_*` call appears in this repo for them | `EG4QuickChargeSwitch` writes **H233** through `enable_quick_charge`. Invisible to step 1 |
+| **b** | An `_execute_switch_action` grep misses **direct `inverter.<method>()` calls** | `number.py:1291` → `set_grid_peak_shaving_power` writes **H206**; `select.py:266` → `set_operating_mode`. `select.py` and `number.py` contain **zero** `_execute_switch_action` calls, so step 2 cannot see them |
+| **c** | Reading `base.py` misses **runtime subclass overrides** — resolve the actual class | Six of the seven `_WORKING_MODE_METHODS` are client-first in `base.py`, but `HybridInverter` overrides `enable_pv_sell_to_grid` and "deliberately remains transport-first", writing **H179 b3** locally (pylxpweb `204b95d`, `devices/inverters/hybrid.py:1294`). A previous revision of this page concluded "exactly one entity" from `base.py` alone and was wrong |
+| **d** | An entity-scoped search misses **background writes** | `coordinator_mixins.py:4563` → `_perform_dst_sync` calls `station.sync_dst_setting()` hourly. `dst_sync_enabled` defaults to **`True`** (`coordinator.py:408`). No entity is involved |
+
+Whole table: `verified-against-code` at `9f6d6e2` / pylxpweb `204b95d`.
+
+### 0.4 Partial inventory — observed 2026-08-09
+
+`asserted-unverified` (single walk, date above). **Every previous version of this inventory was
+incomplete**, including ones that read as exhaustive. Treat it as a starting point for §0.2, never
+as the answer.
+
+| Control | Shape | Library method / primitive | Register |
+|---|---|---|---|
+| `QuickChargeDurationNumber` | router bypass | `write_named_parameter` | H234 |
+| `StartChargePowerNumber` | router bypass | `write_raw_parameter` (raw) | H117 |
+| `EG4QuickChargeSwitch` | switch action | `enable_quick_charge` / `disable_quick_charge` — transport-first | H233 |
+| `EG4WorkingModeSwitch` (`FUNC_PV_SELL_TO_GRID_EN`) | router, or switch action on the cloud-only branch | `HybridInverter.enable_pv_sell_to_grid` — **transport-first override** | H179 b3 |
+| `GridPeakShavingPowerNumber` | direct library call | `set_grid_peak_shaving_power` — transport-first with internal cloud fallback | H206 |
+| `EG4OperatingModeSelect` | direct library call | `set_operating_mode` → `set_standby_mode` | — |
+| DST reconciliation | background | `station.sync_dst_setting()` | cloud-side |
+
+Register grades belong to [`40-hardware/registers.md`](../40-hardware/registers.md) — read them
+there. The register-side criterion and the wider surface are owned by
+[README](../README.md#the-rule-is-not-enforced-anywhere-in-the-code).
+
+### 0.5 Cloud-only writers
+
+**Non-exhaustive, and scoped strictly to writes that cannot reach a register locally.** Derive with
+§0.2 if completeness matters. Known: `_execute_cloud_function_action` (the generic
+`control_function` API); `EG4CloudStoreSwitch._async_set_enabled` and `EG4DSTSwitch._set_dst`;
+and the direct `client.api.control.*` writers in `ACCoupleSOCNumberBase` (`number.py:1698`),
+`SmartLoadNumber` (`number.py:1996`) and `GridSellBackPowerNumber` (`number.py:2103`).
+`verified-against-code` at `9f6d6e2`.
+
+## 1. The router: `async_write_with_cloud_fallback`
 
 Location: `utils.py:185-270`. Evidence for this whole section: `verified-against-code`.
 
@@ -137,13 +184,14 @@ Evidence: `verified-against-code` — `utils.py:259-267` and its docstring; seed
 **Rule:** any new call site that passes a `cloud_write` must also pass `local_values`, unless the
 control genuinely has no local representation.
 
-### 1.3 The two router bypasses
+### 1.3 Router bypasses
 
-**Scope: this is a claim about mechanism A only.** Two controls that *use* a coordinator primitive
-do not route it through `async_write_with_cloud_fallback`. It says nothing about mechanism B,
-whose writes never touch a coordinator primitive and so cannot appear in this count at all. Both
-review engines that independently re-derived "exactly two" were right inside this scope, and the
-scope was not stated — that omission is what §0 now fixes.
+**Scope: the router only, and not asserted complete.** These are the coordinator-primitive writes
+that do *not* route through `async_write_with_cloud_fallback`, as derived by §1.4 at `9f6d6e2`.
+Re-derive rather than trusting the list. It says nothing about the library-mediated shapes, whose
+writes never touch a coordinator primitive and so cannot appear here at all — two review engines
+independently re-derived this same set and were right within a scope that was itself too narrow,
+which is what §0 exists to prevent.
 
 Both call a coordinator write primitive directly from `async_set_native_value`. Neither is a
 defect in itself — each has a reason — but **the router's guarantees do not extend to them**, and
@@ -171,10 +219,10 @@ and `StartChargePowerNumber.async_set_native_value` at `9f6d6e2`.
 >
 > The register grade is the keeper's — read it there, not here.
 
-### 1.4 Deriving mechanism A's population
+### 1.4 Deriving the router's population
 
-**Scope: mechanism A only.** This derives which coordinator-primitive writes go through the
-router and which bypass it. It cannot see mechanism B (§2), and it is not the full local-write
+**Scope: the router only.** This derives which coordinator-primitive writes go through the
+router and which bypass it. It cannot see the library-mediated shapes (§2), and it is not the full local-write
 surface — which registers are reachable, and which stand on an unproven mapping, is derived in
 [README](../README.md#the-rule-is-not-enforced-anywhere-in-the-code), which owns that question.
 
@@ -207,11 +255,15 @@ router through `base_entity.py` → `_execute_local_with_fallback`.
 > closure at `base_entity.py:1731`. A grep that stops at the first enclosing `def` over-reports;
 > a grep scoped to the four platform files misses the site entirely.
 
-## 2. Mechanism B — `_execute_switch_action`
+## 2. Library-mediated writes
 
-`base_entity.py:1543-1668`. Evidence for this section: `verified-against-code`.
+These shapes put the transport decision inside pylxpweb: `_execute_switch_action`, and an entity
+awaiting a library method directly. They are grouped because the consequence is identical —
+**eg4 does not choose the transport, and no eg4-side reading can tell you what it chose.**
 
-### 2.1 What it does, and why the transport is not eg4's decision
+### 2.1 What they do, and why the transport is not eg4's decision
+
+`_execute_switch_action` (`base_entity.py:1543-1668`):
 
 ```python
 method = (getattr(inverter, method_ref, None)      # a pylxpweb method NAME
@@ -220,66 +272,69 @@ method = (getattr(inverter, method_ref, None)      # a pylxpweb method NAME
 success = await method(**(enable_kwargs or {})) if turn_on else await method()
 ```
 
-eg4 names a method; **pylxpweb performs the write and chooses the transport.** The body contains
-no call to `async_write_with_cloud_fallback`, so §1's fallback, link-down short-circuit and
-`local_values` seeding are simply not in play. What it *does* keep is the optimistic envelope: it
-delegates to `_optimistic_write_envelope`, so §5's retention and TTL escape apply, and a caller
-may seed the parameter cache through the separate `seed_param_key` channel.
+A direct library call skips even that indirection — `await inverter.set_grid_peak_shaving_power(
+power_kw=value)` (`number.py:1291`).
 
-The code says so explicitly at the log site: *"The routing (local transport vs cloud API) is
+Either way eg4 names a method and **pylxpweb performs the write and chooses the transport.**
+`_execute_switch_action`'s body contains no call to `async_write_with_cloud_fallback`, so §1's
+fallback, link-down short-circuit and `local_values` seeding are not in play. It does keep the
+optimistic envelope — it delegates to `_optimistic_write_envelope`, so §5's retention and TTL
+escape apply, and a caller may seed the parameter cache through the separate `seed_param_key`
+channel. A direct library call gets whatever its own call site arranges.
+
+The code states the consequence at the log site: *"The routing (local transport vs cloud API) is
 decided by the called method itself, so the log names the method, not a transport."*
 
-> **The per-method policies are not uniform, and that is the trap.** Two methods reachable through
-> this mechanism route in opposite directions:
+> **Routing and fallback are per method, and the method may not be the one you read.** Three
+> traps, all of which have produced a wrong conclusion in this chapter:
 >
-> | pylxpweb method | Routing policy, from its own docstring |
+> | Trap | Case |
 > |---|---|
-> | `enable_quick_charge` | **Transport-first** — "With a local transport (Modbus/Dongle, including HYBRID — which prefers local) this writes … to holding register 233 bit 0." Cloud only "without a transport" |
-> | `enable_ac_charge_mode` | **Client-first** — "cloud and HYBRID instances keep the dedicated cloud endpoint, while a clientless LOCAL instance uses the transport's … RMW" |
+> | Policies point in opposite directions | `enable_quick_charge` is **transport-first** ("With a local transport … this writes … to holding register 233 bit 0"); `enable_ac_charge_mode` is **client-first** ("cloud and HYBRID instances keep the dedicated cloud endpoint") — pylxpweb `204b95d`, `base.py:4011` and `:4359` |
+> | The runtime class overrides the base | `base.py:3481` `enable_pv_sell_to_grid` is client-first, but the runtime `HybridInverter` **overrides** it and "deliberately remains transport-first", writing H179 b3 via a lock-held named RMW — pylxpweb `204b95d`, `hybrid.py:1294`. **Resolve the actual class before reading a policy** |
+> | The library has its own fallback | `set_grid_peak_shaving_power` writes H206 locally "falling back to the cloud named-parameter write when no transport is attached, the link is down, or the local write fails" — pylxpweb `204b95d`, `base.py:2996`. So "eg4 provides no fallback here" does **not** mean "this write has no fallback" |
 >
-> `verified-against-code` at pylxpweb `204b95d` — `devices/inverters/base.py:4011` and `:4359`.
-> You cannot predict whether a switch-action write goes local by reading eg4. **Read the pylxpweb
-> method.**
+> **Open the method on the runtime class.** There is no eg4-side signal for any of this.
 
-### 2.2 The population, and which part of it can write locally
+### 2.2 Known callers
 
-Two entities call `_execute_switch_action` directly. They are not equivalent in risk, and the
-difference is the branch guard, not the helper:
+**Not asserted to be complete** — re-derive with §2.3. Two prior revisions of this section stated a
+population as exhaustive and both were wrong (§0.3 **b** and **c**).
 
-| Caller | Site | Guard | Can it write a register locally? |
-|---|---|---|---|
-| `EG4QuickChargeSwitch._async_set_quick_charge` | `switch.py:627` | none — this is the only write path the entity has | **Yes.** Passes `"enable_quick_charge"` / `"disable_quick_charge"`, which are transport-first, so with a local transport attached the write goes to **H233** |
-| `EG4WorkingModeSwitch._async_set_working_mode` | `switch.py:1511` | `elif self.coordinator.has_http_api() and methods:` — reached only when the mode has **no** local parameter mapping (or the pylxpweb version guard nulled it), and only when a cloud client exists | **No.** **All seven** `_WORKING_MODE_METHODS` targets are client-first, and the guard requires a client, so the client branch is always taken |
+| Caller | Site | Shape | Library method | Can it write a register locally? |
+|---|---|---|---|---|
+| `EG4QuickChargeSwitch._async_set_quick_charge` | `switch.py:627` | switch action | `enable_quick_charge` / `disable_quick_charge` | **Yes** — transport-first, targets **H233** (§2.4) |
+| `EG4WorkingModeSwitch._async_set_working_mode` | `switch.py:1511` | switch action, on the `elif self.coordinator.has_http_api() and methods:` branch | one of `_WORKING_MODE_METHODS` | **Yes, for one mode.** Six of the seven are client-first in `base.py`, but `HybridInverter` overrides `enable_pv_sell_to_grid` to stay transport-first (**H179 b3**) |
+| `GridPeakShavingPowerNumber.async_set_native_value` | `number.py:1291` | direct library call | `set_grid_peak_shaving_power` | **Yes** — transport-first with internal cloud fallback, targets **H206** |
+| `EG4OperatingModeSelect.async_select_option` | `select.py:266` | direct library call | `set_operating_mode` → `set_standby_mode` | Read the runtime class per §2.1 |
 
-`verified-against-code` — call sites and guards read at `9f6d6e2`. The working-mode conclusion was
-checked against **all seven** entries of `_WORKING_MODE_METHODS`, not extrapolated from one: at
-pylxpweb `204b95d`, `enable_ac_charge_mode` (`:4359`), `enable_pv_charge_priority` (`:4451`),
-`enable_forced_discharge` (`:4543`), `enable_peak_shaving_mode` (`:4635`),
-`enable_battery_backup_ctrl` (`:2667`), `enable_feed_in_grid` (`:3394`) and `enable_pv_sell_to_grid`
-(`:3481`) each document "client-first" routing.
+`verified-against-code` — call sites and guards at `9f6d6e2`; routing policies at pylxpweb
+`204b95d` as cited in §2.1.
 
-That matters because of the branch's second entry condition: the pylxpweb **version guard** can
-null `param_name` on a legacy flat-HYBRID install that *does* have a local transport attached
-(`switch.py:1473-1481`). Were any of the seven transport-first, that install would take a local
-write through mechanism B. None is — so the conclusion holds, but it rests on a property of the
-library, not on the guard.
+> **Why the working-mode row changed.** A previous revision checked all seven
+> `_WORKING_MODE_METHODS` in `base.py`, found them uniformly client-first, and concluded the branch
+> could never write locally. The check was thorough and the conclusion was wrong, because the
+> runtime class is `HybridInverter` and it overrides one of the seven. The branch is reachable with
+> a live transport: the pylxpweb **version guard** (`switch.py:1473-1481`) nulls `param_name` on a
+> legacy flat-HYBRID install that still has one attached.
+>
+> H179 b3 is `hardware-toggle-proven` in the keeper, so that particular write is not on an unpinned
+> mapping. The defect was the reasoning, not the outcome — which is exactly why §0 publishes blind
+> spots instead of counts.
 
-**So mechanism B's local-write population is exactly one entity: Quick Charge, targeting H233.**
-That is a derived result, not a maintained list — re-derive it with §2.3 rather than trusting the
-count, and note that it would change the moment a working mode gained a transport-first method or
-a new entity called the helper directly.
+### 2.3 Deriving the callers
 
-### 2.3 Deriving mechanism B's population
-
-| Step | Command / check |
+| Step | Check |
 |---|---|
 | 1 | `grep -n '_execute_switch_action' switch.py number.py select.py time.py base_entity.py` |
-| 2 | Discard the definition, docstring mentions, and **`base_entity.py:1766`** — that call is the router's own cloud leg (mechanism A), not a direct entity call |
-| 3 | For each remaining call, read the **branch guard**. A branch gated on `has_http_api()` with client-first methods cannot write locally |
-| 4 | For each `enable_method` / `disable_method` value, **open the pylxpweb method and read its routing policy.** Transport-first means a local register write; client-first with a client present means cloud. There is no eg4-side signal for this |
-| 5 | Cross the resulting registers against [`40-hardware/registers.md`](../40-hardware/registers.md) |
+| 2 | Discard the definition, docstring mentions, and **`base_entity.py:1766`** — that call is the router's own cloud leg, not a direct entity call |
+| 3 | `grep -rnE 'await (inverter\|device)\.[a-z_]+\(' number.py select.py switch.py time.py button.py update.py` — direct library calls. Discard reads (`refresh`) and docstring examples (`base_entity.py:1009`) |
+| 4 | For each remaining call, read the **branch guard** — but do not stop there: a guard that forces a cloud client does not force a cloud *write* if the method is transport-first |
+| 5 | For every method reached, **resolve the runtime class** (`HybridInverter`, not `Inverter`) and read that class's routing policy |
+| 6 | Cross the resulting registers against [`40-hardware/registers.md`](../40-hardware/registers.md) |
 
-`verified-against-code` — the procedure was run at `9f6d6e2` / pylxpweb `204b95d` to produce §2.2.
+`verified-against-code` — run at `9f6d6e2` / pylxpweb `204b95d` to produce §2.2. Steps 3 and 5 exist
+because their absence produced §0.3 **b** and **c**.
 
 ### 2.4 The H233 exposure this makes visible
 
