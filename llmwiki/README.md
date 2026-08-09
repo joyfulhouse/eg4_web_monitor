@@ -215,6 +215,15 @@ Cross each writable target against
 [`40-hardware/registers.md`](40-hardware/registers.md). Anything the keeper grades below
 rung 2, or does not carry a row for at all, is a write standing on an unproven mapping.
 
+**Match on raw register constants as well as parameter names.** Steps 1-3 find entities
+through their named parameters (`PARAM_HOLD_*`, `FUNC_*`), so a search built only on those
+names silently misses any entity that addresses a register **by number** through a `REG_*`
+constant. `StartChargePowerNumber` is the worked example: it writes register 117 as
+`coordinator.write_raw_parameter(REG_PTOUSER_START_CHARGE, …)` and appears in no
+parameter-name search at all. A review of this surface that greps only parameter names will
+report a clean result and be wrong — that is not hypothetical, it is how H117 was missed.
+Grep `REG_` alongside `PARAM_` and reconcile both against the keeper.
+
 **Family gates do not narrow this set as much as they appear to.** `utils.py` →
 `is_family_control_supported` fails **open** by design: a device whose family is missing or
 `UNKNOWN` keeps every control. Never assume a family gate suppressed anything.
@@ -231,43 +240,74 @@ states "without a cloud client the local error propagates unchanged"):
 #### Registers the keeper marks unresolved
 
 This table is **not** the list of violations — the derivation above is. It is the narrower
-set where **the keeper itself flags writability or family scope as unresolved or
-disputed**, which makes it a projection of the keeper rather than a hand-maintained list:
-it changes when the keeper's rows change, and that is the only reason it is safe to
-publish here. Grades are quoted from the keeper; this section reports, it does not award.
+set satisfying **both** of these at once:
 
-| Register | Entity | What the keeper marks unresolved |
+1. the keeper flags the register's **writability or family scope** as unresolved or
+   disputed, **and**
+2. a **shipped entity writes it**.
+
+Both conjuncts are load-bearing. The keeper carries other unresolved rows — H231 and the
+"Function unknown" bits H110 b5/b6/b8/b9 and H179 b8 — that no entity writes; they fail the
+second conjunct and are correctly absent here. Reading the criterion as condition 1 alone
+would predict a much larger table than this one.
+
+Because condition 1 is read off the keeper, this table is a **projection** of it rather
+than a hand-maintained list — it moves when the keeper's rows move, which is the only
+reason it is safe to publish here. That coupling is real and it is tight: this table went
+stale inside a single review round when the keeper gained rows while this page was being
+edited. If it disagrees with the keeper, the keeper is right and this table is behind.
+Grades below are quoted from the keeper; this section reports, it does not award.
+
+| Register | Entity that writes it | What the keeper marks unresolved |
 |---|---|---|
 | H179 b11 | AC Couple switch | `lineage-inferred`; status "current; live write risk unresolved" |
 | H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`; status "current; write unresolved" |
 | H110 b14 | Off-Grid / Green Mode switch | Proven on the tested 18kPV, but the switch is created for *every* family and the 12000XP/6000XP row is `lineage-inferred`, status **unresolved** |
+| H227 | System Charge SOC Limit number | `hardware-toggle-proven`, but **scoped to the one tested 18kPV**; status "current on tested unit; **cross-family write risk unresolved**". Created in the always-on block for every inverter that reaches it, with no family gate |
+| H117 | Start Charge Power Threshold number | `asserted-unverified`, status **unresolved** — the keeper records "no cloud name or validated behavior" |
 
-The third is the sharpest, because H110 is the register from issue #476: its Green-Mode bit
-was documented as b8 for years, the wrong b8 write was firmware-ACKed, and no readback
-detected it. A local-first write on an unresolved family mapping of that same register is
-the #476 setup, not an analogy to it.
+Two of these deserve singling out.
 
-**A register's absence from this table means only that the keeper has not flagged it** — it
-is not a clearance. A mapping proven on one tested unit and shipped to every family carries
-the same hazard whether or not a row says so.
+**H110 b14** is the register from issue #476: its Green-Mode bit was documented as b8 for
+years, the wrong b8 write was firmware-ACKed, and no readback detected it. A local-first
+write on an unresolved family mapping of that same register is the #476 setup, not an
+analogy to it.
+
+**H117 is the sharpest single case here.** It is a **raw** register write —
+`coordinator.write_raw_parameter(REG_PTOUSER_START_CHARGE, …)`, bypassing the router
+entirely, so it gets none of the router's fallback, cache-seeding or error handling — to a
+register with no validated behaviour and no cloud name to check it against. Two things
+narrow the exposure without touching the risk: the entity is **disabled by default**
+(`_attr_entity_registry_enabled_default = False`), and it is only created where a local
+register path exists (`has_local_register_path`). Fewer installations have it live; for
+any that enable it, the write is exactly as unproven. `verified-against-code`
+(`number.py` → `StartChargePowerNumber`).
+
+**A register's absence from this table is not a clearance.** It means only that the keeper
+has not flagged it, or that nothing writes it yet. A mapping proven on one tested unit and
+shipped to every family carries the same hazard whether or not a row says so — H227 sat in
+exactly that position, unflagged, until the keeper caught up.
 
 #### Snapshot of the wider surface — 2026-08-09, not exhaustive
 
 A reviewer walked the local-write surface on **2026-08-09** and found these classes beyond
-the table above, all written local-first to mappings the keeper grades below rung 2 or does
-not grade at all. **This is a dated observation, not a maintained list** — re-derive with
-the procedure above rather than trusting it. `asserted-unverified` (reviewer walk,
-2026-08-09; cross-check each entry against the keeper and the code before relying on it).
+the table above, all written to mappings the keeper grades below rung 2 or does not grade
+at all. **This is a dated observation, not a maintained list** — re-derive with the
+procedure above rather than trusting it. `asserted-unverified` (reviewer walk, 2026-08-09;
+cross-check each entry against the keeper and the code before relying on it).
+
+The same walk surfaced H227 and H117, which the keeper has since flagged; they have moved
+up into the table above. That is the intended direction of travel — an entry leaves this
+snapshot when the keeper takes a position on it, and the snapshot is where a register waits
+in the meantime.
 
 | Class | Registers | Note as observed |
 |---|---|---|
-| Charge-SOC limit | H227 | Proof scoped to **one tested 18kPV**, entity created for every inverter in the always-on block with no family gate. Arguably sharper than anything in the table above, which is why absence from that table is not clearance |
 | Working-mode bits | H110 b3 (Share Battery), b4 (Charge Last) | `lineage-inferred` |
 | Battery current + SOC cutoffs | H101, H102, H105, H125 | `lineage-inferred`, always-on block — the most battery-safety-adjacent scalars shipped |
 | Voltage cutoffs | H100, H169 | `lineage-inferred` |
 | No ledger row at all | reg 22 (PV start voltage), H20 (PV input mode) | Not graded anywhere |
 | Function word without a per-bit map | H21 b0, b7, b10, b11, b15 | Word graded `lineage-inferred` |
-| Raw register write | H117 | `asserted-unverified`; no cloud name and no validated behaviour |
 
 **Where `portal-correlated` sits.** The snapshot deliberately excludes mappings the keeper
 grades `portal-correlated` — H66, H74, H67, H160, H116, H82, H83, H202, H103, H110 b1,
