@@ -187,18 +187,18 @@ by `grep -n '^class .*Mixin'` across the three coordinator modules.
 | Of those, defined elsewhere | 2 — `HTTPUpdateMixin` in `coordinator_http.py`, `LocalTransportMixin` in `coordinator_local.py` |
 | Total class bases | 9 — the eight mixins plus HA's `DataUpdateCoordinator[dict[str, Any]]` |
 
-> **Two documentation claims are wrong here, in opposite directions.**
+Whole table: `verified-against-code` — counted from the class bases and from `grep -n '^class .*Mixin'` across `coordinator_mixins.py`, `coordinator_http.py` and `coordinator_local.py` at `9f6d6e2`.
+
+> **Two counting errors are easy to make here, and both are in circulation.**
 >
-> - Repo `CLAUDE.md` lists **six** mixins, omitting `HTTPUpdateMixin` and `LocalTransportMixin` —
->   which are not merely present but come **first** in the MRO. `asserted-unverified` (the claim as
->   written in `CLAUDE.md`); the eight-mixin reality is `verified-against-code`.
-> - An earlier revision of this page said "nine mixins", conflating the eight mixins with the nine
->   total base classes. It is corrected above. A plausible upstream number does not survive contact
->   with the code — which is what this wiki is for.
->
-> `HTTPUpdateMixin` and `LocalTransportMixin` are named "mixins" and live in the transport modules
-> rather than in `coordinator_mixins.py`; searching only `coordinator_mixins.py` is what produces
-> the six-mixin count.
+> - **Undercounting to six.** Repo `CLAUDE.md` lists six mixins, omitting `HTTPUpdateMixin` and
+>   `LocalTransportMixin` — which are not merely present but come **first** in the MRO. The cause
+>   is mechanical: those two are named "mixin" but live in the transport modules, so a search
+>   scoped to `coordinator_mixins.py` finds only six. `asserted-unverified` for the claim as
+>   written in `CLAUDE.md`; the eight-mixin reality is `verified-against-code`.
+> - **Overcounting to nine.** Nine is the number of **base classes**, one of which
+>   (`DataUpdateCoordinator`) is Home Assistant's and is not a mixin. Count the mixins, or count
+>   the bases, but do not report one as the other.
 
 All eight mixins inherit `_MixinBase`, which under `TYPE_CHECKING` is a stub class declaring the
 coordinator attributes for mypy and **at runtime is `object`, so the MRO is unchanged**

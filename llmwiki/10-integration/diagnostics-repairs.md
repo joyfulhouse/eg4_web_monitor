@@ -78,8 +78,8 @@ All rows: `verified-against-code`.
 
 ### 3.1 Residual limitation — aliasing is not a redaction guarantee
 
-An earlier revision of this page said "every serial" is aliased. That is **false**, and the gap is
-worth stating precisely because a reporter attaches this output to a public issue.
+Aliasing is **not** a guarantee that no serial reaches the output. The gap is worth stating
+precisely, because a reporter attaches this output to a public issue.
 
 | Claim | Grade |
 |---|---|

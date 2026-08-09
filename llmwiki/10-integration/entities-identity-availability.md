@@ -117,7 +117,7 @@ gap silently *drops* the key rather than nulling it. That is why `fault_code` re
 |---|---|
 | The coordinator omits a sensor key whose value is `None` | `verified-against-code` (`coordinator_mappings.py` → `_map_device_properties`, and the transport/energy overlays) |
 | That omission produced the divergent #261 states in the field | `asserted-unverified` — `memory/issue-261-hybrid-sensor-flicker.md` |
-| The same defect shape recurred on #479 and was caught only after the pre-merge review rounds | `asserted-unverified` — `memory/issue-479-cloud-lost-freeze.md` |
+| The same defect shape recurred on #479 | `asserted-unverified` — `memory/issue-479-cloud-lost-freeze.md` |
 
 **Engineering rule (applies to the current implementation):** never gate bank/battery data by
 *dropping keys*. **Extract-then-null** instead. Dropping keys reproduces the #261 unavailable
@@ -311,8 +311,8 @@ All rows: `verified-against-code`.
 
 ## 8. Renaming and retiring entities
 
-| Rule | Consequence |
-|---|---|
-| Statistics carry over **only** if `unique_id` is unchanged | `asserted-unverified` — Home Assistant recorder behaviour as relied on in `memory/queue-cleanup-2026-07-26.md`; not re-verified against HA source here |
-| A semantic level-shift on an **unchanged** `unique_id` must be documented as breaking | Nothing "breaks" mechanically, but the recorded history changes meaning mid-series |
-| Renaming an entity's display name changes the slug for **new** registrations only | HA freezes `entity_id` at first registration |
+| Rule | Consequence | Grade |
+|---|---|---|
+| Statistics carry over **only** if `unique_id` is unchanged | Changing a `unique_id` orphans the recorded history | `asserted-unverified` — Home Assistant recorder behaviour as relied on in `memory/queue-cleanup-2026-07-26.md`; not re-verified against HA source here |
+| A semantic level-shift on an **unchanged** `unique_id` must be documented as breaking | Nothing breaks mechanically, but the recorded series changes meaning mid-stream, and no consumer can detect that from the data | `inferred` — follows from the row above plus the fact that HA stores statistics against `unique_id` with no versioning |
+| Renaming an entity's display name affects **new** registrations only | Because `entity_id` is frozen at first registration — see §4.2, which owns that fact and its evidence | `inferred` — from the freeze behaviour in §4.2 |

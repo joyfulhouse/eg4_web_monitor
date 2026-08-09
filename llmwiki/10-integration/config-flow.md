@@ -41,9 +41,18 @@ from custom_components.eg4_web_monitor._config_flow import (  # noqa: F401
 __all__ = ["EG4ConfigFlow", "EG4OptionsFlow"]
 ```
 
-> Tests patch `LuxpowerClient` at **`config_flow.LuxpowerClient`** — through the shim's module
-> namespace. (`verified-against-code` — the patch target used in `tests/test_config_flow.py`; the
-> shim's existence is `verified-against-code` at `config_flow.py`.)
+> **Test patch target.** The cloud client is patched at
+> **`custom_components.eg4_web_monitor._config_flow.LuxpowerClient`** — the `_config_flow`
+> **package** namespace, not the shim.
+>
+> | Claim | Grade |
+> |---|---|
+> | That is the exact string the tests use | `verified-against-code` — `tests/test_config_flow.py:141`; `tests/test_cloud_session_isolation.py:496`, `:533`, `:563`, `:592` |
+> | It works because `_config_flow/__init__.py` does `from pylxpweb import LuxpowerClient`, binding the name in that module | `verified-against-code` — `_config_flow/__init__.py:29`, construction site at `:1409-1411` |
+> | Patching `config_flow.LuxpowerClient` is **impossible** — the shim imports only `EG4ConfigFlow` and `EG4OptionsFlow`, so the name does not exist in that namespace | `verified-against-code` — the shim is reproduced in full above |
+>
+> The repo's own notes have carried the shim-namespace version of this; it is wrong, and patching
+> through the shim would raise `AttributeError` rather than silently miss.
 
 | File | Responsibility |
 |---|---|
@@ -119,7 +128,11 @@ Evidence: `verified-against-code` — every `async_step_*` method enumerated fro
 | `async_step_reauth` | `:807` |
 | `async_step_reauth_confirm` | `:811` |
 
-`verified-against-code`. Both are CI-enforced (Silver tier requires their presence).
+`verified-against-code`. Both names are also **CI-enforced**: the Silver
+"Reauthentication Flow" job greps `_config_flow/__init__.py` for `async_step_reauth` and
+`async_step_reauth_confirm` and fails the build if either is absent
+(`verified-against-code` — `.github/workflows/quality-validation.yml`, job
+`Silver - Reauthentication Flow`). Note the job greps the **package** file directly, not the shim.
 
 ## 6. Reconfigure
 

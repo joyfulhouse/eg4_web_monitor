@@ -208,7 +208,7 @@ about it — with a pointer for the underlying claim.
 |---|---|
 | AC Charge SOC Limit is gated off `EG4_OFFGRID` with a one-shot Repairs issue | H67 is grid-tied-only; see the H67 rows in the ledger |
 | Start/End Battery SOC numbers exist as the off-grid equivalents | H160 / H161; see the ledger |
-| Quick Charge status **and** control are cloud-routed on off-grid families | Off-grid firmware rejects H233; see the ledger |
+| Quick Charge status **and** control are cloud-routed on off-grid families | Off-grid firmware answers an H233 access with an ILLEGAL DATA ADDRESS exception response, family-wide. The register row is in the ledger; the **rejection observation** and its grade live in [../60-history/bug-postmortems.md](../60-history/bug-postmortems.md) under #296/#308 — cite that, not the register row, which carries the address and not the rejection |
 | Generator Power and its two siblings are suppressed on `EG4_OFFGRID` (and purged, with a Repairs issue), but kept on `EG4_HYBRID` | Off-grid I123 is not generator power; see the ledger and `../40-hardware/firmware-re.md` |
 | The Off-Grid/green switch writes bit 14 of H110 | H110 bit assignment; see the ledger and **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md) |
 
@@ -224,12 +224,12 @@ Grades for the left column: `verified-against-code` — the gates and purges exi
 
 | Fact | Evidence |
 |---|---|
-| Local `read_named_parameters` returns the **raw register** (decivolts: reg 228 → `595`). Cloud `read_parameters` returns the **already-scaled value in volts** (`"59.5"`, whole-volt regs as `"40"`) | `hardware-proven` — live cross-transport read of the same parameter, raw pair `595` vs `"59.5"`; `memory/voltage-param-scaling-cloud-vs-local.md` |
+| Local `read_named_parameters` returns the **raw register** (decivolts) while cloud `read_parameters` returns the **already-scaled value in volts** — the same reading, two representations | The **transformation** is `verified-against-code` (the local read path returns the register word; the cloud path returns a scaled string). The **agreement** between the two — a live read of reg 228 giving `595` locally and `"59.5"` from the portal — is `portal-correlated` (`memory/voltage-param-scaling-cloud-vs-local.md`). This is one reading seen twice, **not** a before/after pair, so it does not meet the `hardware-proven` bar |
 | A blind ÷10 makes the cloud read 10× low → fails the entity range → blank/unavailable | `verified-against-code` — normalization at `number.py:283-294` |
 | Normalize **by magnitude** (`value/10 if value >= 100 else value`) for battery-bank voltages: 400–640 decivolts vs 40–64 volts is unambiguous | `verified-against-code` — `number.py:283-294` |
 | This trick **cannot** work for PV Start Voltage (90–500 V overlaps the decivolt range) — that needs a mode-aware fix, shipped as `VoltageNumberSpec.decivolt_threshold = 600` | `verified-against-code` — `number.py:2739` (`VoltageNumberSpec`) |
 | **The write side is uniform:** raw decivolts (value × 10) for both transports. Only reads need normalization | `verified-against-code` — `number.py:491-536` |
-| Cloud **named** writes take engineering units; the raw→string conversion must use the canonical ScaleFactor (`595 → "59.5"`, `%g` format) | `hardware-proven` — write→readback→restore delta test during the cloud-write repair; recorded in `memory/cloud-raw-register-write-broken.md` |
+| Cloud **named** writes take engineering units; the raw→string conversion must use the canonical ScaleFactor (`%g` format) | The conversion is `verified-against-code` (pylxpweb's named-write path applies the ScaleFactor). That a write→readback→restore delta test succeeded is `verified-against-code` for the **code path**; that the write reached the intended physical setting is `asserted-unverified` — a readback confirms storage and transport, never the physical semantic (`memory/cloud-raw-register-write-broken.md`) |
 | Unit conventions per register (energy resolution, power units, charge-power units, current scaling) | **Owned by [../40-hardware/registers.md](../40-hardware/registers.md)**, which grades each register individually — several energy rows there are `lineage-inferred`, not proven. Do not summarise them as a single "everywhere" rule |
 
 ### 3.1 Compare physical values, never scale symbols
@@ -312,8 +312,8 @@ reconciled:
 
 This is **C4** in
 [../60-history/open-contradictions.md](../60-history/open-contradictions.md#c4--consumption-source-an-early-conclusion-was-reversed-and-both-texts-still-read-as-current),
-status **UNRESOLVED**. An earlier revision of this page issued the later position as a "must
-never" imperative; that resolved the contradiction by fiat and is retracted.
+status **UNRESOLVED**. Neither position is adopted here: issuing the later one as a "must never"
+imperative would resolve the contradiction by fiat, which the conventions forbid.
 
 What is safe to act on today:
 
@@ -408,7 +408,7 @@ What this page owns is the **behavioural consequence** for the integration:
 |---|---|
 | **Accumulate by serial, never by slot position** | `verified-against-code` — serial-keyed accumulation in `coordinator_local.py` → `_merge_round_robin_batteries` |
 | Within-page duplicate serials are disambiguated as `{serial}@pos{N}` and re-verified on the next clean read of that position | `verified-against-code` — pylxpweb; consumed in `coordinator_local.py` → the rr-cache merge |
-| **Never diagnose serial collisions from the `Pos N:` debug dump.** An earlier dump decoded only 14 of the 15 serial characters, so distinct packs printed as duplicates | `verified-against-code` — the dump was corrected in pylxpweb to print the full serial; `asserted-unverified` (`memory/issue-258-battery-rr-reg96-unreliable.md`) for the investigation it derailed |
+| **Do not diagnose serial collisions from the `Pos N:` debug dump without checking its width first.** A truncated dump printing 14 of the 15 serial characters makes distinct packs look identical | `verified-against-code` — pylxpweb now prints the full serial; `asserted-unverified` (`memory/issue-258-battery-rr-reg96-unreliable.md`) for the truncated-dump episode |
 | Rotation is **firmware-dependent and its trigger is unknown.** At least one reporter's firmware never rotates and shows a different battery count by day and by night | `asserted-unverified` — reporter capture recorded in `memory/issue-258-battery-rr-reg96-unreliable.md`; the raw page-by-page capture is not reproduced here |
 | Diagnostics must log the **RAW physical-slot → identity page** *before* accumulation. The accumulator's own dump is a merged/virtual map and will print a frozen value indefinitely | `asserted-unverified` — `memory/issue-258-battery-rr-reg96-unreliable.md` |
 | Positional battery retirement/migration is **deliberately conservative**: rotating packs and duplicate serials suppress migration for that inverter for the session; colliding canonical targets are dropped with a WARNING | `verified-against-code` — `coordinator.py` → the positional-retirement helpers |
@@ -418,11 +418,11 @@ What this page owns is the **behavioural consequence** for the integration:
 | Rule | Detail | Evidence |
 |---|---|---|
 | After a successful write, **seed the parameter cache with the written value** | Otherwise the entity displays a stale read | `verified-against-code` — `coordinator.py:1110-1144`; router seeding `utils.py:259-267` |
-| **Seed unconditionally.** A conditional seed left Quick Charge Duration showing a stale preference whenever the preceding status read had failed | | `verified-against-code` — the seed is unconditional in `coordinator.py`; `asserted-unverified` (repo `CHANGELOG.md`, v3.5.0) for the field symptom |
+| **Seed unconditionally** — never gate the seed on the success of a preceding read | A conditional seed leaves the entity showing a stale value whenever the read that would have refreshed it failed, which is exactly when the seed is needed | `verified-against-code` — the seed is unconditional in `coordinator.py`; `asserted-unverified` (repo `CHANGELOG.md`, v3.5.0) for the Quick Charge Duration field symptom |
 | Seeds must live **outside** `self.data` when the store is replaced each cycle | A HYBRID healthy-local parameter refresh **hard-replaces** `data["parameters"][serial]`, wiping cloud-only keys hourly and after every other control write. Hence `CloudParamStoreSpec` stores with their own per-serial/per-field seed registries | `verified-against-code` — `coordinator_mixins.py:303-337`, `coordinator.py:1273-1347` |
 | **Per-field** seed timestamps | A later write to one store key must not renew an older key's seed, or an in-flight read of a legitimate portal change gets clobbered | `verified-against-code` — `coordinator.py:1304-1310` |
-| A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started | Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state. (Found by a post-PR review after two tri-vendor rounds missed it) | `verified-against-code` — `coordinator.py:1273-1347` |
-| Seed TTL / confirmed grace | 1800 s / 120 s | `verified-against-code` — `coordinator.py:141`, `:146` |
+| A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started | Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state | `verified-against-code` — `coordinator.py` → the seed-supersede predicate |
+| A seed expires on its own TTL, with a shorter grace window once the write is confirmed | Bounds how long an acknowledged write can override a genuine read. Values live in `coordinator.py` — read them there rather than copying them | `verified-against-code` — `coordinator.py` → the write-seed TTL and confirmed-grace constants |
 
 Write-then-refresh retention semantics and the data-object-identity check live in
 [controls-and-writes.md](controls-and-writes.md) §3–4.
