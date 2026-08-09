@@ -5,7 +5,6 @@ canonical-for:
   - EG4 parameter read and write representation
   - spec, documentation, sample, and pylxpweb schema divergences
 sources:
-  - CLAUDE.md
   - CHANGELOG.md
   - docs/api/openapi.yaml
   - docs/api/PORTAL_ENDPOINTS.md
@@ -142,14 +141,14 @@ All `MidboxData` numeric properties are nullable. For optional port families, ze
 
 ## Verified divergence ledger
 
-This table records source conflicts so an agent does not trust whichever prose it happens to find first. `verified-against-code` each row cites its adjudicating source
+This table records source conflicts and durable traps so an agent does not trust whichever assumption or prose it happens to find first. `verified-against-code` each row cites its adjudicating source
 
-| Severity | Conflicting source | Incorrect claim | Adjudicated truth | Evidence |
+| Severity | Conflict or trap | Incorrect claim | Adjudicated truth | Evidence |
 |---|---|---|---|---|
 | **HIGH** | `pylxpweb/endpoints/devices.py:222,233-234` | Energy is Wh divided by 1000; examples use `eInvDay`/`eInvAll`. | Raw energy is **0.1 kWh divided by 10**; actual fields are `todayYielding` and `totalYielding`. | `verified-against-code` `models.py:609-627`; `constants/scaling.py:121-166`; `portal-correlated` `samples/energy.json` |
 | **HIGH** | `pylxpweb/endpoints/devices.py:188-192,204` | Runtime voltage is divided by 100; example uses `vacr / 100`. | Runtime PV/AC voltage is divided by **10**; the stale docstring is a 10x error. | `verified-against-code` `constants/scaling.py:49-59`; `models.py:449-450`; OpenAPI runtime `x-scaling` |
-| MEDIUM | `CLAUDE.md` API architecture (`asserted-unverified` source claim) | Serial numbers are 10-digit numeric strings. | Values are 10-character strings and may be alphanumeric; code does not validate numeric form. The sanitized format examples are owned by [Identifier rules and traps](./endpoints.md#identifier-rules-and-traps). | `portal-correlated` captured payload shapes documented in `docs/api/README.md`; `verified-against-code` `models.py` serial fields |
-| MEDIUM | `CLAUDE.md:155` (`asserted-unverified` source claim) | Battery-info cache is five minutes. | `client.py` uses 60 seconds. | `verified-against-code` `pylxpweb/src/pylxpweb/client.py:136` |
+| MEDIUM | Numeric-only identifier assumption | Treat a 10-character device serial as ten decimal digits and enforce numeric-only validation. | Portal serials are 10-character alphanumeric strings; code models them as strings and does not validate a digit-only form. The sanitized format examples are owned by [Identifier rules and traps](./endpoints.md#identifier-rules-and-traps). | `portal-correlated` captured payload shapes documented in `docs/api/README.md`; `verified-against-code` `models.py` serial fields |
+| MEDIUM | Stale battery-cache duration | Treat battery information as cached for five minutes. | The battery-information cache TTL is **60 seconds**. | `verified-against-code` `pylxpweb/src/pylxpweb/client.py:136` |
 | MEDIUM | `PORTAL_ENDPOINTS.md:11` (`asserted-unverified` source claim) | 41 catalog routes map to the validated spec. | The spec has 44 paths; the difference is login, installer-only plant list, and an export placeholder-name mismatch. | `verified-against-code` machine comparison of `docs/api/openapi.yaml` paths with pylxpweb endpoint call sites |
 | INFO | `PORTAL_ENDPOINTS.md` versus OpenAPI | Catalog claims 251 discovered portal routes; the spec deliberately covers only the 44 pylxpweb-called paths. | Treat the catalog as a discovery map and the OpenAPI as the call-site contract. | Catalog count `asserted-unverified` `docs/api/PORTAL_ENDPOINTS.md:9-12`; spec scope `verified-against-code` `docs/api/openapi.yaml:7-13` |
 | LOW | Sample versus schema/model | `MidboxData` “has 108 fields” could imply every response has all 108. | Spec and model match at 108, but one capture has 101 because optional families can be absent. | `verified-against-code` OpenAPI/model field comparison; `portal-correlated` `samples/midbox_runtime.json` |
@@ -159,6 +158,6 @@ This table records source conflicts so an agent does not trust whichever prose i
 | LOW | OpenAPI-only view | Every relevant repository route appears in the 44 paths. | Four routes are referenced but never called (two weekly APIs, two HTML pages), two script-used firmware-download APIs are omitted, and one documented route uses another host. | `verified-against-code` repository string inventory; operational availability `asserted-unverified` with durable sources in [Seven referenced routes outside the OpenAPI spec](./endpoints.md#seven-referenced-routes-outside-the-openapi-spec) |
 | LOW | `locale/region` and `locale/country` placement | Presence in endpoint modules suggests normal client behavior. | They bypass `_request()`, hence lack its cache, backoff, reauth and application-error behavior. | `verified-against-code` `pylxpweb/src/pylxpweb/endpoints/plants.py:150-221` |
 | LOW | Quick charge/discharge symmetry | Start/stop cache behavior appears parallel. | Quick-charge start/stop invalidates its cache; quick-discharge start/stop does not. | `verified-against-code` `pylxpweb/src/pylxpweb/endpoints/control.py:612-648,702-733` |
-| LOW | `CLAUDE.md` cache-boundary wording (`asserted-unverified` source claim) | Cache is cleared before the hour boundary. | The first request **after** the local hour changes clears it. | `verified-against-code` `pylxpweb/src/pylxpweb/client.py:580-591` |
+| LOW | Hour-boundary timing ambiguity | Treat the response cache as cleared before the hour boundary. | The first request **after** the local hour changes clears the response cache. | `verified-against-code` `pylxpweb/src/pylxpweb/client.py:580-591` |
 
 When scaling sources disagree, prefer canonical constants, Pydantic field names, OpenAPI `x-scaling`, locked tests, and captured raw/display pairs over endpoint docstrings. `inferred` priority derived from the HIGH divergences and their adjudicating evidence
