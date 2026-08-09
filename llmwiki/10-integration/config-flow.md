@@ -30,7 +30,19 @@ Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
 |---|---|
 | The implementation package is **`_config_flow/`** (leading underscore) | `verified-against-code` — directory listing |
 | **`config_flow.py` is a thin re-export shim** (reproduced in full below). Its only job is to satisfy hassfest's requirement that a file named `config_flow.py` exists. It re-exports `EG4ConfigFlow` and `EG4OptionsFlow` and declares `__all__` | `verified-against-code` — `config_flow.py` |
-| Repo `CLAUDE.md` documents the directory as `config_flow/` and gives a line count for the main module | The directory name is wrong — the package is `_config_flow/` (`verified-against-code`). The line count is also stale, but counts do not belong in prose either way; read the file |
+
+> **Two paths differing by one underscore, and the wrong one has the conventional name.** This is
+> the durable trap; it produces three distinct mistakes, all of which have been made.
+>
+> | Failure mode | What it looks like | Why the shape causes it |
+> |---|---|---|
+> | Reading the shim as the implementation | "the config flow is trivial / a dozen lines" | `config_flow.py` is the name Home Assistant convention trains you to open, and hassfest requires it to exist — so the file you reach for first is the one with nothing in it |
+> | Writing the package as `config_flow/` | docs, paths and imports that resolve to nothing | The underscore reads as an editorial detail rather than part of the name |
+> | Aiming a patch target or a grep at `config_flow.<symbol>` | `AttributeError`, or a CI check that silently matches nothing | Only `EG4ConfigFlow` and `EG4OptionsFlow` transit the shim; every other symbol lives in the package namespace |
+>
+> `verified-against-code` — both paths exist at `9f6d6e2` (`config_flow.py` file, `_config_flow/`
+> package); the shim's complete contents are reproduced below. The third row is worked through
+> under **Test patch target**, and the CI note in §5 is the same trap in a workflow.
 
 ```python
 # config_flow.py — the entire file
@@ -169,10 +181,24 @@ otherwise the entry would have no data source at all.
 
 All `verified-against-code` — enumerated by grepping `async def async_step_` at `9f6d6e2`.
 
-> **`async_step_reconfigure_plant` does not exist.** Repo `CLAUDE.md` names it as one of the two
-> reconfigure flows. There is no such method. The station-selection step during reconfigure is
-> **`async_step_reconfigure_cloud_station`**. Evidence: `verified-against-code` — the exhaustive
-> step enumeration above contains no `reconfigure_plant`.
+> **There is no `async_step_reconfigure_plant`** — the exhaustive enumeration above contains no
+> `reconfigure_plant`, and the station-selection step during reconfigure is
+> **`async_step_reconfigure_cloud_station`** (`verified-against-code`).
+>
+> The durable trap is that **this codebase names the same concept two ways, and the step names use
+> the rarer one.** Step names say *station*; the data keys, helpers and locals inside those very
+> steps say *plant*:
+>
+> | Layer | Vocabulary | Evidence |
+> |---|---|---|
+> | Step names | `station` — `async_step_cloud_station`, `async_step_reconfigure_cloud_station` | `verified-against-code` — `_config_flow/__init__.py:259`, `:969` |
+> | Everything inside them | `plant` — `self._plant_id = user_input[CONF_PLANT_ID]`, `find_plant_by_id(...)` | `verified-against-code` — `_config_flow/__init__.py:264-265`, `:976` |
+> | Config-entry data and unique IDs | `plant` — `CONF_PLANT_ID`, `build_unique_id(..., plant_id=...)` | `verified-against-code` — `_config_flow/helpers.py` → `build_unique_id` |
+> | The portal itself | `plant` — the station-list endpoint is `.../plant/list/viewer` | `verified-against-code` — pylxpweb `endpoints/plants.py` → `_PLANT_LIST_VIEWER`; endpoint semantics are owned by [../30-portal-api/endpoints.md](../30-portal-api/endpoints.md) |
+>
+> So anyone reasoning from the data model — which is *plant* almost everywhere — reaches for a
+> `..._plant` step name, and guesses a method that does not exist. **Derive step names from the
+> enumeration above, never from the vocabulary of the data they operate on.**
 
 ### 6.2 `_update_entry` guards
 

@@ -191,11 +191,10 @@ Whole table: `verified-against-code` — counted from the class bases and from `
 
 > **Two counting errors are easy to make here, and both are in circulation.**
 >
-> - **Undercounting to six.** Repo `CLAUDE.md` lists six mixins, omitting `HTTPUpdateMixin` and
->   `LocalTransportMixin` — which are not merely present but come **first** in the MRO. The cause
->   is mechanical: those two are named "mixin" but live in the transport modules, so a search
->   scoped to `coordinator_mixins.py` finds only six. `asserted-unverified` for the claim as
->   written in `CLAUDE.md`; the eight-mixin reality is `verified-against-code`.
+> - **Undercounting to six.** `HTTPUpdateMixin` and `LocalTransportMixin` are named "mixin" but
+>   defined in the transport modules, so any survey scoped to `coordinator_mixins.py` — a grep, a
+>   file read, a docs pass — finds only six and misses the two that come **first** in the MRO.
+>   Six-mixin lists are in circulation for exactly this reason.
 > - **Overcounting to nine.** Nine is the number of **base classes**, one of which
 >   (`DataUpdateCoordinator`) is Home Assistant's and is not a mixin. Count the mixins, or count
 >   the bases, but do not report one as the other.

@@ -200,25 +200,41 @@ self-correcting.
 
 **Register ground truth is owned by
 [../40-hardware/registers.md](../40-hardware/registers.md), including its evidence grades.** This
-page does not restate register semantics and must never grade a register fact higher than the
-canonical ledger does. What follows is only the *integration consequence* — what the code must do
-about it — with a pointer for the underlying claim.
+page does not restate register semantics and must never state a register claim more broadly, or at
+a higher grade, than the canonical ledger does.
 
-| Integration consequence | Register fact (owner: `40-hardware/registers.md`) |
-|---|---|
-| AC Charge SOC Limit is gated off `EG4_OFFGRID` with a one-shot Repairs issue | H67 is grid-tied-only; see the H67 rows in the ledger |
-| Start/End Battery SOC numbers exist as the off-grid equivalents | H160 / H161; see the ledger |
-| Quick Charge status **and** control are cloud-routed on off-grid families | Off-grid firmware answers an H233 access with an ILLEGAL DATA ADDRESS exception response, family-wide. The register row is in the ledger; the **rejection observation** and its grade live in [../60-history/bug-postmortems.md](../60-history/bug-postmortems.md) under #296/#308 — cite that, not the register row, which carries the address and not the rejection |
-| Generator Power and its two siblings are suppressed on `EG4_OFFGRID` (and purged, with a Repairs issue), but kept on `EG4_HYBRID` | Off-grid I123 is not generator power; see the ledger and `../40-hardware/firmware-re.md` |
-| The Off-Grid/green switch writes bit 14 of H110 | H110 bit assignment; see the ledger and **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md) |
+Each row below pairs an *integration consequence* — what this code must do — with the register
+claim it rests on. **The Grade column is echoed from the owning ledger row, not assigned here.**
+If an echoed grade disagrees with the ledger, the ledger is right and this table is stale.
 
-Grades for the left column: `verified-against-code` — the gates and purges exist at `sensor.py` →
-`_should_create_sensor`, `utils.py` → `flag_offgrid_control_suppression`, `switch.py`, `number.py`,
-`time.py`. Grades for the right column belong to the ledger; **read them there.**
+| Integration consequence | Register claim, and its scope as the owner states it | Grade (echoed from owner) |
+|---|---|---|
+| AC Charge SOC Limit is gated off `EG4_OFFGRID` with a one-shot Repairs issue | H67 is the AC-charge stop SOC on **grid-tied only**; off-grid rejects the control | `portal-correlated` — [H67 row](../40-hardware/registers.md) |
+| AC Charge Start Battery SOC exists as the off-grid equivalent | H160, AC-charge start SOC, off-grid plus hybrid read scope | `portal-correlated` — [H160 row](../40-hardware/registers.md) |
+| AC Charge End Battery SOC is exposed, but **no local write path is offered** | H161 mapping is known; **LOCAL writability is unresolved** and family behaviour conflicts across the tested grid-tied and off-grid paths. The owner says explicitly: do not treat H161 as a safe local write | `portal-correlated`, write unresolved — [H161 row](../40-hardware/registers.md); conflict preserved as [C6/C7](../60-history/open-contradictions.md) |
+| Quick Charge status **and** control are cloud-routed on off-grid families | LOCAL FC03/FC06 access to H233 is **reported to return ILLEGAL DATA ADDRESS on the off-grid units tested**. No raw request/exception-response capture was preserved, so this is not a proof-grade claim and **not** a family-wide one — see the note below | `asserted-unverified` — [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
+| Generator Power and its two siblings are suppressed on `EG4_OFFGRID` (purged, with a Repairs issue) and kept on `EG4_HYBRID` | The owner splits I123 **by decoded image, not by family**: on the decoded 12000XP off-grid image it is an ARM-initialization counter, not generator power; on the decoded 18kPV/FlexBOSS hybrid image it is genuine GEN-port power; on **6000XP the meaning is unresolved** with no validated image | `firmware-proven` (12000XP off-grid), `firmware-proven` (hybrid), `asserted-unverified` (6000XP) — [I123 rows](../40-hardware/registers.md) |
+| The Off-Grid/green switch writes bit 14 of H110 | H110 b14 is Green/Off-Grid Mode on the **tested 18kPV hybrid unit**; for 12000XP/6000XP it is a layout inference awaiting a family-specific capture. H110 b8 is **UNKNOWN** and was the wrong bit (#476) | `hardware-toggle-proven` (tested 18kPV), `lineage-inferred` (12000XP/6000XP) — [H110 rows](../40-hardware/registers.md); refutation recorded as **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md) |
+
+Grades for the **left** column — that these gates, purges and routings exist in this code — are
+`verified-against-code`: `sensor.py` → `_should_create_sensor`, `utils.py` →
+`flag_offgrid_control_suppression`, plus the control platforms `switch.py`, `number.py`, `time.py`.
+
+> **The H233 rejection is a tested-scope observation, not a family property.**
+> "Returns ILLEGAL DATA ADDRESS on the off-grid units we tested" and "no off-grid inverter has this
+> register" are different claims, and only the first has ever been observed here. The distinction is
+> binding under README's negative-claims rule. The integration's response — routing Quick Charge via
+> the cloud on off-grid families — is deliberately *broader* than the evidence, because the cost of
+> over-routing is a slower control path while the cost of under-routing is a control that silently
+> fails on unsurveyed hardware. Widening the **claim** to match the gate would be the error.
+> Both the [H233 off-grid access boundary row](../40-hardware/registers.md#h233-off-grid-access-boundary)
+> and [bug-postmortems #296/#308](../60-history/bug-postmortems.md) carry the observation and its
+> missing capture; the register row now carries the address **and** the rejection together, so cite
+> it first.
 
 > **Portal page presence per family is evidence** for register applicability — weaker than a
 > hardware toggle, stronger than lineage inference. The ordering is defined in
-> [../README.md](../README.md#evidence-grade-legend).
+> [../README.md](../README.md#evidence-grade-legend); this page does not restate it.
 
 ## 3. Value scaling: cloud vs local divergence
 
@@ -472,7 +488,7 @@ immediately after a fresh host boot."*
 
 | Fact | Evidence |
 |---|---|
-| It bit two PRs on the same day, #378 and #380 (fix commit `d66cc92`) | `asserted-unverified` — repo `CLAUDE.md` "Throttle gotcha" note; not re-verified against the PRs |
+| It bit two PRs on the same day, #378 and #380 | `asserted-unverified` — PRs #378/#380 and fix commit `d66cc92`; the commit is the durable artifact, and neither it nor the PRs were re-read here |
 | A 2026-08-02 audit found further sites (finding INT-08) | `asserted-unverified` — `docs/audits/2026-08-02-register-race-performance-audit.md` |
 | Regression-test it by patching `monotonic` to a small value, simulating a freshly booted host | `verified-against-code` — this is the shape the existing throttle tests use |
 

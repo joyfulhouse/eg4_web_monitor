@@ -164,7 +164,16 @@ tables at `9f6d6e2`. The **mechanism** is `verified-against-code`: the overlay t
 | Class | Fields |
 |---|---|
 | Modbus-only, overlaid onto cloud data when a local transport is attached | `bt_temperature` (reg 108), `grid_current_l1/l2/l3`, `battery_current`, `total_load_power`, `grid_voltage_l1/l2`, `eps_voltage_l1/l2`, `load_power` (reg 170), `fault_code`/`warning_code` (regs 60-63 — the cloud has **no** fault field at all). GridBOSS smart-port currents (I18-25) are Modbus-only too |
-| Cloud-only, no local equivalent | Station/plant-level entities; `smart_load_power` / `grid_load_power` / `eps_load_power` (the backup-output split, `EG4_OFFGRID`-only); `bms_model`; PV1-3 yield via chart side-fetch; and decisively **whole-home lifetime consumption**, because per-inverter `energy_balance` wraps |
+| Cloud-only, no local equivalent | Station/plant-level entities; `smart_load_power` / `grid_load_power` / `eps_load_power` (the backup-output split, `EG4_OFFGRID`-only); `bms_model`; PV1-3 yield via chart side-fetch |
+
+> **Whole-home lifetime consumption is deliberately absent from the list above.** Its source is an
+> **open** disagreement, recorded as **C4** in
+> [../60-history/open-contradictions.md](../60-history/open-contradictions.md), status UNRESOLVED;
+> [data-semantics.md §4.3](data-semantics.md#43-consumption-and-load-are-two-distinct-meters) owns
+> the question and tabulates both positions without picking one. Every other row in that table is a
+> settled fact, so adding this field — in either direction — would settle C4 by assertion and hide
+> the disagreement behind a list that reads as decided. **Do not add it from this page.** It belongs
+> here only once C4 is adjudicated.
 
 **Founding principle:** *the cloud is not a separate data source.* The EG4 cloud relays the same
 Modbus register values the dongle reads, or computes a derivation from them. When a cloud field

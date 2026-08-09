@@ -214,11 +214,17 @@ the `entity_id` object_id by **slugifying that name** at first registration.
 
 ### 4.3 The documented format never took effect
 
-| Documented in repo `CLAUDE.md` | Reality |
+**The trap is in the code, and it is convincing.** `_setup_entity_id` and its siblings build
+correct-looking, fully-formed entity IDs — model cleaned, prefix applied, per-device-type branches
+— and assign each one to `_attr_entity_id`. Reading that function, the format below looks
+authoritative. It is never registered, because the attribute it lands in does not exist in Home
+Assistant (§4.1). Any document repeating these strings inherited them from this code.
+
+| Format the code appears to promise | Reality |
 |---|---|
-| `Entity ID (Inverter): eg4_{model}_{serial}_{sensor_name}` | **Never registered by HA.** The code that builds this string writes it to `_attr_entity_id`, which HA ignores (`verified-against-code` — `base_entity.py:470-482` + the §4.1 finding) |
-| `Entity ID (Battery): eg4_{model}_{serial}_battery_{batteryKey}_{sensor_name}` | Same — inert (`base_entity.py:578`) |
-| `Entity ID (GridBOSS): eg4_gridboss_{serial}_{sensor_name}` | Same — inert (`base_entity.py:473-475`) |
+| `eg4_{model}_{serial}_{sensor_name}` (inverter) | **Never registered by HA.** Built, then written to `_attr_entity_id`, which HA ignores (`verified-against-code` — `base_entity.py:470-482` + the §4.1 finding) |
+| `eg4_{model}_{serial}_battery_{batteryKey}_{sensor_name}` (battery) | Same — inert (`base_entity.py:578`) |
+| `eg4_gridboss_{serial}_{sensor_name}` (GridBOSS) | Same — inert (`base_entity.py:473-475`) |
 
 The strings are constructed correctly; they simply go nowhere. Do not use them to predict a live
 entity ID, to write a test assertion about registry contents, or to build a dashboard reference.
@@ -270,9 +276,7 @@ Evidence: `verified-against-code` — the allowlist `_DEVICE_UID_DATA_TYPE_SEGME
 `__init__.py` and the comment above it, which records the `git log --all -S` result. The claim is
 also recorded as **S1** in
 [../60-history/superseded-claims.md](../60-history/superseded-claims.md) and as **C1** in
-[../60-history/open-contradictions.md](../60-history/open-contradictions.md); repo `CLAUDE.md`
-carries the correction inline (`asserted-unverified` for that last statement — it is a doc, not
-code).
+[../60-history/open-contradictions.md](../60-history/open-contradictions.md).
 
 > **Stale-source warning.** `docs/claude/FINAL_VALIDATION_REPORT.md` still states the fictional
 > format as fact. **Do not lift entity-ID or unique-ID formats from that file.** The failure chain
