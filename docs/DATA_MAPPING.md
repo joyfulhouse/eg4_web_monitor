@@ -5,9 +5,11 @@
 > **[`llmwiki/40-hardware/registers.md`](../llmwiki/40-hardware/registers.md) is the
 > current ground truth for what a register *means*.** Every claim there carries an
 > explicit evidence grade (`firmware-proven`, `hardware-toggle-proven`,
-> `portal-correlated`, `lineage-inferred`, …). By its own accounting only 45 of 335
-> register-semantic claims are actually proven — the rest are correlations or
-> inferences that look identical to proof when restated without their grade.
+> `portal-correlated`, `lineage-inferred`, …). **Most register-semantic claims there
+> are correlations or inferences rather than proof** — and a correlation looks
+> identical to proof once it is restated without its grade. The ledger publishes the
+> exact proven-of-total count and the arithmetic behind it; read it there rather than
+> anywhere else, including here.
 >
 > **This document's register sections are subordinate to that ledger.** They describe
 > how the integration *currently decodes and drives* each register — implementation
