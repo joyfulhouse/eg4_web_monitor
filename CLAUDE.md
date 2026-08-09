@@ -30,10 +30,12 @@ Never state the current version from memory — read `manifest.json`.
 ## Maintaining `llmwiki/`
 
 `llmwiki/` is the deep knowledge base — numbered chapters that agents write and
-keep current. **Start at `llmwiki/README.md`**: its Navigation table and
-cold-start reading order are the entry point, and it defines the canonical-source
-policy and the evidence-grade legend. `_conventions.md` holds the page template and
-front-matter schema. There is no `index.md`; do not link one.
+keep current. **To find a page, start at `llmwiki/index.md`** — the catalog of
+every page with a one-line summary and the facts it owns, so you never scan the
+tree. **To grade a claim, go to `llmwiki/README.md`**: it owns the rules the pages
+follow — canonical-source policy, evidence-grade legend, freshness discipline,
+cold-start reading order — not a list of what exists. `_conventions.md` holds the
+page template and front-matter schema; `log.md` is the append-only history.
 
 Three layers. **Raw sources** — this repo's code, `pylxpweb` at its pinned commit,
 `docs/`, `memory/*.md`, issues — are immutable here; the wiki reads them.
@@ -46,15 +48,19 @@ maintain, never what is true.
 > quietly "fixed" inside a docs PR.
 
 **Ingest.** Read the primary source — not a summary of it. Find the owner via
-Navigation → chapter → the page whose `canonical-for:` covers the fact, and update
-**that page only**: grade the claim, cite a durable artifact, refresh
+`index.md` → the page whose `canonical-for:` covers the fact, and update **that
+page only**: grade the claim, cite a durable artifact, refresh
 `verified-against:` / `last-verified:`. Then update whatever the new knowledge
 *falsifies* — a promotion or downgrade is never a local edit, so grep the register,
-symbol, or path across `llmwiki/` before finishing. The commit message is the
-durable record. (The upstream pattern uses an append-only `llmwiki/log.md`; this
-wiki has none yet — create it if you want one, don't assume it exists.)
+symbol, or path across `llmwiki/` before finishing. Then **append an entry to
+`llmwiki/log.md`**, keeping the heading prefix exact —
+`## [YYYY-MM-DD] <op> | <subject>` — because
+`grep '^## \[' llmwiki/log.md | tail -5` is how the next agent reads recent
+history; that file's header owns the `<op>` vocabulary and the append-only rules.
+The commit message is a durable record too; the log carries reasoning across
+commits, the commit message explains one diff.
 
-**Query.** Navigation first, then the owner page. Answer with the page and its
+**Query.** `index.md` first, then the owner page. Answer with the page and its
 `verified-against:` pin, and state the grade when it changes the answer —
 "portal-correlated, not proven" is a different answer from "proven".
 
@@ -90,6 +96,12 @@ before citing it. Prefer a derivation plus its blind spots over an enumeration.
   and reviews here have produced confident results that did not reproduce; a
   "correction" taken from a secondary source would have published a false claim. A
   green check can be wrong.
+- **Before stating what another document contains, check whether it is being edited
+  in the same change set.** Such a claim is verified against a branch, not against
+  what will merge. This build shipped that defect twice — three pages asserted a
+  banner state another PR falsified in the same train, and this schema said
+  `llmwiki/` had no `index.md` and no `log.md` twenty minutes before a parallel
+  branch created both. Prefer describing what a document *owns* over what it lists.
 
 ## Source map (where to edit)
 

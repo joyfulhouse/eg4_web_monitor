@@ -15,11 +15,14 @@ bd sync               # Sync with git
 ## Maintaining `llmwiki/`
 
 `llmwiki/` is a knowledge base that agents write and keep current: numbered chapters,
-plus `README.md` (navigation, canonical-source policy, evidence-grade legend) and
+plus `index.md` (the page catalog), `README.md` (canonical-source policy,
+evidence-grade legend, freshness discipline), `log.md` (append-only history) and
 `_conventions.md` (page template, front-matter schema, writing rules).
 
-**Start at `llmwiki/README.md`.** Its Navigation table and cold-start reading order
-are the entry point. There is no `index.md`; do not link one.
+**To find a page, start at `llmwiki/index.md`** — it lists every page with a
+one-line summary and the facts it owns, so you never scan the tree. **To grade a
+claim, go to `llmwiki/README.md`**: it owns the rules the pages follow, not a list
+of what exists, and it carries the cold-start reading order.
 
 ### Three layers, and the one-way rule
 
@@ -41,17 +44,21 @@ a docs PR.
 A shipped fix, a hardware capture, a contradiction surfaced in review, a new issue:
 
 1. **Read the primary source.** Not a summary of it, not a memory file about it.
-2. **Find the owner.** `README.md` Navigation → chapter → the page whose
-   `canonical-for:` covers the fact. If nothing owns it, add it to the page whose
-   subject it belongs to and extend that page's `canonical-for:`.
+2. **Find the owner.** `index.md` → the page whose `canonical-for:` covers the
+   fact. If nothing owns it, add it to the page whose subject it belongs to,
+   extend that page's `canonical-for:`, and add the row to `index.md`.
 3. **Update that page only.** Grade the claim, cite a durable artifact, refresh
    `verified-against:` and `last-verified:`.
 4. **Update whatever the new knowledge falsifies.** A promotion or downgrade is
    never a local edit — grep the register, symbol, or path across `llmwiki/` before
    you call it done.
-5. **Record it.** The commit message is the durable record; git history is the log.
-   (The upstream pattern uses an append-only `llmwiki/log.md`. This wiki has none
-   yet — create one if you want it, but do not assume it exists.)
+5. **Record it.** Append an entry to `llmwiki/log.md`. Keep the heading prefix
+   exact — `## [YYYY-MM-DD] <op> | <subject>` — because
+   `grep '^## \[' llmwiki/log.md | tail -5` is how the next agent reads recent
+   history; that file's header owns the `<op>` vocabulary and the append-only
+   rules, and you are opening it anyway. The commit message is a durable record
+   too, and the two serve different readers: the log carries reasoning across
+   commits, the commit message explains one diff.
 
 **One fact, one owner.** A fact restated in two places has gone stale in two places
 three separate times during this wiki's construction: a test count, a coverage
@@ -60,11 +67,11 @@ falsified.
 
 ### Query — answering from the wiki
 
-Read Navigation, drill into the owner page, answer with a citation to that page and
-its `verified-against:` pin. **State the grade when it changes the answer** —
+Find the owner page in `index.md`, read it, and answer with a citation to that page
+and its `verified-against:` pin. **State the grade when it changes the answer** —
 "portal-correlated, not proven" is a different answer from "proven". If the question
 produced a durable new synthesis, file it back into the owning page rather than
-leaving it in chat history.
+leaving it in chat history, and log it as a `query`.
 
 ### Lint — periodic health check
 
@@ -107,6 +114,13 @@ five times during construction, each time with locally reasonable wording.
   register is firmware-ACKed and reads back exactly what you wrote, so no readback
   distinguishes "the control worked" from "something else silently changed"
   (#476, #558).
+- **Before stating what another document contains, check whether it is being edited
+  in the same change set.** A claim about a sibling's contents is verified against a
+  branch, not against what will merge, and it can go stale between writing and
+  review. This build shipped that defect twice: three pages asserted a banner state
+  another PR falsified in the same train, and this schema said `llmwiki/` had no
+  `index.md` and no `log.md` about twenty minutes before a parallel branch created
+  both. Prefer describing what a document *owns* over what it currently lists.
 - **Re-verify a finding against the primary source before acting on it.** Tooling
   and reviews in this build produced confident results that did not reproduce, and a
   proposed "correction" taken from a secondary source would have published a false
