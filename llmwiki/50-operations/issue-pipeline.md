@@ -1,8 +1,6 @@
 ---
 canonical-for: GitHub issue templates, debug-log auto-close, PR conventions, beads work tracking prohibitions
 sources:
-  - /tmp/llmwiki-research/repo-operations.md
-  - /tmp/llmwiki-research/knowledge-corpus-index.VERIFIED-claude_code.md
   - .github/ISSUE_TEMPLATE/bug_report.yml
   - .github/ISSUE_TEMPLATE/feature_request.yml
   - .github/ISSUE_TEMPLATE/config.yml
@@ -10,6 +8,9 @@ sources:
   - .github/workflows/issue-triage.yml
   - AGENTS.md
   - scripts/bd_seed_maintainability.sh
+  - .github/CODEOWNERS
+  - memory/sprint-2026-07-16-issue-zeroing.md
+  - memory/issue-pipeline-log-enforcement.md
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
@@ -20,14 +21,14 @@ How bugs, features, PRs, and agent work tracking flow in this repo.
 
 ## Issue templates
 
-**verified-against-code** — `.github/ISSUE_TEMPLATE/config.yml`
+`verified-against-code` — `.github/ISSUE_TEMPLATE/config.yml`
 
 - `blank_issues_enabled: false` — free-form issues are disabled.
 - Contact links: Home Assistant Community, DIY Solar Forum, Discord.
 
 ### Bug report (required fields)
 
-**verified-against-code** — `.github/ISSUE_TEMPLATE/bug_report.yml`
+`verified-against-code` — `.github/ISSUE_TEMPLATE/bug_report.yml`
 
 | Field | Required |
 |-------|----------|
@@ -45,11 +46,11 @@ How bugs, features, PRs, and agent work tracking flow in this repo.
 
 Auto-label: `bug`.
 
-Template warns: companion-app “share logs” / phone logcat is **rejected** — must be HA debug logging from a browser for this integration — **verified-against-code** — `bug_report.yml:17-21`.
+Template warns: companion-app “share logs” / phone logcat is **rejected** — must be HA debug logging from a browser for this integration — `verified-against-code` — `bug_report.yml:17-21`.
 
 ### Feature request (required fields)
 
-**verified-against-code** — `.github/ISSUE_TEMPLATE/feature_request.yml`
+`verified-against-code` — `.github/ISSUE_TEMPLATE/feature_request.yml`
 
 | Field | Required |
 |-------|----------|
@@ -62,7 +63,7 @@ Auto-label: `enhancement`.
 
 ## Debug-log validation automation
 
-**verified-against-code** — `.github/workflows/issue-log-validation.yml:1-12`, marker at L45
+`verified-against-code` — `.github/workflows/issue-log-validation.yml:1-12`, marker at L45
 
 | Behavior | Detail |
 |----------|--------|
@@ -76,7 +77,7 @@ Form emptiness alone is not enough — phone logcat or screenshots pass the form
 
 ## Issue triage automation
 
-**verified-against-code** — `.github/workflows/issue-triage.yml` (dossier §4.3)
+`verified-against-code` — `.github/workflows/issue-triage.yml`
 
 | Behavior | Detail |
 |----------|--------|
@@ -89,18 +90,22 @@ Form emptiness alone is not enough — phone logcat or screenshots pass the form
 
 | Topic | Fact | Grade |
 |-------|------|-------|
-| In-repo PR template | **None** under `.github/` | verified-against-code — absent |
-| Contribution guide | Org `CONTRIBUTING.md`: https://github.com/joyfulhouse/.github/blob/main/CONTRIBUTING.md | verified-against-code — `docs/DEVELOPMENT.md:39-41` |
-| CODEOWNERS | `* @btli` | verified-against-code — `.github/CODEOWNERS` |
-| Branch naming | Not formally documented in-repo. Observed: `integration/3.4.0`, `integration/3.5.0`, `feat/…` (pylxpweb). Follow the current release-line style | inferred |
-| Labels | From templates (`bug`, `enhancement`) + triage (`support`, `duplicate`, `needs-info`, `needs-logs`) | verified-against-code |
-| Auto-merge | **Not** enabled for eg4_web_monitor workflows. pylxpweb has Dependabot auto-merge for non-major only | verified-against-code — dossier §4.4 |
+| In-repo PR template | **None** under `.github/` | `verified-against-code` — no `PULL_REQUEST_TEMPLATE` file exists |
+| Contribution guide | Org `CONTRIBUTING.md`: https://github.com/joyfulhouse/.github/blob/main/CONTRIBUTING.md | `asserted-unverified` — `docs/DEVELOPMENT.md:39-41` points there; the linked file lives in another repo and is not checked here |
+| CODEOWNERS | `* @btli` | `verified-against-code` — `.github/CODEOWNERS` |
+| Branch naming | Not formally documented in-repo. Observed: `integration/3.4.0`, `integration/3.5.0`, `feat/…` (pylxpweb). Follow the current release-line style | `inferred` — `CHANGELOG.md` release narratives |
+| Labels | From templates (`bug`, `enhancement`) + triage (`support`, `duplicate`, `needs-info`, `needs-logs`) | `verified-against-code` — `.github/ISSUE_TEMPLATE/*.yml`, `.github/workflows/issue-triage.yml`, `.github/workflows/issue-log-validation.yml` |
+| Auto-merge | **Not** enabled here — eg4_web_monitor has no auto-merge workflow. pylxpweb auto-merges Dependabot PRs for non-major bumps only | `verified-against-code` — no auto-merge workflow under eg4 `.github/workflows/`; pylxpweb `.github/workflows/dependabot-auto-merge.yml` (`if: steps.metadata.outputs.update-type != 'version-update:semver-major'`) |
 
 ## Work tracking (beads / `bd`)
 
-**verified-against-code** — `AGENTS.md`
+Work state lives under `.beads/`. The tracked files at `9f6d6e2` are `config.yaml`,
+`interactions.jsonl`, `metadata.json`, `README.md`, and `.gitignore`. **There is no
+`.beads/issues.jsonl`** in this repo — do not go looking for one; the issue store is not a tracked
+JSONL here — `verified-against-code` — `git ls-files .beads/`.
 
-Source of truth under `.beads/` (`issues.jsonl`, `interactions.jsonl`, `config.yaml`, …).
+The `bd` command set below is the workflow `AGENTS.md` prescribes, not something the tree enforces —
+`asserted-unverified` — `AGENTS.md`.
 
 ```bash
 bd ready
@@ -114,19 +119,20 @@ bd sync
 
 | Prohibition | Why | Grade |
 |-------------|-----|-------|
-| **Never run `bd github sync` in this repo** | Historically mass-pushed ~90 internal beads records as GitHub issues (#381–#470). Close beads with `bd close`; manage GitHub with `gh` | asserted-unverified in current tree (recorded in verified knowledge-corpus index / research); treat as hard policy |
-| **Never re-run `scripts/bd_seed_maintainability.sh`** | **NOT idempotent** — running twice creates duplicate epics | verified-against-code — script header L13–14 |
-| Do not use `bd edit` | Opens `$EDITOR`, blocks agents | asserted-unverified in AGENTS/hooks; prefer `bd update` flags |
-| Do not use TodoWrite / markdown files for task tracking when beads is the project tracker | Session policy | asserted-unverified (hooks / AGENTS) |
+| **Never run `bd github sync` in this repo** | Mass-pushed 90 internal beads records as GitHub issues #381–#470. Close beads with `bd close`; manage GitHub with `gh` | `asserted-unverified` — `memory/sprint-2026-07-16-issue-zeroing.md`; the issue range #381–#470 is independently visible on the GitHub repo |
+| **Never re-run `scripts/bd_seed_maintainability.sh`** | **NOT idempotent** — running twice creates duplicate epics | `verified-against-code` — `scripts/bd_seed_maintainability.sh:13-14` |
+| Do not use `bd edit` | Opens `$EDITOR`, blocks non-interactive agents | `asserted-unverified` — `AGENTS.md` |
+| Do not use TodoWrite / markdown files for task tracking when beads is the project tracker | Session policy, not enforced by anything in the tree | `asserted-unverified` — `AGENTS.md` |
 
-Seed script dry-run only if needed: `./scripts/bd_seed_maintainability.sh --dry-run` — **verified-against-code** — script L14.
+Seed script dry-run only if needed: `./scripts/bd_seed_maintainability.sh --dry-run` — `verified-against-code` — `scripts/bd_seed_maintainability.sh:14`.
 
 ### Authority conflict (push)
 
 - `AGENTS.md` “Landing the Plane” says work is incomplete until `git push` succeeds.
 - Session hooks / user rules default to **conservative**: commit/push only with explicit authority.
 
-**Agents must treat user/orchestrator instructions as highest precedence** when those conflict — **inferred** from dossier §8.2.
+**Agents must treat user/orchestrator instructions as highest precedence** when those conflict —
+`asserted-unverified` — `AGENTS.md` "Landing the Plane" versus the session-level commit/push policy.
 
 ## Agent checklist when filing or answering bugs
 
