@@ -6,6 +6,7 @@ sources:
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
   - docs/audits/2026-08-02-register-race-performance-audit.md
+  - custom_components/eg4_web_monitor/switch.py
   - memory/issue-476-green-mode-bit14.md
   - memory/live-write-window-findings.md
   - memory/issue-258-battery-rr-reg96-unreliable.md
@@ -14,6 +15,10 @@ sources:
   - memory/voltage-param-scaling-cloud-vs-local.md
   - memory/quick-charge-local-control-registers.md
   - pylxpweb@204b95d:src/pylxpweb/transports/data.py
+  - pylxpweb@204b95d:src/pylxpweb/transports/dongle.py
+  - pylxpweb@204b95d:src/pylxpweb/transports/_canonical_reader.py
+  - pylxpweb@204b95d:src/pylxpweb/registers/__init__.py
+  - pylxpweb@204b95d:src/pylxpweb/constants/registers.py
   - https://github.com/joyfulhouse/pylxpweb/issues/242
 verified-against:
   eg4_web_monitor: 9f6d6e2
@@ -59,7 +64,9 @@ awk -F'|' '/counted-ledger:start/{on=1;next}/counted-ledger:end/{on=0} on && /^\
 | `GB-I` | GridBOSS input, FC04/device type 50 | Read-only | `verified-against-code` | current |
 | `GB-H` | GridBOSS holding | Potentially writable | `verified-against-code` | current |
 
-Unless a row says signed, the current canonical decoder treats it as unsigned. U32 values use the lower-address word as low word: `(high << 16) | low`. This decoding convention is `verified-against-code` against the canonical register definitions.
+Pinned code anchors for this notation are the `registers/__init__.py` exports [`INVERTER_INPUT_REGISTERS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/registers/__init__.py#L104-L123), [`INVERTER_HOLDING_REGISTERS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/registers/__init__.py#L77-L100), and [`GRIDBOSS_REGISTERS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/registers/__init__.py#L46-L72); [`dongle.py::MODBUS_READ_HOLDING` / `MODBUS_READ_INPUT`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/transports/dongle.py#L73-L77) pins FC03/FC04. [`constants/registers.py::MIDBOX_REGISTER_TO_PARAM_KEYS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L1072-L1098) pins the GridBOSS holding map, and [`DEVICE_TYPE_CODE_GRIDBOSS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L1825) is 50.
+
+Unless a row says signed, the current canonical decoder treats it as unsigned. U32 values use the lower-address word as low word: `(high << 16) | low`. This decoding convention is `verified-against-code` at [`_canonical_reader.py::read_raw`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/transports/_canonical_reader.py#L34-L82).
 
 <!-- counted-ledger:start -->
 
@@ -186,7 +193,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H101/H102 | Charge/discharge current limits, A | all | `lineage-inferred` | current | 2 | Canonical definitions; reviewed source contains no controlled capture. |
 | H103 | Maximum grid sell-back power, raw ×100 W / UI kW | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` raw/UI correlation; not percent. |
 | H105 | On-grid discharge SOC cutoff | grid-tied | `lineage-inferred` | current | 1 | Canonical holding definition. |
-| H110 | Shared system-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | Canonical safe map only; never inherit a bit’s grade to the whole word or another family. |
+| H110 | Shared system-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_110_PARAM_KEYS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L642-L659) and [`REGISTER_TO_PARAM_KEYS[110]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L777-L782) define the structure. Never inherit a bit’s grade to the whole word or another family. |
 | H116 | Import threshold to start discharge, W | grid-tied; CT required | `portal-correlated` | current | 1 | `DATA_MAPPING.md`; whole watts, not ×100 W. |
 | H117 | Start-charge threshold, signed W | LOCAL/HYBRID | `asserted-unverified` | unresolved | 0 | [`DATA_MAPPING.md` H117 note](../../docs/DATA_MAPPING.md#power-control-registers); no cloud name or validated behavior. |
 | H120 | Compound charge/discharge-mode control word | supporting inverters | `lineage-inferred` | current | 1 | `DATA_MAPPING.md` compound-field audit assigns half-hour, AC-charge type, discharge type, on-grid EOD type, and generator-charge type subfields; do not decode it as consecutive booleans. |
@@ -197,7 +204,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H160 | AC-charge start SOC | off-grid plus hybrid read scope | `portal-correlated` | current | 1 | Portal/control mapping. |
 | H161 | AC-charge end SOC mapping; **LOCAL writability unresolved** | family behavior conflicts across tested grid-tied and off-grid paths | `portal-correlated` | current; write unresolved | 1 | `memory/soc-charge-limit-101-top-balance.md` records inert grid-tied behavior; [contradictions C6/C7](../60-history/open-contradictions.md) preserve the conflict. Do not treat H161 as a safe local write. Promotion requires a family-specific controlled action, behavior, raw before/after pair, and restoration; component firmware is scope metadata. |
 | H169 | On-grid end-of-discharge voltage, 0.1 V | grid-tied voltage regime | `lineage-inferred` | current | 1 | Canonical holding definition. |
-| H179 | Shared extended-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | Canonical safe map only; grades are bit- and family-specific. |
+| H179 | Shared extended-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_TO_PARAM_KEYS[179]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L850-L926) defines the structure. Grades are bit- and family-specific. |
 | H202 | Stop-discharge voltage, 0.1 V | grid-tied forced-discharge voltage mode | `portal-correlated` | current | 1 | The source preserves raw 400 ↔ cloud 40 V at baseline, but the 40→41.5→40 V action/restoration is recorded only as scaled engineering values; integer register words for the changed and restored states were not preserved; target family unrecorded. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#battery-chargedischarge-control-mode-soc-vs-voltage). |
 | H206 | Peak-shaving period-1 power, **0.1 kW** | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md` records raw 41→4.1 kW and family applicability; the durable record lacks a complete named-action raw before/after/restore tuple. |
 | H207 | Peak-shaving period-1 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
@@ -209,7 +216,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H228 | System charge voltage limit, 0.1 V | voltage-control units | `portal-correlated` | current | 1 | The source preserves raw 595 ↔ cloud 59.5 V at baseline, but the 59.5→59.4→59.5 V action/restoration is recorded only as scaled engineering values; integer register words for the changed and restored states were not preserved; target family unrecorded. `memory/voltage-param-scaling-cloud-vs-local.md`; `memory/cloud-raw-register-write-broken.md`. |
 | H231 | Unknown field; historic peak-shaving/high-word label false | tested hybrid | `portal-correlated` | unresolved | 0 | Single-register reads and quantization contradict the old label; no current semantic is counted. |
 | H232 | Peak-shaving period-2 power, 0.1 kW | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md`; not H231’s high word. |
-| H233 | Shared quick-charge/extended word; individual meanings below | hybrid/LXP local; off-grid boundary below | `verified-against-code` | structural-only | 0 | Canonical safe map only. |
+| H233 | Shared quick-charge/extended word; individual meanings below | hybrid/LXP local; off-grid boundary below | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_TO_PARAM_KEYS[233]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L961-L984) defines the structure; semantic grades remain bit- and family-specific. |
 | H234 | Quick-charge duration/setpoint and active remaining time, minutes | supporting inverters | `portal-correlated` | current | 1 | `memory/quick-charge-local-control-registers.md`; paired H233+H234 start observed, but the complete raw before/after and restoration record is absent. |
 | H256-H259 | Generator-charge window 1-2 packed times | hybrid plus off-grid | `portal-correlated` | current | 4 | `DATA_MAPPING.md` schedule table. |
 | H269-H274 | Off-grid schedule window 1-3 packed times | `EG4_HYBRID` | `portal-correlated` | current | 6 | `DATA_MAPPING.md` schedule table. |
@@ -231,7 +238,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H110 b10 | Take Load Together | tested 18kPV (`45XXXXXX18`) | `hardware-toggle-proven` | current | 1 | Driving EG4 cloud `functionControl` by name from True to False and back moved raw H110 `1056 → 32 → 1056`: a single b10 delta with byte-perfect restoration while b5 stayed set. Component firmware version unrecorded — scope limited to the tested unit. [pylxpweb #242 live-capture record](https://github.com/joyfulhouse/pylxpweb/issues/242#issuecomment-5152609179). Issue #242 also records that `inverter_holding.py:969-976` had tagged the wrong b5 mapping as `# verified`; code annotations may repeat a finding but are not evidence for a hardware grade. |
 | H110 b11-b13 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
 | H110 b14 | Green/Off-Grid Mode | tested 18kPV hybrid | `hardware-toggle-proven` | current | 1 | Named Green/Off-Grid Mode action and raw 1056→17440→1056 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/issue-476-green-mode-bit14.md`. |
-| H110 b14 | Green/Off-Grid Mode candidate | 12000XP/6000XP | `lineage-inferred` | unresolved | 1 | Unified layout inference only; requires a family-specific controlled behavior-and-restore capture. |
+| H110 b14 | Green/Off-Grid Mode candidate | 12000XP/6000XP | `lineage-inferred` | unresolved | 1 | Unified layout inference only; requires a family-specific controlled behavior-and-restore capture. Shipped-path fact (`verified-against-code`): `EG4OffGridModeSwitch` is appended unconditionally before the later `is_offgrid_family` check, which governs only the working-mode switches below; its on/off methods route `PARAM_FUNC_GREEN_EN` through `_execute_local_with_fallback`, so LOCAL/HYBRID can write this unresolved family mapping local-first. Code anchors: [`switch.py::_create_switch_entities`](../../custom_components/eg4_web_monitor/switch.py#L280) and [`EG4OffGridModeSwitch.async_turn_on` / `async_turn_off`](../../custom_components/eg4_web_monitor/switch.py#L1196). Safety conclusion (`inferred`): **do not treat this as a safe local write**; it is a live, un-discharged risk tracked by [issue #558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558#issuecomment-5232105216) and [contradiction C7](../60-history/open-contradictions.md#c7--register-161-writability-read-only-on-flexboss-versus-a-shipped-off-grid-write-entity). |
 | H110 b15 | Battery ECO | tested portal scope | `portal-correlated` | current | 1 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); the durable record lacks a complete named-action, family, and restoration tuple. |
 
 ### H179 safe bit map
@@ -245,7 +252,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H179 b8 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); the generator peak-shaving name is uncorroborated. |
 | H179 b9 | Battery charge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) describes the 2026-02-18 toggle, but the durable raw before/after and restoration record is incomplete. |
 | H179 b10 | Battery discharge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | Same durable audit and evidence boundary as b9. |
-| H179 b11 | AC coupling function | lineage-wide | `lineage-inferred` | current | 1 | Requires a named/raw lockstep toggle. |
+| H179 b11 | AC coupling function; **LOCAL writability unresolved** | lineage-wide | `lineage-inferred` | current; live write risk unresolved | 1 | Requires a named/raw lockstep toggle. Shipped-path fact (`verified-against-code`): `EG4ACCoupleSwitch._async_set_enabled` routes LOCAL/HYBRID through `_execute_local_with_fallback`; its class contract says a wrong-target write “would still ACK, which no readback can catch.” Code anchors: [`EG4ACCoupleSwitch` wrong-bit ACK contract](../../custom_components/eg4_web_monitor/switch.py#L789) and [`_async_set_enabled`](../../custom_components/eg4_web_monitor/switch.py#L958). Safety conclusion (`inferred`): **do not treat this as a safe local write**; it is a live, un-discharged risk tracked by [issue #558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558) and [contradiction C7](../60-history/open-contradictions.md#c7--register-161-writability-read-only-on-flexboss-versus-a-shipped-off-grid-write-entity). |
 | H179 b12-b15 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
 
 ### H233 safe bit map

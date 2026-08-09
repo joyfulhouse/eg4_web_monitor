@@ -5,7 +5,11 @@ sources:
   - docs/CONFIGURATION.md
   - scripts/probe_all_registers.py
   - scripts/probe_gridboss_nbu_regs.py
-verified-against: 9f6d6e2
+  - llmwiki/00-orientation/glossary.md
+  - pylxpweb@204b95d:src/pylxpweb/transports/protocol.py
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-09
 runbook-status: untested-as-written
 last-executed: never
@@ -116,7 +120,8 @@ The procedure above produces a capture record and stop/restore decisions only. I
 | The historic wrong H110 b8 write was accepted, but did not control Green Mode. | `portal-correlated`; issue #476 and [contradiction C5](../60-history/open-contradictions.md) | A firmware ACK does not establish semantics. H110 b8 remains UNKNOWN. |
 | The successful low-level write has no exception, fallback, or operator-visible message above DEBUG. | `verified-against-code` against the coordinator write path | Ordinary operation does not surface the semantic error. |
 | Readback returns the stored wrong bit. | `inferred` from the accepted-write path | Readback checks transport/storage, not named-feature behavior. |
-| Therefore an unproven writable bit must be gated out of named writes. | `inferred` safety conclusion | Gating is the only mitigation available in this path; unknown bits remain decode-only. |
+| The shipped placeholder guard refuses only names matching `FUNC_<reg>_BIT<n>`; it keys on the name, not the semantic evidence. | `verified-against-code` at [`protocol.py::_PLACEHOLDER_PARAM_RE`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/transports/protocol.py#L21-L25) and its [`fullmatch` refusal](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/transports/protocol.py#L558-L567) | A real-named but unpinned bit is not covered by this placeholder guard and may remain write-reachable. “Function unknown” is a semantic status, not proof that the implementation key is placeholder-shaped. Keep the glossary’s [Placeholder key](../00-orientation/glossary.md#registers-and-parameters) and [Semantic proof](../00-orientation/glossary.md#registers-and-parameters) entries distinct. |
+| Required safety policy: a semantically unproven bit must be inaccessible to named writes. | `inferred` from the wrong-but-writable-bit failure above | This is **not** a current invariant. Inspect the actual entity, parameter name, family gate, and transport route; never infer “decode-only” from an unknown or unproven semantic. |
 
 This is why a contract test, mapping-parity test, ACK, or readback can all succeed around the same false table.
 
