@@ -219,10 +219,14 @@ positive- and negative-direction fields**, which is incompatible with a non-nega
 its B source zeroes the positive field when the value is negative (`0x0804D846`, `0x0804D850`). It
 should not be trusted as VA either, though it is less clearly wrong than 132.
 
-Suggested handling — mirroring the #544 fix rather than inventing a new mechanism: add registers
-131/132 to a hybrid-scoped exclusion so the two per-leg VA sensors are not created on EG4_HYBRID,
-fail-closed on unresolved family, exactly as `OFFGRID_EXCLUDED_SENSORS` does today. The aggregate
-`eps_apparent_power` (register 25) should **stay** — it is a real, if firmware-computed, estimate.
+Tracked as [#548](https://github.com/joyfulhouse/eg4_web_monitor/issues/548). Suggested handling
+mirrors the #544 fix rather than inventing a new mechanism: add registers 131/132 to a hybrid-scoped
+exclusion so the two per-leg VA sensors are not created on EG4_HYBRID, fail-closed on unresolved
+family, exactly as `OFFGRID_EXCLUDED_SENSORS` does today. The aggregate `eps_apparent_power`
+(register 25) should **stay** — it is a real, if firmware-computed, estimate.
+
+Any such fix must stay **family-scoped**: registers 131/132 are genuine on EG4_OFFGRID, so a global
+exclusion would break working off-grid installs. That is the exact inverse of the #544 constraint.
 
 ### Latent, not exposed — `eps_voltage_s` / `eps_voltage_t`
 
