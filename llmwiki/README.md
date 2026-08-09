@@ -197,9 +197,24 @@ anyone maintains — it is a **consequence of those tables**, and it changes whe
 do.
 
 Three earlier revisions of this section published a curated list of violations: first two
-entries, then three, then a reviewer walked the whole surface and found at least six
-classes. Each list was accurate when written and stale within a round. **Do not curate a
-fourth.** Derive it.
+entries, then three, then a reviewer walked the surface and found more classes again. None
+of those lists was ever complete — the second omitted H117 and H110 b3/b4 **at the same
+commit it was written against**, so nothing drifted; the method was wrong. That distinction
+is the whole lesson. "Went stale" would blame time and imply faster upkeep is the fix;
+**"was incomplete" blames curation**, which is why this section derives instead.
+`verified-against-code` (`9f6d6e2`: `StartChargePowerNumber` and the `PARAM_FUNC_BAT_SHARED`
+/ `PARAM_FUNC_CHARGE_LAST` switch mappings all present at that commit). **Do not curate a
+fourth list.**
+
+**Two write mechanisms exist, and a scan of one cannot see the other.**
+
+| Mechanism | How the write happens | What sees it |
+|---|---|---|
+| **The router** | An entity hands a `_local_write` closure to `utils.py` → `async_write_with_cloud_fallback`, which calls a coordinator primitive | Steps 1-4 below |
+| **Switch actions** | `base_entity.py` → `_execute_switch_action` resolves a **pylxpweb inverter method by name** (`getattr(inverter, method_ref)`) and awaits it. The write happens inside the library. It calls `async_write_with_cloud_fallback` **zero times**, and touches no coordinator write primitive | Step 5 below, and nothing else |
+
+**A grep over the coordinator primitives alone under-reports the local-write surface**, no
+matter how carefully it is run: switch-action routes never touch those primitives.
 
 **How to derive the current local-write surface** (`verified-against-code`, all in
 `custom_components/eg4_web_monitor/`):
@@ -209,7 +224,21 @@ fourth.** Derive it.
 | 1. Working-mode switches | `switch.py` → `_WORKING_MODE_PARAMETERS` — the register/bit each switch writes |
 | 2. Always-on number entities | `number.py` → the `entities.extend([...])` block commented "Always-on controls"; these are created for **every inverter, with no family gate** |
 | 3. Voltage-limit numbers | `number.py` → `VOLTAGE_NUMBER_SPECS`, expanded one entity per spec in that same block |
-| 4. Writes that bypass the router | Grep **three method names** — `write_named_parameter`, `write_raw_parameter`, `write_register` — **matched on the method, not the receiver**, across the control platforms (`number.py`, `switch.py`, `select.py`, `time.py`) **plus `base_entity.py` and `coordinator.py`**. Then classify every hit by the rules below. At `9f6d6e2` this yields two bypasses — `QuickChargeDurationNumber` and `StartChargePowerNumber` (the latter a **raw** register write) — but run the check rather than trusting that |
+| 4. Router traffic and its bypasses | Grep **three method names** — `write_named_parameter`, `write_raw_parameter`, `write_register` — **matched on the method, not the receiver**, across the control platforms (`number.py`, `switch.py`, `select.py`, `time.py`) **plus `base_entity.py` and `coordinator.py`**. Then classify every hit by the traps below. At `9f6d6e2` this yields two bypasses — `QuickChargeDurationNumber` and `StartChargePowerNumber` (the latter a **raw** register write) — but run the check rather than trusting that |
+| 5. Switch-action routes | Grep `_execute_switch_action(` and read the `enable_method` each caller passes. **The argument's type is the discriminator:** a **bound cloud callable** means the write is cloud-routed; a **plain string** is a pylxpweb method name resolved against the inverter, and pylxpweb may drive it **local-first**. Only the string form belongs in this surface |
+
+Cross each writable target against
+[`40-hardware/registers.md`](40-hardware/registers.md). Anything the keeper grades below
+rung 2, or does not carry a row for at all, is a write standing on an unproven mapping.
+
+**Most switch-action call sites are cloud legs, which is what makes the exception easy to
+miss.** At `9f6d6e2` the mechanism has three callers: the `cloud_write` closure inside
+`_execute_local_with_fallback` (the router's own cloud leg), `EG4WorkingModeSwitch`'s
+explicitly cloud-only branch, and `EG4QuickChargeSwitch` — which passes the **string**
+`"enable_quick_charge"` unless `_prefers_cloud_control()` swaps in a bound cloud callable.
+Two of three are cloud; the third is a local-first library write. A reviewer who samples
+this mechanism rather than reading every caller will conclude it is cloud-only and be
+wrong.
 
 Cross each writable target against
 [`40-hardware/registers.md`](40-hardware/registers.md). Anything the keeper grades below
@@ -265,10 +294,13 @@ set satisfying **both** of these at once:
    disputed, **and**
 2. a **shipped entity writes it**.
 
-Both conjuncts are load-bearing. The keeper carries other unresolved rows — H231 and the
-"Function unknown" bits H110 b5/b6/b8/b9 and H179 b8 — that no entity writes; they fail the
-second conjunct and are correctly absent here. Reading the criterion as condition 1 alone
-would predict a much larger table than this one.
+Both conjuncts are load-bearing, and the second one excludes a substantial population. The
+keeper carries many further unresolved rows that **no entity writes** — H231, and the
+"Function unknown" bits spread across H110, H179 and H233, among them. They fail the second
+conjunct and are correctly absent here. That set is larger than this table and is not
+reproduced: it is the keeper's to hold, and counting it here would recreate the curation
+this section exists to avoid. Reading the criterion as condition 1 alone predicts a far
+larger table than this one, which is the reconciliation a reader needs.
 
 Because condition 1 is read off the keeper, this table is a **projection** of it rather
 than a hand-maintained list — it moves when the keeper's rows move, which is the only
@@ -284,6 +316,7 @@ Grades below are quoted from the keeper; this section reports, it does not award
 | H110 b14 | Off-Grid / Green Mode switch | Proven on the tested 18kPV, but the switch is created for *every* family and the 12000XP/6000XP row is `lineage-inferred`, status **unresolved** |
 | H227 | System Charge SOC Limit number | `hardware-toggle-proven`, but **scoped to the one tested 18kPV**; status "current on tested unit; **cross-family write risk unresolved**". Created in the always-on block for every inverter that reaches it, with no family gate |
 | H117 | Start Charge Power Threshold number | `asserted-unverified`, status **unresolved** — the keeper records "no cloud name or validated behavior" |
+| H233 b0 | Quick Charge switch | `portal-correlated` — "paired start/stop observed, but a complete raw before/after and restoration record is absent" — and the keeper's separate **off-grid access boundary** is unresolved and family-gated |
 
 Two of these deserve singling out.
 
