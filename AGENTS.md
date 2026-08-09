@@ -14,27 +14,26 @@ bd sync               # Sync with git
 
 ## Landing the Plane (Session Completion)
 
-When ending a work session, leave nothing stranded in the working tree.
+**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+
+**MANDATORY WORKFLOW:**
 
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
 2. **Run quality gates** (if code changed) - Tests, linters, builds
 3. **Update issue status** - Close finished work, update in-progress items
-4. **Commit** - Never leave finished work uncommitted; commit incrementally as you
-   go rather than banking a large change set on one final commit
-5. **Publish, if you have the authority to** - When the session's operator has
-   asked you to push or has granted standing permission for this branch:
+4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
    bd sync
    git push
-   git status  # should show "up to date with origin"
+   git status  # MUST show "up to date with origin"
    ```
-6. **Clean up** - Clear stashes, prune remote branches
-7. **Hand off** - Say plainly what is committed, what is pushed, and what is not
+5. **Clean up** - Clear stashes, prune remote branches
+6. **Verify** - All changes committed AND pushed
+7. **Hand off** - Provide context for next session
 
-**Rules:**
-- Committing is not optional — uncommitted work is lost work
-- Pushing is an outward-facing action. Do it when asked or pre-authorized; when
-  you have not been, stop at the commit and say the branch is ready to push
-- Never claim work is pushed unless you have seen the push succeed
-- If an authorized push fails, resolve and retry until it succeeds
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing - that leaves work stranded locally
+- NEVER say "ready to push when you are" - YOU must push
+- If push fails, resolve and retry until it succeeds
