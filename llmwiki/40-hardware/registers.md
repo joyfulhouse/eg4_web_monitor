@@ -18,24 +18,24 @@ last-verified: 2026-08-08
 
 # Register ground truth
 
-> **Audited result: 27 of 335 counted current register claims are proven: 27 `firmware-proven` + 0 `hardware-toggle-proven` = 27; 27 + 173 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions below are `verified-against-code`; the register semantics retain their own row grades. The original 45-of-335 headline was inflated because none of its 18 alleged toggle proofs recorded the complete action/family/component-firmware/raw-before/raw-after/restore tuple.
+> **Audited result: 33 of 335 counted current register claims are proven: 27 `firmware-proven` + 6 `hardware-toggle-proven` = 33; 27 + 6 + 167 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions below are `verified-against-code`; the register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
-The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.md#evidence-grades); this page does not redefine it. The register-annotation ladder in that legend applies here. In particular, `hardware-toggle-proven` requires the action, target family and firmware, raw before/after pair, and successful restoration. Round-1 review found no current row whose durable record contains that complete tuple, so every former toggle-proven row is downgraded. `refuted` is recorded only in the **Status** column; the **Evidence** column grades the evidence that disproves the historic claim.
+The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.md#evidence-grade-legend); this page does not redefine it. The register-annotation ladder in that legend applies here. In particular, `hardware-toggle-proven` requires a named action on the target family, a raw before/after pair, and successful restoration. Component firmware is scope metadata: when it was not recorded, the claim is limited to the tested unit. `refuted` is recorded only in the **Status** column; the **Evidence** column grades the evidence that disproves the historic claim.
 
 ## Auditable accounting
 
 | Evidence | Count | Proven? |
 |---|---:|:---:|
 | `firmware-proven` | 27 | yes |
-| `hardware-toggle-proven` | 0 | yes |
-| `portal-correlated` | 173 | no |
+| `hardware-toggle-proven` | 6 | yes |
+| `portal-correlated` | 167 | no |
 | `lineage-inferred` | 135 | no |
 | `inferred` | 0 | no |
 | `verified-against-code` | 0 | no |
 | `asserted-unverified` | 0 | no; candidate rows are excluded |
-| **Current total** | **335** | **27 proven (8.1%)** |
+| **Current total** | **335** | **33 proven (9.9%)** |
 
 The `Claim count` column is the machine-checkable contribution. One separately named semantic is one claim; a U32 low/high pair is one; family-specific meanings are separate; a compound packed-word contract is one claim unless its bits are separately exposed as independent semantics. Structural-only, candidate, unknown, and `asserted-unverified` rows contribute zero. Refuted historic labels are outside the counted ledger. The markers around the ledger allow an `awk -F'|'` sum of column 7 to reproduce every subtotal.
 
@@ -174,8 +174,8 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H74 | Forced/PV-charge-priority power, raw ×100 W / UI kW | supported | `portal-correlated` | current | 1 | `DATA_MAPPING.md` identifies H74; durable record lacks the complete toggle-proof tuple. |
 | H75 | Forced-charge stop SOC | grid-tied controls | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H76-H81 | Forced-charge window 1-3 packed times | grid-tied | `portal-correlated` | current | 6 | `DATA_MAPPING.md` schedule table. |
-| H82 | Forced-discharge power, raw ×100 W / UI kW | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` and the canonical map record raw/UI examples; the full firmware/restore tuple does not exist. |
-| H83 | Forced-discharge SOC stop | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` identifies the field; a complete before/after/restore/component-firmware tuple does not exist. |
+| H82 | Forced-discharge power, raw ×100 W / UI kW | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` and the canonical map record raw/UI examples; the durable record lacks a named-action raw before/after pair and restoration. |
+| H83 | Forced-discharge SOC stop | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` identifies the field; the durable record lacks a complete named-action raw before/after pair and restoration. |
 | H84-H89 | Forced-discharge window 1-3 packed times | grid-tied | `portal-correlated` | current | 6 | `DATA_MAPPING.md` schedule table; off-grid writability remains gated. |
 | H100 | EPS/off-grid voltage cutoff, 0.1 V | voltage-control devices | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H101/H102 | Charge/discharge current limits, A | all | `lineage-inferred` | current | 2 | Canonical definitions; reviewed source contains no controlled capture. |
@@ -187,24 +187,25 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H120 | Compound charge/discharge-mode control word | supporting inverters | `lineage-inferred` | current | 1 | `DATA_MAPPING.md` compound-field audit assigns half-hour, AC-charge type, discharge type, on-grid EOD type, and generator-charge type subfields; do not decode it as consecutive booleans. |
 | H125 | EPS/off-grid discharge SOC cutoff | relevant devices | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H152-H157 | AC-first window 1-3 packed times | `EG4_OFFGRID`/SNA portal page | `portal-correlated` | current | 6 | `DATA_MAPPING.md` schedule table and SNA probe. |
-| H158/H159 | AC-charge start/end voltage, 0.1 V | supported | `portal-correlated` | current | 2 | `memory/cloud-raw-register-write-broken.md` records H158 40→40.5→40; H159 lacks a complete equivalent tuple, so the combined row takes the weaker grade. |
+| H158 | AC-charge start voltage, 0.1 V | tested supported inverter | `hardware-toggle-proven` | current | 1 | Named AC-charge-start-voltage action and raw 40→40.5→40 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/cloud-raw-register-write-broken.md`. |
+| H159 | AC-charge end voltage, 0.1 V | supported | `portal-correlated` | current | 1 | `DATA_MAPPING.md` identifies the field; the durable record lacks an equivalent named-action raw before/after/restore tuple. |
 | H160 | AC-charge start SOC | off-grid plus hybrid read scope | `portal-correlated` | current | 1 | Portal/control mapping. |
-| H161 | AC-charge end SOC mapping; **LOCAL writability unresolved** | family behavior conflicts across tested grid-tied and off-grid paths | `portal-correlated` | current; write unresolved | 1 | `memory/soc-charge-limit-101-top-balance.md` records inert grid-tied behavior; [contradictions C6/C7](../60-history/open-contradictions.md) preserve the conflict. Do not treat H161 as a safe local write. Promotion requires family + firmware + behavior + raw before/after + restore. |
+| H161 | AC-charge end SOC mapping; **LOCAL writability unresolved** | family behavior conflicts across tested grid-tied and off-grid paths | `portal-correlated` | current; write unresolved | 1 | `memory/soc-charge-limit-101-top-balance.md` records inert grid-tied behavior; [contradictions C6/C7](../60-history/open-contradictions.md) preserve the conflict. Do not treat H161 as a safe local write. Promotion requires a family-specific controlled action, behavior, raw before/after pair, and restoration; component firmware is scope metadata. |
 | H169 | On-grid end-of-discharge voltage, 0.1 V | grid-tied voltage regime | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H179 | Shared extended-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | Canonical safe map only; grades are bit- and family-specific. |
-| H202 | Stop-discharge voltage, 0.1 V | grid-tied forced-discharge voltage mode | `portal-correlated` | current | 1 | `DATA_MAPPING.md` records 40→41.5→40; firmware version is absent from the durable tuple. |
-| H206 | Peak-shaving period-1 power, **0.1 kW** | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md` records raw 41→4.1 kW and family applicability; complete restore/firmware tuple is absent. |
+| H202 | Stop-discharge voltage, 0.1 V | tested grid-tied forced-discharge voltage-mode unit | `hardware-toggle-proven` | current | 1 | Named Stop Discharge Volt action and raw 40→41.5→40 restoration; component firmware version unrecorded — scope limited to the tested unit. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#battery-chargedischarge-control-mode-soc-vs-voltage). |
+| H206 | Peak-shaving period-1 power, **0.1 kW** | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md` records raw 41→4.1 kW and family applicability; the durable record lacks a complete named-action raw before/after/restore tuple. |
 | H207 | Peak-shaving period-1 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H208 | Peak-shaving period-1 voltage, 0.1 V | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H209-H212 | Peak-shaving window 1-2 packed times | `EG4_HYBRID` | `portal-correlated` | current | 4 | `SCHEDULE_TIME_TYPES` records FlexBOSS21 FAAB-2525 01:05 → H211 raw 1281. |
 | H218 | Peak-shaving period-2 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H219 | Peak-shaving period-2 voltage, 0.1 V | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
-| H227 | System charge SOC limit, 0-101% | supported | `portal-correlated` | current | 1 | `memory/soc-charge-limit-101-top-balance.md` records 18kPV 80→101→80 but no component firmware version. |
-| H228 | System charge voltage limit, 0.1 V | voltage-control mode | `portal-correlated` | current | 1 | `memory/cloud-raw-register-write-broken.md` records 59.5→59.4→59.5; family/firmware tuple incomplete. |
+| H227 | System charge SOC limit, 0-101% | tested 18kPV | `hardware-toggle-proven` | current | 1 | Named System Charge SOC Limit action and raw 80→101→80 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/soc-charge-limit-101-top-balance.md`. |
+| H228 | System charge voltage limit, 0.1 V | tested voltage-control unit | `hardware-toggle-proven` | current | 1 | Named System Charge Volt Limit action and raw 59.5→59.4→59.5 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/cloud-raw-register-write-broken.md`. |
 | H231 | Unknown field; historic peak-shaving/high-word label false | tested hybrid | `portal-correlated` | unresolved | 0 | Single-register reads and quantization contradict the old label; no current semantic is counted. |
 | H232 | Peak-shaving period-2 power, 0.1 kW | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md`; not H231’s high word. |
-| H233 | Shared quick-charge/extended word; individual meanings below | hybrid/LXP local; off-grid local access rejected | `verified-against-code` | structural-only | 0 | Canonical safe map only. |
-| H234 | Quick-charge duration/setpoint and active remaining time, minutes | supporting inverters | `portal-correlated` | current | 1 | `memory/quick-charge-local-control-registers.md`; paired H233+H234 start observed, but raw before/full restore/firmware tuple is incomplete. |
+| H233 | Shared quick-charge/extended word; individual meanings below | hybrid/LXP local; off-grid boundary below | `verified-against-code` | structural-only | 0 | Canonical safe map only. |
+| H234 | Quick-charge duration/setpoint and active remaining time, minutes | supporting inverters | `portal-correlated` | current | 1 | `memory/quick-charge-local-control-registers.md`; paired H233+H234 start observed, but the complete raw before/after and restoration record is absent. |
 | H256-H259 | Generator-charge window 1-2 packed times | hybrid plus off-grid | `portal-correlated` | current | 4 | `DATA_MAPPING.md` schedule table. |
 | H269-H274 | Off-grid schedule window 1-3 packed times | `EG4_HYBRID` | `portal-correlated` | current | 6 | `DATA_MAPPING.md` schedule table. |
 
@@ -222,22 +223,22 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H110 b7 | Buzzer enable | tested portal scope | `portal-correlated` | current | 1 | Named/raw correlation lacks full toggle tuple. |
 | H110 b8 | **Function unknown** | all | `asserted-unverified` | unresolved | 0 | Only the wrong write and firmware ACK were established; it did not control Green Mode. No PVCT/CT semantic is claimed. See [contradiction C5](../60-history/open-contradictions.md) and `memory/issue-476-green-mode-bit14.md`. |
 | H110 b9 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); historic ECO position is refuted below. |
-| H110 b10 | Take Load Together candidate | tested hybrid scope | `portal-correlated` | current | 1 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) records the later correlation, but the durable record lacks the complete family-firmware-restore tuple and older [C5](../60-history/open-contradictions.md) evidence conflicts. Keep gated. |
+| H110 b10 | Take Load Together candidate | tested hybrid scope | `portal-correlated` | current | 1 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) records the later correlation, but the durable record lacks a complete restoration record and older [C5](../60-history/open-contradictions.md) evidence conflicts. Keep gated. |
 | H110 b11-b13 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
-| H110 b14 | Green/Off-Grid Mode | 18kPV hybrid | `portal-correlated` | current | 1 | `memory/issue-476-green-mode-bit14.md`: named action, raw 1056→17440→1056 restore; component firmware version not recorded. |
+| H110 b14 | Green/Off-Grid Mode | tested 18kPV hybrid | `hardware-toggle-proven` | current | 1 | Named Green/Off-Grid Mode action and raw 1056→17440→1056 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/issue-476-green-mode-bit14.md`. |
 | H110 b14 | Green/Off-Grid Mode candidate | 12000XP/6000XP | `lineage-inferred` | unresolved | 1 | Unified layout inference only; requires a family-specific controlled behavior-and-restore capture. |
-| H110 b15 | Battery ECO | tested portal scope | `portal-correlated` | current | 1 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); the durable record lacks full action/family/firmware/restore fields. |
+| H110 b15 | Battery ECO | tested portal scope | `portal-correlated` | current | 1 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); the durable record lacks a complete named-action, family, and restoration tuple. |
 
 ### H179 safe bit map
 
 | Register bit | Current semantic | Scope | Evidence | Status | Claim count | Durable basis and qualification |
 |---|---|---|---|---|---:|---|
 | H179 b0-b2 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); adjacent names are not accepted. |
-| H179 b3 | Export PV Only / `FUNC_PV_SELL_TO_GRID_EN` | 18kPV and FlexBOSS21 | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md`: named action, raw `0x104c→0x1044→0x104c`; component firmware versions not recorded. |
+| H179 b3 | Export PV Only / `FUNC_PV_SELL_TO_GRID_EN` | tested 18kPV and FlexBOSS21 units | `hardware-toggle-proven` | current | 1 | Named Export PV Only action and raw `0x104c→0x1044→0x104c` restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/live-write-window-findings.md`. |
 | H179 b4-b6 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
-| H179 b7 | Grid peak-shaving enable | tested EG4 hybrid scope | `portal-correlated` | current | 1 | [`DATA_MAPPING.md` H179 map](../../docs/DATA_MAPPING.md); the complete raw/restore/component-firmware tuple is absent. |
+| H179 b7 | Grid peak-shaving enable | tested EG4 hybrid scope | `portal-correlated` | current | 1 | [`DATA_MAPPING.md` H179 map](../../docs/DATA_MAPPING.md); the durable record lacks a complete raw before/after pair and restoration. |
 | H179 b8 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); the generator peak-shaving name is uncorroborated. |
-| H179 b9 | Battery charge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) describes the 2026-02-18 toggle, but the durable raw/restore/firmware tuple is incomplete. |
+| H179 b9 | Battery charge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) describes the 2026-02-18 toggle, but the durable raw before/after and restoration record is incomplete. |
 | H179 b10 | Battery discharge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | Same durable audit and evidence boundary as b9. |
 | H179 b11 | AC coupling function | lineage-wide | `lineage-inferred` | current | 1 | Requires a named/raw lockstep toggle. |
 | H179 b12-b15 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
@@ -246,11 +247,17 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 
 | Register bit | Current semantic | Scope | Evidence | Status | Claim count | Durable basis and qualification |
 |---|---|---|---|---|---:|---|
-| H233 b0 | Quick-charge start enable | FlexBOSS21 local | `portal-correlated` | current | 1 | `memory/quick-charge-local-control-registers.md`; paired start/stop observed, but raw before/full restore/component firmware tuple is incomplete. |
-| H233 b1 | Battery-backup control, distinct from H21 b0 EPS | tested hybrid scope | `portal-correlated` | current | 1 | [`register audit` H233 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) describes the mapping without a complete durable raw/restore/firmware tuple. |
+| H233 b0 | Quick-charge start enable | FlexBOSS21 local | `portal-correlated` | current | 1 | `memory/quick-charge-local-control-registers.md`; paired start/stop observed, but a complete raw before/after and restoration record is absent. |
+| H233 b1 | Battery-backup control, distinct from H21 b0 EPS | tested hybrid scope | `portal-correlated` | current | 1 | [`register audit` H233 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) describes the mapping without a complete durable raw before/after and restoration record. |
 | H233 b2-b11 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H233 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); maintenance/weekly/over-frequency names are not accepted. |
-| H233 b12 | Sporadic charge | tested portal scope | `portal-correlated` | current | 1 | [`register audit` H233 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) records Web UI plus raw 0↔4096, but restore/family/component-firmware fields are incomplete. It is not Quick Charge. |
+| H233 b12 | Sporadic charge | tested portal scope | `portal-correlated` | current | 1 | [`register audit` H233 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) records Web UI plus raw 0↔4096, but family and restoration fields are incomplete. It is not Quick Charge. |
 | H233 b13-b15 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H233 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
+
+#### H233 off-grid access boundary
+
+| Claim | Scope | Evidence | Status | Durable basis and qualification |
+|---|---|---|---|---|
+| LOCAL FC03/FC06 access to H233 is reported to return ILLEGAL DATA ADDRESS. | tested `EG4_OFFGRID` paths | `asserted-unverified` | unresolved; family-gated | [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#extended-function-enable-2-register-233) and [bug postmortems #296/#308](../60-history/bug-postmortems.md) record the rejection. This chapter has no preserved raw request/exception-response capture, so it is not promoted to a proof grade. |
 
 ## GridBOSS register ledger
 
@@ -303,7 +310,7 @@ These claims elaborate the counted schedule rows; they do not add to the ratio.
 | Packed time is `hour | (minute << 8)`; hour low byte, minute high byte. | Schedule families represented by the captured probes | `portal-correlated` | current | FlexBOSS21/SNA probes plus `time.py::_decode_from_cache`; example 01:05 → H211 raw 1281. |
 | Current LOCAL/HYBRID schedule writes issue one packed-register call documented as Modbus FC06 through `EG4ScheduleTimeEntity._async_set_value_locked()` and `EG4DataUpdateCoordinator.write_register()`. | Current integration path | `verified-against-code` | current | [`time.py`](../../custom_components/eg4_web_monitor/time.py) and [`coordinator.py`](../../custom_components/eg4_web_monitor/coordinator.py); no transport wire capture is claimed. |
 
-The prior sentence claiming firmware rejects FC16 has been removed: the only durable citation was a code/doc comment, not raw rejection evidence. No firmware-level FC16 rejection is asserted here.
+No raw wire evidence establishes a firmware-level FC16 rejection. The current integration’s single-register FC06 path is `verified-against-code`; the rejection comment remains `asserted-unverified` and is not a hardware claim.
 
 ## Keeper notes
 
@@ -329,7 +336,7 @@ These historic claims are excluded from the 335-current-claim denominator. `refu
 
 | Historic claim | Evidence | Status | Current bounded result | Durable basis |
 |---|---|---|---|---|
-| H110 b8 is Green/Off-Grid Mode. | `portal-correlated` | refuted | H110 b8 is **UNKNOWN**. The wrong b8 write was ACKed and did not control Green Mode; no PVCT/CT function is claimed. H110 b14 is portal-correlated on 18kPV. | [Contradiction C5](../60-history/open-contradictions.md); `memory/issue-476-green-mode-bit14.md`. |
+| H110 b8 is Green/Off-Grid Mode. | `portal-correlated` | refuted | H110 b8 is **UNKNOWN**. The wrong b8 write was ACKed and did not control Green Mode; no PVCT/CT function is claimed. H110 b14 is `hardware-toggle-proven` on the tested 18kPV unit. | [Contradiction C5](../60-history/open-contradictions.md); `memory/issue-476-green-mode-bit14.md`. |
 | H110 b5 is Take Load Together. | `portal-correlated` | refuted | Later evidence points to b10, but conflicting durable notes and incomplete toggle metadata keep b10 gated at `portal-correlated`. | Register audit H110 matrix and contradiction C5. |
 | H110 b6 is Buzzer. | `portal-correlated` | refuted | Current candidate is b7; b6 is unknown. | Safe register map and portal correlation. |
 | H110 b9 is Battery ECO. | `portal-correlated` | refuted | Current candidate is b15; b9 is unknown. | Safe register map and raw correlation. |
@@ -353,13 +360,13 @@ These historic claims are excluded from the 335-current-claim denominator. `refu
 
 | Function | Register | Evidence | Status | Qualification |
 |---|---|---|---|---|
-| Enable | H179 b7 | `portal-correlated` | current | Complete raw/restore/component-firmware tuple is absent. |
+| Enable | H179 b7 | `portal-correlated` | current | Complete raw before/after and restoration record is absent. |
 | Period-1 power / SOC / voltage | H206 / H207 / H208 | `portal-correlated` | current | H206 is 0.1 kW. |
 | Period-2 SOC / voltage / power | H218 / H219 / H232 | `portal-correlated` | current | H231 is not a high word. |
 | Two schedule windows | H209-H212 | `portal-correlated` | current | Packed time; family-gated to `EG4_HYBRID`. |
 
 ## Source hierarchy
 
-The canonical vocabulary and ladder live in the [llmwiki README](../README.md#evidence-grades). For this ledger, implementation tables and `DATA_MAPPING.md` cannot by themselves establish a hardware semantic. Passing tests establish software consistency only; they never promote a register mapping to `hardware-toggle-proven`.
+The canonical vocabulary and ladder live in the [llmwiki README](../README.md#evidence-grade-legend). For this ledger, implementation tables and `DATA_MAPPING.md` cannot by themselves establish a hardware semantic. Passing tests establish software consistency only; they never promote a register mapping to `hardware-toggle-proven`.
 
 Detailed derivations remain in [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), [`OFFGRID_GENERATOR_REGISTERS.md`](../../docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md), [`OFFGRID_EPS_REGISTERS.md`](../../docs/reference/firmware/OFFGRID_EPS_REGISTERS.md), and [`HYBRID_EPS_REGISTERS.md`](../../docs/reference/firmware/HYBRID_EPS_REGISTERS.md), subject to this page’s precedence and grades.

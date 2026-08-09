@@ -24,7 +24,7 @@ last-verified: 2026-08-08
 | `docs/reference/firmware/FIRMWARE_ACQUISITION.md` | Current acquisition/de-framing methodology | `firmware-proven` | Use for image retrieval, record reconstruction, processor classification, and structural validation. |
 | `OFFGRID_GENERATOR_REGISTERS.md`, `OFFGRID_EPS_REGISTERS.md`, `HYBRID_EPS_REGISTERS.md` | Current worked analyses | `firmware-proven` only for explicitly traced claims | Preserve each page’s model/family boundary and unresolved qualifications. |
 
-The two trees contain the same generated files except for `00_SUMMARY.md`; the nested tree’s summary carries the invalidity banner, while the root sibling remains stale. Both originally entered the repository together.
+Banner state and duplicate-tree ownership are canonical in [superseded claim S4](../60-history/superseded-claims.md). Both trees remain invalid sources for generated reverse-engineering conclusions.
 
 ## Acquire a trustworthy image
 

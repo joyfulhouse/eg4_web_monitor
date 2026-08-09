@@ -5,7 +5,6 @@ sources:
   - docs/CONFIGURATION.md
   - scripts/probe_all_registers.py
   - scripts/probe_gridboss_nbu_regs.py
-  - memory/quick-charge-local-control-registers.md
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 runbook-status: untested-as-written
@@ -14,11 +13,11 @@ last-executed: never
 
 # Register probing playbook
 
-> **THE VERIFICATION RULE: a register semantic is verified only by a live empirical cross-check on real hardware. Unit tests can prove that software implements its present assumption; they never verify the physical register semantic.** This rule follows the [register-annotation ladder](../README.md#evidence-grades).
+> **THE VERIFICATION RULE: a register semantic is verified only by a live empirical cross-check on real hardware. Unit tests can prove that software implements its present assumption; they never verify the physical register semantic.** This rule follows the [register-annotation ladder](../README.md#evidence-grade-legend).
 
 > **Execution status: UNTESTED AS WRITTEN; last executed: never.** Do not treat this page as a rehearsed production procedure until an authorized dry run records its date, probe lead, rollback owner, exact commands, and health-check result. `asserted-unverified`; durable operational context: [development environment](../50-operations/dev-environment.md).
 
-For reads, compare raw Modbus values with simultaneous portal/device behavior. For writes, make one named change, capture the complete raw before/after word and physical/UI behavior, restore the original word, and record all component firmware versions. Anything less stays below `hardware-toggle-proven`.
+For reads, compare raw Modbus values with simultaneous portal/device behavior. For writes, make one named change on the target family, capture the complete raw before/after word and physical/UI behavior, and restore the original word. Record component firmware when available as scope metadata; an unrecorded version limits the claim to the tested unit but does not change the canonical grade criterion.
 
 ## Live-household change control
 
@@ -27,7 +26,7 @@ Production Home Assistant runs HYBRID and owns the single gateway. Pausing it fo
 | Control | Mandatory requirement | Evidence/status |
 |---|---|---|
 | Authorization | The household/system owner must explicitly authorize the outage window. Record the authorizer, probe lead, rollback owner, start time, and affected gateway before touching the gateway owner. | Mandatory; no dated execution record exists yet. See [development environment](../50-operations/dev-environment.md). |
-| Maximum outage | The planned gateway-ownership interruption is **15 seconds maximum**. If the capture cannot fit, restore service and reschedule; never extend the window ad hoc. | Conservative bound from `memory/quick-charge-local-control-registers.md`; `asserted-unverified` as an unrehearsed runbook limit. |
+| Outage duration | Keep the gateway-ownership interruption as short as the capture allows and record the actual pause-to-restored-healthy interval. If the capture scope expands or the restore health check stalls, exit and restore rather than extending the probe. | Untested runbook requirement; no numeric maximum is supportable until a timed dry run establishes one. |
 | Abort authority | The rollback owner may abort immediately for loss of communication, unexpected plant behavior, an unrelated household event, restore uncertainty, or expiration of the window. | Runbook requirement. |
 | Escalation | On restore or health-check failure: stop all probing and writes, notify the authorizer and Home Assistant maintainer, restore the production owner from its normal console, and record an incident before another attempt. | Runbook requirement. |
 
@@ -50,7 +49,7 @@ If the environment cannot provide an idempotent restore action and automated fre
 | FC04 input-register read | Read-only | No semantic claim | Preferred for runtime discovery. Retain raw words and split chunks within device limits. |
 | FC03 holding-register read | Read-only operation against writable storage | No semantic claim | Inspect the actual call path; a generic “parameter” helper may write. |
 | Portal `/remoteRead/read` | Read-only | `portal-correlated` | Dumps the cloud holding/configuration template, not inverter FC04 runtime data. |
-| Watch a word while changing one vendor setting | Read script plus intentional configuration change | `portal-correlated`; `hardware-toggle-proven` only with the full tuple and restore | Record action, family, all component firmware, raw before/after, behavior, and restored raw word. |
+| Watch a word while changing one vendor setting | Read script plus intentional configuration change | `portal-correlated`; `hardware-toggle-proven` only with the canonical tuple and restore | Record action, family, raw before/after, behavior, and restored raw word. Record component firmware separately as scope metadata when available. |
 | FC06 single-register write | Write-risky | `portal-correlated` until controlled behavior and restoration are captured | Requires separate write authorization and a saved complete original word. |
 | FC16 multi-register write | Write-risky; behavior is range/family specific | `asserted-unverified` | Do not use FC16 for discovery. [The schedule evidence boundary](registers.md#schedule-write-evidence-boundary) records that no durable general rejection/support proof exists. |
 | Portal write/control API | Write-risky | `portal-correlated` | A success-shaped response does not establish raw targeting or behavior. |

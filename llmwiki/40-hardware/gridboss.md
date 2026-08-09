@@ -56,7 +56,7 @@ This section is canonical for the GB-H20 packing and its grade. GridBOSS serial 
 | 3 | b4-b5 | Unused | Smart load | AC couple | Reserved/unknown | `portal-correlated` |
 | 4 | b6-b7 | Unused | Smart load | AC couple | Reserved/unknown | `portal-correlated` |
 
-The full-word decoding is `mode(port) = (GB-H20 >> (2 × (port - 1))) & 0x3`. It remains `portal-correlated`, not `hardware-toggle-proven`: the durable evidence does not contain the complete family/component-firmware/raw-before/raw-after/behavior/restore tuple for all four fields. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md) owns the implementation derivation; [registers.md](registers.md) owns the register-ledger count.
+The full-word decoding is `mode(port) = (GB-H20 >> (2 × (port - 1))) & 0x3`. It remains `portal-correlated`, not `hardware-toggle-proven`: the durable evidence does not contain the complete named-action, target-family, raw-before/raw-after, and restoration tuple for all four fields. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md) owns the implementation derivation; [registers.md](registers.md) owns the register-ledger count.
 
 | Register fact | Evidence grade | Boundary |
 |---|---|---|
