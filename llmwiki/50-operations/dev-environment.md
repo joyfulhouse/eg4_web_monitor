@@ -200,12 +200,29 @@ inside `- ./config-local-nomidbox:/config` (the next character there is `-`, not
 rewrites within the one `sed` invocation are idempotent for all four modes, so reordering the
 expressions would change nothing — `asserted-unverified` — `eg4-switch-mode.sh:49-54`.
 
-**Real hazard — missing config directory.** The script never checks that the target directory
-exists; it edits compose and runs `docker-compose up -d` regardless (`:49-68`,
-`verified-against-code`). Docker creates a missing bind-mount source as an empty directory, so a
-typo or an un-provisioned mode yields a **fresh, empty Home Assistant** — onboarding screen, no
-integration, no entities — rather than an error. Confirm the directory exists before switching —
-`inferred` from the absent check plus Docker's bind-mount auto-create behavior.
+**Real hazard — missing config directory.** Two claims stack here and they do not rest on the same
+evidence, so they are graded separately.
+
+1. **The script never checks that the target config directory exists.** `CONFIG_DIR` is assigned per
+   mode, echoed, substituted into the `sed` expressions, and then looked for in the compose file — it
+   is never tested against the filesystem. The `if grep -q "$CONFIG_DIR:/config"` at `:57` is easy to
+   misread as that check: it confirms the **edit landed in the YAML**, not that the directory is
+   there. So the script edits compose and runs `docker-compose up -d` regardless — `asserted-unverified`
+   — parent workspace `eg4-switch-mode.sh:20-31`, `:45`, `:49-54`, `:57-68`. True, and re-checked, but
+   the file is unversioned and unrecoverable, so it cannot carry a code grade
+   ([why](#the-parent-workspace-cannot-be-pinned)).
+
+2. **A missing directory therefore yields a fresh, empty Home Assistant** — onboarding screen, no
+   integration, no entities — rather than an error, because Docker creates a missing bind-mount source
+   as an empty directory. `inferred`, and stated as an inference rather than an observation: nobody
+   has recorded actually hitting this. It rests on Docker Engine's documented auto-create behavior
+   for **short-syntax** bind mounts, combined with claim 1. It would *not* hold if the mount used the
+   long syntax with `bind.create_host_path: false` — which it does not, though that too is only
+   `asserted-unverified` against parent workspace `docker-compose.yaml:21-28`.
+
+Confirm the directory exists before switching. The hazard is latent rather than live: all four
+config directories are present today, so this bites a typo or a newly added mode, not the modes
+listed above.
 
 ## Operational hazards (do not skip)
 
