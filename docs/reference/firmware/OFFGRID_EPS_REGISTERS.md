@@ -9,6 +9,11 @@ arrive over the inter-processor link, are filtered, and are published into the s
 feeds the already-proven active-power registers. They are *not* counters, constants, duplicates or
 aliases.
 
+> **Scope: this document is about the off-grid image only.** The identically-numbered registers mean
+> different things on EG4_HYBRID — there, 25 is an ARM-computed `V × I ÷ 100` estimate, 131 is a
+> sign-split directional power, and **132 is an incrementing counter**. See
+> [`HYBRID_EPS_REGISTERS.md`](HYBRID_EPS_REGISTERS.md). Do not carry conclusions across families.
+
 A second, unrelated finding fell out of the same trace: **inputs 21 and 22 — the legacy EPS
 *S-phase* and *T-phase* voltages — are not voltages at all** on this build. See §5.
 
@@ -229,6 +234,12 @@ for this family, and do not treat a three-phase off-grid variant as automaticall
 handler first.
 
 What inputs 21/22 actually carry is **UNPROVEN**; naming them needs the C28x transmit-side decode.
+
+> **These two registers are also unusable on EG4_HYBRID**, though for different reasons — there they
+> are coherent DSP words rather than composites, but nothing uses them as voltages and live readings
+> are implausible (`eps_voltage_s` = 256.0 V and 4832.0 V on two units). That family *can* be
+> three-phase, so the gate that permanently suppresses these sensors here is not guaranteed to
+> suppress them there. See [`HYBRID_EPS_REGISTERS.md`](HYBRID_EPS_REGISTERS.md).
 
 ---
 

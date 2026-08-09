@@ -115,6 +115,25 @@ that the OTA chunk sizes are not uniform and a fixed-period rule silently corrup
 downstream. Reconstruct instead from the pcap's own chunk records via
 `scripts/extract_firmware_from_pcap.py`, which follows the transfer's sequence numbers.
 
+> **`extract_firmware_from_pcap.py` output is still framed.** The script reassembles the transfer;
+> it does not strip the transport framing. Its `.bin` is 353,026 bytes and its "vector table" reads
+> `SP=0x00059808` — the one-byte-shift signature. De-framing is a separate step, and it must use
+> each chunk's *actual* length:
+>
+> ```python
+> fp = extract_firmware_passes(pcap)[0]          # pass 0 = ARM App, pass 1 = C28x Para
+> out = bytearray()
+> for s in sorted(fp.chunks):
+>     p = fp.chunks[s].raw_payload[CHUNK_HEADER_SIZE:]
+>     assert p[0] == 0x08                        # OTA block prefix
+>     out += p[1:-2]                             # drop prefix + block checksum
+> del out[-4:]                                   # final chunk carried only the 4-byte fw-id
+> ```
+>
+> Chunk lengths in the 18kPV capture are `455×771, 4×259, 1×481, 1×703, 1×7` — not uniform, which
+> is exactly why a fixed period fails. The arithmetic predicts the target size exactly:
+> `455·768 + 4·256 + 478 + 700 = 351,642`.
+
 **How the block structure was established** (repeat if the format ever changes): diff the two model
 variants of the *same* App firmware. Differences appear in pairs at offsets 769,770 of each block at
 a 771 cadence — the model-keyed checksums, which reveal the period directly.
@@ -136,6 +155,38 @@ every instruction downstream while leaving the start of the image looking perfec
 None of this affects the portal-download route in §1, whose images never carry OTA framing.
 
 Portal-downloaded images (§1) are **already de-framed** — this section does not apply to them.
+
+---
+
+## 2a. ARM load base — derive it, never carry it over
+
+The load base differs per family, and using the wrong one does not fail loudly: every instruction
+boundary and every `LDR.W` literal resolution shifts, and the result disassembles into
+plausible-looking garbage.
+
+| Image | Family | Load base |
+|-------|--------|-----------|
+| `ceaa-07xx…` | EG4_OFFGRID (12000XP) | `0x08005000` |
+| `FAAB-27xx…App` | EG4_HYBRID (18kPV / FlexBOSS21) | **`0x08010000`** |
+| `IAAB-16xx…APP` | GridBOSS (POWER_HUB) | unverified — derive before use |
+
+To derive it, back-solve from a vector-table entry, since those handlers live inside the image.
+The default-handler pattern is the easiest anchor: find the `fe e7` (`b .`) self-loop run and match
+it to the NMI/HardFault vectors.
+
+```
+NMI vector 0x080132F1 -> handler 0x080132F0
+self-loop pair found at file offset 0x032F0
+base = 0x080132F0 - 0x032F0 = 0x08010000
+```
+
+Then confirm with a second, independent signal before trusting it:
+
+- **RAM-pointer density.** Count literal-pool words landing in `0x20000000–0x20050000`. The correct
+  base for the hybrid App yields 4,263; a wrong base collapses this.
+- **A known literal.** Decode a site whose operands are already documented and check the literals
+  resolve to the expected addresses. On the hybrid App, `0x080319DC` must resolve `0x2000EAE4` and
+  `0x2000EAE6` (see [`HYBRID_EPS_REGISTERS.md`](HYBRID_EPS_REGISTERS.md) §1).
 
 ---
 
@@ -205,6 +256,9 @@ Worked analyses following this method:
 - [`OFFGRID_EPS_REGISTERS.md`](OFFGRID_EPS_REGISTERS.md) — inputs 25/131/132 (EPS apparent power)
   *are* genuine DSP measurements, traced parser → filter → publish → Modbus; inputs 21/22 (EPS S/T
   voltage) are byte/bitfield composites and not voltages.
+- [`HYBRID_EPS_REGISTERS.md`](HYBRID_EPS_REGISTERS.md) — the same S/T voltage registers are junk on
+  EG4_HYBRID too (live-confirmed on two inverters), which matters because that is the
+  three-phase-capable family; also carries the corrected hybrid reconstruction recipe and load base.
 
 A scanner that reports "no writers" is the trap to watch for: a base pointer held in a callee-saved
 register across a large function defeats naive literal tracking, and the resulting silence reads
