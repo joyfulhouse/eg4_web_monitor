@@ -7,10 +7,12 @@ sources:
   - tests/requirements-test.txt
   - hacs.json
   - .github/workflows/release.yml
-  - ../python/pylxpweb/docs/DEVELOPMENT.md
-  - ../python/pylxpweb/.github/workflows/release.yml
-verified-against: 9f6d6e2
-last-verified: 2026-08-08
+  - pylxpweb docs/DEVELOPMENT.md
+  - pylxpweb .github/workflows/release.yml
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
+last-verified: 2026-08-09
 ---
 
 # Release process
@@ -44,13 +46,16 @@ exists at that version. It does not prove that the artifact came from the review
 was built by the release workflow, or that TestPyPI and PyPI received the same file. Availability is
 not provenance. Check all five before moving the pin:
 
+All five re-verified against pylxpweb `.github/workflows/release.yml` at **`204b95d`**; line numbers below
+are that revision's.
+
 | # | Check | How | Grade |
 |---|-------|-----|-------|
-| 1 | **Ref → commit** | Confirm what was actually built. The build job checks out `github.event.release.tag_name \|\| github.ref` — a **published release** builds its tag; a **manual dispatch** builds whatever ref the dispatcher picked. Check the run's ref, then `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit, and confirm the tag is protected against being moved | `verified-against-code` — pylxpweb `release.yml`, `build` job, `actions/checkout` `ref:`. See [Sequencing is not provenance](#sequencing-is-not-provenance) |
-| 2 | **Commit → version** | `pyproject.toml` `[project].version` **at that tag** equals the version now on PyPI. A tag on the wrong commit ships the wrong version silently | `verified-against-code` — pylxpweb `release.yml`, `build` job, `uv build` |
-| 3 | **Trusted Publisher provenance** | Publication is OIDC, not a stored API token: the workflow declares `permissions: id-token: write` and both publish jobs use `pypa/gh-action-pypi-publish` against GitHub Environments `testpypi` / `pypi`. On PyPI, confirm the release shows the Trusted Publisher and the originating workflow run | `verified-against-code` — pylxpweb `release.yml` `permissions:`, jobs `publish-testpypi` / `publish-pypi` (`environment:`) |
-| 4 | **Artifact hashes** | Both publish steps set `print-hash: true`. Take the wheel/sdist hashes from the run log and compare them to the hashes PyPI lists for the release. Equal hashes on the TestPyPI and PyPI steps prove the same file reached both indexes | `verified-against-code` — pylxpweb `release.yml`, `publish-testpypi` / `publish-pypi` steps (`print-hash: true`) |
-| 5 | **Same-artifact promotion** | Nothing is rebuilt between indexes. `build` uploads one artifact (`python-package-distributions`); both publish jobs download **that** artifact rather than rebuilding, so the file `twine check` validated is the file promoted | `verified-against-code` — pylxpweb `release.yml`: `build` → `actions/upload-artifact`; `publish-testpypi` / `publish-pypi` → `actions/download-artifact` |
+| 1 | **Ref → commit** | Confirm what was actually built. The build job checks out `github.event.release.tag_name \|\| github.ref` — a **published release** builds its tag; a **manual dispatch** builds whatever ref the dispatcher picked. Check the run's ref, then `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit, and confirm the tag is protected against being moved | `verified-against-code` — pylxpweb@`204b95d` `release.yml:35-37` (`build` → `actions/checkout` `ref:`). See [Sequencing is not provenance](#sequencing-is-not-provenance) |
+| 2 | **Commit → version** | `pyproject.toml` `[project].version` **at that tag** equals the version now on PyPI. Nothing overrides it: the job runs a bare `uv build` against the checked-out tree, so the version is whatever that ref declares. A tag on the wrong commit ships the wrong version silently | `verified-against-code` — pylxpweb@`204b95d` `release.yml:52` (`uv build`), `:37` (checkout ref) |
+| 3 | **Trusted Publisher provenance** | Publication is OIDC, not a stored API token: the workflow sets `id-token: write` at workflow level and again on each publish job, and both use `pypa/gh-action-pypi-publish@release/v1` against GitHub Environments `testpypi` / `pypi`. On PyPI, confirm the release shows the Trusted Publisher and the originating workflow run | `verified-against-code` — pylxpweb@`204b95d` `release.yml:25-27` (workflow `permissions:`), `:77-79` / `:99-101` (job `environment:` + `permissions:`), `:88` / `:110` (publish action) |
+| 4 | **Artifact hashes** | Both publish steps set `print-hash: true`. Take the wheel/sdist hashes from the run log and compare them to the hashes PyPI lists for the release. Equal hashes on the TestPyPI and PyPI steps prove the same file reached both indexes | `verified-against-code` — pylxpweb@`204b95d` `release.yml:91`, `:112` |
+| 5 | **Same-artifact promotion** | Nothing is rebuilt between indexes. `build` uploads one artifact (`python-package-distributions`); both publish jobs download **that** artifact rather than rebuilding, so the file `twine check` validated is the file promoted | `verified-against-code` — pylxpweb@`204b95d` `release.yml:57-61` (upload), `:81-85` / `:103-107` (download), `:55` (`twine check`) |
 
 Only after those pass does `pip install pylxpweb==X` in a clean environment mean anything — and then
 it is a resolvability check, not a trust check.
@@ -67,9 +72,11 @@ it is a resolvability check, not a trust check.
 **What the gate does not cover.** Two limits, both structural:
 
 1. **No smoke test.** The workflow never installs or imports the TestPyPI artifact before promoting
-   it. TestPyPI success means "upload accepted", not "the package works". The clean-env install above
-   is the only import check in the chain, and it runs after PyPI publication — `verified-against-code`
-   — pylxpweb `release.yml` (no install or import step between `publish-testpypi` and `publish-pypi`).
+   it. TestPyPI success means "upload accepted", not "the package works". `publish-testpypi` has
+   exactly two steps — download the artifact, publish it — and nothing between it and `publish-pypi`.
+   The clean-env install above is the only import check in the chain, and it runs after PyPI
+   publication — `verified-against-code` — pylxpweb@`204b95d` `release.yml:80-91` (the job's complete
+   step list), `:93-112`.
 2. **No enforced provenance.** Checks 1–5 are things a human performs *after* the fact; the workflow
    itself never verifies that what it built came from a reviewed, immutable ref. On a manual dispatch
    it builds whatever ref the dispatcher selected. See
@@ -83,9 +90,9 @@ it is a resolvability check, not a trust check.
 | eg4_web_monitor | `custom_components/eg4_web_monitor/manifest.json` → `"version"` | SemVer + prerelease: `X.Y.Z`, `X.Y.Z-beta.N`, `X.Y.Z-rc.N`; Git tags `vX.Y.Z` / `vX.Y.Z-beta.N` |
 | pylxpweb | `pyproject.toml` `[project].version` | PEP 440 (e.g. `0.9.39b10`); Git tags `v0.9.39b10` |
 
-`verified-against-code` — `custom_components/eg4_web_monitor/manifest.json:14` (`version`); pylxpweb
-`pyproject.toml` `[project].version`. The SemVer/Keep-a-Changelog convention around them is
-`asserted-unverified` — `docs/DEVELOPMENT.md` "Releasing".
+`verified-against-code` — eg4_web_monitor@`9f6d6e2` `custom_components/eg4_web_monitor/manifest.json:14`
+(`version`); pylxpweb@`204b95d` `pyproject.toml:1-3` (`[project]` … `version = "0.9.39b10"`). The
+SemVer/Keep-a-Changelog convention around them is `asserted-unverified` — `docs/DEVELOPMENT.md` "Releasing".
 
 Snapshot at `9f6d6e2` (will drift — re-read files, do not hard-code forever):
 
@@ -149,7 +156,7 @@ HACS installs from the GitHub Release asset produced by `release.yml`, not from 
 ## pylxpweb release / PyPI publish
 
 Steps 1–3 are the documented procedure — `asserted-unverified` — pylxpweb `docs/DEVELOPMENT.md`.
-Step 4 and everything below it are `verified-against-code` — pylxpweb `.github/workflows/release.yml`.
+Step 4 and everything below it are `verified-against-code` — pylxpweb@`204b95d` `.github/workflows/release.yml:1-121`.
 
 1. Bump version in `pyproject.toml`.
 2. Update pylxpweb `CHANGELOG.md`.
@@ -163,12 +170,12 @@ Step 4 and everything below it are `verified-against-code` — pylxpweb `.github
 
 `workflow_dispatch` takes exactly **one** input — `environment`, required, `type: choice` — with
 three options: `skip-publish`, `testpypi`, `pypi`. There is no `skip-publish` *flag*; it is one of the
-three values of that single input — `verified-against-code` — pylxpweb `release.yml`, `on.workflow_dispatch.inputs.environment`.
+three values of that single input — `verified-against-code` — pylxpweb@`204b95d` `release.yml:9-18`.
 
 **Dispatch cannot bypass the TestPyPI → PyPI gate.** The gate is structural, not conditional:
 `publish-pypi` declares `needs: [build, publish-testpypi]`, and no job uses `if: always()`, so a
 skipped `publish-testpypi` skips `publish-pypi` too. Every input value is covered —
-`verified-against-code` — pylxpweb `release.yml`, jobs `publish-testpypi` / `publish-pypi` (`needs:` and `if:`):
+`verified-against-code` — pylxpweb@`204b95d` `release.yml:75-76` / `:97-98` (`needs:` and `if:` on both publish jobs):
 
 | `environment` input | `publish-testpypi` | `publish-pypi` | Net effect |
 |---|---|---|---|
@@ -188,8 +195,8 @@ The build job resolves its checkout as
 `ref: ${{ github.event.release.tag_name || github.ref }}`. On `workflow_dispatch` there is no release
 payload, so it falls through to `github.ref` — **the ref the dispatcher chose**. Any branch, any tag,
 reviewed or not. The version published is whatever `pyproject.toml` declares on that ref; nothing
-compares it to a tag, a release, or a merged commit — `verified-against-code` — pylxpweb
-`release.yml`, `build` job, `actions/checkout` `ref:`.
+compares it to a tag, a release, or a merged commit — `verified-against-code` — pylxpweb@`204b95d`
+`release.yml:35-37`.
 
 Three properties that look protective and are not:
 
@@ -197,7 +204,7 @@ Three properties that look protective and are not:
 |---|---|
 | TestPyPI runs first | Order only. Both jobs consume the same artifact, so they agree with each other — including when that artifact was built from an unreviewed ref |
 | OIDC / Trusted Publisher | Binds publication to *this repo, this workflow file, this environment*. It attests **who published**, never **what was reviewed**. A dispatch from an arbitrary branch is signed just as legitimately |
-| Environment gating on the publish jobs | Only the publish jobs declare `environment:`; `build` declares none, so protection rules never gate the checkout or the build — an unreviewed ref is fetched and built regardless, and the rules can only stop it at upload — `verified-against-code` — pylxpweb `release.yml`, `build` (no `environment:`) vs `publish-testpypi` / `publish-pypi` |
+| Environment gating on the publish jobs | **`build` declares no `environment:` at all.** Only the two publish jobs do, so environment protection rules never gate the checkout or the build — an unreviewed ref is fetched and built regardless, and the rules can only stop it at upload — `verified-against-code` — pylxpweb@`204b95d`: `build` spans `release.yml:30-69` with no `environment:` key, against `:77` (`environment: testpypi`) and `:99` (`environment: pypi`) |
 
 Absent environment restrictions, this means: **any repository writer can have OIDC publish an
 arbitrary ref to PyPI as the real package.** Downstream, `manifest.json` resolves `pylxpweb>=…` from
@@ -213,21 +220,44 @@ tree**, so confirm them on GitHub each time rather than inheriting a belief abou
 |---|---|---|---|
 | 1 | The `pypi` environment restricts **which refs may deploy** to protected release tags — GitHub evaluates its deployment branch/tag policy against the run's `github.ref`, and it is the only automatic control that constrains *which ref* may publish | Repo → Settings → Environments → `pypi` → deployment branches and tags | **Unverified — settings not in the tree** |
 | 2 | The `pypi` environment requires **review by someone other than the dispatcher** | Same screen → required reviewers | **Unverified — settings not in the tree** |
-| 3 | An **immutable, protected release tag** exists, and the version in `pyproject.toml` at that tag equals the version being published | `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit; a tag protection rule or ruleset to stop the tag being moved afterwards | **Unverified — tag protection is a repo setting** |
+| 3 | An **immutable, protected release tag** exists, and the version in `pyproject.toml` at that tag equals the version being published | `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit; a tag protection rule or ruleset to stop the tag being moved afterwards | **Unverified — tag protection is a repo setting.** And see below: the release tags carry no immutability of their own |
 
 If any is unconfirmed, **publish through a published GitHub Release instead of a manual dispatch**,
 and treat the manual `pypi` path as unavailable. The release path at least binds the checkout to
 `github.event.release.tag_name`; note that this still assumes the tag is protected, since an
 unprotected git tag can be moved after review (precondition 3 covers both paths).
 
+**The release tags are lightweight, so they carry no evidence of their own.** Checked at the pin:
+`git cat-file -t refs/tags/v0.9.39b10` returns `commit`, not `tag` — the ref points straight at the
+commit with no tag object behind it. The same holds for `v0.9.39b9`. A lightweight tag has **no
+tagger identity, no timestamp and no signature**, and it is an ordinary ref that anyone with push
+access can move with `git push --force origin v0.9.39b10`. So a tag matching the artifact proves only
+where the ref points *right now*; it is not evidence of who cut the release or that it has not been
+repointed since. Precondition 3's immutability therefore rests **entirely** on GitHub tag protection
+rules — there is no fallback in the git data — `verified-against-code` — pylxpweb@`204b95d`:
+`git cat-file -t` on both release tag refs.
+
+Worked example at the pin, which resolves gate checks 1 and 2 concretely:
+
+| Step | Result |
+|---|---|
+| `git rev-parse 'v0.9.39b10^{commit}'` | `204b95d…` |
+| `git ls-remote --tags origin refs/tags/v0.9.39b10` | `204b95d…` — local and origin agree, so the ref has not been repointed on one side only |
+| `git show 204b95d:pyproject.toml` → `[project].version` | `0.9.39b10` — matches the tag name and the floor `manifest.json:13` pins |
+
+That is a clean tag → commit → version chain, and it is what checks 1 and 2 look like when they pass.
+It still says nothing about *who* published or whether the tag moved before you looked, which is the
+gap the paragraph above describes.
+
 **Who can trigger it.** The workflow declares no actor restriction — `verified-against-code` for the
-absence of one (pylxpweb `release.yml`, no `if: github.actor` guard on any job). It therefore reduces
+absence of one (pylxpweb@`204b95d` `release.yml`: the only job-level `if:` conditions are `:76` and
+`:98`, both on the publish-target input, and no job tests `github.actor`). It therefore reduces
 to GitHub's rule that `workflow_dispatch` requires write access — `asserted-unverified` (GitHub
 Actions documented behavior, not a fact in this tree). Repository write access is a much larger set
 than release authority, which is what makes preconditions 1 and 2 load-bearing rather than optional.
 
 `concurrency: release-publish` with `cancel-in-progress: false` serializes releases — a second
-dispatch queues rather than cancelling the first — `verified-against-code` — pylxpweb `release.yml`, `concurrency:`.
+dispatch queues rather than cancelling the first — `verified-against-code` — pylxpweb@`204b95d` `release.yml:21-23`.
 
 ## SemVer / prerelease ordering reminder
 

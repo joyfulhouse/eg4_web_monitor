@@ -7,13 +7,13 @@ sources:
   - tests/requirements-test.txt
   - scripts/probe_gridboss_nbu_regs.py
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
-  - ../docker-compose.yaml (parent homeassistant-dev)
-  - ../scripts/eg4-switch-mode.sh (parent homeassistant-dev)
+  - the parent workspace containing this repo — its docker-compose.yaml and
+    scripts/ (unversioned; see "The parent workspace cannot be pinned")
   - memory/prod-is-hybrid-dev-contends-modbus.md
   - memory/dev-container-pylxpweb-pin-bump-gotcha.md
   - memory/dev-container-deletes-pylxpweb-src.md
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+last-verified: 2026-08-09
 ---
 
 # Dev environment
@@ -59,21 +59,51 @@ uv run ruff format
 uv run mypy
 ```
 
+## The parent workspace cannot be pinned
+
+The docker setup does not live in this repository. It lives in the **parent directory that contains
+this clone** — the compose file and the `scripts/` helpers sit one level above `eg4_web_monitor/`.
+
+**That parent directory is not under version control.** It has no `.git`, and no ancestor of it is a
+repository either, so there is no commit, tag or version that anyone could cite. Verified by running
+`git rev-parse --show-toplevel` from it: it fails with *"not a git repository (or any of the parent
+directories)"*.
+
+The consequence is unavoidable and this chapter states it rather than working around it:
+
+> **Every claim on this page sourced from the parent workspace is `asserted-unverified`** — sourced
+> from an unversioned local working directory; no durable revision exists to pin, so it cannot be
+> code-verified. This holds however precisely the claim is cited.
+
+Line numbers are still given below, because they are genuinely useful to anyone sitting at that
+machine. **They are not evidence.** They are offsets into a file that may already differ on any other
+machine, that no revision identifies, and that cannot be recovered as it was if it changes. A reader
+who cannot open that directory has no way to check any of it.
+
+**This is a real gap, not a formality.** A substantial part of the operations knowledge below — the
+container topology, the four modes, the whole mode-switch hazard set — rests on a source only the
+maintainer can audit. The knowledge is accurate and worth keeping; it simply is not verifiable by the
+standard the rest of this wiki is held to. Treat it as reliable operational lore, and re-read the
+actual files before depending on a detail.
+
+Everything else on this page — `prek.toml`, `tests/requirements-test.txt`, `scripts/probe_gridboss_nbu_regs.py`,
+`.github/workflows/quality-validation.yml` — is in **this** repo and keeps its grade at `9f6d6e2`.
+
 ## Home Assistant docker container
 
-Lives in the **parent** repo `homeassistant-dev/` (sibling of this clone), not inside eg4_web_monitor.
+Parent-workspace sourced — `asserted-unverified` throughout, per the section above.
 
-| Fact | Value | Grade |
-|------|-------|-------|
-| Compose file | `homeassistant-dev/docker-compose.yaml`, service block `:14-32` | `verified-against-code` |
-| Service / container | `homeassistant` / `homeassistant-dev` | `verified-against-code` — `docker-compose.yaml:14-16` |
-| Image | `homeassistant/home-assistant:latest` | `verified-against-code` — `docker-compose.yaml:15` |
-| UI port | `8123` → http://localhost:8123 | `verified-against-code` — `docker-compose.yaml:29-30` |
-| Container Python | 3.13 | `inferred` — the pylxpweb mount targets `/usr/local/lib/python3.13/site-packages/` (`docker-compose.yaml:27`); the image tag itself pins no version |
+| Fact | Value | Cited at (not evidence) |
+|------|-------|-------------------------|
+| Compose file | `docker-compose.yaml` in the parent workspace, service block `:14-32` | — |
+| Service / container | `homeassistant` / `homeassistant-dev` | `docker-compose.yaml:14-16` |
+| Image | `homeassistant/home-assistant:latest` | `docker-compose.yaml:15` |
+| UI port | `8123` → http://localhost:8123 | `docker-compose.yaml:29-30` |
+| Container Python | 3.13 — `inferred` from the pylxpweb mount targeting `/usr/local/lib/python3.13/site-packages/`; the image tag itself pins no version | `docker-compose.yaml:27` |
 
 ### Bind mounts (host → container)
 
-`verified-against-code` — `homeassistant-dev/docker-compose.yaml:21-28`
+`asserted-unverified` — parent workspace `docker-compose.yaml:21-28`
 
 | Host path (from `homeassistant-dev/`) | Container path | Purpose |
 |---------------------------------------|----------------|---------|
@@ -82,11 +112,11 @@ Lives in the **parent** repo `homeassistant-dev/` (sibling of this clone), not i
 | `../python/pylxpweb/src/pylxpweb` (`:27`) | `/usr/local/lib/python3.13/site-packages/pylxpweb` | Live library source over site-packages |
 
 The same container also mounts two unrelated integrations — `intellicenter` (`:25`) and
-`brilliant_mqtt` (`:26`) — so restarting it restarts those too — `verified-against-code` —
-`docker-compose.yaml:25-26`.
+`brilliant_mqtt` (`:26`) — so restarting it restarts those too — `asserted-unverified` — parent
+workspace `docker-compose.yaml:25-26`.
 
-Code is bind-mounted, so an edit lands inside the container immediately — `verified-against-code` —
-`docker-compose.yaml:24`, `:27`. **But a running Python process does not re-import a changed
+Code is bind-mounted, so an edit lands inside the container immediately — `asserted-unverified` —
+parent workspace `docker-compose.yaml:24`, `:27`. **But a running Python process does not re-import a changed
 module**, so the edit is live on disk and inert in the running integration until the container
 restarts. That gap is the trap: the file is visibly correct, the behavior is visibly old, and it
 reads as though the edit failed. Restart before concluding anything about a code change —
@@ -107,8 +137,9 @@ End-user install is HACS zip (`INSTALL.md` / `hacs.json`); agents use the docker
 
 ## Four test modes
 
-There are **four** modes — `verified-against-code` — `homeassistant-dev/docker-compose.yaml:5-11`
-(mode comment block) and `homeassistant-dev/scripts/eg4-switch-mode.sh:20-43`.
+There are **four** modes — `asserted-unverified` — parent workspace `docker-compose.yaml:5-11`
+(mode comment block) and `scripts/eg4-switch-mode.sh:20-43`. The four modes are real and the list is
+correct; it is the *grade* that the unversioned source caps, not the knowledge.
 
 **Take the mode list from the script's `case` statement, never from prose.** A mode exists if and
 only if it has a `case` arm; the arm is what maps the name to a config directory and what rejects an
@@ -142,8 +173,9 @@ those directories is checkable from the tree.
 
 ## Mode switch script
 
-**File:** `homeassistant-dev/scripts/eg4-switch-mode.sh`
-`verified-against-code` — `eg4-switch-mode.sh:12-74`
+**File:** `scripts/eg4-switch-mode.sh` in the parent workspace
+`asserted-unverified` — `eg4-switch-mode.sh:12-74` (unversioned source; see
+[above](#the-parent-workspace-cannot-be-pinned))
 
 What it actually does:
 
@@ -166,7 +198,7 @@ grep ":/config" docker-compose.yaml | head -1
 `config-local-nomidbox`. Every pattern ends `:/config`, so `- ./config-local:/config` cannot match
 inside `- ./config-local-nomidbox:/config` (the next character there is `-`, not `:`). Chained
 rewrites within the one `sed` invocation are idempotent for all four modes, so reordering the
-expressions would change nothing — `verified-against-code` — `eg4-switch-mode.sh:49-54`.
+expressions would change nothing — `asserted-unverified` — `eg4-switch-mode.sh:49-54`.
 
 **Real hazard — missing config directory.** The script never checks that the target directory
 exists; it edits compose and runs `docker-compose up -d` regardless (`:49-68`,
@@ -204,15 +236,17 @@ dev-environment consequence.
 
 | Hazard | Rule | Grade |
 |--------|------|-------|
-| One mode at a time | Compose declares exactly one `/config` bind and the script rewrites that single line, so the modes are structurally mutually exclusive — you cannot run two by accident. Running a *second* HA against the same hardware is a different problem, constrained by the single-client gateway ([above](#prod-owns-the-gateway)) | `verified-against-code` — `docker-compose.yaml:23`, `eg4-switch-mode.sh:49-54` |
+| One mode at a time | Compose declares exactly one `/config` bind and the script rewrites that single line, so the modes are structurally mutually exclusive — you cannot run two by accident. Running a *second* HA against the same hardware is a different problem, constrained by the single-client gateway ([above](#prod-owns-the-gateway)) | `asserted-unverified` — parent workspace `docker-compose.yaml:23`, `eg4-switch-mode.sh:49-54` |
 | Dongle single-client | Scripts that talk to the dongle require HA stopped or in cloud-only mode; `scripts/probe_gridboss_nbu_regs.py` states this in its module docstring under **Requirements** ("No other client connected to the dongle (single-client limitation)", "HA container should be stopped or in cloud-only mode") | `verified-against-code` for the script's stated requirement — `scripts/probe_gridboss_nbu_regs.py:15-19` |
 | pylxpweb dist-info loss | After a mode switch, a fresh container layer can lack pylxpweb dist-info → HA pip-installs over the bind mount and breaks the integration. Recreate minimal dist-info after a switch if that happens | `asserted-unverified` — `memory/dev-container-pylxpweb-pin-bump-gotcha.md` |
 | Bind-mounted pylxpweb source can be wiped | A `docker restart` has been observed deleting bind-mounted `src/pylxpweb/`; commit before restarting, recover with `git restore src/pylxpweb/` | `asserted-unverified` — `memory/dev-container-deletes-pylxpweb-src.md` |
-| Mode switch restarts whole stack | Script uses `down`/`up`, not `restart` | `verified-against-code` — `eg4-switch-mode.sh:66-68` |
-| `.bak` left behind | `sed -i.bak` creates `docker-compose.yaml.bak` on every run | `verified-against-code` — `eg4-switch-mode.sh:49` |
+| Mode switch restarts whole stack | Script uses `down`/`up`, not `restart` | `asserted-unverified` — `eg4-switch-mode.sh:66-68` |
+| `.bak` left behind | `sed -i.bak` creates `docker-compose.yaml.bak` on every run | `asserted-unverified` — `eg4-switch-mode.sh:49` |
 
-Cross-check helper (parent): `homeassistant-dev/scripts/compare_ha_vs_cloud.py` compares HA state
-against the cloud API — `verified-against-code` — the file is present in the parent repo's `scripts/`.
+Cross-check helper: `scripts/compare_ha_vs_cloud.py` in the parent workspace compares HA state
+against the cloud API — `asserted-unverified`; it is **not** in this repo (`git cat-file -e
+9f6d6e2:scripts/compare_ha_vs_cloud.py` fails), so it carries the same unversioned-source cap.
+Not to be confused with `scripts/probe_gridboss_nbu_regs.py`, which **is** tracked here.
 
 ## Agent copy-paste: live validation
 

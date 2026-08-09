@@ -9,10 +9,13 @@ sources:
   - AGENTS.md
   - scripts/bd_seed_maintainability.sh
   - .github/CODEOWNERS
+  - pylxpweb .github/workflows/dependabot-auto-merge.yml
   - memory/sprint-2026-07-16-issue-zeroing.md
   - memory/issue-pipeline-log-enforcement.md
-verified-against: 9f6d6e2
-last-verified: 2026-08-08
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
+last-verified: 2026-08-09
 ---
 
 # Issue and PR pipeline
@@ -95,7 +98,31 @@ Form emptiness alone is not enough — phone logcat or screenshots pass the form
 | CODEOWNERS | `* @btli` | `verified-against-code` — `.github/CODEOWNERS` |
 | Branch naming | Not formally documented in-repo. Observed: `integration/3.4.0`, `integration/3.5.0`, `feat/…` (pylxpweb). Follow the current release-line style | `inferred` — `CHANGELOG.md` release narratives |
 | Labels | From templates (`bug`, `enhancement`) + triage (`support`, `duplicate`, `needs-info`, `needs-logs`) | `verified-against-code` — `.github/ISSUE_TEMPLATE/*.yml`, `.github/workflows/issue-triage.yml`, `.github/workflows/issue-log-validation.yml` |
-| Auto-merge | **Not** enabled here — eg4_web_monitor has no auto-merge workflow. pylxpweb auto-merges Dependabot PRs for non-major bumps only | `verified-against-code` — no auto-merge workflow under eg4 `.github/workflows/`; pylxpweb `.github/workflows/dependabot-auto-merge.yml` (`if: steps.metadata.outputs.update-type != 'version-update:semver-major'`) |
+| Auto-merge (this repo) | **None.** No workflow in eg4_web_monitor approves or merges anything; nothing here uses `pull_request_target` either | `verified-against-code` — eg4_web_monitor@`9f6d6e2`: the eight files under `.github/workflows/` contain no `--auto`, `auto-merge` or `pull_request_target` |
+| Auto-merge (pylxpweb) | pylxpweb **approves and enables auto-merge** on Dependabot PRs for non-major bumps; major bumps get a comment demanding manual review and are not approved | `verified-against-code` — pylxpweb@`204b95d` `.github/workflows/dependabot-auto-merge.yml:27-39` (both the `gh pr review --approve` and `gh pr merge --auto --squash` steps carry `if: steps.metadata.outputs.update-type != 'version-update:semver-major'`), `:41-47` (major → comment only) |
+
+### What the pylxpweb auto-merge actually exposes
+
+Read the surface before changing anything there, because it is the one workflow in either repo that
+merges code without a human — `verified-against-code` — pylxpweb@`204b95d` `dependabot-auto-merge.yml`:
+
+| Property | Value | Line |
+|---|---|---|
+| Trigger | `pull_request_target` on `opened`, `synchronize`, `reopened` | `:9-10` |
+| Token permissions | `contents: write`, `pull-requests: write` | `:12-14` |
+| Only gate | `if: github.actor == 'dependabot[bot]'` on the single job | `:19` |
+| Update classification | `dependabot/fetch-metadata@v3` — the bot's own metadata decides major vs non-major | `:21-25` |
+
+`pull_request_target` runs in the **base** repo context with those write permissions, which is why it
+is normally dangerous. The mitigating property here is that the job **never checks out the PR head** —
+its four steps only run `gh pr` commands against the PR URL, and the URL is passed via `env:` rather
+than interpolated into the shell — `verified-against-code` — `:20-47` (the job's complete step list).
+The file states this reasoning itself at `:1-5`.
+
+Two limits worth stating precisely. `gh pr merge --auto` **enables** GitHub's auto-merge; it does not
+force a merge, so required status checks still apply — but *which* checks are required is branch
+protection, a repository setting, and therefore **not determinable from the tree**. And the
+major/non-major split is only as trustworthy as `fetch-metadata`'s classification of the bot's own PR.
 
 ## Work tracking (beads / `bd`)
 
