@@ -198,5 +198,15 @@ Anchor conclusions to measurements:
 - Where a register's meaning is at stake, check the decode against a live capture or an issue
   report before publishing it.
 
-See [`OFFGRID_GENERATOR_REGISTERS.md`](OFFGRID_GENERATOR_REGISTERS.md) for a full worked analysis
-following this method.
+Worked analyses following this method:
+
+- [`OFFGRID_GENERATOR_REGISTERS.md`](OFFGRID_GENERATOR_REGISTERS.md) — input 123 is an ARM-local
+  1 Hz counter, not generator power (issue #544).
+- [`OFFGRID_EPS_REGISTERS.md`](OFFGRID_EPS_REGISTERS.md) — inputs 25/131/132 (EPS apparent power)
+  *are* genuine DSP measurements, traced parser → filter → publish → Modbus; inputs 21/22 (EPS S/T
+  voltage) are byte/bitfield composites and not voltages.
+
+A scanner that reports "no writers" is the trap to watch for: a base pointer held in a callee-saved
+register across a large function defeats naive literal tracking, and the resulting silence reads
+exactly like proof of absence. Confirm the scanner can see a known-good writer before trusting it
+on an unknown one.
