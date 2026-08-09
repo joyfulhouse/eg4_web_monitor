@@ -8,25 +8,30 @@ The integration supports five ways to reach your equipment. The connection
 *type* is derived automatically from what you configure — you do not choose it
 upfront.
 
-| Connection type | Description | Update speed | Internet required |
+| Connection type | Description | Default update speed | Internet required |
 |---|---|---|---|
-| **Cloud API (HTTP)** | Connect via EG4's cloud service | 30 seconds | Yes |
+| **Cloud API (HTTP)** | Connect via EG4's cloud service | 120 seconds | Yes |
 | **Local Modbus TCP** | Direct RS485 connection via adapter | 5 seconds | No |
-| **WiFi dongle** | Direct connection via the inverter's WiFi dongle | 5 seconds | No |
+| **WiFi dongle** | Direct connection via the inverter's WiFi dongle | 30 seconds | No |
 | **Serial Modbus (USB/RS485)** | Direct USB-to-RS485 serial connection | 5 seconds | No |
-| **Hybrid** | Local polling + cloud for DST sync & quick charge | 5 seconds | Yes (cloud features) |
+| **Hybrid** | Local polling + cloud for DST sync & quick charge | Local transport's rate | Yes (cloud features) |
 
-- **Cloud credentials only →** HTTP mode (30s polling).
-- **Local device(s) only →** Local mode (5s polling).
-- **Both cloud and local →** Hybrid mode (5s polling plus cloud-only features
-  such as DST sync and quick charge).
+- **Cloud credentials only →** HTTP mode (120 s polling).
+- **Local device(s) only →** Local mode (5 s for Modbus TCP and serial, 30 s for
+  the WiFi dongle).
+- **Both cloud and local →** Hybrid mode (polls at the local transport's rate,
+  plus cloud-only features such as DST sync and quick charge).
+
+Every one of these is a default defined in
+`custom_components/eg4_web_monitor/const/config_keys.py` and is adjustable in the
+integration options.
 
 ### Cloud API (HTTP)
 
 The easiest setup. Uses your EG4 Monitor account credentials to communicate with
 EG4's cloud servers. No additional hardware is needed and it works anywhere with
-internet, at the cost of a 30-second update interval and a dependency on EG4's
-servers.
+internet, at the cost of a 120-second default update interval and a dependency on
+EG4's servers.
 
 ### Local Modbus TCP with a Waveshare RS485 adapter
 
@@ -155,7 +160,8 @@ Existing automations and dashboards are preserved.
 After setup, click **Configure** on the integration to customize:
 
 - **Sensor Update Interval** — how often to poll sensor data (5–300 seconds).
-  Default: 5 seconds for local connections, 30 seconds for HTTP.
+  Defaults: 5 seconds for Modbus TCP and serial, 30 seconds for the WiFi dongle
+  (its reads take ~8–10 s), 120 seconds for HTTP.
 - **Parameter Refresh Interval** — how often to sync configuration settings
   (5–1440 minutes). Default: 60 minutes.
 - **Data Validation** — toggle canary checks and energy-monotonicity guards on
@@ -169,8 +175,9 @@ After setup, click **Configure** on the integration to customize:
   (#254).
 
 > Lower sensor intervals give faster updates but increase network/API load. For
-> local connections, 5 seconds is recommended; for the cloud API, 30 seconds
-> balances responsiveness with server load.
+> wired local connections, 5 seconds is recommended; the WiFi dongle cannot
+> sustain much below its 30-second default; for the cloud API, the 120-second
+> default balances responsiveness with server load.
 
 If you change settings directly on the EG4 website (not through Home Assistant),
 parameter data such as working-mode switches may take up to the parameter
@@ -350,6 +357,13 @@ data:
 
 ### Example entity IDs
 
+Home Assistant builds every entity ID by slugifying **the device name followed by
+the entity name** — the integration does not set entity IDs itself. Device names
+are `{model} {serial}` for inverters and GridBOSS, `Battery {serial}-{NN}` for
+individual batteries, `Battery Bank {serial}`, `Parallel Group {name}`, and
+`Station {name}`. Serial numbers are 10-character alphanumeric strings, so they
+are not always all digits (e.g. `52842P0581`).
+
 ```yaml
 # Inverter sensors
 sensor.18kpv_1234567890_ac_power
@@ -357,23 +371,32 @@ sensor.18kpv_1234567890_battery_charge_power
 sensor.18kpv_1234567890_state_of_charge
 sensor.18kpv_1234567890_daily_energy
 
-# Battery sensors
+# Battery sensors (device name "Battery 1234567890-01")
 sensor.battery_1234567890_01_state_of_charge
 sensor.battery_1234567890_01_cell_voltage_delta
 sensor.battery_1234567890_01_temperature
 
-# GridBOSS sensors
-sensor.gridboss_5555555555_grid_power_l1
-sensor.gridboss_5555555555_load_power
-sensor.gridboss_5555555555_smart_port1_status
+# Battery bank aggregates (device name "Battery Bank 1234567890")
+sensor.battery_bank_1234567890_battery_bank_max_cell_temperature
+
+# GridBOSS sensors (model reports as "Grid Boss", so the slug has an underscore)
+sensor.grid_boss_5555555555_grid_power_l1
+sensor.grid_boss_5555555555_load_power
+select.grid_boss_5555555555_smart_port_1_mode
 
 # Controls
 switch.18kpv_1234567890_quick_charge
 switch.18kpv_1234567890_battery_backup
 select.18kpv_1234567890_operating_mode
 number.18kpv_1234567890_system_charge_soc_limit
-switch.eg4_station_daylight_saving_time
+
+# Station-level control (device name "Station <your plant name>")
+switch.station_my_plant_daylight_saving_time
 ```
+
+> These are illustrative. Because IDs come from your own device and plant names,
+> confirm the real ones in **Developer Tools → States** before using them in
+> automations.
 
 > The integration only creates entities for features your equipment actually has,
 > so some sensors (generators, unused GridBOSS ports, battery-specific sensors)
