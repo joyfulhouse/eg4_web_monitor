@@ -27,6 +27,70 @@ narratives, or register tables back in.
 
 Never state the current version from memory — read `manifest.json`.
 
+## Maintaining `llmwiki/`
+
+`llmwiki/` is the deep knowledge base — numbered chapters that agents write and
+keep current. **Start at `llmwiki/README.md`**: its Navigation table and
+cold-start reading order are the entry point, and it defines the canonical-source
+policy and the evidence-grade legend. `_conventions.md` holds the page template and
+front-matter schema. There is no `index.md`; do not link one.
+
+Three layers. **Raw sources** — this repo's code, `pylxpweb` at its pinned commit,
+`docs/`, `memory/*.md`, issues — are immutable here; the wiki reads them.
+**The wiki** is agent-owned. **The schema** is this file and `AGENTS.md`: how to
+maintain, never what is true.
+
+> **The wiki follows the code. The code is never changed to make a wiki claim
+> true.** A documentation task that turns out to need a code change stops and files
+> an issue — that rule is why #549, #550 and #558 exist rather than having been
+> quietly "fixed" inside a docs PR.
+
+**Ingest.** Read the primary source — not a summary of it. Find the owner via
+Navigation → chapter → the page whose `canonical-for:` covers the fact, and update
+**that page only**: grade the claim, cite a durable artifact, refresh
+`verified-against:` / `last-verified:`. Then update whatever the new knowledge
+*falsifies* — a promotion or downgrade is never a local edit, so grep the register,
+symbol, or path across `llmwiki/` before finishing. The commit message is the
+durable record. (The upstream pattern uses an append-only `llmwiki/log.md`; this
+wiki has none yet — create it if you want one, don't assume it exists.)
+
+**Query.** Navigation first, then the owner page. Answer with the page and its
+`verified-against:` pin, and state the grade when it changes the answer —
+"portal-correlated, not proven" is a different answer from "proven".
+
+**Lint.** Contradictions between pages (unresolved ones belong in
+`60-history/open-contradictions.md`, never resolved by assertion); pins that have
+moved; `verified-against-code` grades whose cited symbol no longer exists at the
+pin; orphan pages and unowned facts; and — the expensive one here — **completeness
+claims** (`every`, `only these`, `all controls`): ask what *derives* the set.
+
+**Evidence discipline.** The grade vocabulary is closed and defined **only** in
+`llmwiki/README.md`; never coin a grade, weaken one locally, or carve an exception —
+that loophole regrew five times during construction, each time with locally
+reasonable wording. Never grade `hardware-proven` from source code, a README, or a
+`# verified` comment: in this project's register tables `# verified` has meant "the
+names matched", which is what caused #476. **A claim whose citation does not support
+it is a defect even when the claim is true** — confirm the symbol exists at the pin
+before citing it. Prefer a derivation plus its blind spots over an enumeration.
+
+**Rules paid for in defects.**
+
+- **Verify the frame before the contents.** An exhaustive count over an incomplete
+  frame reads as rigour and is not — three consecutive review rounds each found a
+  write mechanism the previous round's frame excluded.
+- **Resolve the runtime class, not the base class.** `HybridInverter._set_schedule`
+  (`pylxpweb/devices/inverters/hybrid.py`) and `_set_schedule` on the control
+  endpoint (`pylxpweb/endpoints/control.py`) share a name and route differently.
+- **A completeness claim is load-bearing** — before writing "every", ask what
+  derives the set.
+- **A readback proves storage and transport, never semantics.** A wrong-but-writable
+  register is firmware-ACKed and reads back what you wrote, so no readback separates
+  "the control worked" from "something else silently changed" (#476, #558).
+- **Re-verify a finding against the primary source before acting on it.** Tooling
+  and reviews here have produced confident results that did not reproduce; a
+  "correction" taken from a secondary source would have published a false claim. A
+  green check can be wrong.
+
 ## Source map (where to edit)
 
 Under `custom_components/eg4_web_monitor/`:
