@@ -1,15 +1,18 @@
 ---
 canonical-for: pylxpweb portal models, local normalized data, missing values, enums, and scaling
 sources:
-  - /tmp/llmwiki-research/pylxpweb-library.md
-  - /Users/bryanli/Projects/joyfulhouse/python/pylxpweb@204b95d
+  - pylxpweb@204b95d:src/pylxpweb/models.py
+  - pylxpweb@204b95d:src/pylxpweb/endpoints/devices.py
+  - pylxpweb@204b95d:src/pylxpweb/registers/
+  - pylxpweb@204b95d:src/pylxpweb/transports/
+  - pylxpweb@204b95d:tests/unit/test_models.py
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
 
 # Models and scaling
 
-Use the evidence-grade meanings defined in [api-surface.md](api-surface.md).
+Evidence grades follow the [canonical llmwiki legend](../README.md).
 
 ## Non-negotiable missing-data rule
 
@@ -41,9 +44,9 @@ Portal responses are Pydantic models that preserve portal field spelling. Compat
 | `MidboxRuntime` | Success, serial, firmware, and `midbox` data are required; `lost` and primary-inverter `deviceData` are optional. | `verified-against-code` — `src/pylxpweb/models.py:1023-1035` |
 | Dynamic parameter reads | This is the sole general `extra="allow"` response because parameter names arrive dynamically. | `verified-against-code` — `src/pylxpweb/models.py:1041-1076` |
 
-Offline portal responses are intentionally partial across inverter runtime, battery, and MID/GridBOSS models; omitted telemetry must remain optional rather than being synthesized. `portal-correlated` — `src/pylxpweb/models.py:458-465`, `src/pylxpweb/models.py:706-755`, `src/pylxpweb/models.py:827-1035`.
+The portal models deliberately accept partial inverter-runtime, battery, and MID/GridBOSS payloads; omitted telemetry must remain optional rather than being synthesized. `verified-against-code` — `src/pylxpweb/models.py:458-465`, `src/pylxpweb/models.py:706-755`, `src/pylxpweb/models.py:827-1035`.
 
-Making observed-optional fields required previously caused whole-response validation to fail and blanked every related Home Assistant entity in production. `verified-against-code` — `src/pylxpweb/models.py:458-465`, `tests/unit/test_models.py:226-266`, `tests/unit/test_models.py:304-322`.
+The offline-tolerance fix commit records that making these fields required caused whole-response validation to fail and blanked every related Home Assistant entity in production; it does not include a production trace. `asserted-unverified` — `pylxpweb commit 36a3e298f0590447a7c58f3b422b953e39f1395d`.
 
 ## Enums
 
@@ -74,13 +77,8 @@ Changing one table does **not** change the other. A new canonical holding row al
 
 Never infer local bit order from portal list order. Ordinary operational bitfields use list index as bit number, while explicit compound layouts override that rule. `verified-against-code` — `src/pylxpweb/constants/registers.py:1049-1119`, `src/pylxpweb/transports/protocol.py:591-626`.
 
-## Known-wrong upstream endpoint docstrings
+## Schema-divergence ownership
 
-The task brief names `src/pylxpweb/api/devices.py`; the current source path is `src/pylxpweb/endpoints/devices.py`. The defect is documentation only and must not be copied into integration logic. `verified-against-code` — `src/pylxpweb/endpoints/devices.py:185-248`.
+`src/pylxpweb/endpoints/devices.py` is the current device-endpoint module. `verified-against-code` — `src/pylxpweb/endpoints/devices.py:1-532`.
 
-| Wrong upstream prose/example | Correct contract | Evidence |
-|---|---|---|
-| Energy is “Wh; divide by 1000,” using `energy.eInvDay` / `energy.eInvAll`. | `EnergyInfo` exposes `todayYielding` / `totalYielding`; raw portal energy is in 0.1 kWh units and divides by 10 for kWh. `eInvDay` and `eInvAll` are not `EnergyInfo` fields. | `portal-correlated` — wrong text at `src/pylxpweb/endpoints/devices.py:220-235`; model/scaling at `src/pylxpweb/models.py:606-630`, `src/pylxpweb/constants/scaling.py:123-162` |
-| Runtime voltage divides by 100, including example `runtime.vacr / 100`. | Normal AC/PV/EPS/battery runtime voltages divide by 10; e.g. raw `vacr=2411` means `241.1 V`, not `24.11 V`. | `portal-correlated` — wrong text at `src/pylxpweb/endpoints/devices.py:185-205`; operational scale at `src/pylxpweb/constants/scaling.py:47-68`, `src/pylxpweb/models.py:443-453` |
-
-Treat the endpoint docstrings as known-wrong by a factor of 100 for energy (`1000` versus `10`) and by 10 for runtime voltage (`100` versus `10`). Prefer the canonical scaling tables and normalized high-level properties. `portal-correlated` — `src/pylxpweb/constants/scaling.py:47-68`, `src/pylxpweb/constants/scaling.py:123-162`, `src/pylxpweb/transports/data.py:513-513`, `src/pylxpweb/transports/data.py:875-883`.
+Known endpoint-docstring, model-field, and scaling divergences are canonical in the [portal schema-and-scaling ledger](../30-portal-api/schemas-and-scaling.md); do not duplicate that ledger here.

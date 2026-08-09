@@ -1,15 +1,16 @@
 ---
 canonical-for: pylxpweb local Modbus TCP and WiFi dongle transport behavior
 sources:
-  - /tmp/llmwiki-research/pylxpweb-library.md
-  - /Users/bryanli/Projects/joyfulhouse/python/pylxpweb@204b95d
+  - pylxpweb@204b95d:src/pylxpweb/transports/
+  - pylxpweb@204b95d:src/pylxpweb/registers/battery.py
+  - pylxpweb@204b95d:tests/unit/transports/
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
 
 # Local transports
 
-Use the evidence-grade meanings defined in [api-surface.md](api-surface.md). Do not generalize one transport's wire behavior to another.
+Evidence grades follow the [canonical llmwiki legend](../README.md). Do not generalize one transport's wire behavior to another.
 
 ## Transport comparison
 
@@ -19,9 +20,9 @@ Use the evidence-grade meanings defined in [api-surface.md](api-surface.md). Do 
 | Default port | `502` | `8000` | `verified-against-code` — `src/pylxpweb/transports/factory.py:357-366`, `src/pylxpweb/transports/factory.py:436-445` |
 | Reads | FC03 holding, FC04 input | Embedded FC03/FC04 | `verified-against-code` — `src/pylxpweb/transports/_modbus_base.py:167-220`, `src/pylxpweb/transports/dongle.py:56-77`, `src/pylxpweb/transports/dongle.py:1293-1367` |
 | Writes | FC06 single, FC16 multiple | Embedded FC06/FC16 | `verified-against-code` — `src/pylxpweb/transports/_modbus_base.py:316-367`, `src/pylxpweb/transports/dongle.py:56-77`, `src/pylxpweb/transports/dongle.py:1380-1461` |
-| Concurrency | Operations are guarded; competing gateway clients can desynchronize transaction IDs | One serialized request/response workflow over the dongle's single TCP slot | `hardware-proven` — `src/pylxpweb/transports/modbus.py:7-16`, `src/pylxpweb/transports/modbus.py:46-55`, `src/pylxpweb/transports/dongle.py:247-254`, `src/pylxpweb/transports/dongle.py:1467-1481` |
+| Concurrency | Operations are guarded inside this process; external gateway clients are outside those locks | One serialized request/response workflow over the dongle's transaction lock | `verified-against-code` — `src/pylxpweb/transports/modbus.py:46-55`, `src/pylxpweb/transports/dongle.py:247-254`, `src/pylxpweb/transports/dongle.py:1467-1481` |
 
-**Operational rule:** run one active application/client per gateway or dongle. `hardware-proven` — `README.md:67-69`, `src/pylxpweb/transports/modbus.py:7-16`.
+The upstream README instructs operators to run one active application/client per gateway or dongle, but the cited artifact contains no qualifying raw before/after observation. `asserted-unverified` — `pylxpweb@204b95d:README.md:67-69`.
 
 ## Modbus TCP
 
@@ -35,9 +36,9 @@ Use the evidence-grade meanings defined in [api-surface.md](api-surface.md). Do 
 
 ### Intentional Waveshare transaction-ID workaround
 
-Waveshare TCP-to-RTU gateways can replace the MBAP transaction ID instead of echoing it. The transport therefore parses with `exp_tid=0`, rewrites the returned PDU transaction ID to the currently expected value, and ignores a response if the current future is already complete. `hardware-proven` — `src/pylxpweb/transports/modbus.py:207-254`.
+The upstream source states that Waveshare TCP-to-RTU gateways can replace the MBAP transaction ID instead of echoing it, but it does not cite a qualifying raw before/after capture. `asserted-unverified` — `pylxpweb@204b95d:src/pylxpweb/transports/modbus.py:207-254`.
 
-Do **not** remove this as “lax validation” without new hardware proof. It is deliberate compatibility for a gateway that violates normal MBAP echo behavior. `hardware-proven` — `src/pylxpweb/transports/modbus.py:207-254`.
+The compatibility code parses with `exp_tid=0`, rewrites the returned PDU transaction ID to the currently expected value, and ignores a response if the current future is already complete. Do not remove that behavior as “lax validation” without replacement evidence. `verified-against-code` — `src/pylxpweb/transports/modbus.py:207-254`.
 
 ## WiFi dongle protocol
 
@@ -69,10 +70,12 @@ Do **not** remove this as “lax validation” without new hardware proof. It is
 | Merge eligibility | Merge only contiguous or overlapping spans whose union fits `max_input_block_size`. | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:203-238` |
 | Gaps | Never bridge an unmapped gap, even when the numeric start-to-end span would fit. | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:207-217` |
 | Oversized logical group | Never split it; preserve the original one-read group. | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:216-238` |
-| Configuration | Accepted `max_input_block_size` is 40 through 125; default 40 is conservative, and 120 is field-proven. | `hardware-proven` — `src/pylxpweb/transports/_register_data.py:123-175` |
-| GridBOSS/MID | Keep every group at 40 registers or fewer and never coalesce it. Reads larger than 40 failed on real GridBOSS hardware. | `hardware-proven` — `src/pylxpweb/transports/_register_data.py:111-134` |
+| Configuration | Accepted `max_input_block_size` is 40 through 125; the default is 40. | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:136-175` |
+| Claimed fast setting | A source comment describes 120 as field-proven, but no qualifying raw before/after artifact is cited here. | `asserted-unverified` — `pylxpweb@204b95d:src/pylxpweb/transports/_register_data.py:123-142` |
+| GridBOSS/MID | Keep every group at 40 registers or fewer and never coalesce it. | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:111-134` |
+| GridBOSS hardware rationale | A source comment reports that reads above 40 failed on real GridBOSS hardware, but it supplies no qualifying raw before/after capture. | `asserted-unverified` — `pylxpweb@204b95d:src/pylxpweb/transports/_register_data.py:130-134` |
 | Batteries | Always read the four 30-register physical slots as one atomic 120-register FC04 block starting at 5002, independent of the configured normal block size. | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:322-374` |
-| Battery rationale | One 120-register read prevents firmware page rotation between per-slot reads. | `hardware-proven` — `src/pylxpweb/transports/_register_data.py:322-374` |
+| Battery rationale | One 120-register read places all four physical slots in the same transaction, eliminating inter-read page rotation by construction. | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:322-374` |
 
 At configured size 120, the inverter plan is `(0,113)`, `(113,41)`, `(170,4)`, `(193,12)`; gaps 154–169 and 174–192 remain unread. `verified-against-code` — `tests/unit/transports/test_input_block_coalescing.py:50-59`, `tests/unit/transports/test_input_block_coalescing.py:98-148`.
 

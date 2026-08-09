@@ -1,23 +1,17 @@
 ---
 canonical-for: pylxpweb public client, device-factory, and transport-factory seams
 sources:
-  - /tmp/llmwiki-research/pylxpweb-library.md
-  - /Users/bryanli/Projects/joyfulhouse/python/pylxpweb@204b95d
+  - pylxpweb@204b95d:src/pylxpweb/client.py
+  - pylxpweb@204b95d:src/pylxpweb/api_namespace.py
+  - pylxpweb@204b95d:src/pylxpweb/devices/
+  - pylxpweb@204b95d:src/pylxpweb/transports/
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
 
 # API surface
 
-## Evidence grades
-
-| Grade | Meaning |
-|---|---|
-| `verified-against-code` | The cited source implements or locks the claim. |
-| `hardware-proven` | A cited source records a live-device result. |
-| `portal-correlated` | A cited source correlates a portal payload or behavior. |
-| `inferred` | The conclusion follows from cited evidence but is not enforced directly. |
-| `asserted-unverified` | No code, portal capture, or hardware capture in the cited source proves it. |
+Evidence grades follow the [canonical llmwiki legend](../README.md); this chapter does not redefine them.
 
 ## Recommended entry point
 

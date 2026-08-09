@@ -1,15 +1,16 @@
 ---
 canonical-for: pylxpweb cloud, local, hybrid, and schedule write routing and verification
 sources:
-  - /tmp/llmwiki-research/pylxpweb-library.md
-  - /Users/bryanli/Projects/joyfulhouse/python/pylxpweb@204b95d
+  - pylxpweb@204b95d:src/pylxpweb/endpoints/control.py
+  - pylxpweb@204b95d:src/pylxpweb/transports/
+  - pylxpweb@e53b16b:tests/unit/endpoints/test_control_helpers.py
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
 
 # Write paths
 
-Use the evidence-grade meanings defined in [api-surface.md](api-surface.md). Assume partial application unless a cited row proves one contiguous local frame.
+Evidence grades follow the [canonical llmwiki legend](../README.md). Assume partial application unless a cited row proves one contiguous local frame.
 
 ## Routing matrix
 
@@ -25,9 +26,11 @@ Use the evidence-grade meanings defined in [api-surface.md](api-surface.md). Ass
 
 ## Historical cloud raw-register defect
 
-The original cloud raw-register batch nested `{register: value}` under a form field named `data`. `aiohttp` serialized the nested mapping as repeated `data=<register>` fields and discarded the values; the portal silently treated the malformed request as a no-op. Cloud raw-register writes therefore never worked from inception until the named-write rewrite. `verified-against-code` — `src/pylxpweb/endpoints/control.py:292-305`; historical release record: `CLAUDE.md:177`.
+Before the named-write rewrite, `write_parameters` put `{register: value}` under a form field named `data`. `verified-against-code` — `pylxpweb@e53b16b^:src/pylxpweb/endpoints/control.py:259-269`.
 
-Do not resurrect a supposed portal “batch raw register” endpoint. The working cloud format is flat named fields. `hardware-proven` — `src/pylxpweb/endpoints/control.py:164-219`, live write/readback record at `src/pylxpweb/endpoints/control.py:320-328`.
+The fix commit records that `aiohttp` serialized the nested mapping as repeated `data=<register>` fields with values dropped, that the portal silently no-op'd, and that cloud raw-register writes had never worked; the durable artifact does not include the captured HTTP body or portal response. `asserted-unverified` — `pylxpweb commit e53b16be26f86c5c614f8ed4370ff5cc38cc9187`.
+
+Do not resurrect a supposed portal “batch raw register” endpoint. The current code sends flat named `holdParam` / `valueText` fields. `verified-against-code` — `src/pylxpweb/endpoints/control.py:164-219`, `src/pylxpweb/endpoints/control.py:282-351`.
 
 ## Current cloud raw-address compatibility adapter
 
@@ -75,6 +78,6 @@ Dongle readback is **diagnostic, not corrective**. A mismatch is not authorizati
 | Contiguous local raw write | No partiality within pylxpweb's requested run | One FC16 frame, except a one-register run uses FC06 | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:1591-1612`, `src/pylxpweb/transports/_modbus_base.py:339-352` |
 | Cloud classic schedule window | Yes | Four named writes: start hour/minute, end hour/minute | `verified-against-code` — `src/pylxpweb/endpoints/control.py:1656-1687` |
 | Cloud `writeTime` schedule window | Yes | Each boundary is atomic, but start and end are two requests | `verified-against-code` — `src/pylxpweb/endpoints/control.py:1635-1654` |
-| Local schedule window | Yes | Start and end are separate FC06 requests because firmware rejects FC16 for these registers | `hardware-proven` — `src/pylxpweb/devices/inverters/hybrid.py:352-363` |
+| Local schedule window | Yes | Code sends start and end as separate FC06 requests and documents firmware rejection of FC16 for these registers | `verified-against-code` — `src/pylxpweb/devices/inverters/hybrid.py:352-363` |
 
 Cache invalidation is not verification. Cloud writes trust `SuccessResponse`; Modbus trusts its response; only the dongle adds strict ACK echo validation plus optional non-fatal diagnostic readback. `verified-against-code` — `src/pylxpweb/endpoints/control.py:210-219`, `src/pylxpweb/transports/_modbus_base.py:341-367`, `src/pylxpweb/transports/dongle.py:1420-1461`, `src/pylxpweb/transports/dongle.py:1640-1675`.
