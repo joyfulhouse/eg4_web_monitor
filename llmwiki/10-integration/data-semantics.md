@@ -31,8 +31,10 @@ sources:
   - memory/consumption-energy-sources.md
   - memory/queue-cleanup-2026-07-26.md
   - eg4_web_monitor issues #170, #256, #258, #261, #300, #367, #378, #380, #490, #511, #516
-verified-against: 9f6d6e2
-last-verified: 2026-08-08
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
+last-verified: 2026-08-09
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -41,7 +43,9 @@ see-also:
 
 # Data semantics — the rules behind this project's repeated regressions
 
-Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
+Line numbers are pinned per repo by the `verified-against:` mapping above — `9f6d6e2` for
+`eg4_web_monitor`, `204b95d` for `pylxpweb`. Each citation names its repo where it is not this one.
+Symbol names are the durable anchor.
 
 **Read this page before changing anything that touches sensor values, entity lifetimes, or
 capability gates.** Every section below corresponds to a defect class that has shipped more than
@@ -141,7 +145,7 @@ INVERTER_FAMILY_UNKNOWN = "UNKNOWN"
 | Fact | Evidence |
 |---|---|
 | The value is the **literal string `"UNKNOWN"`**, not `None` and not an absent key | `verified-against-code` — `const/device_types.py:55` |
-| pylxpweb's `InverterFeatures.model_family` defaults to `InverterFamily.UNKNOWN`, and `detect_features()` returns that default **without raising** when the parameter fetch leaves `parameters` unavailable | `verified-against-code` — comment at `const/device_types.py:48-54` |
+| pylxpweb's `InverterFeatures.model_family` defaults to `InverterFamily.UNKNOWN`, and `detect_features()` returns that default **without raising** when the parameter fetch leaves `parameters` unavailable | `verified-against-code` at pylxpweb `204b95d` — the dataclass default `model_family: InverterFamily = InverterFamily.UNKNOWN` (`devices/inverters/_features.py:537`) and the detection path's own `UNKNOWN` seed (`devices/inverters/base.py:460`). The eg4 comment at `const/device_types.py:48-54` records the same, but is prose |
 | So this truthy string is what the pipeline actually emits for a device whose family could not be determined | `verified-against-code` — same |
 | `if features.get("inverter_family"):` is therefore **True** for an unresolved device | `verified-against-code` — Python truthiness of a non-empty string |
 
@@ -211,7 +215,7 @@ If an echoed grade disagrees with the ledger, the ledger is right and this table
 |---|---|---|
 | AC Charge SOC Limit is gated off `EG4_OFFGRID` with a one-shot Repairs issue | H67 is the AC-charge stop SOC on **grid-tied only**; off-grid rejects the control | `portal-correlated` — [H67 row](../40-hardware/registers.md) |
 | AC Charge Start Battery SOC exists as the off-grid equivalent | H160, AC-charge start SOC, off-grid plus hybrid read scope | `portal-correlated` — [H160 row](../40-hardware/registers.md) |
-| AC Charge End Battery SOC is exposed, but **no local write path is offered** | H161 mapping is known; **LOCAL writability is unresolved** and family behaviour conflicts across the tested grid-tied and off-grid paths. The owner says explicitly: do not treat H161 as a safe local write | `portal-correlated`, write unresolved — [H161 row](../40-hardware/registers.md); conflict preserved as [C6/C7](../60-history/open-contradictions.md) |
+| AC Charge End Battery SOC is created on `EG4_OFFGRID` and **its writes are attempted local-first** — see the safety note below, this is an un-discharged risk | H161 mapping is known; **LOCAL writability is unresolved** and family behaviour conflicts across the tested grid-tied and off-grid paths. The owner says explicitly: do not treat H161 as a safe local write | `portal-correlated`, write unresolved — [H161 row](../40-hardware/registers.md); conflict preserved as [C6/C7](../60-history/open-contradictions.md) |
 | Quick Charge status **and** control are cloud-routed on off-grid families | LOCAL FC03/FC06 access to H233 is **reported to return ILLEGAL DATA ADDRESS on the off-grid units tested**. No raw request/exception-response capture was preserved, so this is not a proof-grade claim and **not** a family-wide one — see the note below | `asserted-unverified` — [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
 | Generator Power and its two siblings are suppressed on `EG4_OFFGRID` (purged, with a Repairs issue) and kept on `EG4_HYBRID` | The owner splits I123 **by decoded image, not by family**: on the decoded 12000XP off-grid image it is an ARM-initialization counter, not generator power; on the decoded 18kPV/FlexBOSS hybrid image it is genuine GEN-port power; on **6000XP the meaning is unresolved** with no validated image | `firmware-proven` (12000XP off-grid), `firmware-proven` (hybrid), `asserted-unverified` (6000XP) — [I123 rows](../40-hardware/registers.md) |
 | The Off-Grid/green switch writes bit 14 of H110 | H110 b14 is Green/Off-Grid Mode on the **tested 18kPV hybrid unit**; for 12000XP/6000XP it is a layout inference awaiting a family-specific capture. H110 b8 is **UNKNOWN** and was the wrong bit (#476) | `hardware-toggle-proven` (tested 18kPV), `lineage-inferred` (12000XP/6000XP) — [H110 rows](../40-hardware/registers.md); refutation recorded as **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md) |
@@ -219,6 +223,44 @@ If an echoed grade disagrees with the ledger, the ledger is right and this table
 Grades for the **left** column — that these gates, purges and routings exist in this code — are
 `verified-against-code`: `sensor.py` → `_should_create_sensor`, `utils.py` →
 `flag_offgrid_control_suppression`, plus the control platforms `switch.py`, `number.py`, `time.py`.
+
+> ### ⚠ H161 has a shipped local write path, and the risk on it is live
+>
+> **A register the ledger marks "writability unresolved" is not thereby un-writable in this code.**
+> Those are independent facts: the ledger records what has been *proven about the hardware*, the
+> router decides what the integration *attempts*. Nothing links them — there is no mechanism by
+> which an unresolved ledger status suppresses a local write. Assuming otherwise is the dangerous
+> direction to be wrong in, because a reader who believes a gate exists stops looking for one.
+>
+> **What actually ships today**, on LOCAL and HYBRID:
+>
+> | Step | Site | Grade |
+> |---|---|---|
+> | `ACChargeEndBatterySOCNumber` is defined | `number.py:1436` | `verified-against-code` |
+> | It is created for `EG4_OFFGRID` devices | `number.py:660` | `verified-against-code` |
+> | Its write passes `local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC` | `number.py:1489` | `verified-against-code` |
+> | `_write_parameter` routes through the shared router with that `local_param` | `number.py` → `_write_parameter` | `verified-against-code` |
+> | The router attempts the **local** write FIRST whenever a transport is attached and the link is believed up | `utils.py:185` → `async_write_with_cloud_fallback` | `verified-against-code` |
+>
+> So a user changing this number on an off-grid unit with a local transport issues a **local named
+> write to register 161**, on a mapping whose local writability the register ledger records as
+> **unresolved**.
+>
+> **The readback does not cover this.** The cloud leg passes `verify_register=161` and the local leg
+> sleeps then refreshes, but a readback confirms **storage and transport only** — it cannot detect a
+> write that landed on the wrong target, because the wrong target reads back exactly what was
+> written. This is the #476 failure mode, and it is why the ledger's "do not treat H161 as a safe
+> local write" is not satisfied by the verification the code performs.
+>
+> **Status: un-discharged risk, live in production.** It is *not* gated, *not* reviewed-and-accepted,
+> and *not* known-safe. This page does not recommend the local write and does not bless it; it
+> records what ships. Tracked as issue **#558**; the family conflict stays OPEN as **C7** in
+> [../60-history/open-contradictions.md](../60-history/open-contradictions.md). Changing the routing
+> is a code change and is out of scope for documentation — do not "fix" it by editing this page.
+>
+> The same shape applies to **H179 b11 (AC Couple)**, also written local-first with cloud fallback
+> on a lineage-inferred bit; its own code comment says a write landing on the wrong bit "would still
+> ACK, which no readback can catch" (`verified-against-code` — `switch.py:795`).
 
 > **The H233 rejection is a tested-scope observation, not a family property.**
 > "Returns ILLEGAL DATA ADDRESS on the off-grid units we tested" and "no off-grid inverter has this
@@ -335,7 +377,7 @@ What is safe to act on today:
 
 | Statement | Grade |
 |---|---|
-| The two positions exist and disagree | `verified-against-code` — both appear in the same memory file |
+| The two positions exist and disagree | `asserted-unverified` — both appear in `memory/consumption-energy-sources.md`. An observation about what a **prose** file says is never a code grade, however directly it can be read off the page |
 | The later position carries a concrete arithmetic discrepancy (10.6 MWh vs 34.71 MWh) that the earlier one does not address | `asserted-unverified` — `memory/consumption-energy-sources.md` |
 | The same file separately retracts its own older table for using a lifetime register with slave counter-drift | `asserted-unverified` — same file |
 | Therefore: **do not lift the earlier table**, and **do not ship a lifetime-source change** on the strength of either position until C4 is adjudicated | `inferred` — from the two rows above |

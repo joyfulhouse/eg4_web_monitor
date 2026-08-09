@@ -194,7 +194,7 @@ All `verified-against-code` — enumerated by grepping `async def async_step_` a
 > | Step names | `station` — `async_step_cloud_station`, `async_step_reconfigure_cloud_station` | `verified-against-code` — `_config_flow/__init__.py:259`, `:969` |
 > | Everything inside them | `plant` — `self._plant_id = user_input[CONF_PLANT_ID]`, `find_plant_by_id(...)` | `verified-against-code` — `_config_flow/__init__.py:264-265`, `:976` |
 > | Config-entry data and unique IDs | `plant` — `CONF_PLANT_ID`, `build_unique_id(..., plant_id=...)` | `verified-against-code` — `_config_flow/helpers.py` → `build_unique_id` |
-> | The portal itself | `plant` — the station-list endpoint is `.../plant/list/viewer` | `verified-against-code` — pylxpweb `endpoints/plants.py` → `_PLANT_LIST_VIEWER`; endpoint semantics are owned by [../30-portal-api/endpoints.md](../30-portal-api/endpoints.md) |
+> | The portal itself | `plant` — the station-list endpoint path contains `plant/list/viewer` | Grade **owned by [../30-portal-api/endpoints.md](../30-portal-api/endpoints.md)**, which pins pylxpweb and holds this fact. This page cites it for the vocabulary point only and asserts no grade of its own over another chapter's repo |
 >
 > So anyone reasoning from the data model — which is *plant* almost everywhere — reaches for a
 > `..._plant` step name, and guesses a method that does not exist. **Derive step names from the

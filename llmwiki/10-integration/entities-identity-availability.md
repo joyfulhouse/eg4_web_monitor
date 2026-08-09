@@ -17,8 +17,10 @@ sources:
   - memory/issue-262-operating-state-and-i18n-names.md
   - memory/queue-cleanup-2026-07-26.md
   - eg4_web_monitor issues #550, #253, #256, #261, #479
-verified-against: 9f6d6e2
-last-verified: 2026-08-08
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  homeassistant: 2025.11.2
+last-verified: 2026-08-09
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -26,7 +28,9 @@ see-also:
 
 # Entities: inheritance, identity, availability
 
-Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
+Line numbers are pinned per source by the `verified-against:` mapping above — `9f6d6e2` for
+`eg4_web_monitor`, package version `2025.11.2` for `homeassistant`. Each citation names its source
+where it is not this repo. Symbol names are the durable anchor.
 
 Two facts on this page are load-bearing and routinely mis-assumed. Read §2 and §4 before
 reasoning about any entity-state bug.
@@ -183,17 +187,41 @@ energy sensor.
 
 ### 4.1 The finding
 
+Home Assistant claims are verified at the pinned package version **2025.11.2**, not at whatever
+version happens to be installed. Three different Home Assistant versions exist in virtualenvs in
+this working tree, so an unpinned grep is not reproducible evidence.
+
 | Claim | Evidence |
 |---|---|
-| The string `_attr_entity_id` appears **0 times** in the installed `homeassistant/helpers/entity.py` | `verified-against-code` — `grep -c "_attr_entity_id"` against `.venv/.../homeassistant/helpers/entity.py` returned `0` |
-| `Entity` declares a plain `entity_id: str = None  # type: ignore[assignment]` | `verified-against-code` — `homeassistant/helpers/entity.py:441` |
-| This repo contains **17** `_attr_entity_id` assignments | `verified-against-code` — `grep -rn '_attr_entity_id' --include='*.py'` → 17 |
-| They are spread across 5 files | `verified-against-code` — `base_entity.py` (6), `button.py` (4), `select.py` (4), `update.py` (2), `binary_sensor.py` (1) |
-| **All 17 are dead attributes.** Setting `_attr_entity_id` does nothing; HA never reads it | `verified-against-code` — the two facts above, combined |
-| Tracked as issue **#550** — "Dead code: `_attr_entity_id` assignments are inert (not a Home Assistant Entity attribute)", OPEN | `verified-against-code` — issue read from the `joyfulhouse/eg4_web_monitor` tracker on 2026-08-08 |
+| The string `_attr_entity_id` appears **0 times in the entire `homeassistant` package** — not merely in `helpers/entity.py` | `verified-against-code` — recursive grep over the installed package at `homeassistant 2025.11.2` (8,521 `.py` files) returned 0 matches |
+| `Entity` declares a plain `entity_id: str = None  # type: ignore[assignment]` | `verified-against-code` — `homeassistant/helpers/entity.py:441` at 2025.11.2 |
+| This repo contains **17** `_attr_entity_id` assignments, across 5 files | `verified-against-code` — `grep -rn '_attr_entity_id' --include='*.py'` → 17: `base_entity.py` (6), `button.py` (4), `select.py` (4), `update.py` (2), `binary_sensor.py` (1) |
+| **All 17 are inert.** Nothing in Home Assistant reads that name | `verified-against-code` — the package-wide zero above |
+| Tracked as issue **#550** | `asserted-unverified` — an issue title and its open/closed state are tracker metadata, not code; they can change without any code changing. Cited as provenance, not as a verified fact |
 
 `utils.generate_entity_id` (`utils.py:649-674`) likewise only feeds these dead attributes
 (`verified-against-code`).
+
+#### Why they are inert — it is the prefix, not the concept
+
+This is the part that makes #550 a **one-character** issue rather than a deletion, and it is easy
+to get backwards: **the bare `entity_id` attribute is very much alive.** Home Assistant reads it.
+
+| Fact | Evidence |
+|---|---|
+| `Entity.entity_id` is a **plain class attribute**, declared in the block commented *"safe to overwrite when inheriting this class"* | `verified-against-code` — `helpers/entity.py:439-441` |
+| Home Assistant **consumes** a pre-set `entity_id`: the platform derives the registry's suggested object id from it, at two sites | `verified-against-code` — `helpers/entity_platform.py:873` and `:936`, both `suggested_object_id = split_entity_id(entity.entity_id)[1]` |
+| The `_attr_` prefix is only meaningful for names listed in `CACHED_PROPERTIES_WITH_ATTR_`, which the `ABCCachedProperties` metaclass turns into `_attr_`-backed cached properties | `verified-against-code` — `helpers/entity.py:407` (the set) and `:434` (the metaclass) |
+| `entity_id` is **not** in that set, so no `_attr_entity_id` → `entity_id` binding exists. Compare `_attr_name`, `_attr_icon`, `_attr_available`, `_attr_unique_id`, `_attr_device_info`, which are declared and do bind | `verified-against-code` — `helpers/entity.py:407-433`, declarations at `:532-550` |
+
+So each of the 17 assignments creates an unused instance attribute beside the live one. The strings
+are computed correctly and land one underscore-prefix away from working.
+
+> **This is not a recommendation to drop the prefix.** Assigning `entity_id` directly would make 17
+> currently-inert statements suddenly authoritative over registry object ids — a mass entity-id
+> change on every existing installation, with statistics and automations attached to the old ids
+> (§8). The narrowness of the defect is exactly what makes it dangerous to "fix" casually. What to
+> do about #550 is a product decision, not a mechanical one.
 
 ### 4.2 What HA actually does
 

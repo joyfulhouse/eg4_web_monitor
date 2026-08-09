@@ -30,7 +30,8 @@ Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
 | Claim | Evidence |
 |---|---|
 | `_async_update_hybrid_data` **calls `_async_update_http_data`** and then overrides `data["connection_type"] = CONNECTION_TYPE_HYBRID` | `verified-against-code` — `coordinator_http.py:342-418` (the delegation is at `:366-369`) |
-| Local transports are attached to the pylxpweb `Station`; **pylxpweb** then routes runtime/energy locally and battery data via the cloud | `verified-against-code` — `_attach_local_transports_to_station`, `coordinator_local.py:2545` |
+| Local transports are attached to the pylxpweb `Station` | `verified-against-code` — `_attach_local_transports_to_station`, `coordinator_local.py:2545` |
+| Once attached, **pylxpweb** routes runtime/energy locally and battery data via the cloud | This is library behaviour, not this repo's; the attach call above does not evidence it. Owned by [../20-pylxpweb/transports.md](../20-pylxpweb/transports.md), which pins pylxpweb — take the grade there |
 | HYBRID therefore inherits every HTTP-path behavior — station refresh, endpoint serialization, battery carry-forward, error taxonomy — unless it explicitly overrides it | `verified-against-code` — `coordinator_http.py:342-418` |
 | HYBRID lives in `coordinator_http.py`, **not** in `coordinator_local.py` | `verified-against-code` — file location |
 

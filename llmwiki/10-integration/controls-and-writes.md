@@ -18,8 +18,10 @@ sources:
   - memory/issue-476-green-mode-bit14.md
   - memory/battery-control-mode-soc-vs-voltage.md
   - eg4_web_monitor issues #310, #328, #362, #476, #485
-verified-against: 9f6d6e2
-last-verified: 2026-08-08
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
+last-verified: 2026-08-09
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -28,7 +30,9 @@ see-also:
 
 # Controls and writes
 
-Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
+Line numbers are pinned per repo by the `verified-against:` mapping above — `9f6d6e2` for
+`eg4_web_monitor`, `204b95d` for `pylxpweb`. Each citation names its repo where it is not this one.
+Symbol names are the durable anchor.
 
 Every control platform — switch, number, select, time — and the coordinator's own battery-regime
 write funnel through **one** router. Do not add a second write path.
@@ -62,7 +66,7 @@ after a cloud write while a local transport is attached:
 
 | Fact | Evidence |
 |---|---|
-| **pylxpweb keeps a transport ATTACHED while its link is down.** Reads keep probing every cycle for recovery, so `has_local_transport()` stays `True` throughout an outage | `verified-against-code` — `coordinator.py:1004-1030` docstring |
+| **pylxpweb keeps a transport ATTACHED while its link is down.** Reads keep probing every cycle for recovery, so `has_local_transport()` stays `True` throughout an outage | `verified-against-code` at pylxpweb `204b95d` — `devices/base.py` → `transport_link_down` (`:236`), the attached-but-down state described at `:33` and maintained at `:173-180`. (`coordinator.py:1004-1030`'s docstring says the same, but a docstring is prose: evidence of intent, not of library behaviour) |
 | Attachment therefore **cannot** safely choose the write route | `verified-against-code` — `utils.py:194-200` docstring |
 | `is_transport_link_down()` reports `True` **only** for an attached-but-dead link; its strict guards require an attached transport and a real bool `transport_link_down`, so stale attributes and older pylxpweb versions never report down | `verified-against-code` — `coordinator.py:1004-1030`, delegating to `coordinator_mixins.is_transport_link_down` |
 | Skipping local avoids **waiting out a doomed Modbus timeout** before the fallback even starts | `verified-against-code` — `utils.py:206-209` |
@@ -278,4 +282,4 @@ Platform route signatures: `number.py:743-759`, `switch.py:384-404`.
 | 6 | Cloud-only param stores must **never** be seeded into the parameter cache: with a local transport attached, pylxpweb rebuilds `inverter.parameters` from register reads and wipes anything cloud-seeded. Hence the separate `CloudParamStoreSpec` stores with write-seed registries living **outside** `self.data` | `verified-against-code` — `coordinator_mixins.py:303-337`, `coordinator.py:1273-1347` |
 | 7 | **Per-field** seed timestamps: a later write to one store key must not renew an older key's seed, or an in-flight read of a legitimate portal change gets clobbered | `verified-against-code` — `coordinator.py:1304-1310` |
 | 8 | A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started. Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state | `verified-against-code` — seed supersede logic, `coordinator.py:1273-1347` |
-| 9 | Only a **delta test** (write → readback → restore) demonstrates that a write path carries values at all. A no-op write proves format acceptance, not targeting. pylxpweb's cloud `write_parameters({reg: raw})` form-encoded a dict that aiohttp serialised as `data=<key>&data=<key>`, dropping every value while looking successful | The form-encoding defect and its fix are `verified-against-code` (pylxpweb's named-write rewrite). The delta test is `verified-against-code` for the **code path** only — a readback confirms storage and transport, so what the write did **physically** is `asserted-unverified` (`memory/cloud-raw-register-write-broken.md`). "Broken since inception" is `asserted-unverified` |
+| 9 | Only a **delta test** (write → readback → restore) demonstrates that a write path carries values at all. A no-op write proves format acceptance, not targeting. pylxpweb's cloud `write_parameters({reg: raw})` form-encoded a dict that aiohttp serialised as `data=<key>&data=<key>`, dropping every value while looking successful | Split by what the pin can actually show. The **fix is present**: the named cloud write applies the canonical `ScaleFactor` — `verified-against-code` at pylxpweb `204b95d`, `endpoints/control.py` → `write_parameters` (`:282`, scaling at `:420-431`). The **historical form-encoding defect is not verifiable from a tree in which it is fixed** — `asserted-unverified` (`memory/cloud-raw-register-write-broken.md`), as is "broken since inception". The delta test is `verified-against-code` for the **code path** only; what the write did **physically** stays `asserted-unverified`, because a readback confirms storage and transport |
