@@ -20,8 +20,9 @@ see-also:
 
 Definitions only. Behaviour belongs to the owning page.
 
-> Every pylxpweb symbol cited below was re-checked at `204b95d`
-> (`v0.9.39b9-1-g204b95d` on `main`), not at a working copy.
+> Every pylxpweb symbol cited below was re-checked at `204b95d` — the commit that
+> `refs/tags/v0.9.39b10` resolves to in both the local clone and `origin` — not at a
+> working copy.
 
 ## Topology
 
