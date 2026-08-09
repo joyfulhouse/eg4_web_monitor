@@ -46,7 +46,7 @@ not provenance. Check all five before moving the pin:
 
 | # | Check | How | Grade |
 |---|-------|-----|-------|
-| 1 | **Tag → commit** | The tag you released points at the reviewed merge commit: `git rev-parse 'v0.9.39b10^{commit}'`. The build job checks out `github.event.release.tag_name \|\| github.ref`, so the tag alone determines what is built | `verified-against-code` — pylxpweb `release.yml`, `build` job, `actions/checkout` `ref:` |
+| 1 | **Ref → commit** | Confirm what was actually built. The build job checks out `github.event.release.tag_name \|\| github.ref` — a **published release** builds its tag; a **manual dispatch** builds whatever ref the dispatcher picked. Check the run's ref, then `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit, and confirm the tag is protected against being moved | `verified-against-code` — pylxpweb `release.yml`, `build` job, `actions/checkout` `ref:`. See [Sequencing is not provenance](#sequencing-is-not-provenance) |
 | 2 | **Commit → version** | `pyproject.toml` `[project].version` **at that tag** equals the version now on PyPI. A tag on the wrong commit ships the wrong version silently | `verified-against-code` — pylxpweb `release.yml`, `build` job, `uv build` |
 | 3 | **Trusted Publisher provenance** | Publication is OIDC, not a stored API token: the workflow declares `permissions: id-token: write` and both publish jobs use `pypa/gh-action-pypi-publish` against GitHub Environments `testpypi` / `pypi`. On PyPI, confirm the release shows the Trusted Publisher and the originating workflow run | `verified-against-code` — pylxpweb `release.yml` `permissions:`, jobs `publish-testpypi` / `publish-pypi` (`environment:`) |
 | 4 | **Artifact hashes** | Both publish steps set `print-hash: true`. Take the wheel/sdist hashes from the run log and compare them to the hashes PyPI lists for the release. Equal hashes on the TestPyPI and PyPI steps prove the same file reached both indexes | `verified-against-code` — pylxpweb `release.yml`, `publish-testpypi` / `publish-pypi` steps (`print-hash: true`) |
@@ -64,10 +64,17 @@ it is a resolvability check, not a trust check.
 # 4) Tag/publish integration release
 ```
 
-**What the gate does not cover:** the workflow never installs or imports the TestPyPI artifact before
-promoting it. TestPyPI success means "upload accepted", not "the package works". Step 2's clean-env
-install is the only import check in the chain, and it runs after PyPI publication — `verified-against-code`
-— pylxpweb `release.yml` (no install/smoke step between `publish-testpypi` and `publish-pypi`).
+**What the gate does not cover.** Two limits, both structural:
+
+1. **No smoke test.** The workflow never installs or imports the TestPyPI artifact before promoting
+   it. TestPyPI success means "upload accepted", not "the package works". The clean-env install above
+   is the only import check in the chain, and it runs after PyPI publication — `verified-against-code`
+   — pylxpweb `release.yml` (no install or import step between `publish-testpypi` and `publish-pypi`).
+2. **No enforced provenance.** Checks 1–5 are things a human performs *after* the fact; the workflow
+   itself never verifies that what it built came from a reviewed, immutable ref. On a manual dispatch
+   it builds whatever ref the dispatcher selected. See
+   [Sequencing is not provenance](#sequencing-is-not-provenance) and the preconditions that follow it
+   before using the manual `pypi` path at all.
 
 ## Where versions live
 
@@ -171,13 +178,52 @@ skipped `publish-testpypi` skips `publish-pypi` too. Every input value is covere
 
 There is no input combination that reaches PyPI without publishing to TestPyPI first.
 
-**Who can trigger it.** The workflow declares no actor restriction, so this reduces to GitHub's own
-rule that `workflow_dispatch` requires write access to the repository — `verified-against-code` for
-the absence of a restriction (pylxpweb `release.yml`, no `if: github.actor` guard on any job);
-`asserted-unverified` for the platform rule itself (GitHub Actions documented behavior, not a fact in
-this tree). The `testpypi` and `pypi` GitHub Environments **may** carry required-reviewer or branch
-protection rules, which would gate dispatch further — those live in repository settings and are **not
-determinable from the tree**; check the environment settings on GitHub before assuming either way.
+### Sequencing is not provenance
+
+**TestPyPI-first is an ordering property, not a trust boundary.** It proves the same artifact reached
+TestPyPI before PyPI. It proves nothing about *which source* that artifact was built from.
+
+The build job resolves its checkout as
+`ref: ${{ github.event.release.tag_name || github.ref }}`. On `workflow_dispatch` there is no release
+payload, so it falls through to `github.ref` — **the ref the dispatcher chose**. Any branch, any tag,
+reviewed or not. The version published is whatever `pyproject.toml` declares on that ref; nothing
+compares it to a tag, a release, or a merged commit — `verified-against-code` — pylxpweb
+`release.yml`, `build` job, `actions/checkout` `ref:`.
+
+Three properties that look protective and are not:
+
+| Looks like a control | What it actually constrains |
+|---|---|
+| TestPyPI runs first | Order only. Both jobs consume the same artifact, so they agree with each other — including when that artifact was built from an unreviewed ref |
+| OIDC / Trusted Publisher | Binds publication to *this repo, this workflow file, this environment*. It attests **who published**, never **what was reviewed**. A dispatch from an arbitrary branch is signed just as legitimately |
+| Environment gating on the publish jobs | Only the publish jobs declare `environment:`; `build` declares none, so protection rules never gate the checkout or the build — an unreviewed ref is fetched and built regardless, and the rules can only stop it at upload — `verified-against-code` — pylxpweb `release.yml`, `build` (no `environment:`) vs `publish-testpypi` / `publish-pypi` |
+
+Absent environment restrictions, this means: **any repository writer can have OIDC publish an
+arbitrary ref to PyPI as the real package.** Downstream, `manifest.json` resolves `pylxpweb>=…` from
+PyPI, so that artifact lands in Home Assistant installs.
+
+### Preconditions for a production `pypi` dispatch
+
+**Do not dispatch `environment: pypi` unless all three hold.** These are preconditions to *verify*,
+not assumptions — the first two live in repository settings and are **not determinable from this
+tree**, so confirm them on GitHub each time rather than inheriting a belief about them:
+
+| # | Precondition | How to confirm | Status here |
+|---|---|---|---|
+| 1 | The `pypi` environment restricts **which refs may deploy** to protected release tags — GitHub evaluates its deployment branch/tag policy against the run's `github.ref`, and it is the only automatic control that constrains *which ref* may publish | Repo → Settings → Environments → `pypi` → deployment branches and tags | **Unverified — settings not in the tree** |
+| 2 | The `pypi` environment requires **review by someone other than the dispatcher** | Same screen → required reviewers | **Unverified — settings not in the tree** |
+| 3 | An **immutable, protected release tag** exists, and the version in `pyproject.toml` at that tag equals the version being published | `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit; a tag protection rule or ruleset to stop the tag being moved afterwards | **Unverified — tag protection is a repo setting** |
+
+If any is unconfirmed, **publish through a published GitHub Release instead of a manual dispatch**,
+and treat the manual `pypi` path as unavailable. The release path at least binds the checkout to
+`github.event.release.tag_name`; note that this still assumes the tag is protected, since an
+unprotected git tag can be moved after review (precondition 3 covers both paths).
+
+**Who can trigger it.** The workflow declares no actor restriction — `verified-against-code` for the
+absence of one (pylxpweb `release.yml`, no `if: github.actor` guard on any job). It therefore reduces
+to GitHub's rule that `workflow_dispatch` requires write access — `asserted-unverified` (GitHub
+Actions documented behavior, not a fact in this tree). Repository write access is a much larger set
+than release authority, which is what makes preconditions 1 and 2 load-bearing rather than optional.
 
 `concurrency: release-publish` with `cancel-in-progress: false` serializes releases — a second
 dispatch queues rather than cancelling the first — `verified-against-code` — pylxpweb `release.yml`, `concurrency:`.
