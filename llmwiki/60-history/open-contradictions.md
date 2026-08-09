@@ -109,7 +109,8 @@ lifetime source. What a human must decide: whether the early table is struck out
 > `docs/DATA_MAPPING.md:545` now says bit 14 with the correction inline; repo `CLAUDE.md` also says bit 14 "(hardware-verified 2026-07-21, #476; historic bit-8 mapping was wrong)".
 
 **Status: UNRESOLVED in one narrow respect.** No live contradiction remains between
-those two files — bit 14 is `hardware-toggle-proven` and is recorded in
+those two files — bit 14 is graded by [`40-hardware/registers.md`](../40-hardware/registers.md)
+(row `H110 b14`) and its history is recorded in
 [superseded-claims.md](superseded-claims.md). But `release-3.5.1-beta.3-shipped.md`
 records that the changelog then over-claimed a **third** time about bit 8, saying it
 "controls something and those toggles were changing it — only the write attempt and

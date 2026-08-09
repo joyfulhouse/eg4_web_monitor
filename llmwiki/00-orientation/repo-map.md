@@ -132,14 +132,15 @@ the `_config_flow/` package, whose module-by-module breakdown is owned by
 
 | Path | Tracked files at 9f6d6e2 | State |
 |---|---|---|
-| `docs/reference/firmware/re/` | 10 | Carries an "⛔ These artifacts are INVALID — do not cite them (2026-08-08)" banner in `00_SUMMARY.md` |
-| `docs/reference/firmware_re/` | 10, identical filenames | `00_SUMMARY.md` has **no** banner — a stale duplicate |
+| `docs/reference/firmware/re/` | 10 | Duplicate of the tree below; both tombstoned |
+| `docs/reference/firmware_re/` | 10, identical filenames | Duplicate of the tree above; both tombstoned |
 
-`verified-against-code`: filename sets are identical and the only content difference
-found is the banner block in `00_SUMMARY.md`. Neither tree's generated artefacts are
-authoritative firmware evidence — see
-[superseded-claims](../60-history/superseded-claims.md). The current worked firmware
-analyses are `docs/reference/firmware/FIRMWARE_ACQUISITION.md`,
+Two directories, one set of artefacts: the filename sets are identical and nine of the
+ten files are byte-identical — `verified-against-code` at 9f6d6e2. **Both summaries carry
+the invalidity banner as of PR #557**; that fact and the banner's wording are owned by
+[superseded-claims S4](../60-history/superseded-claims.md), which also records why the
+artefacts are invalid. Neither tree is authoritative firmware evidence. The current worked
+firmware analyses are `docs/reference/firmware/FIRMWARE_ACQUISITION.md`,
 `OFFGRID_GENERATOR_REGISTERS.md`, `OFFGRID_EPS_REGISTERS.md`, `HYBRID_EPS_REGISTERS.md`.
 
 ## Outside this repo

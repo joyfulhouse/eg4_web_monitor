@@ -75,11 +75,13 @@ lived in three or four documents, was corrected in one, and rotted in the rest.
 
 ## Evidence-grade legend
 
-**This page is the single legend for the whole wiki.** No chapter may define, rename, or
-locally weaken a grade, and no chapter may introduce a synonym. If you need a distinction
-that is not here, add it here. A chapter-local legend does not stay parallel: it drifts
-toward whatever that chapter's evidence happens to support, the weaker definition wins by
-proximity, and every page that links to it inherits the weakening silently.
+**This page is the single legend for the whole wiki.** The vocabulary is exactly **nine
+names**: the eight proof grades below, plus `refuted`. No chapter may define, rename, or
+locally weaken a grade, introduce a synonym, or carve out an exception that lets a claim
+borrow a grade it cannot meet. If you need a distinction that is not here, add it here. A
+chapter-local legend does not stay parallel: it drifts toward whatever that chapter's
+evidence happens to support, the weaker definition wins by proximity, and every page that
+links to it inherits the weakening silently.
 
 ### Proof grades
 
@@ -89,19 +91,40 @@ Every factual claim carries exactly one. Ordered strongest first.
 |---|---|---|
 | `verified-against-code` | The cited source implements or locks the claim, at the commit in `verified-against:` | Cite the repo path and the symbol (`coordinator_mixins.py` → `_TRANSPORT_OVERLAY`) |
 | `firmware-proven` | Established by disassembling a shipped firmware image | Cite the image and family, and the code site — function, increment site, dispatcher entry |
-| `hardware-toggle-proven` | A named vendor control or UI action on the target family, correlated to raw values captured before and after, with the original state restored | Cite the action, the raw before/after pair, and the family |
-| `hardware-proven` | Umbrella for the two above. **Requires a before/after raw value pair** (one exception below). | As above. A source that merely records "a live-device result", with no raw pair, is `asserted-unverified` — however it was phrased |
+| `hardware-toggle-proven` | A named vendor control or UI action on the target family, correlated to raw values captured before and after, with the original state restored | Cite the action, the raw before/after pair, and the family. Component firmware version is **scope metadata, not a grade gate**: record it when it is known, and when it is not, say so and scope the claim to the tested unit |
+| `hardware-proven` | Umbrella for the two above. **Requires a before/after raw value pair.** | As above. A source that merely records "a live-device result", with no raw pair, is `asserted-unverified` — however it was phrased |
 | `portal-correlated` | The EG4 portal or mobile app exposes it, and it agrees with our reading | Cite the endpoint, field, or widget |
 | `lineage-inferred` | Inherited from a related family or a neighbouring register, with no direct evidence on the target | Name the family or register it was inherited from |
 | `inferred` | Deduced from an adjacent proven fact | State what it was inferred from |
 | `asserted-unverified` | A source states it; nothing here independently corroborates it | Name a **durable** artifact: a repo path, a `memory/*.md` filename, an issue or PR number |
 
-**The one exception to the raw-pair requirement** is a *negative* claim — that a register
-is absent, rejected, or dead on a family — where no pair can exist. There the proof is the
-device's own captured response: an ILLEGAL DATA ADDRESS or NAK, or a read that stays
-constant while the quantity is demonstrably live. Cite the response and the family, and
-scope the claim to the units tested: "reads 0 on every unit we tested" and "no family has
-this register" are different claims, and only the first is proven.
+#### Negative claims
+
+A *negative* claim — that a register is absent, rejected, dead, or repurposed on a
+family — is graded exactly like any other claim. No before/after pair can exist for it,
+so `hardware-proven` and `hardware-toggle-proven` are simply **unavailable** to it. There
+is no exception: a claim that cannot meet a grade's minimum proof does not get to borrow
+the grade because the proof is impossible in principle. Grade what was actually captured.
+
+| What you actually have | Grade it earns |
+|---|---|
+| Disassembly of a shipped image showing the register is unimplemented, or implemented as something else | `firmware-proven` |
+| The portal or app omits the field, or exposes it in a way that agrees with our reading | `portal-correlated` |
+| A preserved wire-level exchange — the request and the device's exception response (ILLEGAL DATA ADDRESS, NAK), quoted raw | `asserted-unverified`, naming the durable artifact that holds the capture |
+| A recollection that "it was rejected", or a read logged as 0, with no preserved exchange | `asserted-unverified`, naming the person, issue, or note |
+
+The last two rows carry the same grade and are not equally useful: only a preserved
+exchange can be re-examined by the next reader, so capture it and cite it. A negative
+claim that disproves a documented positive one is additionally marked `refuted` (below).
+
+`firmware-proven` stands on the disassembly itself, so a negative claim can reach it — a
+register shown to be a counter is proven not to be power (register 123 on the off-grid
+image is the worked case). It does **not** thereby become `hardware-proven`: the umbrella
+keeps its pair requirement, and a disassembled negative claim never acquires one.
+
+**Scope every negative claim to the units tested.** "Reads 0 on every unit we tested" and
+"no family has this register" are different claims, and only the first has ever been
+observed here.
 
 ### Status, orthogonal to proof strength
 
@@ -117,7 +140,14 @@ this register" are different claims, and only the first is proven.
   wrong-but-writable bit is firmware-ACKed: writing register 110 bit 8 succeeded, raised
   nothing, logged nothing above DEBUG, and read back true — while Green Mode never
   moved. See the proof standard for bit semantics under the register-annotation ladder
-  below.
+  below. A write → readback → restore **delta test** therefore splits into two claims:
+  the code path is `verified-against-code`, the physical semantic is
+  `asserted-unverified`. It is never `hardware-proven` — nothing physical was observed.
+- **A live cross-transport read is agreement, not observation.** Reading the same
+  parameter two ways (raw `595` over Modbus against the portal's `59.5`) also splits: the
+  agreement is `portal-correlated`, the transformation that produced it is
+  `verified-against-code`. Neither half is a before/after pair, so neither is
+  `hardware-proven`.
 - **Never grade `hardware-proven` on the strength of source code, a README, or a code
   comment.** Downgrade to `verified-against-code` for what the code does, or
   `asserted-unverified` for the hardware claim the comment repeats.

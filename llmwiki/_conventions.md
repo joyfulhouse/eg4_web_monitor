@@ -48,8 +48,14 @@ One or two sentences: what this page is for and who reads it.
 | `verified-against` | yes | The commit the code-citations were checked at. Use `9f6d6e2` unless you re-verified at a newer one. |
 | `last-verified` | yes | ISO date of the last time someone actually re-checked the page, not the last time it was edited. |
 | `see-also` | no | Sibling pages a reader will want next. Links, not restatements. |
+| `runbook-status` | runbooks only | Whether the procedure on the page has been executed as written. `untested-as-written` until an authorized run says otherwise. |
+| `last-executed` | runbooks only | ISO date of the last authorized execution, or `never`. |
 
-Front matter is a fenced YAML block delimited by `---`. Keep it to these five fields.
+Front matter is a fenced YAML block delimited by `---`. Keep it to these fields: the five
+above the line are the schema for every page; `runbook-status` and `last-executed` are
+optional and belong only on a page that gives an executable procedure
+(`40-hardware/probing-playbook.md` is the current case). A runbook that omits them reads
+as rehearsed when it is not, which is the failure they exist to prevent.
 
 ### Durable sources only
 

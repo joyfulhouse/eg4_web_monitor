@@ -33,9 +33,9 @@ themselves by PR #557 and is not repeated here.
 | # | Claim | Reality | Grade of the reality | Damage done before it was caught |
 |---|---|---|---|---|
 | S1 | Unique IDs carry a data-type segment | Never implemented; the real forms are owned by [`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md) | `verified-against-code` (see owner) | A test fixture was written to match the doc, then production matcher code was written to satisfy the fixture |
-| S2 | Register 110 green/off-grid mode is **bit 8** (annotated `# verified`) | Bit **14** | `hardware-toggle-proven` | Off-Grid switch silently did nothing in LOCAL/HYBRID; the wrong write was firmware-ACKed, so nothing logged (#476, tail of #194) |
-| S3 | Register 110 "take load together" is **bit 5** | Bit **10** | `hardware-toggle-proven` | Propagated inside an otherwise-trusted correction note; the upper-bit table around a real fix was stale |
-| S4 | The committed firmware reverse-engineering artefacts are usable evidence | Both trees are invalid output; one still lacks its warning | `verified-against-code` | Register names "from firmware" were actually copied from pylxpweb; conclusions about DSP structure were byte-order artefacts |
+| S2 | Register 110 green/off-grid mode is **bit 8** (annotated `# verified`) | Bit **14**; bit 8's function is unknown | see owner: [`40-hardware/registers.md`](../40-hardware/registers.md) (H110 b14, H110 b8) | Off-Grid switch silently did nothing in LOCAL/HYBRID; the wrong write was firmware-ACKed, so nothing logged (#476, tail of #194) |
+| S3 | Register 110 "take load together" is **bit 5** | Bit 5 is `refuted`; bit **10** is the current candidate | see owner: [`40-hardware/registers.md`](../40-hardware/registers.md) (H110 b10) | Propagated inside an otherwise-trusted correction note; the upper-bit table around a real fix was stale |
+| S4 | The committed firmware reverse-engineering artefacts are usable evidence | Both trees are invalid output, and **both summaries carry the invalidity banner as of PR #557** | `verified-against-code` | Register names "from firmware" were actually copied from pylxpweb; conclusions about DSP structure were byte-order artefacts |
 | S5 | `# verified` in a register table means a toggle was observed | It has meant "the names matched" | `asserted-unverified` | The direct cause of S2 |
 | S6 | There is a readable extra battery slot beyond the protocol ceiling | No such slot; the ceiling is a protocol limit (graded by [`40-hardware/registers.md`](../40-hardware/registers.md)) | see owner | A "dedicated 5th slot" commit shipped, was proved wrong, and was reverted |
 | S7 | `maxChgCurr` is scaled 10× wrong | Same physical amps, different raw units | `asserted-unverified` | A prior session "fixed" it into a 600 A reading; two independent reviewers then re-raised it |
@@ -80,11 +80,12 @@ production emission site before writing code that consumes it.
 **Claimed:** pylxpweb's 18kPV / `EG4_HYBRID` table mapped `FUNC_GREEN_EN` to register
 110 **bit 8**, annotated `# verified`.
 
-**Reality:** bit **14**. `hardware-toggle-proven` — a cloud `enable_green_mode` toggle on an
-18kPV moved register 110 raw `1056 → 17440`, i.e. XOR `0x4000`, and the state was
-restored (`memory/issue-476-green-mode-bit14.md`; issue #476). That the integration now
-decodes bit 14 is `verified-against-code` (`switch.py` → the off-grid switch's
-`is_on` path); the in-tree comment repeating the hardware claim is not itself evidence.
+**Reality:** bit **14**. The grade for that mapping, and the raw toggle record behind it,
+are owned by [`40-hardware/registers.md`](../40-hardware/registers.md) (row `H110 b14`) —
+take them from there rather than from this page. The durable sources are issue #476 and
+`memory/issue-476-green-mode-bit14.md`. That the integration now decodes bit 14 is
+`verified-against-code` (`switch.py` → the off-grid switch's `is_on` path); the in-tree
+comment repeating the hardware claim is not itself evidence.
 
 **Why it was invisible.** Writing bit 8 *succeeds*. The firmware ACKs a
 wrong-but-writable bit, so:
@@ -119,27 +120,33 @@ later changelog over-claimed about it a third time. See C5 in
 **Claimed:** the upper-bit table circulated alongside the #476 correction placed "take
 load together" at register 110 **bit 5**.
 
-**Reality:** bit **10**. `hardware-toggle-proven` — a toggle moved raw `1056 ↔ 32` while bit 5
-stayed unchanged (pylxpweb `constants/registers.py`; `memory/issue-476-green-mode-bit14.md`).
+**Reality:** bit 5 is `refuted` and the current candidate is bit **10**, which remains
+gated — its grade and the state of its evidence are owned by
+[`40-hardware/registers.md`](../40-hardware/registers.md) (row `H110 b10`). Durable
+sources: pylxpweb `constants/registers.py`; `memory/issue-476-green-mode-bit14.md`.
 
 **The trap:** the #476 note is trustworthy *for the claim it proved* — the bit-14
 toggle — and stale for the surrounding table it also carried. A note that earns
 credibility by being right about one hard-won fact will smuggle its unproven neighbours
 along with it.
 
-Other register-110 positions the same source records as **refuted** — historical
-mappings now known false, with no replacement semantic established (all `asserted-unverified` here;
-pylxpweb `constants/registers.py`, and see [`40-hardware/registers.md`](../40-hardware/registers.md)):
+The same source carries three further register-110 positions that are also historical
+mappings now known false; they are listed below alongside bit 5 for completeness. What
+each bit was **claimed** to be is history and belongs here; what each bit **is**, and the
+grade of that answer, is owned by
+[`40-hardware/registers.md`](../40-hardware/registers.md), which records the current
+status of every one of these positions. Durable source for the historical claims:
+pylxpweb `constants/registers.py`.
 
-| Bit | Historical claim | Present state |
+| Bit | Historical claim | Why it is listed here |
 |---|---|---|
-| 5 | take load together | `refuted`; no replacement semantic |
-| 6 | buzzer | `refuted`; no replacement semantic |
-| 8 | Green Mode | `refuted`. The wrong write was firmware-ACKed and did **not** control Green Mode; what it does instead is unestablished (see C5) |
-| 9 | ECO | `refuted`; no replacement semantic |
+| 5 | take load together | The subject of S3 above |
+| 6 | buzzer | Carried along by the same stale table |
+| 8 | Green Mode | The direct cause of S2. The wrong write was firmware-ACKed and did **not** control Green Mode; what it does instead is unestablished (see C5) |
+| 9 | ECO | Carried along by the same stale table |
 
-The authoritative current bit table is owned by
-[`40-hardware/registers.md`](../40-hardware/registers.md), not this page.
+Do not read a current bit assignment out of this table. It records what was believed,
+not what is true.
 
 ---
 
@@ -164,24 +171,29 @@ Modbus name/function-code/CRC sections, noise-like opcode statistics, and — de
 `REGISTER_MAP_FROM_FIRMWARE.md` admitting its input register names were cross-referenced
 from pylxpweb and live dumps rather than decoded.
 
-**The duplicate trees**, `verified-against-code` at 9f6d6e2:
+**The duplicate trees.** This page owns the banner fact; `00-orientation/repo-map.md` and
+`40-hardware/firmware-re.md` link here rather than restating it.
 
 | Path | Tracked files | `00_SUMMARY.md` |
 |---|---|---|
 | `docs/reference/firmware/re/` | 10 | Carries "⛔ These artifacts are INVALID — do not cite them (2026-08-08)" |
-| `docs/reference/firmware_re/` | 10, identical filenames | **No banner** |
+| `docs/reference/firmware_re/` | 10, identical filenames | Carries the same banner as of PR #557 |
 
-Filename sets are identical and the only content difference found between the two
-summaries is that banner block. The trees entered git together; the original scripts
-(`scripts/firmware_re_analysis.py`, `scripts/extract_firmware_registers.py`) target the
-**root sibling**, which is the one still missing the warning —
+**Both summaries carry the invalidity banner as of PR #557**, and each states that the
+other tree holds the same artefacts and is equally invalid. Nine of the ten files are
+byte-identical across the two trees; `00_SUMMARY.md` differs only in the banner's relative
+links and the mirrored wording of that duplicate-tree note. `verified-against-code`
+against PR #557 (`docs/reference/firmware_re/00_SUMMARY.md`,
+`docs/reference/firmware/re/00_SUMMARY.md`) — a later commit than this page's
+`verified-against:`, which is why the PR is named rather than a hash. The trees entered git together, and the
+original scripts (`scripts/firmware_re_analysis.py`,
+`scripts/extract_firmware_registers.py`) target the **root sibling** —
 `asserted-unverified` (`memory/firmware-re-framing-and-word-order.md`).
 
-**Working rule:** neither tree's generated artefacts are firmware evidence. Treat
-`docs/reference/firmware/re/` as the tombstone (it warns) and
-`docs/reference/firmware_re/` as a stale duplicate of the same invalid output. The live
-probe JSON files referenced from the summary remain usable **as hardware observations
-only**. The current worked analyses are `FIRMWARE_ACQUISITION.md`,
+**Working rule:** neither tree's generated artefacts are firmware evidence, and neither is
+the survivor — both are tombstoned duplicates of the same invalid output. The live probe
+JSON files referenced from the summaries remain usable **as hardware observations only**.
+The current worked analyses are `FIRMWARE_ACQUISITION.md`,
 `OFFGRID_GENERATOR_REGISTERS.md`, `OFFGRID_EPS_REGISTERS.md`, `HYBRID_EPS_REGISTERS.md`.
 
 ---
