@@ -231,7 +231,7 @@ inventory.
 | 2. Always-on number entities | `number.py` → the `entities.extend([...])` block commented "Always-on controls"; these are created for **every inverter, with no family gate** |
 | 3. Voltage-limit numbers | `number.py` → `VOLTAGE_NUMBER_SPECS`, expanded one entity per spec in that same block |
 | 4. Router traffic and its bypasses | Grep **three method names** — `write_named_parameter`, `write_raw_parameter`, `write_register` — **matched on the method, not the receiver**, across the control platforms (`number.py`, `switch.py`, `select.py`, `time.py`) **plus `base_entity.py` and `coordinator.py`**, then classify each hit by the traps below |
-| 5. Switch-action routes | Grep `_execute_switch_action(` and read each caller's `enable_method`. **The argument type is the discriminator:** a **bound cloud callable** is cloud-routed; a **plain string** is a pylxpweb method name resolved against the inverter, which the library may drive local-first |
+| 5. Switch-action routes | Grep `_execute_switch_action(`, then derive the callers with [`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) § 2.3, which owns this. **Nothing on the eg4 side discriminates the transport** — not the argument's type, not the branch guard. The routing belongs to the pylxpweb method, read on the runtime class |
 | 6. Direct library calls | Grep `inverter.` for method calls in the control platforms. These reach pylxpweb with **no router and no `_execute_switch_action`** — nothing in the integration marks them as writes |
 | 7. Writes with no entity at all | Grep `coordinator_mixins.py` and the coordinator for background writes. Scheduled and lifecycle code writes device and station settings without any entity to find |
 

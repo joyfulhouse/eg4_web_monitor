@@ -131,3 +131,40 @@ navigation, so the catalog is not duplicated.
 Seeded the log with the build history above, because that history is itself knowledge: it
 records which *kinds* of claim have failed here, which is what a future maintainer needs in
 order to not repeat them.
+
+## [2026-08-09] lint | The derivation's step-5 discriminator deleted — wrong at two of three call sites
+
+Step 5 of the write-surface derivation told a reader to classify `_execute_switch_action`
+callers by the **type** of their `enable_method` argument: a bound callable meant
+cloud-routed, a plain string meant a library method the transport may drive local-first.
+Checked against the code at `9f6d6e2`, the rule misclassifies two of the three call sites:
+
+- `base_entity.py:1766` passes a plain **string** (`cloud_enable_method: str | None`,
+  docstring "Inverter method **name**"), and is the router's own **cloud** leg — cloud by
+  construction. The owning page's derivation says to discard this site outright.
+- `switch.py:1511` passes a plain **string** from `_WORKING_MODE_METHODS`, on the branch
+  guarded `has_http_api() and methods` — the explicitly cloud-only route.
+- `switch.py:627` (quick charge) matches the rule. It is the site the rule was read off,
+  generalized into a law.
+
+Same root cause as the round's other corrections: **an eg4-side surface feature standing in
+for a routing decision that lives entirely inside pylxpweb.** A string/callable split that
+separates correctly at one of three sites is exactly the "right by luck" that the same
+page's trap table warns about. The rule also contradicted its canonical owner,
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) § 2.1
+("You cannot predict whether a switch-action write goes local by reading eg4. Read the
+pylxpweb method."), which is correct — and it contradicted the surrounding text of
+[`README.md`](README.md) itself, leaving a reader with two irreconcilable procedures.
+
+Step 5 is now a **pointer** to that page's § 2.3 instead of a second, divergent procedure.
+No replacement rule was written: the owner already carries three correct discriminators
+(site identity, branch guard, pylxpweb routing policy), and a fourth one living on this
+page is what produced the defect.
+
+**Open item — ownership of the runtime-subclass fact.** `20-pylxpweb/write-paths.md` is the
+natural long-term owner of "dispatch resolves against the runtime subclass, so
+`HybridInverter` can override a base-class routing policy" — currently the third blind spot
+in [`README.md`](README.md). Deliberately not moved in this shipping pass: that chapter has
+drawn no findings for four consecutive rounds, and reopening it to relocate one fact buys
+nothing now. The blind-spot row keeps citing pylxpweb `hybrid.py` directly until a
+maintenance session makes the move.
