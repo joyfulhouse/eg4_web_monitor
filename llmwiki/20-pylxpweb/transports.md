@@ -4,7 +4,8 @@ sources:
   - pylxpweb@204b95d:src/pylxpweb/transports/
   - pylxpweb@204b95d:src/pylxpweb/registers/battery.py
   - pylxpweb@204b95d:tests/unit/transports/
-verified-against: 9f6d6e2
+verified-against:
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 
@@ -30,9 +31,11 @@ The upstream README instructs operators to run one active application/client per
 |---|---|---|
 | `connect()` constructs `AsyncModbusTcpClient(host, port, timeout, retries=pymodbus_retries)`, connects, installs the transaction-ID compatibility hook, and resets error state. | Do not rely on the stale docstring's claimed synchronization read; no synchronization read occurs. | `verified-against-code` — `src/pylxpweb/transports/modbus.py:145-180` |
 | FC03/FC04 calls use `device_id=unit_id`. | Preserve the unit ID and distinguish holding from input reads. | `verified-against-code` — `src/pylxpweb/transports/_modbus_base.py:167-220` |
-| FC06 is used for one value; FC16 is used for a contiguous list. | Do not replace schedule FC06 behavior with FC16; schedule firmware rejects FC16. | `verified-against-code` — `src/pylxpweb/transports/_modbus_base.py:339-352`, `src/pylxpweb/devices/inverters/hybrid.py:352-363` |
+| FC06 is used for one value; FC16 is used for a contiguous list. | Schedule code sends start and end as separate one-register calls, so local Modbus and dongle transports issue two FC06 writes. | `verified-against-code` — `src/pylxpweb/devices/inverters/hybrid.py:352-363`, `src/pylxpweb/transports/_register_data.py:1589-1611`, `src/pylxpweb/transports/_modbus_base.py:339-352`, `src/pylxpweb/transports/dongle.py:1387-1393` |
 | Short holding reads fail inside the retry loop; short input reads pass upward for coalescing/BMS fallback policy. | Do not make both paths uniformly strict or uniformly permissive. | `verified-against-code` — `src/pylxpweb/transports/_modbus_base.py:222-237` |
 | Modbus writes validate the response but do not read the register back. | An accepted response is not independent readback proof. | `verified-against-code` — `src/pylxpweb/transports/_modbus_base.py:341-367` |
+
+The schedule implementation comment attributes those separate writes to firmware rejection of FC16, but no raw rejection capture establishes that hardware behavior. `asserted-unverified` — `pylxpweb@204b95d:src/pylxpweb/devices/inverters/hybrid.py:352-363`. See the [hardware evidence boundary](../40-hardware/registers.md#schedule-write-evidence-boundary).
 
 ### Intentional Waveshare transaction-ID workaround
 
@@ -56,7 +59,8 @@ The compatibility code parses with `exp_tid=0`, rewrites the returned PDU transa
 
 | Rule | Why | Evidence |
 |---|---|---|
-| `_connect_lock` serializes dial/close, the transaction lock serializes request/response, and the reentrant operation lock covers multi-request operations. | The dongle exposes one TCP slot and processes one request at a time. | `verified-against-code` — `src/pylxpweb/transports/dongle.py:247-254`, `src/pylxpweb/transports/dongle.py:1467-1481` |
+| `_connect_lock` serializes dial/close, the transaction lock serializes request/response, and the reentrant operation lock covers multi-request operations. | pylxpweb serializes its own transactions and multi-step operations within this transport instance. | `verified-against-code` — `src/pylxpweb/transports/dongle.py:247-254`, `src/pylxpweb/transports/dongle.py:1467-1481` |
+| Gateway capacity | Source comments describe the dongle as having one TCP slot and processing one request at a time. | `asserted-unverified` — `pylxpweb@204b95d:src/pylxpweb/transports/dongle.py:247-254`, `pylxpweb@204b95d:src/pylxpweb/transports/dongle.py:1467-1481`; no external-client connection capture is cited |
 | One timeout bounds the whole prefix/header/body receive. | Fragment arrival does not restart the timeout. | `verified-against-code` — `src/pylxpweb/transports/dongle.py:898-904` |
 | A write request is not replayed at request level after missing ACK/EOF/socket error. | The inverter may already have applied it; replay could overwrite a concurrent bitfield change with stale state. | `verified-against-code` — `src/pylxpweb/transports/dongle.py:1401-1418` |
 | Response identity validation checks outer function before inner parsing, then CRC, serial, Modbus function, and start register. | A heartbeat/proxied frame must become `TransportResponseMismatchError`, not false evidence that fast reads are unsupported. | `verified-against-code` — `src/pylxpweb/transports/dongle.py:1080-1268` |

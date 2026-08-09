@@ -6,7 +6,9 @@ sources:
   - eg4_web_monitor@9f6d6e2:custom_components/eg4_web_monitor/manifest.json
   - eg4_web_monitor@9f6d6e2:tests/requirements-test.txt
   - eg4_web_monitor@9f6d6e2:.github/workflows/quality-validation.yml
-verified-against: 9f6d6e2
+verified-against:
+  pylxpweb: 204b95d
+  eg4_web_monitor: 9f6d6e2
 last-verified: 2026-08-08
 ---
 

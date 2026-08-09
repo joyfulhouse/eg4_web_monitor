@@ -6,7 +6,8 @@ sources:
   - pylxpweb@204b95d:src/pylxpweb/registers/
   - pylxpweb@204b95d:src/pylxpweb/transports/
   - pylxpweb@204b95d:tests/unit/test_models.py
-verified-against: 9f6d6e2
+verified-against:
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 
@@ -23,9 +24,11 @@ Evidence grades follow the [canonical llmwiki legend](../README.md).
 | Register absent | `None` | `verified-against-code` — `src/pylxpweb/transports/_canonical_reader.py:54-70` |
 | Either half of a 32-bit pair absent | `None` for the whole value | `verified-against-code` — `src/pylxpweb/transports/_canonical_reader.py:54-70` |
 | Scaling receives `None` | Preserve `None`; do not create zero | `verified-against-code` — `src/pylxpweb/transports/_canonical_reader.py:130-148` |
-| Temperature raw value exactly `127` / `0x7F` | `None` meaning sensor absent | `verified-against-code` — `src/pylxpweb/transports/data.py:62-70`, `src/pylxpweb/transports/data.py:318-321` |
+| Battery-temperature value exactly `127.0` | Normalize it to `None` on every construction path | `verified-against-code` — `src/pylxpweb/transports/data.py:62-70`, `src/pylxpweb/transports/data.py:318-321` |
 | Other extreme temperature | Preserve it so corruption validation can inspect it | `verified-against-code` — `src/pylxpweb/transports/data.py:62-70`, `src/pylxpweb/transports/data.py:1417-1428` |
 | Present individual battery block | `BatteryData` is a documented exception: several child fields use zero/empty defaults | `verified-against-code` — `src/pylxpweb/transports/data.py:973-1035`, `src/pylxpweb/transports/data.py:1250-1339` |
+
+The physical meaning of I67 raw `0x007f` / 127 is `portal-correlated` and owned by the [hardware register keeper](../40-hardware/registers.md#i67-0x7f-sentinel); this page establishes only pylxpweb's normalization.
 
 Do not generalize the `BatteryData` exception to inverter runtime, aggregate energy, battery-bank, or MID/GridBOSS telemetry. `verified-against-code` — `src/pylxpweb/transports/data.py:144-790`, `src/pylxpweb/transports/data.py:1343-1385`, `src/pylxpweb/transports/data.py:1773-1829`.
 

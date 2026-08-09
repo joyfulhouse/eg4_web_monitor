@@ -5,7 +5,8 @@ sources:
   - pylxpweb@204b95d:src/pylxpweb/api_namespace.py
   - pylxpweb@204b95d:src/pylxpweb/devices/
   - pylxpweb@204b95d:src/pylxpweb/transports/
-verified-against: 9f6d6e2
+verified-against:
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 

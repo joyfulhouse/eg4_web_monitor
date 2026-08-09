@@ -4,7 +4,8 @@ sources:
   - pylxpweb@204b95d:src/pylxpweb/endpoints/control.py
   - pylxpweb@204b95d:src/pylxpweb/transports/
   - pylxpweb@e53b16b:tests/unit/endpoints/test_control_helpers.py
-verified-against: 9f6d6e2
+verified-against:
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 
@@ -78,6 +79,8 @@ Dongle readback is **diagnostic, not corrective**. A mismatch is not authorizati
 | Contiguous local raw write | No partiality within pylxpweb's requested run | One FC16 frame, except a one-register run uses FC06 | `verified-against-code` — `src/pylxpweb/transports/_register_data.py:1591-1612`, `src/pylxpweb/transports/_modbus_base.py:339-352` |
 | Cloud classic schedule window | Yes | Four named writes: start hour/minute, end hour/minute | `verified-against-code` — `src/pylxpweb/endpoints/control.py:1656-1687` |
 | Cloud `writeTime` schedule window | Yes | Each boundary is atomic, but start and end are two requests | `verified-against-code` — `src/pylxpweb/endpoints/control.py:1635-1654` |
-| Local schedule window | Yes | Code sends start and end as separate FC06 requests and documents firmware rejection of FC16 for these registers | `verified-against-code` — `src/pylxpweb/devices/inverters/hybrid.py:352-363` |
+| Local schedule window | Yes | Code sends start and end as separate one-register calls; local Modbus and dongle transports produce two FC06 requests | `verified-against-code` — `src/pylxpweb/devices/inverters/hybrid.py:352-363`, `src/pylxpweb/transports/_register_data.py:1589-1611`, `src/pylxpweb/transports/_modbus_base.py:339-352`, `src/pylxpweb/transports/dongle.py:1387-1393` |
+
+The implementation comment attributes the separate schedule writes to firmware rejection of FC16, but no raw rejection capture establishes that hardware behavior. `asserted-unverified` — `pylxpweb@204b95d:src/pylxpweb/devices/inverters/hybrid.py:352-363`. See the [hardware evidence boundary](../40-hardware/registers.md#schedule-write-evidence-boundary).
 
 Cache invalidation is not verification. Cloud writes trust `SuccessResponse`; Modbus trusts its response; only the dongle adds strict ACK echo validation plus optional non-fatal diagnostic readback. `verified-against-code` — `src/pylxpweb/endpoints/control.py:210-219`, `src/pylxpweb/transports/_modbus_base.py:341-367`, `src/pylxpweb/transports/dongle.py:1420-1461`, `src/pylxpweb/transports/dongle.py:1640-1675`.
