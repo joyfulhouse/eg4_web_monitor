@@ -1,8 +1,26 @@
 # EG4 Web Monitor - Data Mapping Reference
 
-> **Canonical reference** for how raw data (Modbus registers and Cloud API responses)
-> flows through `pylxpweb` and the `eg4_web_monitor` integration to produce Home
-> Assistant sensor entities.
+> ## Register ground truth lives in the graded ledger, not here
+>
+> **[`llmwiki/40-hardware/registers.md`](../llmwiki/40-hardware/registers.md) is the
+> current ground truth for what a register *means*.** Every claim there carries an
+> explicit evidence grade (`firmware-proven`, `hardware-toggle-proven`,
+> `portal-correlated`, `lineage-inferred`, …). By its own accounting only 45 of 335
+> register-semantic claims are actually proven — the rest are correlations or
+> inferences that look identical to proof when restated without their grade.
+>
+> **This document's register sections are subordinate to that ledger.** They describe
+> how the integration *currently decodes and drives* each register — implementation
+> reality, useful for changing code. They are not evidence of hardware semantics, and
+> they are ungraded. Where the two disagree, the ledger wins; where this file states a
+> meaning the ledger has not proven, treat it as unproven regardless of how confident
+> the prose sounds. Never promote a claim from here into a safety or write decision
+> without checking its grade there.
+>
+> The **non-register** content here — Cloud API field mappings (§6), computed sensor
+> keys (§9), mode differences (§10), smart-port filtering (§11), the GridBOSS CT
+> overlay (§12), entity counts (§13), constants (§14) and calculations (§15) — has no
+> counterpart in the ledger and remains canonical in this file.
 >
 > **Consult this document** whenever working with register-to-sensor or
 > API-to-sensor mappings.
@@ -738,9 +756,12 @@ per boundary). Cloud param names take the window suffix
 
 > **AC-charge SOC window (regs 160/161)**
 > ([#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331) /
-> [#488](https://github.com/joyfulhouse/eg4_web_monitor/issues/488)). This is the
-> off-grid family's real AC-charge SOC control; reg 67 (`ac_charge_soc_limit`) is
-> firmware-rejected there and is suppressed with a one-shot Repairs issue.
+> [#488](https://github.com/joyfulhouse/eg4_web_monitor/issues/488)). On the
+> off-grid family reg 67 (`ac_charge_soc_limit`) is firmware-rejected and is
+> suppressed with a one-shot Repairs issue, and 160/161 are the registers the
+> integration drives instead. The register keeper grades both `portal-correlated`
+> — see `llmwiki/40-hardware/registers.md` — so treat the pairing as the
+> integration's current implementation choice, not a proven hardware semantic.
 > The two entities are **not** created symmetrically (`number.py:657-695`):
 >
 > - **Reg 160 (Start)** is created on `EG4_OFFGRID` *and* `EG4_HYBRID`. On a
@@ -751,8 +772,17 @@ per boundary). Cloud param names take the window suffix
 >   excluded until verified. Write range is capped at 90 %, per pylxpweb.
 > - **Reg 161 (End)** is created on `EG4_OFFGRID` only. pylxpweb models the
 >   grid-tied stop as reg 67 (`set_ac_charge_soc_limits` pairs 160 with 67), and
->   the #332 note records reg 161 as read-only on grid-tied hardware. The
->   off-grid local write is still UNVERIFIED; readback-verify covers it.
+>   the #332 note records reg 161 as inert on tested grid-tied firmware.
+>
+> ⚠️ **Reg 161's meaning and writability on off-grid firmware are UNRESOLVED, and
+> local H161 writes stay gated.** A readback does **not** clear this: it confirms
+> storage and transport only. A wrong-but-writable register is ACKed by the
+> firmware and reads back exactly the value written, so readback cannot
+> distinguish "the control worked" from "a different setting was silently
+> changed". Ungating requires all four of: a family-specific named vendor action
+> or UI control, an independent observation of the resulting behavior, a raw
+> before/after register pair, and restoration of the original value. Until that
+> record exists, do not present reg 161 as a validated off-grid control.
 
 ### Extended Function Enable (Register 179)
 
