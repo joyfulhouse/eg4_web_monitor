@@ -54,21 +54,40 @@ SoC/SoH, temperature, cycle count, and per-cell metrics.
 
 ## Data Flow
 
-- **HTTP (cloud):** the coordinator authenticates against EG4's cloud API
-  (2-hour session with auto-reauthentication), fetches station, device, runtime,
-  energy, battery, and MID data with concurrent calls, and maps the responses to
-  entities. Default polling is 120 seconds
+- **HTTP (cloud):** the coordinator authenticates against EG4's cloud API, fetches
+  station, device, runtime, energy, battery, and MID data with concurrent calls,
+  and maps the responses to entities. Default polling is 120 seconds
   (`DEFAULT_HTTP_POLLING_INTERVAL`, `const/config_keys.py`).
+
+  **Session lifetime is not a portal contract.** The login response carries no
+  expiry; pylxpweb stamps `now + 2 hours` locally after every successful login and
+  uses that only to decide when to refresh *proactively*. The portal may invalidate
+  a session sooner or later. Actual expiry is detected **reactively**, from the API
+  returning an HTML login page instead of JSON (surfacing as a
+  `ContentTypeError`) or a `401`, either of which triggers one re-authentication
+  and a retry. Treat the two hours as a client-side heuristic, never as a
+  guaranteed window. Owner: `llmwiki/20-pylxpweb/` (auth/session).
 - **Local:** the coordinator reads holding/input registers over the selected
   transport. Polling defaults differ per transport: 5 seconds for Modbus TCP and
   serial (`DEFAULT_MODBUS_UPDATE_INTERVAL`), 30 seconds for the WiFi dongle
   (`DEFAULT_DONGLE_UPDATE_INTERVAL`, whose reads take ~8-10 s). The first refresh
   creates entities from config metadata (zero Modbus reads); real values fill in
   on the next refresh.
-- **Hybrid:** local transports drive fast sensor updates while the cloud API
-  supplies cloud-only features (DST sync) and any transport-exclusive overlays.
-  Controls fall back to the cloud when the local link is down. pylxpweb handles
-  transport routing.
+- **Hybrid:** local transports drive fast sensor updates while the cloud API adds
+  what only it can supply. The two sources are distinct and must not be conflated:
+
+  - **From the local transport:** the fast sensor updates *and* the
+    **transport-exclusive overlays** — fields that exist only in register space
+    and have no cloud equivalent. These are local-only; the cloud cannot
+    supply them, and they go stale or unavailable when the local link drops.
+  - **From the cloud API:** cloud-only data with no register backing (DST sync,
+    quick-charge status on families that reject the local path, plant-level
+    history), plus **fallback** for control writes and parameter reads when the
+    local link is down.
+
+  pylxpweb handles transport routing. See
+  `llmwiki/10-integration/data-flow-by-mode.md` for the per-field overlay
+  behavior and the merge/carry-forward rules.
 
 ## Key Design Decisions
 
