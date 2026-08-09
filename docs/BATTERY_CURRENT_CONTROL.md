@@ -8,14 +8,20 @@ Starting in version 2.2.6, the EG4 Web Monitor integration provides direct contr
 
 ## Available Entities
 
+> **How entity IDs are formed.** Home Assistant slugifies the device name
+> (`{model} {serial}`) followed by the entity name, so a charge-current control on
+> an 18kPV with serial `1234567890` is `number.18kpv_1234567890_battery_charge_current`.
+> There is no `eg4_` prefix. Serials are 10-character alphanumeric strings and are
+> not always all digits. Confirm your own IDs in **Developer Tools → States**.
+
 ### Battery Charge Current
-- **Entity ID Pattern**: `number.eg4_{model}_{serial}_battery_charge_current`
+- **Entity ID Pattern**: `number.{model}_{serial}_battery_charge_current`
 - **Parameter**: `HOLD_LEAD_ACID_CHARGE_RATE`
 - **Range**: 0-250 Amperes (A)
 - **Purpose**: Controls the maximum current allowed to charge the batteries
 
 ### Battery Discharge Current
-- **Entity ID Pattern**: `number.eg4_{model}_{serial}_battery_discharge_current`
+- **Entity ID Pattern**: `number.{model}_{serial}_battery_discharge_current`
 - **Parameter**: `HOLD_LEAD_ACID_DISCHARGE_RATE`
 - **Range**: 0-250 Amperes (A)
 - **Purpose**: Controls the maximum current allowed to discharge from the batteries
@@ -38,7 +44,7 @@ Starting in version 2.2.6, the EG4 Web Monitor integration provides direct contr
 # Reduce charge current on sunny days to prevent throttling
 - service: number.set_value
   target:
-    entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+    entity_id: number.18kpv_1234567890_battery_charge_current
   data:
     value: 80  # ~5kW charge rate at 48V nominal
 ```
@@ -59,7 +65,7 @@ Starting in version 2.2.6, the EG4 Web Monitor integration provides direct contr
 # Maximize charge rate on cloudy days
 - service: number.set_value
   target:
-    entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+    entity_id: number.18kpv_1234567890_battery_charge_current
   data:
     value: 200  # Maximum charge rate
 ```
@@ -76,7 +82,7 @@ Starting in version 2.2.6, the EG4 Web Monitor integration provides direct contr
 # Peak hours: minimize charge, maximize export
 - service: number.set_value
   target:
-    entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+    entity_id: number.18kpv_1234567890_battery_charge_current
   data:
     value: 50  # Minimal charging, maximum export
 ```
@@ -89,14 +95,14 @@ Starting in version 2.2.6, the EG4 Web Monitor integration provides direct contr
 # Gentle charging for battery longevity
 - service: number.set_value
   target:
-    entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+    entity_id: number.18kpv_1234567890_battery_charge_current
   data:
     value: 100  # 0.2C charge rate for 500Ah battery bank
 
 # Conservative discharge for battery preservation
 - service: number.set_value
   target:
-    entity_id: number.eg4_18kpv_1234567890_battery_discharge_current
+    entity_id: number.18kpv_1234567890_battery_discharge_current
   data:
     value: 150  # Moderate discharge rate
 ```
@@ -109,7 +115,7 @@ Starting in version 2.2.6, the EG4 Web Monitor integration provides direct contr
 # Limit discharge during grid outage
 - service: number.set_value
   target:
-    entity_id: number.eg4_18kpv_1234567890_battery_discharge_current
+    entity_id: number.18kpv_1234567890_battery_discharge_current
   data:
     value: 50  # Minimal discharge to extend battery runtime
 ```
@@ -152,14 +158,14 @@ automation:
             sequence:
               - service: number.set_value
                 target:
-                  entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+                  entity_id: number.18kpv_1234567890_battery_charge_current
                 data:
                   value: 80  # Limited charge for grid export
         # Cloudy: Maximize charge
         default:
           - service: number.set_value
             target:
-              entity_id: number.eg4_18kpv_1234567890_battery_charge_current
+              entity_id: number.18kpv_1234567890_battery_charge_current
             data:
               value: 200  # Maximum charge rate
 ```
@@ -217,9 +223,9 @@ The integration enforces these limits:
 ### Monitoring
 
 Monitor these sensors when using current control:
-- `sensor.eg4_{model}_{serial}_battery_temperature`
-- `sensor.eg4_{model}_{serial}_battery_voltage`
-- `sensor.eg4_{model}_{serial}_battery_current`
+- `sensor.{model}_{serial}_battery_temperature`
+- `sensor.{model}_{serial}_battery_voltage`
+- `sensor.{model}_{serial}_battery_current`
 - Individual battery sensors (if available)
 
 **Warning Signs**:
@@ -243,7 +249,7 @@ Monitor these sensors when using current control:
 **Solutions**:
 - Verify entity ID matches your inverter
 - Check inverter operating mode
-- Wait 2-5 minutes and verify via `sensor.eg4_{model}_{serial}_battery_current`
+- Wait 2-5 minutes and verify via `sensor.{model}_{serial}_battery_current`
 - Check inverter display for actual applied limits
 
 ### Automation Not Triggering
@@ -325,10 +331,10 @@ Calculate optimal charge rate based on production and consumption:
     - name: "Optimal Battery Charge Rate"
       unit_of_measurement: "A"
       state: >
-        {% set pv_power = states('sensor.eg4_18kpv_1234567890_pv_power') | float %}
-        {% set consumption = states('sensor.eg4_18kpv_1234567890_load_power') | float %}
+        {% set pv_power = states('sensor.18kpv_1234567890_pv_power') | float %}
+        {% set consumption = states('sensor.18kpv_1234567890_load_power') | float %}
         {% set max_ac = 12000 %}  # Inverter max AC output
-        {% set battery_voltage = states('sensor.eg4_18kpv_1234567890_battery_voltage') | float %}
+        {% set battery_voltage = states('sensor.18kpv_1234567890_battery_voltage') | float %}
 
         {% if pv_power > max_ac %}
           {# High production: limit charge to force export #}
@@ -366,8 +372,8 @@ Then use in automations to select appropriate charge rates.
 
 ## Related Features
 
-- **Operating Mode Control**: `select.eg4_{model}_{serial}_operating_mode`
-- **AC Charge Power**: `number.eg4_{model}_{serial}_ac_charge_power`
+- **Operating Mode Control**: `select.{model}_{serial}_operating_mode`
+- **AC Charge Power**: `number.{model}_{serial}_ac_charge_power`
 - **Battery SOC Limits**: Various battery parameter sensors
 - **Battery Control Mode (SOC vs Voltage)**: regulate the battery by State of
   Charge or Voltage — see
