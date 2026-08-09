@@ -13,29 +13,29 @@ sources:
   - memory/cloud-raw-register-write-broken.md
   - memory/quick-charge-local-control-registers.md
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+last-verified: 2026-08-09
 ---
 
 # Register ground truth
 
-> **Audited result: 33 of 335 counted current register claims are proven: 27 `firmware-proven` + 6 `hardware-toggle-proven` = 33; 27 + 6 + 167 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions below are `verified-against-code`; the register semantics retain their own row grades.
+> **Audited result: 30 of 335 counted current register claims are proven: 27 `firmware-proven` + 3 `hardware-toggle-proven` = 30; 27 + 3 + 170 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions below are `verified-against-code`; the register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
-The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.md#evidence-grade-legend); this page does not redefine it. The register-annotation ladder in that legend applies here. In particular, `hardware-toggle-proven` requires a named action on the target family, a raw before/after pair, and successful restoration. Component firmware is scope metadata: when it was not recorded, the claim is limited to the tested unit. `refuted` is recorded only in the **Status** column; the **Evidence** column grades the evidence that disproves the historic claim.
+The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.md#evidence-grade-legend); this page does not redefine it. The register-annotation ladder in that legend applies here. In particular, `hardware-toggle-proven` requires a named action on the target family, a captured pair of raw integer register words before and after, and successful restoration. Scaled engineering values are not raw captures and must not be back-computed into one. Component firmware is scope metadata: when it was not recorded, the claim is limited to the tested unit. `refuted` is recorded only in the **Status** column; the **Evidence** column grades the evidence that disproves the historic claim.
 
 ## Auditable accounting
 
 | Evidence | Count | Proven? |
 |---|---:|:---:|
 | `firmware-proven` | 27 | yes |
-| `hardware-toggle-proven` | 6 | yes |
-| `portal-correlated` | 167 | no |
+| `hardware-toggle-proven` | 3 | yes |
+| `portal-correlated` | 170 | no |
 | `lineage-inferred` | 135 | no |
 | `inferred` | 0 | no |
 | `verified-against-code` | 0 | no |
 | `asserted-unverified` | 0 | no; candidate rows are excluded |
-| **Current total** | **335** | **33 proven (9.9%)** |
+| **Current total** | **335** | **30 proven (9.0%)** |
 
 The `Claim count` column is the machine-checkable contribution. One separately named semantic is one claim; a U32 low/high pair is one; family-specific meanings are separate; a compound packed-word contract is one claim unless its bits are separately exposed as independent semantics. Structural-only, candidate, unknown, and `asserted-unverified` rows contribute zero. Refuted historic labels are outside the counted ledger. The markers around the ledger allow an `awk -F'|'` sum of column 7 to reproduce every subtotal.
 
@@ -187,13 +187,13 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H120 | Compound charge/discharge-mode control word | supporting inverters | `lineage-inferred` | current | 1 | `DATA_MAPPING.md` compound-field audit assigns half-hour, AC-charge type, discharge type, on-grid EOD type, and generator-charge type subfields; do not decode it as consecutive booleans. |
 | H125 | EPS/off-grid discharge SOC cutoff | relevant devices | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H152-H157 | AC-first window 1-3 packed times | `EG4_OFFGRID`/SNA portal page | `portal-correlated` | current | 6 | `DATA_MAPPING.md` schedule table and SNA probe. |
-| H158 | AC-charge start voltage, 0.1 V | tested supported inverter | `hardware-toggle-proven` | current | 1 | Named AC-charge-start-voltage action and raw 40→40.5→40 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/cloud-raw-register-write-broken.md`. |
+| H158 | AC-charge start voltage, 0.1 V | target family unrecorded | `portal-correlated` | current | 1 | Named action and 40→40.5→40 V restoration were recorded as scaled engineering values; raw register words were not preserved. `memory/cloud-raw-register-write-broken.md`. |
 | H159 | AC-charge end voltage, 0.1 V | supported | `portal-correlated` | current | 1 | `DATA_MAPPING.md` identifies the field; the durable record lacks an equivalent named-action raw before/after/restore tuple. |
 | H160 | AC-charge start SOC | off-grid plus hybrid read scope | `portal-correlated` | current | 1 | Portal/control mapping. |
 | H161 | AC-charge end SOC mapping; **LOCAL writability unresolved** | family behavior conflicts across tested grid-tied and off-grid paths | `portal-correlated` | current; write unresolved | 1 | `memory/soc-charge-limit-101-top-balance.md` records inert grid-tied behavior; [contradictions C6/C7](../60-history/open-contradictions.md) preserve the conflict. Do not treat H161 as a safe local write. Promotion requires a family-specific controlled action, behavior, raw before/after pair, and restoration; component firmware is scope metadata. |
 | H169 | On-grid end-of-discharge voltage, 0.1 V | grid-tied voltage regime | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H179 | Shared extended-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | Canonical safe map only; grades are bit- and family-specific. |
-| H202 | Stop-discharge voltage, 0.1 V | tested grid-tied forced-discharge voltage-mode unit | `hardware-toggle-proven` | current | 1 | Named Stop Discharge Volt action and raw 40→41.5→40 restoration; component firmware version unrecorded — scope limited to the tested unit. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#battery-chargedischarge-control-mode-soc-vs-voltage). |
+| H202 | Stop-discharge voltage, 0.1 V | target family unrecorded | `portal-correlated` | current | 1 | The source preserves raw 400 ↔ cloud 40 V at baseline, but the 40→41.5→40 V action/restoration is recorded only as scaled engineering values; integer register words for the changed and restored states were not preserved. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#battery-chargedischarge-control-mode-soc-vs-voltage). |
 | H206 | Peak-shaving period-1 power, **0.1 kW** | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md` records raw 41→4.1 kW and family applicability; the durable record lacks a complete named-action raw before/after/restore tuple. |
 | H207 | Peak-shaving period-1 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H208 | Peak-shaving period-1 voltage, 0.1 V | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
@@ -201,7 +201,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H218 | Peak-shaving period-2 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H219 | Peak-shaving period-2 voltage, 0.1 V | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H227 | System charge SOC limit, 0-101% | tested 18kPV | `hardware-toggle-proven` | current | 1 | Named System Charge SOC Limit action and raw 80→101→80 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/soc-charge-limit-101-top-balance.md`. |
-| H228 | System charge voltage limit, 0.1 V | tested voltage-control unit | `hardware-toggle-proven` | current | 1 | Named System Charge Volt Limit action and raw 59.5→59.4→59.5 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/cloud-raw-register-write-broken.md`. |
+| H228 | System charge voltage limit, 0.1 V | target family unrecorded | `portal-correlated` | current | 1 | Named action and 59.5→59.4→59.5 V restoration were recorded as scaled engineering values; raw register words were not preserved. `memory/cloud-raw-register-write-broken.md`. |
 | H231 | Unknown field; historic peak-shaving/high-word label false | tested hybrid | `portal-correlated` | unresolved | 0 | Single-register reads and quantization contradict the old label; no current semantic is counted. |
 | H232 | Peak-shaving period-2 power, 0.1 kW | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md`; not H231’s high word. |
 | H233 | Shared quick-charge/extended word; individual meanings below | hybrid/LXP local; off-grid boundary below | `verified-against-code` | structural-only | 0 | Canonical safe map only. |
