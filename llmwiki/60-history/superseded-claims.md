@@ -37,7 +37,7 @@ themselves by PR #557 and is not repeated here.
 |---|---|---|---|---|
 | S1 | Unique IDs carry a data-type segment | Never implemented; the real forms are owned by [`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md) | `verified-against-code` (see owner) | A test fixture was written to match the doc, then production matcher code was written to satisfy the fixture |
 | S2 | Register 110 green/off-grid mode is **bit 8** (annotated `# verified`) | Bit **14**; bit 8's function is unknown | see owner: [`40-hardware/registers.md`](../40-hardware/registers.md) (H110 b14, H110 b8) | Off-Grid switch silently did nothing in LOCAL/HYBRID; the wrong write was firmware-ACKed, so nothing logged (#476, tail of #194) |
-| S3 | Register 110 "take load together" is **bit 5** | Bit 5 is `refuted`; bit **10** is the current candidate | see owner: [`40-hardware/registers.md`](../40-hardware/registers.md) (H110 b10) | Propagated inside an otherwise-trusted correction note; the upper-bit table around a real fix was stale |
+| S3 | Register 110 "take load together" is **bit 5** | Bit 5 is `refuted`; the function is at bit **10** | see owner: [`40-hardware/registers.md`](../40-hardware/registers.md) (H110 b10) | Propagated inside an otherwise-trusted correction note; the upper-bit table around a real fix was stale |
 | S4 | The committed firmware reverse-engineering artefacts are usable evidence | Both trees are invalid output, and **both summaries carry the invalidity banner as of PR #557** | `verified-against-code` | Register names "from firmware" were actually copied from pylxpweb; conclusions about DSP structure were byte-order artefacts |
 | S5 | `# verified` in a register table means a toggle was observed | It has meant "the names matched" | `asserted-unverified` | The direct cause of S2 |
 | S6 | There is a readable extra battery slot beyond the four-slot ceiling | No such slot on the captured inverter/dongle Modbus path; whether that ceiling is family- or protocol-wide is **unresolved** (scope and grade owned by [`40-hardware/registers.md`](../40-hardware/registers.md)) | see owner | A "dedicated 5th slot" commit shipped, was proved wrong, and was reverted |
@@ -128,12 +128,18 @@ load together" at register 110 **bit 5**.
 it — row `H110 b10` in [`40-hardware/registers.md`](../40-hardware/registers.md) owns the
 grade and the current status.
 
-**Where the evidence lives, so the keeper's row can be checked against it.** At
-`pylxpweb@204b95d`, `constants/registers.py` records bit 5 as an unknown "old
-take-load-together slot — disproven", and documents a bit-10 capture dated 2026-08-01 on
-an 18kPV (pylxpweb #242): driving EG4's own cloud `functionControl` **by name** moved the
-raw word `1056 → 32` and back to `1056`, a single `0x0400` delta, byte-perfect on restore,
-with bit 5 untouched throughout. Also `memory/issue-476-green-mode-bit14.md`.
+**Where the evidence lives, so the keeper's row can be checked against it.** The durable
+artifact is **pylxpweb issue #242**, which records the capture the dispute asked for: on an
+18kPV, driving EG4's own cloud `functionControl` **by name** moved the raw word
+`1056 → 32` and back to `1056` — a single `0x0400` delta, both directions, byte-perfect on
+restore, with bit 5 untouched throughout. Also `memory/issue-476-green-mode-bit14.md`.
+
+`constants/registers.py` repeats that finding at `pylxpweb@204b95d`, but cite the issue,
+not the file. A register-table annotation is the medium, never the evidence: in this
+project `# verified` has meant "the names matched", which is what caused S2 and S5 — and
+#242 itself notes that a sibling module still tags the **wrong** bit as `# verified`.
+Citing the annotation would mean using the discredited source to certify its own
+correction.
 
 **The trap:** the #476 note is trustworthy *for the claim it proved* — the bit-14
 toggle — and stale for the surrounding table it also carried. A note that earns
@@ -221,8 +227,10 @@ the fix*.
 [README](../README.md#the-register-annotation-ladder) and applied per row
 by [`40-hardware/registers.md`](../40-hardware/registers.md). It ranks a live toggle above a
 canonical definition plus an independent capture, above a canonical definition alone, above
-a vendor table — and makes anything below the top two rungs write-inaccessible. It ranks
-evidence and decides write access; the grade comes from the legend.
+a vendor table — and **requires** anything below the top two rungs to be kept
+write-inaccessible. It ranks evidence and sets the write-access rule; the grade comes from
+the legend. That rule is a requirement, not a description of what ships: two write paths
+currently violate it (issue #558, [C7](open-contradictions.md)).
 `asserted-unverified` (`docs/audits/2026-08-02-register-race-performance-audit.md`).
 
 ---

@@ -130,7 +130,7 @@ observed here.
 
 | Status | Means | Use |
 |---|---|---|
-| `refuted` | Actively disproven. **Must not regress.** | Not a weak proof grade — a refutation can itself be `hardware-toggle-proven`. Pair `refuted` with the grade of the disproof and cite it. Applied to a register bit it means: the historical semantic is false **and** no replacement semantic is established, so the bit stays write-inaccessible. |
+| `refuted` | Actively disproven. **Must not regress.** | Not a weak proof grade — a refutation can itself be `hardware-toggle-proven`. Pair `refuted` with the grade of the disproof and cite it. Applied to a register bit it means: the historical semantic is false **and** no replacement semantic is established, so the bit **must be kept** write-inaccessible — a requirement on us, not a guarantee about the shipped code (see the ladder's binding consequence). |
 
 ### Rules
 
@@ -182,10 +182,17 @@ above.** If evidence does not meet a grade's stated minimum it does not receive 
 grade — there is no exception, no ladder shortcut, and no rung that substitutes for a
 requirement. A rung says what you have, never what you may call it.
 
-**Binding consequence:** a bit at rung 3 or 4 stays **write-inaccessible** — no entity,
-no named-write path, no placeholder key reachable by a write helper. Gating is the only
-mitigation for an unproven mapping, because a wrong write cannot be detected after the
-fact.
+**Binding consequence:** a bit at rung 3 or 4 **must be kept** write-inaccessible — no
+entity, no named-write path, no placeholder key reachable by a write helper. Gating is the
+only mitigation for an unproven mapping, because a wrong write cannot be detected after
+the fact.
+
+**This is a requirement, not a description of the current code, and it is currently
+violated.** Two shipped write paths stand on unpinned mappings — H179 b11 and H161, both
+writing local-first in LOCAL and HYBRID (issue #558; [C7](60-history/open-contradictions.md),
+which owns the detail). Never read this rule as an assurance that some other page's
+register is unreachable: a weak grade does not close a write path, and on this project it
+twice did not. Check the entity.
 
 Cross-integration agreement sits at rung 2 at best: it is corroboration, not observation.
 
