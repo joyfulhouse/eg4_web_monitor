@@ -7,7 +7,9 @@ sources:
   - pylxpweb src/pylxpweb/devices/inverters/_features.py
   - pylxpweb src/pylxpweb/transports/data.py
   - llmwiki/README.md
-verified-against: 9f6d6e2
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 see-also:
   - what-this-project-is.md
@@ -18,8 +20,8 @@ see-also:
 
 Definitions only. Behaviour belongs to the owning page.
 
-> pylxpweb citations are against the local checkout of `joyfulhouse/pylxpweb` as of
-> 2026-08-08, not a released tag.
+> Every pylxpweb symbol cited below was re-checked at `204b95d`
+> (`v0.9.39b9-1-g204b95d` on `main`), not at a working copy.
 
 ## Topology
 

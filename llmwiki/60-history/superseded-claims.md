@@ -11,7 +11,10 @@ sources:
   - docs/audits/2026-08-02-register-race-performance-audit.md
   - PR #557 (documentation-defect corrections)
   - git ls-files / diff at 9f6d6e2
-verified-against: 9f6d6e2
+  - pylxpweb src/pylxpweb/constants/registers.py (register-110 bit map and its history)
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 see-also:
   - open-contradictions.md
@@ -37,7 +40,7 @@ themselves by PR #557 and is not repeated here.
 | S3 | Register 110 "take load together" is **bit 5** | Bit 5 is `refuted`; bit **10** is the current candidate | see owner: [`40-hardware/registers.md`](../40-hardware/registers.md) (H110 b10) | Propagated inside an otherwise-trusted correction note; the upper-bit table around a real fix was stale |
 | S4 | The committed firmware reverse-engineering artefacts are usable evidence | Both trees are invalid output, and **both summaries carry the invalidity banner as of PR #557** | `verified-against-code` | Register names "from firmware" were actually copied from pylxpweb; conclusions about DSP structure were byte-order artefacts |
 | S5 | `# verified` in a register table means a toggle was observed | It has meant "the names matched" | `asserted-unverified` | The direct cause of S2 |
-| S6 | There is a readable extra battery slot beyond the protocol ceiling | No such slot; the ceiling is a protocol limit (graded by [`40-hardware/registers.md`](../40-hardware/registers.md)) | see owner | A "dedicated 5th slot" commit shipped, was proved wrong, and was reverted |
+| S6 | There is a readable extra battery slot beyond the four-slot ceiling | No such slot on the captured inverter/dongle Modbus path; whether that ceiling is family- or protocol-wide is **unresolved** (scope and grade owned by [`40-hardware/registers.md`](../40-hardware/registers.md)) | see owner | A "dedicated 5th slot" commit shipped, was proved wrong, and was reverted |
 | S7 | `maxChgCurr` is scaled 10× wrong | Same physical amps, different raw units | `asserted-unverified` | A prior session "fixed" it into a 600 A reading; two independent reviewers then re-raised it |
 
 ---
@@ -121,10 +124,16 @@ later changelog over-claimed about it a third time. See C5 in
 **Claimed:** the upper-bit table circulated alongside the #476 correction placed "take
 load together" at register 110 **bit 5**.
 
-**Reality:** bit 5 is `refuted` and the current candidate is bit **10**, which remains
-gated — its grade and the state of its evidence are owned by
-[`40-hardware/registers.md`](../40-hardware/registers.md) (row `H110 b10`). Durable
-sources: pylxpweb `constants/registers.py`; `memory/issue-476-green-mode-bit14.md`.
+**Reality:** bit 5 is `refuted`; the function sits at bit **10**. This page does not grade
+it — row `H110 b10` in [`40-hardware/registers.md`](../40-hardware/registers.md) owns the
+grade and the current status.
+
+**Where the evidence lives, so the keeper's row can be checked against it.** At
+`pylxpweb@204b95d`, `constants/registers.py` records bit 5 as an unknown "old
+take-load-together slot — disproven", and documents a bit-10 capture dated 2026-08-01 on
+an 18kPV (pylxpweb #242): driving EG4's own cloud `functionControl` **by name** moved the
+raw word `1056 → 32` and back to `1056`, a single `0x0400` delta, byte-perfect on restore,
+with bit 5 untouched throughout. Also `memory/issue-476-green-mode-bit14.md`.
 
 **The trap:** the #476 note is trustworthy *for the claim it proved* — the bit-14
 toggle — and stale for the surrounding table it also carried. A note that earns

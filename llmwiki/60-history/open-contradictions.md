@@ -149,10 +149,19 @@ entity for that register is nevertheless shipped on off-grid. What a human must 
 whether the off-grid LOCAL write is validated, and whether a shipped control may stand on
 a write path nothing has confirmed.
 
+**What actually ships, so that nobody reads a gate into this.** The unverified local write
+is **not** suppressed, routed cloud-only, or gated. In LOCAL and HYBRID the entity writes
+**local-first with cloud fallback** — `verified-against-code`
+(`number.py` → `ACChargeEndBatterySOCNumber.async_set_native_value` → `_write_parameter`,
+whose contract is "the local write is attempted first when a transport is attached";
+`utils.py` → `async_write_with_cloud_fallback`). The risk is live in production and
+**undischarged**. It is filed as **#558**, and this entry stays open until that is resolved.
+
 **The durable trap:** the code's stated mitigation is a post-write parameter readback.
 Readback proves storage and transport only — never that the firmware acted on the value —
-so it cannot close this gap. See the legend's rule in [README](../README.md#rules); it is
-the same reasoning that let register 110 bit 8 ship wrong (C5).
+so it cannot detect a write that landed on the wrong target and cannot close this gap. See
+the legend's rule in [README](../README.md#rules); it is the same mechanism that let
+register 110 bit 8 ship wrong (C5), and the same one live on H179 b11 (#471/#472).
 
 ---
 

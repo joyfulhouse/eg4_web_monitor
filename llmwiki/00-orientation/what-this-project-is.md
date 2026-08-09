@@ -11,7 +11,9 @@ sources:
   - memory/feedback_eg4-data-model-and-sensor-noise.md
   - memory/issue-544-generator-power-offgrid.md
   - memory/maintainability-findings-and-live-bugs.md
-verified-against: 9f6d6e2
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 see-also:
   - repo-map.md
@@ -24,16 +26,17 @@ A Home Assistant custom integration for EG4 / Luxpower solar inverters. It is on
 of a four-part system; most non-obvious behaviour comes from the boundaries between
 the parts, not from any one of them.
 
-> pylxpweb citations on this page are against the local checkout of
-> `joyfulhouse/pylxpweb` as of 2026-08-08, not a released tag. The version this repo
-> requires is in `manifest.json` → `requirements`.
+> pylxpweb symbols cited on this page were re-checked at `204b95d`
+> (`v0.9.39b9-1-g204b95d` on `main`). That is the revision the citations are true of, not
+> the version this integration requires — the required range is in `manifest.json` →
+> `requirements`.
 
 ## The four parts
 
 | Part | What it is | Where | Owned by |
 |---|---|---|---|
 | **The integration** | HA custom component, domain `eg4_web_monitor`. Coordinators, entities, config flow, services. | this repo, `custom_components/eg4_web_monitor/` | `10-integration/` |
-| **pylxpweb** | Standalone Python library: portal HTTP client, Modbus/dongle transports, register decode, data models, write paths. Separate repo, published to PyPI, pinned in `manifest.json` → `requirements`. | `github.com/joyfulhouse/pylxpweb`; local checkout `/Users/bryanli/Projects/joyfulhouse/python/pylxpweb` | `20-pylxpweb/` |
+| **pylxpweb** | Standalone Python library: portal HTTP client, Modbus/dongle transports, register decode, data models, write paths. Separate repo, published to PyPI, pinned in `manifest.json` → `requirements`. | `github.com/joyfulhouse/pylxpweb`, cloned as a sibling checkout for development | `20-pylxpweb/` |
 | **The EG4 portal** | Vendor cloud at `https://monitor.eg4electronics.com`. HTTP JSON API under `/WManage/…`. Also the mobile app's backend. | remote | `30-portal-api/` |
 | **The hardware** | Inverters, GridBOSS (MID), battery packs, and the WiFi dongle or RS485 gateway that carries Modbus. | physical | `40-hardware/` |
 

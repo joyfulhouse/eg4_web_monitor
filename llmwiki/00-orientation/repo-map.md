@@ -4,9 +4,12 @@ canonical-for:
   - "Path traps: _config_flow/, const/ package, the two firmware RE trees"
 sources:
   - git ls-files at 9f6d6e2
+  - pylxpweb git ls-tree at 204b95d
   - PR #557 (documentation-defect corrections)
   - issue #549
-verified-against: 9f6d6e2
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 see-also:
   - what-this-project-is.md
@@ -15,8 +18,11 @@ see-also:
 
 # Repo map
 
-Everything below is `verified-against-code` at `9f6d6e2` unless a row says otherwise:
-paths came from `git ls-files`, symbols from the files themselves.
+Unless a row says otherwise, everything below is `verified-against-code`: repo paths came
+from `git ls-files` at `eg4_web_monitor@9f6d6e2` and symbols from the files themselves,
+and the pylxpweb layout under "Outside this repo" was checked at `pylxpweb@204b95d`.
+Rows that name a weaker grade mean it — see "Outside this repo", where two of the three
+sources cannot be pinned at all.
 
 **Several widely-copied paths in the older docs are wrong.** Read the traps section
 before trusting any path you find in `CLAUDE.md`, `docs/ARCHITECTURE.md`, or a sprint
@@ -145,8 +151,16 @@ firmware analyses are `docs/reference/firmware/FIRMWARE_ACQUISITION.md`,
 
 ## Outside this repo
 
-| Thing | Location | Note |
+| Thing | Where | Note |
 |---|---|---|
-| `pylxpweb` source | `/Users/bryanli/Projects/joyfulhouse/python/pylxpweb` | Sibling repo; register decode and transports live here |
-| Dev container + mode configs | `/Users/bryanli/Projects/joyfulhouse/homeassistant-dev/` (`docker-compose.yaml`, `config*/`, `scripts/eg4-switch-mode.sh`) | Four modes: `cloud`, `local`, `hybrid`, `local-nomidbox` — `verified-against-code` (`eg4-switch-mode.sh`). Owned by `50-operations/dev-environment.md`. |
-| Maintainer memory corpus | `~/.claude/projects/…-eg4-web-monitor/memory/` | Not in the repo, not guaranteed to exist. Much of `60-history/` was distilled from it. |
+| `pylxpweb` source | `github.com/joyfulhouse/pylxpweb`, normally cloned as a sibling checkout | Register decode and transports live here: `src/pylxpweb/` carries `transports/`, `devices/`, `registers/`, `constants/`, `client.py`. `verified-against-code` at `pylxpweb@204b95d`. Owned by `20-pylxpweb/`. |
+| Dev container + mode configs | An **unversioned** working directory on the maintainer's machine, beside the integration checkout: a `docker-compose.yaml`, per-mode `config*/` directories, and `scripts/eg4-switch-mode.sh` | Four modes: `cloud`, `local`, `hybrid`, `local-nomidbox`. **`asserted-unverified`** — sourced from an unversioned local working directory; it is not a git repository, so no durable revision exists to pin and the claim cannot be code-verified by anyone else. The knowledge is still correct and useful; only its provenance is unauditable. Owned by `50-operations/dev-environment.md`. |
+| Maintainer memory corpus | A per-project `memory/` directory outside the repo, under the maintainer's local agent state | Not in the repo, not guaranteed to exist, and not pinnable. Much of `60-history/` was distilled from it; those rows are graded `asserted-unverified` and cite the `memory/*.md` filename. |
+
+**Why two of these three rows are not code-verified.** The wiki grades a claim
+`verified-against-code` only against a revision a future reader can check out. A sibling
+git repo has one, so pylxpweb is pinned above. A local working directory and a local agent
+state directory do not, so nothing sourced from them can hold that grade no matter how
+reliably true it is. Downgrading them is not a judgement about accuracy — it records that
+a substantial part of what we know about the dev environment rests on a source only one
+machine can produce.

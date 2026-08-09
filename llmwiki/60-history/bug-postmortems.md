@@ -4,8 +4,11 @@ canonical-for:
 sources:
   - memory/issue-*.md (one file per issue, named per row)
   - docs/audits/2026-08-02-register-race-performance-audit.md
-  - git grep at 9f6d6e2 (fix-symbol presence only)
-verified-against: 9f6d6e2
+  - custom_components/eg4_web_monitor/ (fix-symbol presence only)
+  - pylxpweb src/pylxpweb/transports/data.py (fix-symbol presence only)
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 see-also:
   - open-contradictions.md
@@ -31,8 +34,13 @@ the earlier refutation was never written down.
   `asserted-unverified`: the account is contemporaneous engineer testimony recorded at fix
   time, not something re-derived here.
 - **✔ in the Fix column** means the named symbol was confirmed present (or, where
-  stated, confirmed absent) in the tree at `9f6d6e2` — `verified-against-code`. It
-  verifies only that the fix is still there; it does not re-verify the root cause.
+  stated, confirmed absent) — `verified-against-code`. It verifies only that the fix is
+  still there; it does not re-verify the root cause. **Each ✔ is checked in the repo that
+  owns the symbol, at that repo's pin:** integration symbols at `eg4_web_monitor@9f6d6e2`,
+  and the one library symbol here — `_merge_status_code` in #261 — at
+  `pylxpweb@204b95d`, where it is defined in `transports/data.py` and used to build both
+  the fault and warning codes. A ✔ against a repo this page does not pin would be
+  unverifiable, which is why both are pinned above.
 - `#nnn` are GitHub issues in `joyfulhouse/eg4_web_monitor` unless noted.
 
 ## Catalogue
@@ -72,7 +80,7 @@ the earlier refutation was never written down.
 | **#353** | Firmware update crashes; entity idles mid-update | `updateStatus='WAITING'` missing from the StrEnum → pydantic `ValidationError`, swallowed by the coordinator; multi-component updates need one `standardUpdate/run` per component; the start bool was discarded | `_missing_` on both enums; orchestrator with step budget, timeouts, start grace and FAILED abort; bounded busy tolerance | Any vendor enum needs an unknown-value fallback; accepted async runs register late, so an early idle poll is not completion | `asserted-unverified` |
 | **#362** | Optimistic write state lost or wrongly reverted | Write-OK plus refresh-fail cleared the state; `last_update_success` lies during the 3-strike window | Retained optimistic state with a 300 s TTL ✔ (`RETAINED_OPTIMISTIC_TTL`); detect a stale refresh by data **object identity** | Do not trust an aggregate success flag for a per-write decision | `asserted-unverified` |
 | **#367** | Bank current canary false-positives | A fixed threshold against large banks | Scale by battery count (150 A/battery, 500 A floor, 2000 A ceiling) with present-battery corroboration | Canary thresholds must scale with the installation | `asserted-unverified` |
-| **#471 / #472** | AC Couple control | Cloud-routed. The local register-179 bit-11 mapping was never toggle-pinned: no named action, no raw before/after pair, no restoration | Dedicated store plus a write-seed registry | **An unproven bit mapping must not become a local write.** It stays cloud-routed or gated until the keeper records the complete tuple — named action, family, raw before, raw after, restore. Labelling the inference and asking for falsification does not make the write safe: a wrong-but-writable bit is firmware-ACKed, so nobody reports back | `asserted-unverified` (issues #471, #472; `memory/issue-471-ac-couple-switch.md`). H179 b11's grade is owned by [`40-hardware/registers.md`](../40-hardware/registers.md) — take it from there |
+| **#471 / #472** | AC Couple control | The register-179 bit-11 mapping was never toggle-pinned — no named action, no raw before/after pair, no restoration. It ships on lineage inference | Dedicated store plus a write-seed registry | **The risk is live in production, and it is not gated.** In LOCAL and HYBRID this switch writes **local-first with cloud fallback** today — `verified-against-code` (`switch.py` → the AC Couple switch; `utils.py` → `async_write_with_cloud_fallback`). The mitigation the code names — forcing a register-179 re-read after the write — proves storage and transport only; the source says so itself: "a write that lands on the WRONG bit would still ACK, which no readback can catch". That is the #476 mechanism, undischarged, on a bit nothing has pinned. #472 asks for the lockstep toggle that would rule it out; #558 tracks the identical mechanism on register 161; [C7](open-contradictions.md) holds the contradiction open | `asserted-unverified` for the mapping (issues #471, #472; `memory/issue-471-ac-couple-switch.md`). H179 b11's grade is owned by [`40-hardware/registers.md`](../40-hardware/registers.md) — take it from there |
 | **#476** | Off-Grid Mode switch does nothing in HYBRID/LOCAL (also the never-root-caused tail of #194) | The register 110 green bit is **14**, not the 8 pylxpweb had mapped and falsely annotated `# verified`; a wrong-bit write is firmware-ACKed, so there is no fallback and no log above DEBUG | Unified register-110 parameter keys plus a per-family contract test ✔ (`switch.py` decodes bit 14) | A writable-but-wrong bit succeeds silently; readback cannot detect it; gating is the only mitigation | `asserted-unverified` (issue #476; `memory/issue-476-green-mode-bit14.md`). The H110 b14 grade and its raw toggle record are owned by [`40-hardware/registers.md`](../40-hardware/registers.md) — take them from there |
 | **#478** | HA SOC 90% vs portal 70% | None in the integration — the portal panel reads the very field HA relays | Ask the reporter for the entity_id | Prove source identity before hunting a data bug | `portal-correlated` (portal JS binding read; tri-source live check agreed) |
 | **#479** | Sensors froze at pre-outage values when the dongle went offline | The portal serves the last register mirror with `success:true` **and** `lost:true`; nothing consulted `lost`. Separately, a post-reconnect lifetime catch-up delta exceeded the spike cap | Blank measurements to None at four levels with a keep-set; outage-gated cap widening | Freshness must be gated on the source's own liveness verdict; never blank by dropping keys | `portal-correlated` |
