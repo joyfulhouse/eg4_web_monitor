@@ -40,6 +40,14 @@ lived in three or four documents, was corrected in one, and rotted in the rest.
 
 ## Navigation
 
+**[`index.md`](index.md) is the catalog — start there.** It lists every page with a
+one-line summary and the facts it owns, so you can find the right pages without scanning
+the tree. This README owns the conventions those pages follow: the evidence-grade legend,
+the canonical-source policy and the freshness rules. [`log.md`](log.md) records what has
+been done to the wiki and why.
+
+The directory-level map:
+
 | Directory | Owns |
 |---|---|
 | `00-orientation/` | What the system is, where code lives, vocabulary |
@@ -206,45 +214,47 @@ is the whole lesson. "Went stale" would blame time and imply faster upkeep is th
 / `PARAM_FUNC_CHARGE_LAST` switch mappings all present at that commit). **Do not curate a
 fourth list.**
 
-**Two write mechanisms exist, and a scan of one cannot see the other.**
-
-| Mechanism | How the write happens | What sees it |
-|---|---|---|
-| **The router** | An entity hands a `_local_write` closure to `utils.py` → `async_write_with_cloud_fallback`, which calls a coordinator primitive | Steps 1-4 below |
-| **Switch actions** | `base_entity.py` → `_execute_switch_action` resolves a **pylxpweb inverter method by name** (`getattr(inverter, method_ref)`) and awaits it. The write happens inside the library. It calls `async_write_with_cloud_fallback` **zero times**, and touches no coordinator write primitive | Step 5 below, and nothing else |
-
-**A grep over the coordinator primitives alone under-reports the local-write surface**, no
-matter how carefully it is run: switch-action routes never touch those primitives.
+**This page does not claim to enumerate the write surface, and no reader should treat any
+list here as complete.** The surface is produced by four things at once: entity code, the
+library's own dispatch, runtime subclassing, and per-method routing policy inside pylxpweb.
+It is not declared in any single table. **No enumeration of it has survived a review
+round** — three consecutive rounds each found a shape the previous frame could not see, one
+level deeper each time. What follows is a method and its known failure modes, not an
+inventory.
 
 **How to derive the current local-write surface** (`verified-against-code`, all in
-`custom_components/eg4_web_monitor/`):
+`custom_components/eg4_web_monitor/` unless noted):
 
 | Step | Where |
 |---|---|
 | 1. Working-mode switches | `switch.py` → `_WORKING_MODE_PARAMETERS` — the register/bit each switch writes |
 | 2. Always-on number entities | `number.py` → the `entities.extend([...])` block commented "Always-on controls"; these are created for **every inverter, with no family gate** |
 | 3. Voltage-limit numbers | `number.py` → `VOLTAGE_NUMBER_SPECS`, expanded one entity per spec in that same block |
-| 4. Router traffic and its bypasses | Grep **three method names** — `write_named_parameter`, `write_raw_parameter`, `write_register` — **matched on the method, not the receiver**, across the control platforms (`number.py`, `switch.py`, `select.py`, `time.py`) **plus `base_entity.py` and `coordinator.py`**. Then classify every hit by the traps below. At `9f6d6e2` this yields two bypasses — `QuickChargeDurationNumber` and `StartChargePowerNumber` (the latter a **raw** register write) — but run the check rather than trusting that |
-| 5. Switch-action routes | Grep `_execute_switch_action(` and read the `enable_method` each caller passes. **The argument's type is the discriminator:** a **bound cloud callable** means the write is cloud-routed; a **plain string** is a pylxpweb method name resolved against the inverter, and pylxpweb may drive it **local-first**. Only the string form belongs in this surface |
+| 4. Router traffic and its bypasses | Grep **three method names** — `write_named_parameter`, `write_raw_parameter`, `write_register` — **matched on the method, not the receiver**, across the control platforms (`number.py`, `switch.py`, `select.py`, `time.py`) **plus `base_entity.py` and `coordinator.py`**, then classify each hit by the traps below |
+| 5. Switch-action routes | Grep `_execute_switch_action(` and read each caller's `enable_method`. **The argument type is the discriminator:** a **bound cloud callable** is cloud-routed; a **plain string** is a pylxpweb method name resolved against the inverter, which the library may drive local-first |
+| 6. Direct library calls | Grep `inverter.` for method calls in the control platforms. These reach pylxpweb with **no router and no `_execute_switch_action`** — nothing in the integration marks them as writes |
+| 7. Writes with no entity at all | Grep `coordinator_mixins.py` and the coordinator for background writes. Scheduled and lifecycle code writes device and station settings without any entity to find |
 
 Cross each writable target against
 [`40-hardware/registers.md`](40-hardware/registers.md). Anything the keeper grades below
 rung 2, or does not carry a row for at all, is a write standing on an unproven mapping.
+Match on **raw register constants (`REG_*`) as well as parameter names** (`PARAM_HOLD_*`,
+`FUNC_*`) — an entity that addresses a register by number appears in no parameter-name
+search, which is how H117 was missed.
 
-**Most switch-action call sites are cloud legs, which is what makes the exception easy to
-miss.** At `9f6d6e2` the mechanism has three callers: the `cloud_write` closure inside
-`_execute_local_with_fallback` (the router's own cloud leg), `EG4WorkingModeSwitch`'s
-explicitly cloud-only branch, and `EG4QuickChargeSwitch` — which passes the **string**
-`"enable_quick_charge"` unless `_prefers_cloud_control()` swaps in a bound cloud callable.
-Two of three are cloud; the third is a local-first library write. A reviewer who samples
-this mechanism rather than reading every caller will conclude it is cloud-only and be
-wrong.
+##### Known blind spots — each one hid a real write path
 
-Cross each writable target against
-[`40-hardware/registers.md`](40-hardware/registers.md). Anything the keeper grades below
-rung 2, or does not carry a row for at all, is a write standing on an unproven mapping.
+These are the durable content of this section. Every one was discovered by a review round
+finding a write the then-current method could not see.
 
-**Classifying a step-4 hit.** A hit is a bypass only if no router call encloses it. Three
+| Blind spot | Why the scan misses it | Worked example |
+|---|---|---|
+| **A coordinator-primitive grep cannot see library-mediated writes** | `base_entity.py` → `_execute_switch_action` resolves a pylxpweb method by name and awaits it. The write happens inside the library; no coordinator primitive is touched | `EG4QuickChargeSwitch` passes the string `"enable_quick_charge"` unless `_prefers_cloud_control()` swaps in a cloud callable — so pure-LOCAL off-grid drives the local H233 path |
+| **An `_execute_switch_action` grep cannot see direct `inverter.<method>()` calls** | Some entities call a device method straight from `async_set_native_value` / `async_select_option`, with neither the router nor the switch-action helper in the chain | `select.py` → `inverter.set_operating_mode(...)`; `number.py` → `inverter.set_grid_peak_shaving_power(power_kw=…)`, which pylxpweb drives **local-first** onto **H206** |
+| **Checking `base.py` cannot see runtime subclass overrides** | Dispatch resolves against the concrete device class, not the base. A base-class reading of a method can be the opposite of what runs | pylxpweb `hybrid.py` → `HybridInverter.enable_pv_sell_to_grid` overrides the base and is explicitly "transport-first" onto register 179 bit 3. **Resolve the actual class before concluding anything** |
+| **Entity-scoped searches cannot see background writes** | Coordinator-owned tasks write with no entity involved, so every entity-first method is blind to them | `coordinator_mixins.py` → `_perform_dst_sync` writes a station setting hourly, enabled by default (`CONF_DST_SYNC` defaults to `True`) |
+
+**Classifying a step-4 hit.** A hit is a bypass only if no router call encloses it. Four
 things make that harder than it looks, and each has already produced a wrong answer:
 
 | Trap | What goes wrong | Worked example at `9f6d6e2` |
@@ -252,25 +262,10 @@ things make that harder than it looks, and each has already produced a wrong ans
 | **Narrow method set** | `write_register` is a third write method, and `time.py` documents it as that platform's uniform local path. A scan for only the other two cannot see a bypass that uses it | `time.py` → the packed schedule write, inside a `_local_write` closure |
 | **Matching the receiver** | Searching `coordinator.write_*` misses the coordinator's calls to **itself**, which read `self.write_*` | `coordinator.py` → the battery-regime `_local_write` closure calls `self.write_named_parameter` twice |
 | **Stopping at the first enclosing `def`** | A helper reached *from* a `local_write` closure is router traffic one level deeper, and looks like a bypass if you do not follow the call chain | `base_entity.py` → `_execute_named_parameter_action` calls `coordinator.write_named_parameter`; its only caller is the `local_write` closure in `_execute_local_with_fallback`, so it is **not** a bypass |
+| **Counting docstring examples** | A method's own docstring may demonstrate itself, and a grep reports those as call sites | `write_named_parameter`'s docstring carries two usage examples inside the definition of the method being searched; counting them invents two coordinator "bypasses" |
 
-**Trace the call chain, not the nearest `def`,** and **discard matches inside docstrings and
-comments** — `write_named_parameter`'s own docstring carries two usage examples that a
-grep reports as call sites, inside the definition of the method being searched. Counting
-them would invent two coordinator "bypasses" that do not exist.
-
-The first two traps hide real bypasses; the last two invent false ones. A scan that lands
-on the right answer without applying all four is right by luck — both current bypasses
-happen to be `number.py` named/raw calls, which is exactly the coincidence that let the
-narrower check look sound.
-
-**Match on raw register constants as well as parameter names.** Steps 1-3 find entities
-through their named parameters (`PARAM_HOLD_*`, `FUNC_*`), so a search built only on those
-names silently misses any entity that addresses a register **by number** through a `REG_*`
-constant. `StartChargePowerNumber` is the worked example: it writes register 117 as
-`coordinator.write_raw_parameter(REG_PTOUSER_START_CHARGE, …)` and appears in no
-parameter-name search at all. A review of this surface that greps only parameter names will
-report a clean result and be wrong — that is not hypothetical, it is how H117 was missed.
-Grep `REG_` alongside `PARAM_` and reconcile both against the keeper.
+The first two traps hide real writes; the last two invent false ones. **A scan that lands on
+the right answer without applying all four is right by luck.**
 
 **Family gates do not narrow this set as much as they appear to.** `utils.py` →
 `is_family_control_supported` fails **open** by design: a device whose family is missing or
@@ -302,12 +297,14 @@ reproduced: it is the keeper's to hold, and counting it here would recreate the 
 this section exists to avoid. Reading the criterion as condition 1 alone predicts a far
 larger table than this one, which is the reconciliation a reader needs.
 
-Because condition 1 is read off the keeper, this table is a **projection** of it rather
-than a hand-maintained list — it moves when the keeper's rows move, which is the only
-reason it is safe to publish here. That coupling is real and it is tight: this table went
-stale inside a single review round when the keeper gained rows while this page was being
-edited. If it disagrees with the keeper, the keeper is right and this table is behind.
-Grades below are quoted from the keeper; this section reports, it does not award.
+**This table is a hand-maintained cache of the keeper, last reconciled 2026-08-09.** An
+earlier revision called it a "projection" that "moves when the keeper's rows move." That was
+wrong in the way that matters: **nothing generates it and nothing checks it.** No tooling
+compares it against the keeper, so it moves only when a person edits it — and it has already
+fallen out of date inside a single review round, when the keeper gained rows while this page
+was being edited. Treat it as a convenience copy with a date on it. **The keeper is
+authoritative; if the two disagree, this table is wrong.** Grades below are quoted from the
+keeper; this section reports, it does not award.
 
 | Register | Entity that writes it | What the keeper marks unresolved |
 |---|---|---|
@@ -340,18 +337,25 @@ has not flagged it, or that nothing writes it yet. A mapping proven on one teste
 shipped to every family carries the same hazard whether or not a row says so — H227 sat in
 exactly that position, unflagged, until the keeper caught up.
 
-#### Snapshot of the wider surface — 2026-08-09, not exhaustive
+#### Partial inventory — observed 2026-08-09
 
-A reviewer walked the local-write surface on **2026-08-09** and found these classes beyond
-the table above, all written to mappings the keeper grades below rung 2 or does not grade
-at all. **This is a dated observation, not a maintained list** — re-derive with the
-procedure above rather than trusting it. `asserted-unverified` (reviewer walk, 2026-08-09;
-cross-check each entry against the keeper and the code before relying on it).
+**This list has been incomplete at every previous observation. Assume it is incomplete
+now.** Three consecutive review rounds each added a shape the prior frame could not see, so
+the base rate for "we have found them all" is zero. `asserted-unverified` (reviewer walks
+through 2026-08-09; cross-check every entry against the keeper and the code before relying
+on it). Registers the keeper has since flagged move up into the table above — that is the
+direction of travel, and this inventory is where a register waits until then.
 
-The same walk surfaced H227 and H117, which the keeper has since flagged; they have moved
-up into the table above. That is the intended direction of travel — an entry leaves this
-snapshot when the keeper takes a position on it, and the snapshot is where a register waits
-in the meantime.
+**Write shapes observed.** Not a closed set:
+
+| Shape | How it reaches the device |
+|---|---|
+| Router | `_local_write` closure → `utils.py` → `async_write_with_cloud_fallback` → a coordinator primitive |
+| Switch action | `base_entity.py` → `_execute_switch_action` → `getattr(inverter, method_ref)` awaited; the library writes |
+| Direct library call | An entity calls `inverter.<method>()` itself — no router, no switch-action helper |
+| Background / no entity | Coordinator-owned tasks, e.g. the hourly DST station-setting sync |
+
+**Registers reached, beyond the table above:**
 
 | Class | Registers | Note as observed |
 |---|---|---|
@@ -359,7 +363,8 @@ in the meantime.
 | Battery current + SOC cutoffs | H101, H102, H105, H125 | `lineage-inferred`, always-on block — the most battery-safety-adjacent scalars shipped |
 | Voltage cutoffs | H100, H169 | `lineage-inferred` |
 | No ledger row at all | reg 22 (PV start voltage), H20 (PV input mode) | Not graded anywhere |
-| Function word without a per-bit map | H21 b0, b7, b10, b11, b15 | Word graded `lineage-inferred` |
+| Function word without a per-bit map | H21 b0, b7, b10, b11, b15 | Word graded `lineage-inferred`; b9 is a further candidate |
+| Reached by direct library call | **H206** (grid peak-shaving power) | Keeper grades it `portal-correlated`; pylxpweb drives `set_grid_peak_shaving_power` **local-first**. Found only once direct `inverter.<method>()` calls came into scope |
 
 **Where `portal-correlated` sits.** The snapshot deliberately excludes mappings the keeper
 grades `portal-correlated` — H66, H74, H67, H160, H116, H82, H83, H202, H103, H110 b1,
