@@ -142,8 +142,10 @@ which is canonical for them. Fixtures come from
 auto-enabled in `tests/conftest.py`. Mock mixin methods with instance-level
 `patch.object(coordinator, ...)`; config-flow tests patch
 `custom_components.eg4_web_monitor._config_flow.LuxpowerClient` — the **package**,
-not the shim. `config_flow.py` re-exports only `EG4ConfigFlow` and `EG4OptionsFlow`,
-so `config_flow.LuxpowerClient` does not exist and patching it silently no-ops.
+not the shim. `config_flow.py` re-exports only `EG4ConfigFlow` and `EG4OptionsFlow`, so
+the name does not exist in that namespace and patching `config_flow.LuxpowerClient`
+**raises `AttributeError`** — `mock.patch` resolves the attribute when it starts and
+refuses a missing one unless `create=True`. It does not silently no-op.
 (`tests/test_config_flow.py:141`, `tests/test_cloud_session_isolation.py:496`.
 `MEMORY.md` is stale on this; see `llmwiki/10-integration/config-flow.md`.)
 Never disable a linter rule to make a gate pass.

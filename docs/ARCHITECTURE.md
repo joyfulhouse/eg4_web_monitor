@@ -66,7 +66,7 @@ SoC/SoH, temperature, cycle count, and per-cell metrics.
   returning an HTML login page instead of JSON (surfacing as a
   `ContentTypeError`) or a `401`, either of which triggers one re-authentication
   and a retry. Treat the two hours as a client-side heuristic, never as a
-  guaranteed window. Owner: `llmwiki/20-pylxpweb/` (auth/session).
+  guaranteed window. Owner: `llmwiki/30-portal-api/auth-and-session.md`.
 - **Local:** the coordinator reads holding/input registers over the selected
   transport. Polling defaults differ per transport: 5 seconds for Modbus TCP and
   serial (`DEFAULT_MODBUS_UPDATE_INTERVAL`), 30 seconds for the WiFi dongle

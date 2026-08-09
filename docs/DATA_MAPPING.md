@@ -812,15 +812,42 @@ per boundary). Cloud param names take the window suffix
 > four of whose bits (3/7/9/10) are hardware-proven on EG4 hardware; and #471's
 > reporter having driven the control through that mapping on his LXP, with his
 > live named reads agreeing (AC-couple-enabled LXPUS810K reads the cloud param
-> `True`, a disabled SNA12K-US probe reads `False`). This is the same standing
-> the #476 off-grid green-mode bit shipped on. A wrong bit would be ACKed by the
-> firmware, so readback-verify cannot rule it out — a raw reg-179 read before and
-> after toggling the switch would, and #472 asks for exactly that. Requires
-> pylxpweb ≥ 0.9.39b6 (at or below the current `manifest.json` floor — read the
-> manifest for the pin in force, do not restate it here); a pin without the mapping keeps the
-> cloud-only path via the
-> `switch._local_params_can_carry` probe. The register contract harness pins the
-> name to (179, 11) on every inverter family.
+> `True`, a disabled SNA12K-US probe reads `False`). None of that is a controlled
+> toggle: it is lineage plus correlation. **This is the same standing the #476
+> off-grid green-mode bit shipped on — and #476 was wrong.**
+>
+> ⚠️ **A readback delta proves storage and transport ONLY, never semantic.** A
+> wrong-but-writable bit is firmware-ACKed: no exception, no fallback, no log above
+> DEBUG, and it reads back exactly the value written. Reading reg 179 before and
+> after a write therefore cannot tell "the AC-couple function was toggled" from
+> "some other function was silently changed". That is precisely how reg 110 bit 8
+> shipped wrong. Do not treat any readback — including the entity's own
+> `_verify_local_write` re-read — as evidence that the mapping is correct.
+>
+> Discharging this requires the **complete tuple**, not any part of it: a
+> family-specific **named action** (portal control or documented vendor function),
+> the **device family** it was performed on, the **raw integer register word
+> before**, the **raw integer register word after** (differing by exactly
+> `0x0800`), an **independent physical observation** that the AC-coupled input
+> actually changed behavior, and **restoration** of the original value. Scaled or
+> engineering-unit values are not raw captures, and a reconstructed integer is not
+> a capture. [#472](https://github.com/joyfulhouse/eg4_web_monitor/issues/472)
+> tracks exactly this capture; until it lands, bit 11 stays `lineage-inferred` in
+> `llmwiki/40-hardware/registers.md`, which is the grading authority.
+>
+> **Current state — the local write path is LIVE, not gated.** `EG4ACCoupleSwitch`
+> writes bit 11 **local-first** whenever the installed pylxpweb decodes the name
+> from a register (`switch.py:965-985`, gated by `_local_params_can_carry` at `:248`), and
+> the bit-11 mapping ships from pylxpweb 0.9.39b6 — at or below the current
+> `manifest.json` floor, so on a conforming install the local write is the default
+> route in LOCAL and HYBRID, not a fallback. This is an **accepted but
+> un-discharged risk**, recorded here so it is visible rather than implied; it is
+> not a settled control. Note the deliberate contrast in the same file:
+> `EG4SmartLoadSwitch` is kept **cloud-only** precisely because its bit is
+> unpinned (`switch.py:252-263`), so two unpinned reg-179 bits are currently
+> treated differently. The register contract harness pins the *name* to (179, 11)
+> on every inverter family — that is a consistency check on our own table, not
+> hardware evidence.
 >
 > `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
 > [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) was **pinned to
