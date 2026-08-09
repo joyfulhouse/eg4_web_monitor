@@ -588,8 +588,15 @@ if reg1 & 0x100:
 > every hardware-tested position agrees with the lxp_modbus layout, and
 > the historic 18kPV-specific upper-bit table (green at 8, ECO at 9,
 > buzzer at 6) matched none of them. pylxpweb's base and EG4_OFFGRID
-> tables now share one `REGISTER_110_PARAM_KEYS` list; unproven slots
-> (6, 8-13) are `FUNC_110_BITn` placeholders. The former "cloud-only on
+> tables now share one `REGISTER_110_PARAM_KEYS` list. **This file does not
+> enumerate which reg-110 slots are still placeholders** — the canonical per-bit
+> map is `llmwiki/40-hardware/registers.md`; read it there. The enumeration this
+> sentence used to carry was wrong in both directions: it omitted one placeholder
+> and swept in a bit that had since been proven and named, so the list described a
+> proven writable bit as a guarded unknown. It went stale because a promotion
+> recorded in the keeper falsified a duplicated list one file away — changing a
+> bit's grade is never a local edit, and that is the general hazard here, not a
+> one-off. The former "cloud-only on
 > EG4_OFFGRID" restriction for the Off Grid Mode switch is lifted, so
 > `EG4OffGridModeSwitch` now writes **local-first with cloud fallback**
 > wherever it is created (`switch.py:1196-1215`). That is a statement about
@@ -597,7 +604,11 @@ if reg1 & 0x100:
 > each family: the toggle proof is from one tested unit, and whether it
 > extends to any other family is the keeper's to state — see
 > `llmwiki/40-hardware/registers.md`. A wrong bit would be firmware-ACKed
-> here exactly as in #476, which is the bug this remapping came from. No ECO
+> here exactly as in #476, which is the bug this remapping came from. The
+> resulting risk — a shipped entity writing this bit local-first on families
+> where the mapping is unresolved — is tracked in
+> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558); the full
+> list of write paths in that position is enumerated in the wiki, not here. No ECO
 > entity exists in the integration; that relocation only corrects the library
 > mapping.
 
