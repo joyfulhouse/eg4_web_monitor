@@ -99,7 +99,7 @@ Every one of these produced a confident, wrong completeness claim in this chapte
 |---|---|---|
 | **a** | A coordinator-primitive grep misses **library-mediated writes** entirely, because no `coordinator.write_*` call appears in this repo for them | `EG4QuickChargeSwitch` writes **H233** through `enable_quick_charge`. Invisible to step 1 |
 | **b** | An `_execute_switch_action` grep misses **direct `inverter.<method>()` calls** | `number.py:1291` → `set_grid_peak_shaving_power` writes **H206**; `select.py:266` → `set_operating_mode`. `select.py` and `number.py` contain **zero** `_execute_switch_action` calls, so step 2 cannot see them |
-| **c** | Reading `base.py` misses **runtime subclass overrides** — resolve the actual class | Six of the seven `_WORKING_MODE_METHODS` are client-first in `base.py`, but `HybridInverter` overrides `enable_pv_sell_to_grid` and "deliberately remains transport-first", writing **H179 b3** locally (pylxpweb `204b95d`, `devices/inverters/hybrid.py:1294`). A previous revision of this page concluded "exactly one entity" from `base.py` alone and was wrong |
+| **c** | Reading `base.py` misses **runtime subclass overrides** — resolve the class, then check something **constructs** it | `HybridInverter` overrides `enable_pv_sell_to_grid` to "deliberately remain transport-first" on **H179 b3** (pylxpweb `204b95d`, `devices/inverters/hybrid.py:1294`), and `base.py:3487` warns about the override in its own docstring. A previous revision read only `base.py`, concluded "exactly one entity", and had no basis for it. Resolving the class shows **eg4 never holds a `HybridInverter`**, so that override never runs (§2.2) — but the base method keeps a *clientless* local leg, so the class alone still does not settle where the write lands |
 | **d** | An entity-scoped search misses **background writes** | `coordinator_mixins.py:4563` → `_perform_dst_sync` calls `station.sync_dst_setting()` hourly. `dst_sync_enabled` defaults to **`True`** (`coordinator.py:408`). No entity is involved |
 
 Whole table: `verified-against-code` at `9f6d6e2` / pylxpweb `204b95d`.
@@ -115,7 +115,7 @@ as the answer.
 | `QuickChargeDurationNumber` | router bypass | `write_named_parameter` | H234 |
 | `StartChargePowerNumber` | router bypass | `write_raw_parameter` (raw) | H117 |
 | `EG4QuickChargeSwitch` | switch action | `enable_quick_charge` / `disable_quick_charge` — transport-first | H233 |
-| `EG4WorkingModeSwitch` (`FUNC_PV_SELL_TO_GRID_EN`) | router, or switch action on the cloud-only branch | `HybridInverter.enable_pv_sell_to_grid` — **transport-first override** | H179 b3 |
+| `EG4WorkingModeSwitch` (`FUNC_PV_SELL_TO_GRID_EN`) | router; reaches the switch-action branch only via the legacy version guard (§2.2) | `BaseInverter.enable_pv_sell_to_grid` — client-first **per instance**. The `HybridInverter` transport-first override is never constructed | H179 b3 |
 | `GridPeakShavingPowerNumber` | direct library call | `set_grid_peak_shaving_power` — transport-first with internal cloud fallback | H206 |
 | `EG4OperatingModeSelect` | direct library call | `set_operating_mode` → `set_standby_mode` | — |
 | DST reconciliation | background | `station.sync_dst_setting()` | cloud-side |
@@ -291,7 +291,7 @@ decided by the called method itself, so the log names the method, not a transpor
 > | Trap | Case |
 > |---|---|
 > | Policies point in opposite directions | `enable_quick_charge` is **transport-first** ("With a local transport … this writes … to holding register 233 bit 0"); `enable_ac_charge_mode` is **client-first** ("cloud and HYBRID instances keep the dedicated cloud endpoint") — pylxpweb `204b95d`, `base.py:4011` and `:4359` |
-> | The runtime class overrides the base | `base.py:3481` `enable_pv_sell_to_grid` is client-first, but the runtime `HybridInverter` **overrides** it and "deliberately remains transport-first", writing H179 b3 via a lock-held named RMW — pylxpweb `204b95d`, `hybrid.py:1294`. **Resolve the actual class before reading a policy** |
+> | A subclass overrides the base — but check anything builds it | `base.py:3481` `enable_pv_sell_to_grid` is client-first; `HybridInverter` **overrides** it to "deliberately remain transport-first", writing H179 b3 via a lock-held named RMW — pylxpweb `204b95d`, `hybrid.py:1294`. Nothing constructs that class, here or in the library, so the override never runs (§2.2). **Resolve the actual class before reading a policy — then confirm it is ever instantiated** |
 > | The library has its own fallback | `set_grid_peak_shaving_power` writes H206 locally "falling back to the cloud named-parameter write when no transport is attached, the link is down, or the local write fails" — pylxpweb `204b95d`, `base.py:2996`. So "eg4 provides no fallback here" does **not** mean "this write has no fallback" |
 >
 > **Open the method on the runtime class.** There is no eg4-side signal for any of this.
@@ -304,23 +304,56 @@ population as exhaustive and both were wrong (§0.3 **b** and **c**).
 | Caller | Site | Shape | Library method | Can it write a register locally? |
 |---|---|---|---|---|
 | `EG4QuickChargeSwitch._async_set_quick_charge` | `switch.py:627` | switch action | `enable_quick_charge` / `disable_quick_charge` | **Yes** — transport-first, targets **H233** (§2.4) |
-| `EG4WorkingModeSwitch._async_set_working_mode` | `switch.py:1511` | switch action, on the `elif self.coordinator.has_http_api() and methods:` branch | one of `_WORKING_MODE_METHODS` | **Yes, for one mode.** Six of the seven are client-first in `base.py`, but `HybridInverter` overrides `enable_pv_sell_to_grid` to stay transport-first (**H179 b3**) |
+| `EG4WorkingModeSwitch._async_set_working_mode` | `switch.py:1511` | switch action, on the `elif self.coordinator.has_http_api() and methods:` branch | one of `_WORKING_MODE_METHODS` | **Not through the override.** All seven resolve to `base.py` — eg4 never holds a `HybridInverter`, so its transport-first `enable_pv_sell_to_grid` never runs. The base method is client-first *per instance* and reaches H179 b3 locally only on a **clientless** inverter (below) |
 | `GridPeakShavingPowerNumber.async_set_native_value` | `number.py:1291` | direct library call | `set_grid_peak_shaving_power` | **Yes** — transport-first with internal cloud fallback, targets **H206** |
 | `EG4OperatingModeSelect.async_select_option` | `select.py:266` | direct library call | `set_operating_mode` → `set_standby_mode` | Read the runtime class per §2.1 |
 
-`verified-against-code` — call sites and guards at `9f6d6e2`; routing policies at pylxpweb
-`204b95d` as cited in §2.1.
+`verified-against-code` — call sites and guards at `9f6d6e2`; routing policies and the
+class-resolution chain below at pylxpweb `204b95d`, as cited in §2.1 and in the note.
 
-> **Why the working-mode row changed.** A previous revision checked all seven
+> **Why the working-mode row changed, twice.** A previous revision checked all seven
 > `_WORKING_MODE_METHODS` in `base.py`, found them uniformly client-first, and concluded the branch
-> could never write locally. The check was thorough and the conclusion was wrong, because the
-> runtime class is `HybridInverter` and it overrides one of the seven. The branch is reachable with
-> a live transport: the pylxpweb **version guard** (`switch.py:1473-1481`) nulls `param_name` on a
-> legacy flat-HYBRID install that still has one attached.
+> could never write locally. A later revision found `HybridInverter` overriding one of the seven and
+> flipped the row to "yes, for one mode". **Both were wrong**, because neither resolved which class
+> the coordinator actually holds.
 >
-> H179 b3 is `hardware-toggle-proven` in the keeper, so that particular write is not on an unpinned
-> mapping. The defect was the reasoning, not the outcome — which is exactly why §0 publishes blind
-> spots instead of counts.
+> **eg4 never holds a `HybridInverter`.** `grep -rn 'HybridInverter' custom_components/eg4_web_monitor/`
+> returns **zero** hits. Entities reach the library through
+> `coordinator.get_inverter_object()`, which serves `_inverter_cache: dict[str, BaseInverter]`
+> (`coordinator.py:526`, `:990-992`), and every path that fills that cache builds a
+> **`GenericInverter`**:
+>
+> | Cache-fill path | Site | Constructs |
+> |---|---|---|
+> | Cloud station load | `coordinator.py:979-984` → `station.all_inverters` | pylxpweb `station.py:1190` |
+> | Transport-backed station device | pylxpweb `station.py:833` `_create_device_with_transport` | `station.py:862` (`MIDDevice` on the GridBOSS leg) |
+> | LOCAL/HYBRID factories | `coordinator_local.py:900`/`:905`, `:1235`/`:1239` → `BaseInverter.from_modbus_transport` / `from_dongle_transport` | pylxpweb `base.py:558`; `from_dongle_transport` (`:587`) delegates at `:620` |
+>
+> In the library itself, `git grep 'HybridInverter('` at `204b95d` matches only the class statement
+> (`hybrid.py:25`) and a **docstring example** (`:38`) — pylxpweb never instantiates it either. The
+> override is dead code from this integration's point of view.
+>
+> **What that does and does not settle.** It removes the *cited* reason for a local write, but it
+> does not restore the original "exactly one entity" conclusion, because the base method is
+> client-first **per instance**, not per mode: `_set_pv_sell_to_grid` (`base.py:3462`) binds a cloud
+> callable only `if self._client is not None`, and `_set_client_first_function_bit` (`:2289`) writes
+> H179 b3 through `transport.write_named_parameters` whenever that callable is `None`. A
+> transport-built inverter carries `client=None` (`base.py:558` passes a `placeholder_client`), so
+> the clientless leg is a real local write on a real object.
+>
+> The branch guard is what makes it moot in practice. `elif self.coordinator.has_http_api() and
+> methods:` is reached only when `param_name` is falsy, and for this param that happens **only**
+> through the pylxpweb **version guard** (`switch.py:1474-1481`) on an install predating
+> `0.9.36b6`. At the pinned `204b95d` the name resolves, so the entity takes the router branch
+> (`_execute_local_with_fallback`) instead. Whether any live HYBRID state pairs a clientless cached
+> inverter with that legacy-degraded branch is `asserted-unverified`, status **unresolved** — it
+> needs a legacy install to exercise, and this page does not claim either answer.
+>
+> H179 b3 is `hardware-toggle-proven` in the keeper, so the mapping itself is not in doubt. The
+> durable lesson survives all three revisions and is the one worth keeping: **resolve the runtime
+> class before reading a routing policy — then confirm something constructs it, and check whether
+> the policy branches on the instance rather than the class.** That is why §0 publishes blind spots
+> instead of counts.
 
 ### 2.3 Deriving the callers
 
@@ -330,7 +363,7 @@ population as exhaustive and both were wrong (§0.3 **b** and **c**).
 | 2 | Discard the definition, docstring mentions, and **`base_entity.py:1766`** — that call is the router's own cloud leg, not a direct entity call |
 | 3 | `grep -rnE 'await (inverter\|device)\.[a-z_]+\(' number.py select.py switch.py time.py button.py update.py` — direct library calls. Discard reads (`refresh`) and docstring examples (`base_entity.py:1009`) |
 | 4 | For each remaining call, read the **branch guard** — but do not stop there: a guard that forces a cloud client does not force a cloud *write* if the method is transport-first |
-| 5 | For every method reached, **resolve the runtime class** (`HybridInverter`, not `Inverter`) and read that class's routing policy |
+| 5 | For every method reached, **resolve the runtime class, then confirm something constructs it** — every path here builds `GenericInverter`, so `HybridInverter`'s override never runs (§2.2). Then read the policy on the class that *is* built, and check whether it branches on the **instance** (client attached or not), as `_set_client_first_function_bit` does |
 | 6 | Cross the resulting registers against [`40-hardware/registers.md`](../40-hardware/registers.md) |
 
 `verified-against-code` — run at `9f6d6e2` / pylxpweb `204b95d` to produce §2.2. Steps 3 and 5 exist
