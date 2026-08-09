@@ -16,6 +16,11 @@ different hardware without identifying the cause.
 > **Scope.** Everything below is the **EG4_OFFGRID** family (`SNA_US_12K`, firmware `ceaa-0709`).
 > On **EG4_HYBRID** register 123 is genuine — see [Family differential](#8-family-differential).
 > Do not generalise either finding to the other family.
+>
+> **A bogus register here does not make its neighbours bogus.** The follow-up trace in
+> [`OFFGRID_EPS_REGISTERS.md`](OFFGRID_EPS_REGISTERS.md) proves that EPS apparent power
+> (inputs 25/131/132) on the *same* image is a genuine DSP-sourced measurement — and that the
+> legacy EPS S/T voltages (inputs 21/22) are not. Each register needs its own decode.
 
 ---
 
