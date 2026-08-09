@@ -187,42 +187,104 @@ entity, no named-write path, no placeholder key reachable by a write helper. Gat
 only mitigation for an unproven mapping, because a wrong write cannot be detected after
 the fact.
 
-#### Shipped exceptions to the write-access rule
+#### The rule is not enforced anywhere in the code
 
-**The rule above is a requirement, not a description of the current code, and it is
-currently violated.** Three shipped write paths reach a mapping the keeper has not pinned
-for a family they can be used on. All three write **local-first with cloud fallback** in
-LOCAL and HYBRID. The grades below are quoted from the keeper — this section reports
-them, it does not award them:
+**The rule above is a requirement on us. It is not a description of the current code, and
+nothing implements it.** There is no gate that consults a register's evidence grade before
+writing it. Grades live in this wiki; the write paths are built from tables in the code
+that do not reference them. So the set of writes that violate the rule is not a list
+anyone maintains — it is a **consequence of those tables**, and it changes whenever they
+do.
 
-| Register | Entity | Why the mapping is not pinned for what it can reach |
+Three earlier revisions of this section published a curated list of violations: first two
+entries, then three, then a reviewer walked the whole surface and found at least six
+classes. Each list was accurate when written and stale within a round. **Do not curate a
+fourth.** Derive it.
+
+**How to derive the current local-write surface** (`verified-against-code`, all in
+`custom_components/eg4_web_monitor/`):
+
+| Step | Where |
+|---|---|
+| 1. Working-mode switches | `switch.py` → `_WORKING_MODE_PARAMETERS` — the register/bit each switch writes |
+| 2. Always-on number entities | `number.py` → the `entities.extend([...])` block commented "Always-on controls"; these are created for **every inverter, with no family gate** |
+| 3. Voltage-limit numbers | `number.py` → `VOLTAGE_NUMBER_SPECS`, expanded one entity per spec in that same block |
+| 4. Writes that bypass the router | Grep `coordinator.write_named_parameter` and `coordinator.write_raw_parameter` across `number.py`, `switch.py`, `select.py`, `time.py`, then **read each hit in context**: most sit inside a `_local_write` closure handed *to* `utils.py` → `async_write_with_cloud_fallback`, and only the rest are true bypasses. At `9f6d6e2` that check yields two — `QuickChargeDurationNumber` and `StartChargePowerNumber` (the latter a **raw** register write) — but run the check rather than trusting the count |
+
+Cross each writable target against
+[`40-hardware/registers.md`](40-hardware/registers.md). Anything the keeper grades below
+rung 2, or does not carry a row for at all, is a write standing on an unproven mapping.
+
+**Family gates do not narrow this set as much as they appear to.** `utils.py` →
+`is_family_control_supported` fails **open** by design: a device whose family is missing or
+`UNKNOWN` keeps every control. Never assume a family gate suppressed anything.
+
+**What "local-first" means depends on the mode**, and the difference matters here —
+`verified-against-code` (`utils.py` → `async_write_with_cloud_fallback`, whose contract
+states "without a cloud client the local error propagates unchanged"):
+
+- **HYBRID** — local write first, cloud fallback on failure. A wrong-target local write is
+  ACKed, so the fallback never fires and nothing is logged.
+- **LOCAL** — there is no cloud client, so there is no fallback. The local write is the
+  only write.
+
+#### Registers the keeper marks unresolved
+
+This table is **not** the list of violations — the derivation above is. It is the narrower
+set where **the keeper itself flags writability or family scope as unresolved or
+disputed**, which makes it a projection of the keeper rather than a hand-maintained list:
+it changes when the keeper's rows change, and that is the only reason it is safe to
+publish here. Grades are quoted from the keeper; this section reports, it does not award.
+
+| Register | Entity | What the keeper marks unresolved |
 |---|---|---|
-| H179 b11 | AC Couple switch | `lineage-inferred`, never toggle-pinned on any family |
-| H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`, **LOCAL writability unresolved** |
-| H110 b14 | Off-Grid / Green Mode switch | **Family-scoped gap.** Proven on the tested 18kPV, but the switch is created for *every* family, and for 12000XP/6000XP the mapping is `lineage-inferred`, status **unresolved** |
+| H179 b11 | AC Couple switch | `lineage-inferred`; status "current; live write risk unresolved" |
+| H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`; status "current; write unresolved" |
+| H110 b14 | Off-Grid / Green Mode switch | Proven on the tested 18kPV, but the switch is created for *every* family and the 12000XP/6000XP row is `lineage-inferred`, status **unresolved** |
 
-The third is the sharpest of the three, because H110 is the register from issue #476: its
-Green-Mode bit was documented as b8 for years, the wrong b8 write was firmware-ACKed, and
-no readback detected it. A local-first write on an unresolved family mapping of that same
-register is the #476 setup, not merely a similar one.
+The third is the sharpest, because H110 is the register from issue #476: its Green-Mode bit
+was documented as b8 for years, the wrong b8 write was firmware-ACKed, and no readback
+detected it. A local-first write on an unresolved family mapping of that same register is
+the #476 setup, not an analogy to it.
 
-That all three route local-first is `verified-against-code`: `switch.py` →
-`EG4ACCoupleSwitch` and `EG4OffGridModeSwitch` both call `_execute_local_with_fallback`,
-`number.py` → `ACChargeEndBatterySOCNumber` calls `_write_parameter`, and both helpers
-delegate to `utils.py` → `async_write_with_cloud_fallback`. The Off-Grid switch's
-family reach is likewise `verified-against-code`: `switch.py` appends it with no family
-gate — the `is_offgrid_family` check just below it governs the *working-mode* switches,
-not this one. The grades in the table are the keeper's.
+**A register's absence from this table means only that the keeper has not flagged it** — it
+is not a clearance. A mapping proven on one tested unit and shipped to every family carries
+the same hazard whether or not a row says so.
+
+#### Snapshot of the wider surface — 2026-08-09, not exhaustive
+
+A reviewer walked the local-write surface on **2026-08-09** and found these classes beyond
+the table above, all written local-first to mappings the keeper grades below rung 2 or does
+not grade at all. **This is a dated observation, not a maintained list** — re-derive with
+the procedure above rather than trusting it. `asserted-unverified` (reviewer walk,
+2026-08-09; cross-check each entry against the keeper and the code before relying on it).
+
+| Class | Registers | Note as observed |
+|---|---|---|
+| Charge-SOC limit | H227 | Proof scoped to **one tested 18kPV**, entity created for every inverter in the always-on block with no family gate. Arguably sharper than anything in the table above, which is why absence from that table is not clearance |
+| Working-mode bits | H110 b3 (Share Battery), b4 (Charge Last) | `lineage-inferred` |
+| Battery current + SOC cutoffs | H101, H102, H105, H125 | `lineage-inferred`, always-on block — the most battery-safety-adjacent scalars shipped |
+| Voltage cutoffs | H100, H169 | `lineage-inferred` |
+| No ledger row at all | reg 22 (PV start voltage), H20 (PV input mode) | Not graded anywhere |
+| Function word without a per-bit map | H21 b0, b7, b10, b11, b15 | Word graded `lineage-inferred` |
+| Raw register write | H117 | `asserted-unverified`; no cloud name and no validated behaviour |
+
+**Where `portal-correlated` sits.** The snapshot deliberately excludes mappings the keeper
+grades `portal-correlated` — H66, H74, H67, H160, H116, H82, H83, H202, H103, H110 b1,
+H179 b7, H233 b0/b1, H179 b9/b10, and the schedule-time registers. Including them would
+make essentially the entire control surface a violation, which is not a useful line. The
+reasoning: `portal-correlated` means the vendor's own portal exposes the parameter and our
+reading agrees with it, so the mapping has independent third-party corroboration even
+without a toggle capture. That is a real distinction, **but it is a judgement, not a rule
+the legend states** — `portal-correlated` still sits below rung 2, and the ladder's text
+does not carve it out. Treat the exclusion as a documented scoping decision that a future
+reviewer may reopen, not as a safety finding about those registers.
 
 Per-bit grades and scope belong to the keeper,
 [`40-hardware/registers.md`](40-hardware/registers.md); the risk is tracked on issue
 **#558** and [C7](60-history/open-contradictions.md), which owns the detail. **Never read
-this rule as an assurance that some other page's register is unreachable.** A weak grade
-does not close a write path — three times now it has not. Check the entity.
-
-This list is owned here. If a fourth path appears, add it here and let the other pages
-keep linking; do not paste a copy elsewhere. Two pages once carried this list and both
-went stale in the same round.
+the ladder's rule as an assurance that some other page's register is unreachable.** A weak
+grade does not close a write path — every time this has been checked, it has not.
 
 Cross-integration agreement sits at rung 2 at best: it is corroboration, not observation.
 

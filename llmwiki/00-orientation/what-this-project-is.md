@@ -26,10 +26,11 @@ A Home Assistant custom integration for EG4 / Luxpower solar inverters. It is on
 of a four-part system; most non-obvious behaviour comes from the boundaries between
 the parts, not from any one of them.
 
-> pylxpweb symbols cited on this page were re-checked at `204b95d` — the commit that
-> `refs/tags/v0.9.39b10` resolves to in both the local clone and `origin`. That is the
-> revision the citations are true of, not the version this integration requires — the
-> required range is in `manifest.json` → `requirements`.
+> pylxpweb symbols cited on this page were re-checked at commit `204b95d`. That commit is
+> the revision the citations are true of, and it is the whole pin — a tag is a mutable ref
+> and cannot constrain what it points at later, so no tag name appears here. It is also not
+> the version this integration requires; the required range is in `manifest.json` →
+> `requirements`.
 
 ## The four parts
 
