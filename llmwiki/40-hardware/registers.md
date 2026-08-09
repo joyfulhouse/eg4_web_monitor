@@ -6,6 +6,7 @@ sources:
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
   - docs/audits/2026-08-02-register-race-performance-audit.md
+  - custom_components/eg4_web_monitor/base_entity.py
   - custom_components/eg4_web_monitor/const/device_types.py
   - custom_components/eg4_web_monitor/number.py
   - custom_components/eg4_web_monitor/switch.py
@@ -17,6 +18,7 @@ sources:
   - memory/cloud-raw-register-write-broken.md
   - memory/voltage-param-scaling-cloud-vs-local.md
   - memory/quick-charge-local-control-registers.md
+  - pylxpweb@204b95d:src/pylxpweb/devices/inverters/base.py
   - pylxpweb@204b95d:src/pylxpweb/transports/data.py
   - pylxpweb@204b95d:src/pylxpweb/transports/dongle.py
   - pylxpweb@204b95d:src/pylxpweb/transports/_canonical_reader.py
@@ -272,7 +274,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 
 | Claim | Scope | Evidence | Status | Durable basis and qualification |
 |---|---|---|---|---|
-| LOCAL FC03/FC06 access to H233 is reported to return ILLEGAL DATA ADDRESS. | tested `EG4_OFFGRID` paths | `asserted-unverified` | unresolved; family-gated | [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#extended-function-enable-2-register-233) and [bug postmortems #296/#308](../60-history/bug-postmortems.md) record the rejection. This chapter has no preserved raw request/exception-response capture, so it is not promoted to a proof grade. |
+| LOCAL FC03/FC06 access to H233 is reported to return ILLEGAL DATA ADDRESS. | tested `EG4_OFFGRID` paths | `asserted-unverified` | unresolved; family-gated; shipped pure-LOCAL path exposed | [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md#extended-function-enable-2-register-233) and [bug postmortems #296/#308](../60-history/bug-postmortems.md) record the rejection. This chapter has no preserved raw request/exception-response capture, so it is not promoted to a proof grade. Shipped-path fact (`verified-against-code`): [`EG4QuickChargeSwitch._async_set_quick_charge`](../../custom_components/eg4_web_monitor/switch.py#L605) leaves `enable_quick_charge` / `disable_quick_charge` as pylxpweb method names unless [`_prefers_cloud_control`](../../custom_components/eg4_web_monitor/switch.py#L477) is true; that predicate requires both an off-grid family and `has_http_api()`. Pure-LOCAL therefore leaves the method names in place. [`_execute_switch_action`](../../custom_components/eg4_web_monitor/base_entity.py#L1543) resolves the named method on the inverter and awaits it directly; this call does not pass through `async_write_with_cloud_fallback`. At pylxpweb pin `204b95d`, [`enable_quick_charge`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/devices/inverters/base.py#L4011-L4070) and [`disable_quick_charge`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/devices/inverters/base.py#L4153-L4177) try the local H233 path first and cannot fall back when no client exists. Safety conclusion (`inferred`): on the recorded off-grid boundary, every pure-LOCAL Quick Charge toggle attempts the firmware-rejected H233 operation, produces the doomed-write warning/failure, and has no cloud fallback to complete the action. This is **not** a silent wrong-bit or silent-ACK hazard: the recorded failure mode is ILLEGAL DATA ADDRESS. Track the routing defect in [issue #558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558#issuecomment-5232536860). |
 
 ## GridBOSS register ledger
 
