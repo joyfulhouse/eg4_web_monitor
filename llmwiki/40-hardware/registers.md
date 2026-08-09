@@ -14,6 +14,7 @@ sources:
   - memory/voltage-param-scaling-cloud-vs-local.md
   - memory/quick-charge-local-control-registers.md
   - pylxpweb@204b95d:src/pylxpweb/transports/data.py
+  - pylxpweb@204b95d:src/pylxpweb/constants/registers.py
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
@@ -22,7 +23,7 @@ last-verified: 2026-08-09
 
 # Register ground truth
 
-> **Audited result: 30 of 335 counted current register claims are proven: 27 `firmware-proven` + 3 `hardware-toggle-proven` = 30; 27 + 3 + 170 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
+> **Audited result: 31 of 335 counted current register claims are proven: 27 `firmware-proven` + 4 `hardware-toggle-proven` = 31; 27 + 4 + 169 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
@@ -33,13 +34,13 @@ The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.m
 | Evidence | Count | Proven? |
 |---|---:|:---:|
 | `firmware-proven` | 27 | yes |
-| `hardware-toggle-proven` | 3 | yes |
-| `portal-correlated` | 170 | no |
+| `hardware-toggle-proven` | 4 | yes |
+| `portal-correlated` | 169 | no |
 | `lineage-inferred` | 135 | no |
 | `inferred` | 0 | no |
 | `verified-against-code` | 0 | no |
 | `asserted-unverified` | 0 | no; candidate rows are excluded |
-| **Current total** | **335** | **30 proven (9.0%)** |
+| **Current total** | **335** | **31 proven (9.3%)** |
 
 The `Claim count` column is the machine-checkable contribution. One separately named semantic is one claim; a U32 low/high pair is one; family-specific meanings are separate; a compound packed-word contract is one claim unless its bits are separately exposed as independent semantics. Structural-only, candidate, unknown, and `asserted-unverified` rows contribute zero. Refuted historic labels are outside the counted ledger. The markers around the ledger allow an `awk -F'|'` sum of column 7 to reproduce every subtotal.
 
@@ -222,12 +223,12 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H110 b2 | Micro-grid enable | lineage-wide | `lineage-inferred` | current | 1 | Canonical safe map. |
 | H110 b3 | Shared battery | lineage-wide | `lineage-inferred` | current | 1 | Portal name exists; no complete toggle tuple. |
 | H110 b4 | Charge last | lineage-wide | `lineage-inferred` | current | 1 | Canonical safe map. |
-| H110 b5 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [Contradiction C5](../60-history/open-contradictions.md); historic Take Load Together claim is refuted below. |
+| H110 b5 | Function unknown | tested 18kPV disproof; wider applicability unresolved | `asserted-unverified` | unresolved | 0 | The pinned b10 toggle shows b5 stayed set, refuting the historic Take Load Together label without identifying b5's actual function. [`registers.py` at `204b95d`, lines 625-634](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L625-L634). |
 | H110 b6 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); historic buzzer position is refuted below. |
 | H110 b7 | Buzzer enable | tested portal scope | `portal-correlated` | current | 1 | Named/raw correlation lacks full toggle tuple. |
 | H110 b8 | **Function unknown** | all | `asserted-unverified` | unresolved | 0 | Only the wrong write and firmware ACK were established; it did not control Green Mode. No PVCT/CT semantic is claimed. See [contradiction C5](../60-history/open-contradictions.md) and `memory/issue-476-green-mode-bit14.md`. |
 | H110 b9 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); historic ECO position is refuted below. |
-| H110 b10 | Take Load Together candidate | tested hybrid scope | `portal-correlated` | current | 1 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) records the later correlation, but the durable record lacks a complete restoration record and older [C5](../60-history/open-contradictions.md) evidence conflicts. Keep gated. |
+| H110 b10 | Take Load Together | tested 18kPV (`45XXXXXX18`) | `hardware-toggle-proven` | current | 1 | Driving EG4 cloud `functionControl` by name from True to False and back moved raw H110 `1056 → 32 → 1056`: a single b10 delta with byte-perfect restoration while b5 stayed set. Component firmware version unrecorded — scope limited to the tested unit. [`registers.py` at `204b95d`, lines 625-634](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L625-L634). |
 | H110 b11-b13 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
 | H110 b14 | Green/Off-Grid Mode | tested 18kPV hybrid | `hardware-toggle-proven` | current | 1 | Named Green/Off-Grid Mode action and raw 1056→17440→1056 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/issue-476-green-mode-bit14.md`. |
 | H110 b14 | Green/Off-Grid Mode candidate | 12000XP/6000XP | `lineage-inferred` | unresolved | 1 | Unified layout inference only; requires a family-specific controlled behavior-and-restore capture. |
@@ -342,7 +343,7 @@ These historic claims are excluded from the 335-current-claim denominator. `refu
 | Historic claim | Evidence | Status | Current bounded result | Durable basis |
 |---|---|---|---|---|
 | H110 b8 is Green/Off-Grid Mode. | `portal-correlated` | refuted | H110 b8 is **UNKNOWN**. The wrong b8 write was ACKed and did not control Green Mode; no PVCT/CT function is claimed. H110 b14 is `hardware-toggle-proven` on the tested 18kPV unit. | [Contradiction C5](../60-history/open-contradictions.md); `memory/issue-476-green-mode-bit14.md`. |
-| H110 b5 is Take Load Together. | `portal-correlated` | refuted | Later evidence points to b10, but conflicting durable notes and incomplete toggle metadata keep b10 gated at `portal-correlated`. | Register audit H110 matrix and contradiction C5. |
+| H110 b5 is Take Load Together. | `hardware-toggle-proven` | refuted | The named Take Load Together control toggled b10 while b5 stayed set throughout; b10 was restored byte-perfectly. | [`registers.py` at `204b95d`, lines 625-634](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L625-L634). |
 | H110 b6 is Buzzer. | `portal-correlated` | refuted | Current candidate is b7; b6 is unknown. | Safe register map and portal correlation. |
 | H110 b9 is Battery ECO. | `portal-correlated` | refuted | Current candidate is b15; b9 is unknown. | Safe register map and raw correlation. |
 | 12000XP/off-grid I123 is generator power. | `firmware-proven` | refuted | It is an ARM-initialization counter modulo 65,536 with nominal ~1 Hz increment. | `OFFGRID_GENERATOR_REGISTERS.md`. |
