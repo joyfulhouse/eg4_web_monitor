@@ -590,9 +590,16 @@ if reg1 & 0x100:
 > buzzer at 6) matched none of them. pylxpweb's base and EG4_OFFGRID
 > tables now share one `REGISTER_110_PARAM_KEYS` list; unproven slots
 > (6, 8-13) are `FUNC_110_BITn` placeholders. The former "cloud-only on
-> EG4_OFFGRID" restriction for the Off Grid Mode switch is lifted: with
-> the bit pinned, local writes work on every family. No ECO entity exists
-> in the integration; that relocation only corrects the library mapping.
+> EG4_OFFGRID" restriction for the Off Grid Mode switch is lifted, so
+> `EG4OffGridModeSwitch` now writes **local-first with cloud fallback**
+> wherever it is created (`switch.py:1196-1215`). That is a statement about
+> the shipped write route, **not** evidence that the bit-14 mapping holds on
+> each family: the toggle proof is from one tested unit, and whether it
+> extends to any other family is the keeper's to state — see
+> `llmwiki/40-hardware/registers.md`. A wrong bit would be firmware-ACKed
+> here exactly as in #476, which is the bug this remapping came from. No ECO
+> entity exists in the integration; that relocation only corrects the library
+> mapping.
 
 ### Power Control Registers
 
@@ -777,8 +784,7 @@ per boundary). Cloud param names take the window suffix
 >   the #332 note records reg 161 as inert on tested grid-tied firmware.
 >
 > ⚠️ **Reg 161's meaning and writability on off-grid firmware are UNRESOLVED — and
-> the local write path is LIVE IN PRODUCTION.** An earlier revision of this note
-> claimed "local H161 writes stay gated". That was false: there is no such gate.
+> the local write path is LIVE IN PRODUCTION.** There is no gate on it.
 > `ACChargeEndBatterySOCNumber` (`number.py:1436`, created for `EG4_OFFGRID` at
 > `:660`) passes `local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC` to
 > `_write_parameter` (`:1489`), which routes through
@@ -914,7 +920,7 @@ Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
-| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control. Not created on EG4_OFFGRID — cloud write rejected on 12000XP v2 and local reg-233 access returns ILLEGAL DATA ADDRESS family-wide (#289/#296) |
+| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control. Not created on EG4_OFFGRID — cloud write rejected on a 12000XP v2, and local reg-233 access is *reported* to return ILLEGAL DATA ADDRESS **on the off-grid units tested** (#289/#296). No raw request/exception-response capture was preserved, so broader family applicability is **unresolved** — see [H233 off-grid access boundary](../llmwiki/40-hardware/registers.md#h233-off-grid-access-boundary) |
 
 > **Note:** Register 233 contains 9 API-mapped parameters (`BIT_DRY_CONTRACTOR_MULTIPLEX`,
 > `BIT_LCD_TYPE`, `FUNC_BATTERY_CALIBRATION_EN`, `FUNC_SPORADIC_CHARGE`, etc.).
