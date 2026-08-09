@@ -17,7 +17,9 @@ sources:
   - joyfulhouse/pylxpweb/src/pylxpweb/client.py
   - joyfulhouse/pylxpweb/src/pylxpweb/constants/api.py
   - joyfulhouse/pylxpweb/tests/integration/conftest.py
-verified-against: 9f6d6e2
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 
@@ -113,7 +115,7 @@ Trigger this procedure when a portal password, `JSESSIONID`, credential-bearing 
 | 5 | **Test server-session invalidation separately:** use the one controlled pre-rotation session, if retained, for a read-only page/request after rotation. Whether password rotation invalidates existing server-side `JSESSIONID` sessions is **UNKNOWN until tested**; the two-hour client timestamp is not proof. | `asserted-unverified` (`pylxpweb/src/pylxpweb/client.py:829`; no logout/revocation path in `client.py:211-236,818-914`) |
 | 6 | **Escalate if an old cookie still works:** keep affected integrations/scripts unloaded, delete controlled local cookies, and request account-wide session revocation from the portal administrator or EG4 support. Do not claim containment from password rotation alone. | Server-side manual revocation capability and response time `asserted-unverified` (`docs/api/openapi.yaml` has no revocation endpoint; no repository issue records a tested support flow) |
 
-**Manual target:** the incident owner is the operator who controls both the portal account and the Home Assistant host. Begin immediately and target password rotation, controlled-session disposal, and the old-password negative test within **15 minutes** of confirmed disclosure; start vendor/admin escalation immediately if the controlled old-cookie test remains authorized. This is a local response target, not a server guarantee. `asserted-unverified` (operational policy recorded in `llmwiki/30-portal-api/auth-and-session.md`)
+**Manual target:** the incident owner is the operator who controls both the portal account and the Home Assistant host. Begin immediately and target password rotation, controlled-session disposal, and the old-password negative test within **15 minutes** of confirmed disclosure; start vendor/admin escalation immediately if the controlled old-cookie test remains authorized. This is a proposed local response target, not a server guarantee; no repository issue, vendor SLA, or tested support record establishes the 15-minute value. `asserted-unverified`
 
 ## Encoding details agents routinely get wrong
 

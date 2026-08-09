@@ -19,7 +19,9 @@ sources:
   - joyfulhouse/pylxpweb/src/pylxpweb/constants/scaling.py
   - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/control.py
   - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/devices.py
-verified-against: 9f6d6e2
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 

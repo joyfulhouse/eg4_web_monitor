@@ -11,7 +11,9 @@ sources:
   - scripts/download_inverter_firmware.py
   - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/
   - joyfulhouse/pylxpweb/src/pylxpweb/models.py
-verified-against: 9f6d6e2
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 

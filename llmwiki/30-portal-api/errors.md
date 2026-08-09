@@ -15,7 +15,9 @@ sources:
   - joyfulhouse/pylxpweb/tests/integration/test_control_operations.py
   - joyfulhouse/pylxpweb/tests/integration/test_get_operations.py
   - joyfulhouse/pylxpweb/tests/unit/test_transient_error_retry.py
-verified-against: 9f6d6e2
+verified-against:
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
 last-verified: 2026-08-08
 ---
 
@@ -124,7 +126,7 @@ The implemented rate strategy is client-side self-restraint; `apiBlocked` is a s
 
 The hour change clears every response-cache key in each pylxpweb client. The cache has no per-key single-flight and the flush adds no jitter, so concurrent coordinator work immediately after the boundary can turn many formerly cached operations into queued calls against a vendor portal the integration treats as rate-sensitive. Multiple config entries using the same account can synchronize on the same boundary; the actual vendor quota remains unknown. `verified-against-code` `pylxpweb/src/pylxpweb/client.py:440-532,580-598`; herd consequence and rate-risk classification `inferred`
 
-The Home Assistant integration bounds that exposure with a semaphore of **3 request chains**, shared per normalized `(username, base_url, verify_ssl)` key; see [Intervals, throttles and caches](../10-integration/data-flow-by-mode.md#intervals-throttles-and-caches). The limiter is re-entrant for pylxpweb's recursive retry/reauthentication calls, so one admitted chain keeps one slot instead of deadlocking on reacquisition. `verified-against-code` `custom_components/eg4_web_monitor/cloud_requests.py` → `SharedCloudRequestBudget`, `CloudRequestLimiter`, `acquire_shared_cloud_request_budget`; `coordinator.py:765-785`
+The Home Assistant integration bounds that exposure with a semaphore of **3 request chains**, shared per normalized `(username, base_url, verify_ssl)` key; see [Intervals, throttles and caches](../10-integration/data-flow-by-mode.md#6-intervals-throttles-and-caches). The limiter is re-entrant for pylxpweb's recursive retry/reauthentication calls, so one admitted chain keeps one slot instead of deadlocking on reacquisition. `verified-against-code` `custom_components/eg4_web_monitor/cloud_requests.py` → `SharedCloudRequestBudget`, `CloudRequestLimiter`, `acquire_shared_cloud_request_budget`; `coordinator.py:765-785`
 
 For one Home Assistant process and one exact account key, the instantaneous admitted-chain bound is `C <= 3`. This caps concurrency, **not total post-flush calls**: every distinct cache miss may still queue, each normal login costs three sequential portal requests, and separate Home Assistant processes or direct pylxpweb clients do not share this semaphore. The limiter therefore contains the herd but does not prove compliance with an unknown vendor quota. `verified-against-code` limiter sources above and `pylxpweb/src/pylxpweb/client.py:818-839,935-989`; conclusion `inferred`
 
