@@ -235,6 +235,50 @@ OFFGRID_ONLY_SENSORS: frozenset[str] = frozenset(
     }
 )
 
+# Sensors that are MEANINGLESS on EG4_OFFGRID and must not be created there —
+# the inverse gate of OFFGRID_ONLY_SENSORS (issue #544).
+#
+# Proven from the 12000XP's own firmware (ceaa-0709); full derivation with
+# addresses in docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md:
+#   - generator_power (input reg 123): the FC04 handler returns a 16-bit word of
+#     the ARM comms processor's own RAM that a timer task increments once per
+#     second with no bound check, so it wraps at 65536.  It is seconds-since-boot,
+#     not watts.  A whole-image audit found exactly two writers — that increment
+#     and the power-on memset — and no DSP measurement path.
+#   - generator_energy / generator_energy_lifetime (input regs 124/125/126):
+#     ARM-local status words, not accumulators.  124 is a byte-assembled status
+#     construction; 125/126 are the two halves of one 32-bit status bitfield
+#     (a reported "135,494.5 kWh" is the bit pattern 0x0014ACC1).
+#
+# NOT suppressed, because they are genuine DSP measurements on this family and
+# correctly read 0 with no generator attached: generator_voltage (reg 121),
+# generator_frequency (reg 122), generator_voltage_l1/l2 (regs 195/196).
+#
+# EVIDENCE SCOPE: the firmware proof is the 12000XP / SNA-US 15K (ceaa-0709).
+# The 6000XP shares the family and shows the SAME structure — 121/122 read the
+# DSP receive-frame block, 153/170 the DSP power block, while 123 alone reads a
+# separate base whose neighbouring fields are demonstrably time counters (one
+# saturating at 3600) — but its increment site was not located, so that half is
+# structural inference, not proof.  If a 6000XP owner ever reports a plausible
+# Generator Power reading, treat it as falsifying and narrow this set to the
+# 12000XP.  See §7 of the firmware doc.
+#
+# EG4_HYBRID is deliberately untouched: there reg 123 is measurement-derived
+# (two DSP-fed operands) and on a GridBOSS parallel system the inverters' values
+# sum to the GridBOSS AC-Couple-1 total within 0.13%.  This gate must stay
+# family-scoped.
+#
+# NOTE: GridBOSS/MID devices carry their own real generator_power from dedicated
+# CT registers.  They are unaffected because _should_create_sensor applies this
+# gate only when device_type == "inverter".
+OFFGRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
+    {
+        "generator_power",
+        "generator_energy",
+        "generator_energy_lifetime",
+    }
+)
+
 # Sensors related to Volt-Watt curve (EG4_HYBRID, LXP only)
 VOLT_WATT_SENSORS: frozenset[str] = frozenset(
     {

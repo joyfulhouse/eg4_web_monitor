@@ -24,7 +24,9 @@ from .base_entity import (
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
     INVERTER_FAMILY_EG4_OFFGRID,
+    INVERTER_FAMILY_UNKNOWN,
     NON_THREE_PHASE_SENSORS,
+    OFFGRID_EXCLUDED_SENSORS,
     OFFGRID_ONLY_SENSORS,
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
@@ -100,6 +102,35 @@ def _should_create_sensor(
         if not features:
             return False
         return features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID
+
+    # Inverse gate (#544): sensors whose backing registers are NOT measurements
+    # on EG4_OFFGRID — input reg 123 is an ARM-local 1 Hz counter there, and regs
+    # 124/125/126 are status bitfields (see OFFGRID_EXCLUDED_SENSORS).  The
+    # opposite membership test to the gate above, but the SAME fail-closed
+    # posture: an UNRESOLVED family creates nothing.
+    #
+    # Unresolved must include the literal "UNKNOWN" string, not just a missing
+    # features dict — pylxpweb emits UNKNOWN (a truthy value) whenever the
+    # parameter fetch fails, so treating it as "not off-grid" would recreate the
+    # bogus 1 Hz-counter sensor on the very hardware this gate exists to protect.
+    #
+    # Failing closed costs nothing permanent: a key filtered out here stays
+    # eligible for late registration, and _async_discover_device_sensors
+    # re-evaluates this function with fresh features on every changed cycle, so
+    # a genuine EG4_HYBRID Generator Power appears as soon as its family
+    # resolves.  GridBOSS keeps its own real generator_power via device_type.
+    if device_type == "inverter" and sensor_key in OFFGRID_EXCLUDED_SENSORS:
+        family = (features or {}).get("inverter_family")
+        if not family or family == INVERTER_FAMILY_UNKNOWN:
+            _LOGGER.debug(
+                "Deferring %s: inverter family unresolved (%s); it will be "
+                "created on a later cycle if the family resolves to a "
+                "non-EG4_OFFGRID one (#544)",
+                sensor_key,
+                family or "absent",
+            )
+            return False
+        return bool(family != INVERTER_FAMILY_EG4_OFFGRID)
 
     # If no features detected, create all sensors (conservative fallback)
     if not features:

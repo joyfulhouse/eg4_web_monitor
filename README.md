@@ -31,8 +31,8 @@ required — if you can use the EG4 Monitor app, you can use this integration.
   batteries.
 - **Real-time monitoring:** power, voltage, current, temperature, frequency, and
   energy statistics with split-phase per-leg detail.
-- **Fast local polling:** 5-second updates over Modbus, dongle, or serial — no
-  internet dependency.
+- **Fast local polling:** 5-second updates over Modbus TCP or serial (30 seconds
+  over the WiFi dongle, whose reads are slower) — no internet dependency.
 - **Hybrid mode:** enrich local data with cloud-only features such as DST
   auto-sync, and fall back to the cloud for control writes when the local link
   is down.
@@ -81,13 +81,15 @@ from **Settings → Devices & Services**.
 
 ### Connection types
 
-| Connection type | Description | Update speed | Internet required |
+| Connection type | Description | Default update speed | Internet required |
 |---|---|---|---|
-| **Cloud API (HTTP)** | Connect via EG4's cloud service | 30 seconds | Yes |
+| **Cloud API (HTTP)** | Connect via EG4's cloud service | 120 seconds | Yes |
 | **Local Modbus TCP** | Direct RS485 connection via adapter | 5 seconds | No |
-| **WiFi dongle** | Direct connection via the inverter's WiFi dongle | 5 seconds | No |
+| **WiFi dongle** | Direct connection via the inverter's WiFi dongle | 30 seconds | No |
 | **Serial Modbus (USB/RS485)** | Direct USB-to-RS485 serial connection | 5 seconds | No |
-| **Hybrid** | Local polling + cloud for DST sync & quick charge | 5 seconds | Yes (cloud features) |
+| **Hybrid** | Local polling + cloud for DST sync & quick charge | Local transport's rate | Yes (cloud features) |
+
+All update speeds are defaults and are adjustable in the integration options.
 
 The connection type is derived automatically from what you configure: cloud
 credentials only → **HTTP** mode; local devices only → **Local** mode; both →
@@ -176,6 +178,12 @@ How it behaves:
   anything. The service returns a summary as response data either way.
 
 ## Automation Examples
+
+> **Entity IDs in these examples are illustrative** — yours depend on your own
+> device and plant names, and existing installations may carry older or renamed
+> IDs. Look them up in **Developer Tools → States** before copying an example. See
+> [docs/CONFIGURATION.md](docs/CONFIGURATION.md#example-entity-ids) for how the IDs
+> are formed.
 
 ### Charge batteries during off-peak hours
 
@@ -378,7 +386,7 @@ so they never appear in the register-backed Fault/Warning Code sensors. In
   ```yaml
   trigger:
     - platform: state
-      entity_id: sensor.eg4_flexboss21_1234567890_last_event
+      entity_id: sensor.flexboss21_1234567890_last_event
       attribute: record_id
   condition:
     - "{{ trigger.to_state.state not in ('unknown', 'unavailable') }}"

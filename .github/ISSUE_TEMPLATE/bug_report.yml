@@ -39,7 +39,7 @@ body:
     attributes:
       label: Integration Version
       description: "Found in Settings > Devices & Services > EG4 Web Monitor"
-      placeholder: "v3.5.1-beta.5"
+      placeholder: "v3.5.1-beta.10"
     validations:
       required: true
 

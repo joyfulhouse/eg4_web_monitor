@@ -182,6 +182,45 @@ SIDEFETCH_CONNECTIVITY_ERRORS = (
 )
 
 
+def _derive_using_generator(inverter: Any) -> bool | None:
+    """Whether the generator input is live, from the GEN terminal's own V/Hz.
+
+    pylxpweb's ``is_using_generator`` decides this from ``generator_power > 0``
+    on the transport path, which is wrong on BOTH families (issue #544): on
+    EG4_OFFGRID input reg 123 is an ARM-local 1 Hz counter, so the predicate
+    latches True forever and only clears at the 16-bit wrap; on EG4_HYBRID reg
+    123 carries whatever crosses the multiplexed GEN terminal, including
+    AC-coupled PV, so it reads True with no generator present.
+
+    Generator voltage (reg 121) and frequency (reg 122) are genuine DSP-fed
+    measurements on both families and read 0 when nothing is attached, which
+    makes them the reliable signal.  A generator that is energised but not yet
+    loaded still reports live here — the flag means "GEN input is energised",
+    not "drawing power".
+
+    Returns ``None`` (unknown) when either measurement is missing rather than
+    deferring to the library.  Deferring looks tempting — the cloud path would
+    resolve to the portal's authoritative ``_12KUsingGenerator`` — but it is
+    both unreachable there and harmful where it IS reachable:
+
+      * CLOUD: ``InverterRuntime.genVolt``/``genFreq`` are non-optional ints
+        defaulting to 0, so ``_scaled_float`` never yields ``None`` once a
+        runtime exists.  The fallback can never fire.
+      * LOCAL/HYBRID: transport regs 121/122 decode to ``None`` independently of
+        reg 123 (they sit in different read blocks), so a partial read reaches
+        the fallback — straight back onto ``generator_power > 0``, the very
+        predicate this function exists to replace.
+
+    This value currently reaches users only through the diagnostics dump; it is
+    the field that reported a stuck ``is_using_generator: True`` in #544.
+    """
+    voltage = getattr(inverter, "generator_voltage", None)
+    frequency = getattr(inverter, "generator_frequency", None)
+    if voltage is None or frequency is None:
+        return None
+    return bool(voltage > 0 and frequency > 0)
+
+
 def _classify_gathered_responses(responses: Any) -> bool | None:
     """Breaker verdict for a ``gather(return_exceptions=True)`` result.
 
@@ -2799,8 +2838,8 @@ class DeviceProcessingMixin(_MixinBase):
         if hasattr(inverter, "is_lost"):
             processed["binary_sensors"]["is_lost"] = inverter.is_lost
         if hasattr(inverter, "is_using_generator"):
-            processed["binary_sensors"]["is_using_generator"] = (
-                inverter.is_using_generator
+            processed["binary_sensors"]["is_using_generator"] = _derive_using_generator(
+                inverter
             )
 
         # Process battery bank aggregate data.  (This path serves HYBRID and

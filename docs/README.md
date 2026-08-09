@@ -20,9 +20,16 @@ Project-specific reference material:
 | [BATTERY_CURRENT_CONTROL.md](BATTERY_CURRENT_CONTROL.md) | Battery charge/discharge current control |
 | [reference/MODBUS_DOCS.md](reference/MODBUS_DOCS.md) | Modbus register documentation |
 | [reference/SCALING_VALIDATION.md](reference/SCALING_VALIDATION.md) | Sensor scaling validation notes |
+| [api/](api/) | OpenAPI 3.1 specification for the EG4 portal API |
+| [reference/firmware/](reference/firmware/) | Firmware acquisition method and worked register analyses |
 
-See also the [automation and dashboard examples](../examples/) and the
-[API response samples](../samples/).
+> The `reference/firmware/re/` and `reference/firmware_re/` trees are **invalid
+> and superseded** — both rest on OTA-framing and word-order errors. See the
+> banner on either `00_SUMMARY.md`, and use
+> [reference/firmware/FIRMWARE_ACQUISITION.md](reference/firmware/FIRMWARE_ACQUISITION.md)
+> instead.
+
+See also the [automation and dashboard examples](../examples/).
 
 ---
 

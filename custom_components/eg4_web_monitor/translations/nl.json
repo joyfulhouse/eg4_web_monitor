@@ -1101,6 +1101,10 @@
       "title": "Forced Charge-schematijden verwijderd van {model} {serial}",
       "description": "De **Forced Charge**-schematijdinstellingen (start-/eindtijden, vensters 1-3) zijn verwijderd van **{serial}** ({model}).\n\nDe EG4-cloud weigert schrijfacties naar deze parameters bij de off-grid-familie (REMOTE_SET_ERROR op een 12000XP v2), en het EG4-portaal zelf biedt geen Forced Charge-schema voor deze apparaten. De schema's **AC Charge** en **AC First** zijn niet getroffen.\n\nAls automatiseringen of dashboards naar deze entiteiten verwezen, verwijder die verwijzingen dan. Denkt u dat uw apparaat dit schema wél ondersteunt, meld dit dan via de GitHub-issues van de integratie."
     },
+    "offgrid_generator_sensors_removed": {
+      "title": "Generatorsensoren verwijderd op {model} {serial}",
+      "description": "De sensoren **Generatorvermogen**, **Generatorenergie** en **Generatorenergie totaal** zijn verwijderd van **{serial}** ({model}).\n\nAnalyse van de firmware van deze omvormer liet zien dat de onderliggende registers op de off-grid-familie geen metingen zijn: register 123 geeft een interne teller terug die elke seconde met één ophoogt en bij 65536 overloopt (vandaar tienduizenden watt terwijl er niets op de GEN-poort is aangesloten), en registers 124-126 zijn status-bitvelden in plaats van energietotalen.\n\n**Generatorspanning**, **Generatorspanning L1/L2** en **Generatorfrequentie** zijn echte metingen en zijn behouden.\n\nWerk automatiseringen of dashboards bij die de verwijderde entiteiten gebruikten. Draait uw generator en kunt u metingen vastleggen, voeg ze dan toe aan issue #544."
+    },
     "dongle_validation_disabled": {
       "title": "Datavalidatie aanbevolen voor WiFi dongle",
       "description": "Een WiFi dongle is geconfigureerd maar **Datavalidatie** is uitgeschakeld. WiFi dongles delen een Modbus-bus, en gelijktijdig lezen kan corrupte registerdata veroorzaken (bijv. energiepieken).\n\nGa naar **Instellingen > Apparaten & diensten > EG4 Web Monitor > Configureren** en schakel **Datavalidatie** in."
