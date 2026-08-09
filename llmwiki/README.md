@@ -209,11 +209,30 @@ fourth.** Derive it.
 | 1. Working-mode switches | `switch.py` → `_WORKING_MODE_PARAMETERS` — the register/bit each switch writes |
 | 2. Always-on number entities | `number.py` → the `entities.extend([...])` block commented "Always-on controls"; these are created for **every inverter, with no family gate** |
 | 3. Voltage-limit numbers | `number.py` → `VOLTAGE_NUMBER_SPECS`, expanded one entity per spec in that same block |
-| 4. Writes that bypass the router | Grep `coordinator.write_named_parameter` and `coordinator.write_raw_parameter` across `number.py`, `switch.py`, `select.py`, `time.py`, then **read each hit in context**: most sit inside a `_local_write` closure handed *to* `utils.py` → `async_write_with_cloud_fallback`, and only the rest are true bypasses. At `9f6d6e2` that check yields two — `QuickChargeDurationNumber` and `StartChargePowerNumber` (the latter a **raw** register write) — but run the check rather than trusting the count |
+| 4. Writes that bypass the router | Grep **three method names** — `write_named_parameter`, `write_raw_parameter`, `write_register` — **matched on the method, not the receiver**, across the control platforms (`number.py`, `switch.py`, `select.py`, `time.py`) **plus `base_entity.py` and `coordinator.py`**. Then classify every hit by the rules below. At `9f6d6e2` this yields two bypasses — `QuickChargeDurationNumber` and `StartChargePowerNumber` (the latter a **raw** register write) — but run the check rather than trusting that |
 
 Cross each writable target against
 [`40-hardware/registers.md`](40-hardware/registers.md). Anything the keeper grades below
 rung 2, or does not carry a row for at all, is a write standing on an unproven mapping.
+
+**Classifying a step-4 hit.** A hit is a bypass only if no router call encloses it. Three
+things make that harder than it looks, and each has already produced a wrong answer:
+
+| Trap | What goes wrong | Worked example at `9f6d6e2` |
+|---|---|---|
+| **Narrow method set** | `write_register` is a third write method, and `time.py` documents it as that platform's uniform local path. A scan for only the other two cannot see a bypass that uses it | `time.py` → the packed schedule write, inside a `_local_write` closure |
+| **Matching the receiver** | Searching `coordinator.write_*` misses the coordinator's calls to **itself**, which read `self.write_*` | `coordinator.py` → the battery-regime `_local_write` closure calls `self.write_named_parameter` twice |
+| **Stopping at the first enclosing `def`** | A helper reached *from* a `local_write` closure is router traffic one level deeper, and looks like a bypass if you do not follow the call chain | `base_entity.py` → `_execute_named_parameter_action` calls `coordinator.write_named_parameter`; its only caller is the `local_write` closure in `_execute_local_with_fallback`, so it is **not** a bypass |
+
+**Trace the call chain, not the nearest `def`,** and **discard matches inside docstrings and
+comments** — `write_named_parameter`'s own docstring carries two usage examples that a
+grep reports as call sites, inside the definition of the method being searched. Counting
+them would invent two coordinator "bypasses" that do not exist.
+
+The first two traps hide real bypasses; the last two invent false ones. A scan that lands
+on the right answer without applying all four is right by luck — both current bypasses
+happen to be `number.py` named/raw calls, which is exactly the coincidence that let the
+narrower check look sound.
 
 **Match on raw register constants as well as parameter names.** Steps 1-3 find entities
 through their named parameters (`PARAM_HOLD_*`, `FUNC_*`), so a search built only on those
