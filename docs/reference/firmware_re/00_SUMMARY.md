@@ -1,5 +1,42 @@
 # EG4 Para/DSP Firmware Reverse Engineering Summary
 
+> ## ⛔ These artifacts are INVALID — do not cite them (2026-08-08)
+>
+> Every file in this directory was produced from firmware images that still carried OTA transport
+> framing (a 1-byte prefix and 2-byte checksum per 771-byte block), so instruction alignment is
+> wrong throughout. The C28x images were additionally read little-endian when the format serialises
+> each 16-bit word **MSB-first**. Two stacked errors — nothing downstream of them survives.
+>
+> Symptoms visible in the output itself:
+>
+> - `10_modbus_decompiled.c` and `06_priority_decompiled.c` both read **"Total: 0 functions"**.
+> - `10_modbus_analysis.txt` has empty "Modbus-related names", "function code constants" and "CRC
+>   Functions" sections.
+> - 312 of 585 decompiled functions carry `halt_baddata()` / bad-instruction warnings; zero symbols
+>   and no meaningful strings were recovered.
+> - `04_dsp_structure_*.md` opcode statistics are noise — a known-ARM image yields the same counts,
+>   so they carry no signal about C28x code. Its "LRETR: 0 occurrences" is a byte-order artifact;
+>   read correctly the same image contains 112.
+> - `REGISTER_MAP_FROM_FIRMWARE.md` §2 register **names come from pylxpweb, not from firmware**
+>   (the file says so: "Cross-reference: pylxpweb definitions + live register dump values"). Its
+>   firmware-derived part covers holding registers 0-99 and has an empty input-register table.
+>
+> `live_register_dump.json` and `live_register_probe_full.json` are **live Modbus probes, not
+> firmware output**, and remain valid as hardware measurements.
+>
+> **Superseded.** Use these instead:
+>
+> - Current acquisition + decoding method: [`../firmware/FIRMWARE_ACQUISITION.md`](../firmware/FIRMWARE_ACQUISITION.md)
+> - Worked, authoritative analyses:
+>   [`../firmware/OFFGRID_GENERATOR_REGISTERS.md`](../firmware/OFFGRID_GENERATOR_REGISTERS.md),
+>   [`../firmware/OFFGRID_EPS_REGISTERS.md`](../firmware/OFFGRID_EPS_REGISTERS.md),
+>   [`../firmware/HYBRID_EPS_REGISTERS.md`](../firmware/HYBRID_EPS_REGISTERS.md)
+>
+> **Duplicate tree.** This directory holds the same generated artifacts as
+> `docs/reference/firmware/re/`. Both are invalid, and both summaries carry this
+> tombstone. Neither tree is deleted, so the record of what was believed in 2026-04
+> stays intact.
+
 **Date**: 2026-04-13
 **Firmware files analyzed**:
 - `18kpv_fAAB-xx27_Para375_20260330.bin` (286,221 bytes)

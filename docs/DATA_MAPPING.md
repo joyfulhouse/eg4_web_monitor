@@ -1,8 +1,28 @@
 # EG4 Web Monitor - Data Mapping Reference
 
-> **Canonical reference** for how raw data (Modbus registers and Cloud API responses)
-> flows through `pylxpweb` and the `eg4_web_monitor` integration to produce Home
-> Assistant sensor entities.
+> ## Register ground truth lives in the graded ledger, not here
+>
+> **[`llmwiki/40-hardware/registers.md`](../llmwiki/40-hardware/registers.md) is the
+> current ground truth for what a register *means*.** Every claim there carries an
+> explicit evidence grade (`firmware-proven`, `hardware-toggle-proven`,
+> `portal-correlated`, `lineage-inferred`, …). **Most register-semantic claims there
+> are correlations or inferences rather than proof** — and a correlation looks
+> identical to proof once it is restated without its grade. The ledger publishes the
+> exact proven-of-total count and the arithmetic behind it; read it there rather than
+> anywhere else, including here.
+>
+> **This document's register sections are subordinate to that ledger.** They describe
+> how the integration *currently decodes and drives* each register — implementation
+> reality, useful for changing code. They are not evidence of hardware semantics, and
+> they are ungraded. Where the two disagree, the ledger wins; where this file states a
+> meaning the ledger has not proven, treat it as unproven regardless of how confident
+> the prose sounds. Never promote a claim from here into a safety or write decision
+> without checking its grade there.
+>
+> The **non-register** content here — Cloud API field mappings (§6), computed sensor
+> keys (§9), mode differences (§10), smart-port filtering (§11), the GridBOSS CT
+> overlay (§12), entity counts (§13), constants (§14) and calculations (§15) — has no
+> counterpart in the ledger and remains canonical in this file.
 >
 > **Consult this document** whenever working with register-to-sensor or
 > API-to-sensor mappings.
@@ -339,7 +359,7 @@ diagnostics in LOCAL and HYBRID modes. They add no writable register surface.
 
 I25 is deliberately phase-contextual. The pinned ant0nkr comparison
 (`d3d1014`, `I_SEPS`) explicitly qualifies the register as R-phase on
-three-phase systems. Pinned pylxpweb `v0.9.39b6` gives the field aggregate
+three-phase systems. pylxpweb ≥ `0.9.39b6` gives the field aggregate
 semantics on split-phase systems, falling back to I131 + I132 when the legacy
 combined value is zero. The integration therefore publishes a phase-neutral
 entity only for known non-three-phase devices, an explicitly R-phase entity for
@@ -568,11 +588,29 @@ if reg1 & 0x100:
 > every hardware-tested position agrees with the lxp_modbus layout, and
 > the historic 18kPV-specific upper-bit table (green at 8, ECO at 9,
 > buzzer at 6) matched none of them. pylxpweb's base and EG4_OFFGRID
-> tables now share one `REGISTER_110_PARAM_KEYS` list; unproven slots
-> (6, 8-13) are `FUNC_110_BITn` placeholders. The former "cloud-only on
-> EG4_OFFGRID" restriction for the Off Grid Mode switch is lifted: with
-> the bit pinned, local writes work on every family. No ECO entity exists
-> in the integration; that relocation only corrects the library mapping.
+> tables now share one `REGISTER_110_PARAM_KEYS` list. **This file does not
+> enumerate which reg-110 slots are still placeholders** — the canonical per-bit
+> map is `llmwiki/40-hardware/registers.md`; read it there. The enumeration this
+> sentence used to carry was wrong in both directions: it omitted one placeholder
+> and swept in a bit that had since been proven and named, so the list described a
+> proven writable bit as a guarded unknown. It went stale because a promotion
+> recorded in the keeper falsified a duplicated list one file away — changing a
+> bit's grade is never a local edit, and that is the general hazard here, not a
+> one-off. The former "cloud-only on
+> EG4_OFFGRID" restriction for the Off Grid Mode switch is lifted, so
+> `EG4OffGridModeSwitch` now writes **local-first with cloud fallback**
+> wherever it is created (`switch.py:1196-1215`). That is a statement about
+> the shipped write route, **not** evidence that the bit-14 mapping holds on
+> each family: the toggle proof is from one tested unit, and whether it
+> extends to any other family is the keeper's to state — see
+> `llmwiki/40-hardware/registers.md`. A wrong bit would be firmware-ACKed
+> here exactly as in #476, which is the bug this remapping came from. The
+> resulting risk — a shipped entity writing this bit local-first on families
+> where the mapping is unresolved — is tracked in
+> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558); the full
+> list of write paths in that position is enumerated in the wiki, not here. No ECO
+> entity exists in the integration; that relocation only corrects the library
+> mapping.
 
 ### Power Control Registers
 
@@ -584,8 +622,25 @@ if reg1 & 0x100:
 | 67 | `ac_charge_soc_limit` | number | % | 0-100 |
 | 74 | `pv_charge_power` | number | kW | 0-15 |
 | 103 | `grid_sell_back_power` | number | kW | 0-25.5 |
+| 82 | `forced_discharge_power` | number | kW | 0-25.5 |
+| 83 | `forced_discharge_soc_limit` | number | % | 0-100 |
 | 116 | `start_discharge_power_threshold` | number | W | 50-10000 |
 | 117 | `start_charge_power_threshold` | number | W (signed) | -10000-10000 |
+| 206 | `grid_peak_shaving_power` | number | kW | 0-25.5 |
+
+> **`forced_discharge_power` (reg 82) / `forced_discharge_soc_limit` (reg 83)**
+> ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207), PR #249).
+> Reg 82 uses the 100 W encoding of regs 66/74/103 (panel 2.5 kW reads raw 25);
+> reg 83 is a plain percent. **Grid-tied families only** — both entities are
+> created in the non-`EG4_OFFGRID` branch of `number.py`.
+
+> **`grid_peak_shaving_power` (reg 206)**
+> ([#328](https://github.com/joyfulhouse/eg4_web_monitor/issues/328)) is peak
+> shaving period 1 (PS1), stored in **0.1 kW units**. It lives at reg 206, not
+> reg 231 — the old pylxpweb 231 mapping was wrong and `(231,1)` names nothing
+> (`const/modbus.py:161-163`). The entity pre-checks `FUNC_GRID_PEAK_SHAVING`
+> (reg 179 bit 7) with verify-then-block, because the firmware NAKs writes and
+> zeroes the setpoint while the mode is off. **Grid-tied families only.**
 
 > **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
 > cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
@@ -716,6 +771,53 @@ per boundary). Cloud param names take the window suffix
 | 102 | `discharge_current` | number | A | 0-140 |
 | 105 | `ongrid_discharge_soc` | number | % | 10-90 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
+| 160 | `ac_charge_start_battery_soc` | number | % | 0-90 |
+| 161 | `ac_charge_end_battery_soc` | number | % | 0-100 |
+
+> **AC-charge SOC window (regs 160/161)**
+> ([#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331) /
+> [#488](https://github.com/joyfulhouse/eg4_web_monitor/issues/488)). On the
+> off-grid family reg 67 (`ac_charge_soc_limit`) is firmware-rejected and is
+> suppressed with a one-shot Repairs issue, and 160/161 are the registers the
+> integration drives instead. The register keeper grades both `portal-correlated`
+> — see `llmwiki/40-hardware/registers.md` — so treat the pairing as the
+> integration's current implementation choice, not a proven hardware semantic.
+> The two entities are **not** created symmetrically (`number.py:657-695`):
+>
+> - **Reg 160 (Start)** is created on `EG4_OFFGRID` *and* `EG4_HYBRID`. On a
+>   FlexBOSS21 it starts AC charging whenever SOC is below it — in or out of the
+>   AC-charge windows, regardless of the reg-120 `ACChargeType` selector — and the
+>   portal exposes it as "Start AC Charge SOC(%)". The hybrid gate is
+>   `is_hybrid_family()` and fails **closed**: LXP and unidentified hardware are
+>   excluded until verified. Write range is capped at 90 %, per pylxpweb.
+> - **Reg 161 (End)** is created on `EG4_OFFGRID` only. pylxpweb models the
+>   grid-tied stop as reg 67 (`set_ac_charge_soc_limits` pairs 160 with 67), and
+>   the #332 note records reg 161 as inert on tested grid-tied firmware.
+>
+> ⚠️ **Reg 161's meaning and writability on off-grid firmware are UNRESOLVED — and
+> the local write path is LIVE IN PRODUCTION.** There is no gate on it.
+> `ACChargeEndBatterySOCNumber` (`number.py:1436`, created for `EG4_OFFGRID` at
+> `:660`) passes `local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC` to
+> `_write_parameter` (`:1489`), which routes through
+> `async_write_with_cloud_fallback` (`utils.py:185`) — **local write first**, cloud
+> only as fallback. Documenting a safety gate that does not exist is worse than the
+> risk it conceals, because a reader stops looking.
+>
+> The only mitigation in the path is a post-write readback, and **a readback proves
+> storage and transport only, never semantic**. A wrong-but-writable register is
+> firmware-ACKed and reads back exactly the value written, so it cannot distinguish
+> "the control worked" from "a different setting was silently changed".
+>
+> This is an **un-discharged risk that ships today**, recorded so it is visible —
+> not a gate, not reviewed-and-approved, and not safe. Nothing here recommends or
+> blesses the local write. Discharging it requires all of: a family-specific named
+> vendor action or UI control, an independent observation of the resulting
+> behavior, a raw integer before/after register pair, and restoration of the
+> original value. Until that record exists, do not present reg 161 as a validated
+> off-grid control. Tracked as
+> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558); the
+> meaning question is contradiction **C7**, which stays **OPEN**. Changing the
+> write routing is a code decision and is deliberately not made here.
 
 ### Extended Function Enable (Register 179)
 
@@ -724,15 +826,20 @@ per boundary). Cloud param names take the window suffix
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
 | 3 | `FUNC_PV_SELL_TO_GRID_EN` | `pv_sell_to_grid_en` (switch "Export PV Only") | Only export PV surplus, never battery ([#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135); pinned 2026-06-12) |
-| 7 | `FUNC_GRID_PEAK_SHAVING` | `grid_peak_shaving` | Grid peak shaving mode (confirmed) |
-| 9 | `FUNC_BAT_CHARGE_CONTROL` | `battery_charge_control` (select) | Battery **charge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
-| 10 | `FUNC_BAT_DISCHARGE_CONTROL` | `battery_discharge_control` (select) | Battery **discharge** regulation: `0`=SOC, `1`=Voltage (confirmed 2026-02-18) |
-| 11 | `FUNC_AC_COUPLING_FUNCTION` | `ac_couple` (switch "AC Couple") | Inverter-level AC-coupled source enable ([#471](https://github.com/joyfulhouse/eg4_web_monitor/issues/471)/[#472](https://github.com/joyfulhouse/eg4_web_monitor/issues/472)); **not toggle-pinned** — see the note below |
+| 7 | `FUNC_GRID_PEAK_SHAVING` | `grid_peak_shaving` | Grid peak shaving mode |
+| 9 | `FUNC_BAT_CHARGE_CONTROL` | `battery_charge_control` (select) | Battery **charge** regulation: `0`=SOC, `1`=Voltage |
+| 10 | `FUNC_BAT_DISCHARGE_CONTROL` | `battery_discharge_control` (select) | Battery **discharge** regulation: `0`=SOC, `1`=Voltage |
+| 11 | `FUNC_AC_COUPLING_FUNCTION` | `ac_couple` (switch "AC Couple") | Inverter-level AC-coupled source enable ([#471](https://github.com/joyfulhouse/eg4_web_monitor/issues/471)/[#472](https://github.com/joyfulhouse/eg4_web_monitor/issues/472)); see the note below and the keeper's per-bit map |
 
 > **Note:** Register 179 contains 16 API-mapped parameters (`FUNC_ACTIVE_POWER_LIMIT_MODE`,
-> `FUNC_AC_COUPLING_FUNCTION`, etc.). Bits 3, 7, 9, and 10 are confirmed via live toggle
-> testing; bit 11 rests on lineage inference (below); the remaining bits have placeholder
-> names (`FUNC_179_BIT0` etc.) until verified.
+> `FUNC_AC_COUPLING_FUNCTION`, etc.); bits without an established name carry placeholders
+> (`FUNC_179_BIT0` etc.).
+>
+> **This file does not grade reg-179 bits.** The per-bit evidence grades live in the
+> H179 safe bit map in `llmwiki/40-hardware/registers.md`, which is the sole grading
+> authority; consult it there rather than any restatement here. The table above
+> describes what each bit *drives in this integration* — that is implementation
+> reality, not evidence of hardware semantics, and the two must not be conflated.
 >
 > `FUNC_AC_COUPLING_FUNCTION` (the `AC Couple` switch,
 > [#472](https://github.com/joyfulhouse/eg4_web_monitor/issues/472)) is mapped to
@@ -740,17 +847,55 @@ per boundary). Cloud param names take the window suffix
 > Modbus doc; the `ant0nkr/luxpower-ha-integration` register map
 > (`H_FUNCTION_ENABLE_4 = 179`, "Bit 11: uFunctionEn2.ubACcoupling"), whose full
 > 16-bit reg-179 layout matches this project's canonical table bit-for-bit and
-> four of whose bits (3/7/9/10) are hardware-proven on EG4 hardware; and #471's
+> several of whose other bits carry independent corroboration on EG4 hardware
+> (**which bits, and at what grade, is the keeper's to state** — see the H179 safe
+> bit map in `llmwiki/40-hardware/registers.md`; do not infer bit 11 from a
+> neighbour's standing); and #471's
 > reporter having driven the control through that mapping on his LXP, with his
 > live named reads agreeing (AC-couple-enabled LXPUS810K reads the cloud param
-> `True`, a disabled SNA12K-US probe reads `False`). This is the same standing
-> the #476 off-grid green-mode bit shipped on. A wrong bit would be ACKed by the
-> firmware, so readback-verify cannot rule it out — a raw reg-179 read before and
-> after toggling the switch would, and #472 asks for exactly that. Requires
-> pylxpweb 0.9.39b6 (the manifest floor); a pin without the mapping keeps the
-> cloud-only path via the
-> `switch._local_params_can_carry` probe. The register contract harness pins the
-> name to (179, 11) on every inverter family.
+> `True`, a disabled SNA12K-US probe reads `False`). None of that is a controlled
+> toggle: it is lineage plus correlation. **This is the same standing the #476
+> off-grid green-mode bit shipped on — and #476 was wrong.**
+>
+> ⚠️ **A readback delta proves storage and transport ONLY, never semantic.** A
+> wrong-but-writable bit is firmware-ACKed: no exception, no fallback, no log above
+> DEBUG, and it reads back exactly the value written. Reading reg 179 before and
+> after a write therefore cannot tell "the AC-couple function was toggled" from
+> "some other function was silently changed". That is precisely how reg 110 bit 8
+> shipped wrong. Do not treat any readback — including the entity's own
+> `_verify_local_write` re-read — as evidence that the mapping is correct.
+>
+> Discharging this requires the **complete tuple**, not any part of it: a
+> family-specific **named action** (portal control or documented vendor function),
+> the **device family** it was performed on, the **raw integer register word
+> before**, the **raw integer register word after** (differing by exactly
+> `0x0800`), an **independent physical observation** that the AC-coupled input
+> actually changed behavior, and **restoration** of the original value. Scaled or
+> engineering-unit values are not raw captures, and a reconstructed integer is not
+> a capture. [#472](https://github.com/joyfulhouse/eg4_web_monitor/issues/472)
+> tracks exactly this capture; until it lands, bit 11 stays `lineage-inferred` in
+> `llmwiki/40-hardware/registers.md`, which is the grading authority.
+>
+> **Current state — the local write path is LIVE IN PRODUCTION, not gated.**
+> `EG4ACCoupleSwitch` writes bit 11 **local-first with cloud fallback** whenever the
+> installed pylxpweb decodes the name from a register (`switch.py:965-985`, gate at
+> `:248`; the routing is stated in the class docstring at `:795`), and the bit-11
+> mapping ships from pylxpweb 0.9.39b6 — at or below the current `manifest.json`
+> floor, so on a conforming install the local write is the **default** route in
+> LOCAL and HYBRID, not a fallback.
+>
+> This is an **un-discharged risk that ships today**. It is not gated, it has not
+> been reviewed and approved, and it is not safe. Nothing here recommends or
+> blesses the local write; this note records what the code does so the risk is
+> visible rather than implied, and changing the write routing is a code decision
+> deliberately not made in a documentation change. Tracked as
+> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558).
+>
+> Note the deliberate contrast in the same file: `EG4SmartLoadSwitch` is kept
+> **cloud-only** precisely because its bit is unpinned (`switch.py:252-263`), so two
+> unpinned reg-179 bits are currently routed differently. The register contract
+> harness pins the *name* to (179, 11) on every inverter family — that is a
+> consistency check on our own table, not hardware evidence.
 >
 > `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
 > [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) was **pinned to
@@ -786,13 +931,17 @@ Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
 
 | Bit | Parameter Key | HA Entity Key | Purpose |
 |-----|---------------|---------------|---------|
-| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control (confirmed). Not created on EG4_OFFGRID — cloud write rejected on 12000XP v2 and local reg-233 access returns ILLEGAL DATA ADDRESS family-wide (#289/#296) |
+| 1 | `FUNC_BATTERY_BACKUP_CTRL` | `battery_backup_mode` | Battery backup control. Not created on EG4_OFFGRID — cloud write rejected on a 12000XP v2, and local reg-233 access is *reported* to return ILLEGAL DATA ADDRESS **on the off-grid units tested** (#289/#296). No raw request/exception-response capture was preserved, so broader family applicability is **unresolved** — see [H233 off-grid access boundary](../llmwiki/40-hardware/registers.md#h233-off-grid-access-boundary) |
 
 > **Note:** Register 233 contains 9 API-mapped parameters (`BIT_DRY_CONTRACTOR_MULTIPLEX`,
-> `BIT_LCD_TYPE`, `FUNC_BATTERY_CALIBRATION_EN`, `FUNC_SPORADIC_CHARGE`, etc.) but only
-> bit 1 has been confirmed via live toggle testing. Bit 12 is observed set (possibly
-> `FUNC_QUICK_CHARGE_CTRL`). This was the root cause of issue #153 — beta.31 shipped with
-> `pylxpweb>=0.9.4` in manifest but these register mappings only exist in 0.9.5.
+> `BIT_LCD_TYPE`, `FUNC_BATTERY_CALIBRATION_EN`, `FUNC_SPORADIC_CHARGE`, etc.).
+> As with reg 179, **this file does not grade reg-233 bits** — see the H233 safe bit
+> map in `llmwiki/40-hardware/registers.md`. An earlier revision of this note
+> guessed that bit 12 was "possibly `FUNC_QUICK_CHARGE_CTRL`"; the keeper records
+> b12 as sporadic charge and states explicitly that **it is not Quick Charge**, so
+> that guess is removed rather than carried forward. Reg 233 was also the root cause
+> of issue #153 — beta.31 shipped with `pylxpweb>=0.9.4` in the manifest, but these
+> register mappings only exist from 0.9.5.
 
 ### Battery Charge/Discharge Control Mode (SOC vs Voltage)
 

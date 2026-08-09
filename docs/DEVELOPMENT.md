@@ -36,6 +36,9 @@ pytest tests/ --cov=custom_components/eg4_web_monitor --cov-report=term-missing
 python tests/run_tests.py --all
 ```
 
+The same ruff and mypy checks are wired as pre-commit hooks in `prek.toml` at the
+repository root (the config is `prek.toml`, not `.pre-commit-config.yaml`).
+
 Run all of these before opening a pull request. See
 [CONTRIBUTING](https://github.com/joyfulhouse/.github/blob/main/CONTRIBUTING.md)
 for the contribution workflow.
