@@ -164,18 +164,23 @@ observed here.
   provable here, both go to `60-history/open-contradictions.md` marked UNRESOLVED.
   Do not pick a winner to make a page read cleanly.
 
-### Named refinement: the register-annotation ladder
+### The register-annotation ladder
 
-Scoped to **register and bit annotations only**. It refines the proof grades above for
-the one case where getting it wrong writes to unknown hardware. Cross-linked from
-`40-hardware/registers.md`, which applies it per row.
+Scoped to **register and bit annotations only** — the one case where getting it wrong
+writes to unknown hardware. The ladder **classifies evidence and decides write access**.
+It does not grade. Cross-linked from `40-hardware/registers.md`, which applies it per row.
 
-| Rung | Evidence | Grade it earns | What may be built on it |
-|---|---|---|---|
-| 1 | A named vendor/UI action on the target family, an independent observation that the intended physical state changed, a complete raw before/after delta, and restoration | `hardware-toggle-proven` | Reads and writes |
-| 2 | Canonical pylxpweb definition **plus** an independent hardware capture | `hardware-proven` | Reads; writes only with a gate |
-| 3 | Canonical definition alone | `verified-against-code` for the definition, `asserted-unverified` for the semantic | Read-only diagnostics |
-| 4 | A vendor or third-party table | `lineage-inferred` at best | Nothing. It is a family-specific hypothesis |
+| Rung | What evidence exists | What may be built on it |
+|---|---|---|
+| 1 | A named vendor/UI action on the target family, an independent observation that the intended physical state changed, a complete raw before/after delta, and restoration | Reads and writes |
+| 2 | A canonical pylxpweb definition **plus** an independent hardware capture | Reads; writes only with a gate |
+| 3 | A canonical definition alone | Read-only diagnostics |
+| 4 | A vendor or third-party table | Nothing. It is a family-specific hypothesis |
+
+**Which grade this evidence earns is determined solely by the Evidence-grade legend
+above.** If evidence does not meet a grade's stated minimum it does not receive that
+grade — there is no exception, no ladder shortcut, and no rung that substitutes for a
+requirement. A rung says what you have, never what you may call it.
 
 **Binding consequence:** a bit at rung 3 or 4 stays **write-inaccessible** — no entity,
 no named-write path, no placeholder key reachable by a write helper. Gating is the only
@@ -190,8 +195,12 @@ correct on hardware.
 
 ## Freshness discipline
 
-- Every page carries `verified-against:` (a commit) and `last-verified:` (a date). A
-  claim without them is unusable — the reader cannot tell what it was true of.
+- Every page carries `verified-against:` and `last-verified:` (a date). A claim without
+  them is unusable — the reader cannot tell what it was true of. `verified-against:` is a
+  bare commit on a page that cites one repository, and **one labelled commit per
+  repository** on a page that cites more than one; the schema and both forms are in
+  [`_conventions.md`](_conventions.md). A page cannot license a citation into a repo it
+  does not pin.
 - **Status is not knowledge.** Versions, entity counts, "pending reporter confirmation",
   and release state belong in `60-history/` or `50-operations/`, always date-stamped
   inline. Never write "current" without a date.

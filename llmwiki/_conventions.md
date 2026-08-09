@@ -45,7 +45,7 @@ One or two sentences: what this page is for and who reads it.
 |---|---|---|
 | `canonical-for` | yes | The facts this page owns. Another page must not restate them. Be specific: "per-base-class availability semantics", not "entities". |
 | `sources` | yes | Everything the page was written from — **durable artifacts only** (see below). |
-| `verified-against` | yes | The commit the code-citations were checked at. Use `9f6d6e2` unless you re-verified at a newer one. |
+| `verified-against` | yes | The commit(s) the code-citations were checked at — see the two forms below. Use `9f6d6e2` for `eg4_web_monitor` unless you re-verified at a newer one. |
 | `last-verified` | yes | ISO date of the last time someone actually re-checked the page, not the last time it was edited. |
 | `see-also` | no | Sibling pages a reader will want next. Links, not restatements. |
 | `runbook-status` | runbooks only | Whether the procedure on the page has been executed as written. `untested-as-written` until an authorized run says otherwise. |
@@ -56,6 +56,28 @@ above the line are the schema for every page; `runbook-status` and `last-execute
 optional and belong only on a page that gives an executable procedure
 (`40-hardware/probing-playbook.md` is the current case). A runbook that omits them reads
 as rehearsed when it is not, which is the failure they exist to prevent.
+
+#### The two forms of `verified-against:`
+
+This wiki documents two repositories, so a page pins either one commit or several:
+
+````markdown
+verified-against: 9f6d6e2          # the page cites one repository
+
+verified-against:                  # the page cites more than one
+  eg4_web_monitor: 9f6d6e2
+  pylxpweb: 204b95d
+````
+
+The key is the repository name. Which form a page uses follows from what it cites, not
+from which directory it lives in: a `20-pylxpweb/` page that only cites library source
+pins `pylxpweb` alone, and the same chapter's page on release-and-pin mechanics cites
+both and pins both.
+
+**A page cannot license a citation into a repository it does not pin.** `verified-against:`
+is what makes a line range or a symbol reference checkable; a citation into an unpinned
+repo is a claim about an unspecified state of the world. Pin the repo, or reduce the
+citation to something that does not need pinning.
 
 ### Durable sources only
 
@@ -96,6 +118,33 @@ wins by proximity. If you need a distinction that does not exist, add it to READ
   promoting it to `inferred` is not, and neither is citing something the reader cannot open.
 - Uncertainty is content. "Unknown", "refuted", and "contested" are legitimate values —
   write them rather than omitting the row.
+
+### Maintenance note: granting a grade outside the legend is a defect by construction
+
+**Any page that appears to grant, weaken, or except a grade outside
+[README.md](README.md)'s legend is a defect** — however reasonable the local reasoning
+looks. Do not weigh the argument on its merits. The argument is always reasonable; that
+is the failure mode. Delete the local rule and take the grade from the legend.
+
+This is structural, not hypothetical. The same loophole regrew three times in three
+review rounds, in three different places, each written in good faith by someone fixing
+something real:
+
+| Where it regrew | The form it took |
+|---|---|
+| `20-pylxpweb/api-surface.md` | The chapter defined its own, weaker `hardware-proven` |
+| `README.md`, evidence legend | A "negative claim" exception waiving the raw before/after pair |
+| `README.md`, register-annotation ladder | A rung awarding `hardware-proven` with no raw pair |
+
+Each fix patched its instance and left the cause: a grade's *minimum proof* and the
+*evidence a page actually has* pull against each other, so any second structure that
+names grades will eventually resolve that tension in favour of the evidence in front of
+it. Hence exactly one structure grades. Ladders, register tables, chapter conventions,
+and glossary entries describe evidence and its consequences, then defer.
+
+The tell is a sentence of the form "evidence *X* earns grade *Y*" anywhere outside
+README's legend. Deleting the sentence never loses information: either the legend
+already says it, or it is the defect.
 
 ## Writing rules
 

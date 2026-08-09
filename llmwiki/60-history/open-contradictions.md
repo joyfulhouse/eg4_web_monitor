@@ -39,12 +39,13 @@ re-verified against hardware or code here.
 
 > `memory/queue-cleanup-2026-07-26.md`: "The `{serial}_{data_type}_{sensor_key}` unique-ID format documented in eg4's `CLAUDE.md` was **NEVER IMPLEMENTED** — device IDs are `{serial}_{sensor_key}` today and at v3.2.0, and no Python in the repo's history emits a data-type segment. But a test fixture had been written to match the documentation, and a registry-cleanup matcher was then designed to satisfy that fixture."
 
-**Status: UNRESOLVED as a document conflict.** The repo `CLAUDE.md` now carries the
-correction, and the real emitted forms are `verified-against-code` (owned by
-[`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md)).
-The stale claim nevertheless survives
-uncorrected in `FINAL_VALIDATION_REPORT.md`. What a human must decide: whether that
-file is deleted, banner-tombstoned, or kept as an archive.
+**Status: UNRESOLVED as a document conflict.** The real emitted forms are
+`verified-against-code` and owned by
+[`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md),
+so the *fact* is settled. The stale claim nevertheless survives uncorrected in
+`FINAL_VALIDATION_REPORT.md`, a file that reads as an authoritative validation report and
+carries no warning. What a human must decide: whether that file is deleted,
+banner-tombstoned, or kept as an archive.
 
 **Working rule meanwhile:** never lift an entity-ID or unique-ID format from
 `FINAL_VALIDATION_REPORT.md`. The mechanism by which this fiction became production
@@ -106,16 +107,20 @@ lifetime source. What a human must decide: whether the early table is struck out
 
 > `memory/issue-476-green-mode-bit14.md`: pylxpweb's 18kPV/`EG4_HYBRID` table mapped `FUNC_GREEN_EN` at bit 8 and was "falsely annotated `# verified`"; a hardware toggle proves bit 14.
 
-> `docs/DATA_MAPPING.md:545` now says bit 14 with the correction inline; repo `CLAUDE.md` also says bit 14 "(hardware-verified 2026-07-21, #476; historic bit-8 mapping was wrong)".
+> `memory/release-3.5.1-beta.3-shipped.md`: after the correction shipped, the changelog over-claimed a **third** time about bit 8 — saying it "controls something and those toggles were changing it", when "only the write attempt and ACK were established".
 
-**Status: UNRESOLVED in one narrow respect.** No live contradiction remains between
-those two files — bit 14 is graded by [`40-hardware/registers.md`](../40-hardware/registers.md)
-(row `H110 b14`) and its history is recorded in
-[superseded-claims.md](superseded-claims.md). But `release-3.5.1-beta.3-shipped.md`
-records that the changelog then over-claimed a **third** time about bit 8, saying it
-"controls something and those toggles were changing it — only the write attempt and
-ACK were established". What a human must decide: what, if anything, bit 8 does. Until
-then, any claim about bit 8's semantics is `asserted-unverified` and must not be shipped.
+**Status: UNRESOLVED — what bit 8 does.** The bit-14 mapping is settled: it is graded by
+[`40-hardware/registers.md`](../40-hardware/registers.md) (row `H110 b14`) and its history
+is in [superseded-claims.md](superseded-claims.md). What stays open is bit 8. The keeper
+records it as **function unknown** (row `H110 b8`); the only thing ever established is
+that a write to it was accepted and ACKed. What a human must decide: what, if anything,
+bit 8 does. Until then any claim about bit 8's semantics is `asserted-unverified` and must
+not be shipped.
+
+**The durable trap:** bit 8 has been over-claimed three times, twice *after* the
+correction landed. The mechanism is the register's own behaviour — a wrong-but-writable
+bit is firmware-ACKed, so every attempt to describe it produced a confident sentence and
+no evidence, and each writer had a successful write to point at.
 
 ---
 
@@ -135,12 +140,19 @@ entity on off-grid. What a human must decide: whether "inert" is family-specific
 
 > `memory/release-3.4.0-beta.18-status.md`: pylxpweb b28 "old 'reg 161 read-only' FlexBOSS note family-scoped NOT deleted (grid-tied observation preserved; offgrid LOCAL write UNVERIFIED)".
 
-> Repo `CLAUDE.md` register table: "AC Charge Start / End Battery SOC | 160 / 161 | … End 0-100% on EG4_OFFGRID only (read-only on grid-tied, #332 note)".
+> The integration ships a register-161-backed control on `EG4_OFFGRID` anyway. `verified-against-code` (`number.py` → `ACChargeEndBatterySOCNumber`, writing with `verify_register=161`), whose own docstring records that "LOCAL Modbus writes to reg 161 are hardware-UNVERIFIED on the off-grid family — all #331 write evidence is the cloud holdParam path".
 
-**Status: UNRESOLVED.** The two are consistent if read carefully, but the shipping
-status is "offgrid LOCAL write UNVERIFIED" while the register table presents it as a
-control. What a human must decide: whether the register table gains an explicit
-verification-status column, and whether the off-grid local write is validated.
+**Status: UNRESOLVED.** The load-bearing register status lives with the keeper:
+[`40-hardware/registers.md`](../40-hardware/registers.md) row `H161` records **LOCAL
+writability unresolved** and "do not treat H161 as a safe local write". A writable control
+entity for that register is nevertheless shipped on off-grid. What a human must decide:
+whether the off-grid LOCAL write is validated, and whether a shipped control may stand on
+a write path nothing has confirmed.
+
+**The durable trap:** the code's stated mitigation is a post-write parameter readback.
+Readback proves storage and transport only — never that the firmware acted on the value —
+so it cannot close this gap. See the legend's rule in [README](../README.md#rules); it is
+the same reasoning that let register 110 bit 8 ship wrong (C5).
 
 ---
 

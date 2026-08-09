@@ -87,9 +87,12 @@ Plant / Station  (plantId)
 ```
 
 The integration creates one config entry per station. Terms are defined in
-[glossary.md](glossary.md). `asserted-unverified` (`CLAUDE.md` "Device Hierarchy"; the
-shapes are corroborated by the entity unique-ID forms owned by
-[`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md)).
+[glossary.md](glossary.md). This nesting is not a documentation convention — it is the
+Home Assistant device tree the integration actually builds: `verified-against-code`
+(`coordinator_mixins.py` → `DeviceInfoMixin`, which sets `via_device` to nest an inverter
+under its parallel group, a battery under its bank, and a bank under its inverter serial).
+The shapes are independently corroborated by the entity unique-ID forms owned by
+[`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md).
 
 ## The two-repo relationship
 

@@ -28,7 +28,7 @@ command file.
 |---|---|---|
 | `config_flow/` (package) | `_config_flow/` (package) + `config_flow.py` (thin re-export) | An agent creates or edits the wrong directory. Classed *breaks-agent* in the docs audit. |
 | `const.py` | `const/` (package) | The file does not exist. `SensorConfig` is in `const/sensors/types.py`. A CI step in `.github/workflows/quality-validation.yml` still compiles the nonexistent path (tracked as issue #549). |
-| `async_step_reconfigure_plant()` | No such step. `async_step_reconfigure` exists; the station step is `async_step_reconfigure_cloud_station` | Named in `CLAUDE.md`; not present in `_config_flow/`. `asserted-unverified` (PR #557, which corrects it against `_config_flow/__init__.py`) |
+| `async_step_reconfigure_plant()` | No such step has ever existed. `async_step_reconfigure` is the entry point; the station step is `async_step_reconfigure_cloud_station` | An agent implements against, or tests for, a method that is not there. `verified-against-code`: `_config_flow/__init__.py` defines fourteen `async_step_reconfigure*` methods and this is not one of them. **`tests/validate_gold_tier.py` → `validate_reconfiguration()` still greps for it and, not finding it, prints "may be optional" and passes** — which is why the name survived every green CI run that was supposed to catch it |
 | Coordinator mixin list without HTTP/Local | `HTTPUpdateMixin` and `LocalTransportMixin` are the **first two** bases | See the coordinator table below |
 
 An **empty untracked `config_flow/` directory** may exist in a working copy and is a

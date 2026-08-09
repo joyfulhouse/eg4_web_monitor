@@ -69,9 +69,10 @@ the defect below, so the record of the defect must not become a fourth copy of i
 about the world. When a fixture is the only support for a behaviour, find the
 production emission site before writing code that consumes it.
 
-**Current state:** repo `CLAUDE.md` carries the correction; the stale claim survives in
-`docs/claude/FINAL_VALIDATION_REPORT.md`, which is why C1 remains open in
-[open-contradictions.md](open-contradictions.md). Never lift an ID format from that file.
+**Current state:** the stale claim survives in `docs/claude/FINAL_VALIDATION_REPORT.md`,
+which is why C1 remains open in [open-contradictions.md](open-contradictions.md). Never
+lift an ID format from that file, or from any document that is not the owner — the
+emitted forms have exactly one owner, and this page is deliberately not a second copy.
 
 ---
 
@@ -107,7 +108,7 @@ also the never-root-caused tail of #194.
   test (write → read back → restore) proves **storage and transport only**. Establishing
   what a bit *means* additionally requires a named vendor/UI action and an independent
   observation that the intended physical state changed — the ladder in
-  [README](../README.md#named-refinement-the-register-annotation-ladder).
+  [README](../README.md#the-register-annotation-ladder).
 
 **Do not extend this to bit 8's semantics.** What bit 8 actually controls is unknown; a
 later changelog over-claimed about it a third time. See C5 in
@@ -208,10 +209,11 @@ direct cause of S2, and the same conflation was re-committed *in the comment doc
 the fix*.
 
 **What replaces it:** the register-annotation ladder, which is defined once in
-[README](../README.md#named-refinement-the-register-annotation-ladder) and applied per row
+[README](../README.md#the-register-annotation-ladder) and applied per row
 by [`40-hardware/registers.md`](../40-hardware/registers.md). It ranks a live toggle above a
 canonical definition plus an independent capture, above a canonical definition alone, above
-a vendor table — and makes anything below the top two rungs write-inaccessible.
+a vendor table — and makes anything below the top two rungs write-inaccessible. It ranks
+evidence and decides write access; the grade comes from the legend.
 `asserted-unverified` (`docs/audits/2026-08-02-register-race-performance-audit.md`).
 
 ---
@@ -220,13 +222,19 @@ a vendor table — and makes anything below the top two rungs write-inaccessible
 
 **Claimed:** a dedicated 5th battery slot is readable; a commit was written to read it.
 
-**Reality:** the protocol exposes a fixed, small number of battery slots and no more; the
-commit was proved wrong and reverted. The other community integration
-(`ant0nkr/luxpower-ha-integration`) reads batteries against the same ceiling, so the limit
-is the protocol, not our code. The register-level fact — how many slots, at which addresses,
-and its evidence grade — is owned by
-[`40-hardware/registers.md`](../40-hardware/registers.md).
+**Reality:** on the captured inverter/dongle Modbus path there is no fifth slot — the
+explicit fifth- and sixth-slot probe reads came back empty, and the commit was proved
+wrong and reverted. The other community integration
+(`ant0nkr/luxpower-ha-integration`) reads batteries against the same ceiling, which
+corroborates the observation on that path; it is not evidence of a protocol-wide limit,
+and no capture here establishes one. The register-level fact — how many slots, at which
+addresses, its scope, and its evidence grade — is owned by
+[`40-hardware/registers.md`](../40-hardware/registers.md), which records the ceiling for
+the captured path and leaves family portability **unresolved**.
 `asserted-unverified` for the history (`memory/issue-258-battery-rr-reg96-unreliable.md`).
+
+Systems with more than four packs can still surface further identities through firmware
+rotation, so a slot count is not a pack count — accumulate by serial.
 
 **Secondary trap from the same investigation:** "duplicate serials in the accumulator
 dump" was a **logging artefact** — the dump decoded only 14 of the 15 serial characters.
