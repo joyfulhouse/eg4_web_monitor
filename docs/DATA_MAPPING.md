@@ -339,7 +339,7 @@ diagnostics in LOCAL and HYBRID modes. They add no writable register surface.
 
 I25 is deliberately phase-contextual. The pinned ant0nkr comparison
 (`d3d1014`, `I_SEPS`) explicitly qualifies the register as R-phase on
-three-phase systems. Pinned pylxpweb `v0.9.39b6` gives the field aggregate
+three-phase systems. pylxpweb ≥ `0.9.39b6` gives the field aggregate
 semantics on split-phase systems, falling back to I131 + I132 when the legacy
 combined value is zero. The integration therefore publishes a phase-neutral
 entity only for known non-three-phase devices, an explicitly R-phase entity for
@@ -584,8 +584,25 @@ if reg1 & 0x100:
 | 67 | `ac_charge_soc_limit` | number | % | 0-100 |
 | 74 | `pv_charge_power` | number | kW | 0-15 |
 | 103 | `grid_sell_back_power` | number | kW | 0-25.5 |
+| 82 | `forced_discharge_power` | number | kW | 0-25.5 |
+| 83 | `forced_discharge_soc_limit` | number | % | 0-100 |
 | 116 | `start_discharge_power_threshold` | number | W | 50-10000 |
 | 117 | `start_charge_power_threshold` | number | W (signed) | -10000-10000 |
+| 206 | `grid_peak_shaving_power` | number | kW | 0-25.5 |
+
+> **`forced_discharge_power` (reg 82) / `forced_discharge_soc_limit` (reg 83)**
+> ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207), PR #249).
+> Reg 82 uses the 100 W encoding of regs 66/74/103 (panel 2.5 kW reads raw 25);
+> reg 83 is a plain percent. **Grid-tied families only** — both entities are
+> created in the non-`EG4_OFFGRID` branch of `number.py`.
+
+> **`grid_peak_shaving_power` (reg 206)**
+> ([#328](https://github.com/joyfulhouse/eg4_web_monitor/issues/328)) is peak
+> shaving period 1 (PS1), stored in **0.1 kW units**. It lives at reg 206, not
+> reg 231 — the old pylxpweb 231 mapping was wrong and `(231,1)` names nothing
+> (`const/modbus.py:161-163`). The entity pre-checks `FUNC_GRID_PEAK_SHAVING`
+> (reg 179 bit 7) with verify-then-block, because the firmware NAKs writes and
+> zeroes the setpoint while the mode is off. **Grid-tied families only.**
 
 > **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
 > cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
@@ -716,6 +733,26 @@ per boundary). Cloud param names take the window suffix
 | 102 | `discharge_current` | number | A | 0-140 |
 | 105 | `ongrid_discharge_soc` | number | % | 10-90 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
+| 160 | `ac_charge_start_battery_soc` | number | % | 0-90 |
+| 161 | `ac_charge_end_battery_soc` | number | % | 0-100 |
+
+> **AC-charge SOC window (regs 160/161)**
+> ([#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331) /
+> [#488](https://github.com/joyfulhouse/eg4_web_monitor/issues/488)). This is the
+> off-grid family's real AC-charge SOC control; reg 67 (`ac_charge_soc_limit`) is
+> firmware-rejected there and is suppressed with a one-shot Repairs issue.
+> The two entities are **not** created symmetrically (`number.py:657-695`):
+>
+> - **Reg 160 (Start)** is created on `EG4_OFFGRID` *and* `EG4_HYBRID`. On a
+>   FlexBOSS21 it starts AC charging whenever SOC is below it — in or out of the
+>   AC-charge windows, regardless of the reg-120 `ACChargeType` selector — and the
+>   portal exposes it as "Start AC Charge SOC(%)". The hybrid gate is
+>   `is_hybrid_family()` and fails **closed**: LXP and unidentified hardware are
+>   excluded until verified. Write range is capped at 90 %, per pylxpweb.
+> - **Reg 161 (End)** is created on `EG4_OFFGRID` only. pylxpweb models the
+>   grid-tied stop as reg 67 (`set_ac_charge_soc_limits` pairs 160 with 67), and
+>   the #332 note records reg 161 as read-only on grid-tied hardware. The
+>   off-grid local write is still UNVERIFIED; readback-verify covers it.
 
 ### Extended Function Enable (Register 179)
 
@@ -747,7 +784,8 @@ per boundary). Cloud param names take the window suffix
 > the #476 off-grid green-mode bit shipped on. A wrong bit would be ACKed by the
 > firmware, so readback-verify cannot rule it out — a raw reg-179 read before and
 > after toggling the switch would, and #472 asks for exactly that. Requires
-> pylxpweb 0.9.39b6 (the manifest floor); a pin without the mapping keeps the
+> pylxpweb ≥ 0.9.39b6 (at or below the current `manifest.json` floor — read the
+> manifest for the pin in force, do not restate it here); a pin without the mapping keeps the
 > cloud-only path via the
 > `switch._local_params_can_carry` probe. The register contract harness pins the
 > name to (179, 11) on every inverter family.
