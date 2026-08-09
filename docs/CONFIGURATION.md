@@ -362,7 +362,7 @@ the entity name** — the integration does not set entity IDs itself. Device nam
 are `{model} {serial}` for inverters and GridBOSS, `Battery {serial}-{NN}` for
 individual batteries, `Battery Bank {serial}`, `Parallel Group {name}`, and
 `Station {name}`. Serial numbers are 10-character alphanumeric strings, so they
-are not always all digits (e.g. `52842P0581`).
+are not always all digits (e.g. `1234A56789`).
 
 ```yaml
 # Inverter sensors

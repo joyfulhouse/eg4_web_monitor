@@ -86,8 +86,8 @@ Adjudicate any entity-ID claim against a live registry capture
 (`scratchpad/prod-baseline/prod_eg4_entities.txt`), never against `entity_key`
 constants or `_attr_entity_id` strings.
 
-Serials are **10-character alphanumeric**, not numeric-only (`4512670118`,
-`52842P0581`). Never assume `\d{10}`.
+Serials are **10-character alphanumeric**, not numeric-only (`1234567890`,
+`1234A56789`). Never assume `\d{10}`.
 
 ## Quality gates
 
