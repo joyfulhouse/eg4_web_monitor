@@ -3,7 +3,8 @@ canonical-for:
   - "Chronological record of operations performed on llmwiki"
 sources:
   - PR #553 and the sibling chapter PRs
-  - the round-by-round adjudication record for this build
+  - the round-by-round adjudication record for this build — a host-local orchestrator
+    ledger, NOT published in this repo and not openable by a reader
 verified-against: 9f6d6e2
 last-verified: 2026-08-09
 see-also:
@@ -49,11 +50,41 @@ Sections: `00-orientation`, `10-integration`, `20-pylxpweb`, `30-portal-api`,
 `40-hardware`, `50-operations`, `60-history`, plus [`README.md`](README.md) (legend and
 rules) and [`_conventions.md`](_conventions.md) (page template).
 
-## [2026-08-09] lint | Eight-round adversarial review across three blocking engines
+## [2026-08-09] lint | Ten-round adversarial review — a full three-engine tribunal for four of them
 
-Every page was reviewed by three independent engines over eight rounds, with a binding
-adjudication after each. Rounds did not converge quickly: seven of the eight produced at
-least one BLOCKER, and the last round to seat all three engines still produced four.
+Grade: `asserted-unverified`. The round-by-round record is a host-local orchestrator ledger
+that is **not published in this repo**, so a reader cannot open it and this entry is not
+independently corroborated here. What a reader can reach is the durable residue:
+PRs #551–#556, issue #558, and this branch's commit history.
+
+**Ten rounds**, each closed by a binding adjudication. The three-engine roster held for four
+of them:
+
+| Rounds | Third engine | Recorded status at the time |
+|---|---|---|
+| 1–2 | **substituted** — `pi` running `moonshotai/kimi-k3` in place of the kimi harness | explicitly *not* a protocol-clean attestation. Never reached full-diff coverage: round 1 covered two of six branches, round 2 covered two before its OpenRouter key hit a monthly cap (HTTP 403) and died permanently |
+| 3–6 | **absent** | two engines only. kimi reported no usable model provider (`sys_list_models`: `source: none`, provider resolution KeyError); pi was past its billing cap. All four rounds recorded as explicitly not protocol-clean |
+| 7–10 | **seated** — kimi as a real engine | three genuine engines, which happened only because the maintainer approved its shell prompts interactively |
+
+So: ten rounds, four with a genuine three-engine tribunal, two with a substituted third
+engine, four with two engines.
+
+The four two-engine rounds were avoidable, and the reason is the durable part: the provider
+report that justified them was **wrong**. kimi ran here as soon as its approval prompts were
+answered. A capability report was taken as ground truth without a live dispatch ever being
+attempted, and four rounds ran with a measurably weaker net. The rule that earns: a worker is
+unavailable only after a dispatch fails, never on a catalog or capability report alone.
+
+Most rounds produced at least one BLOCKER. No per-round severity split is published here,
+because the earlier version of this entry stated a ratio it could not source.
+
+The most valuable findings came from the late three-engine rounds, not the early ones. Round 8
+is the convergence case: all three engines independently found the same BLOCKER. **Round 9 is
+the stronger argument for the third seat, because there the engines disagreed** — one returned
+CLEAN, one four BLOCKERs, one a single BLOCKER. Two of them had independently re-derived the
+same count of router bypasses and were both right *within a frame that was too narrow*; the
+dissenting engine questioned the frame and was correct. A third lens earns its seat by
+disagreeing, not by concurring.
 
 The recurring finding was not factual error but **structural**: the same defect class
 regrowing in new places after each local fix.
@@ -65,10 +96,12 @@ regrowing in new places after each local fix.
   the ladder now classifies evidence and decides write access but **names no grade**, and
   the legend is the sole grading authority. [`_conventions.md`](_conventions.md) carries a
   maintenance note declaring any out-of-legend grant a defect by construction.
-- **False safety gates** — text asserting a protection the code does not implement —
-  appeared four times, including in the glossary, where it was most dangerous: a reader who
-  learns "unproven implies unwritable" stops looking for the gate everywhere else. All
-  four now state the required policy and name it as unenforced.
+- **False safety gates** — text asserting a protection the code does not implement — kept
+  reappearing after each local fix. The instance found in the glossary was the *fourth*, and
+  it was the most dangerous placement: a reader who learns "unproven implies unwritable" in
+  the page that defines what grades mean stops looking for the gate everywhere else. The
+  sweep that instance prompted found **four more**. All of them now state the required policy
+  and name it as unenforced.
 - **Completeness claims** ("every X", "only these three") proved false in every instance
   where the set was derived by code rather than maintained by hand.
 
@@ -168,3 +201,40 @@ in [`README.md`](README.md). Deliberately not moved in this shipping pass: that 
 drawn no findings for four consecutive rounds, and reopening it to relocate one fact buys
 nothing now. The blind-spot row keeps citing pylxpweb `hybrid.py` directly until a
 maintenance session makes the move.
+
+## [2026-08-09] lint | Erratum: this log overstated its own review
+
+The review entry above was published claiming **"Eight-round adversarial review across three
+blocking engines"** — that every page was reviewed by three independent engines over eight
+rounds, and that "seven of the eight produced at least one BLOCKER". Three claims, all wrong,
+all in the flattering direction:
+
+| Claimed | Actual |
+|---|---|
+| eight rounds | **ten** |
+| three independent engines throughout | three genuine engines in **four** rounds; a substituted third in two; **two engines** in four |
+| "seven of the eight produced at least one BLOCKER" | a ratio computed on the wrong denominator, and no sourced per-round severity split was ever held |
+
+The entry has been corrected in place rather than left standing with a later retraction —
+a deliberate departure from this log's append-never-rewrite rule, taken because the false
+version was a **provenance claim**, and a reader who stops at the entry would have carried
+away the inflated one. This erratum is the compensating record: it preserves what the entry
+said and why it was wrong, which is what that rule exists to protect.
+
+**How it was caught, and why that matters more than the numbers.** Not by re-reading the
+entry. The docs-corrections author opened this log to verify an unrelated fact, and found the
+round count disagreed with the maintainer's. Peer review of the log worked exactly as
+intended — the log was treated as a claim, not as a record.
+
+**Why this is the worst page in the wiki to over-claim on.** The entire thesis here is that
+unearned confidence is the defect: every structural finding above is some version of a
+statement asserting more coverage than it has. An inflated review count in the wiki's own
+provenance entry is that same defect, applied to the wiki's own credibility, and it is the
+one page where the over-claim refutes the document making it. Six of the ten rounds ran with
+a measurably weaker net; a reader taking the old entry at its word believed every page got
+three independent reviews.
+
+**The rule this earns:** claims about *our own process* get graded like claims about the
+hardware. This entry is now `asserted-unverified` and says plainly that its detailed record
+is not in the repo — because it is not, and the previous version's confident tone was doing
+work that no reader-openable source supported.
