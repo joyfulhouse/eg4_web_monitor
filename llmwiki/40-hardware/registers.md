@@ -14,7 +14,7 @@ sources:
   - memory/voltage-param-scaling-cloud-vs-local.md
   - memory/quick-charge-local-control-registers.md
   - pylxpweb@204b95d:src/pylxpweb/transports/data.py
-  - pylxpweb@204b95d:src/pylxpweb/constants/registers.py
+  - https://github.com/joyfulhouse/pylxpweb/issues/242
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
@@ -223,12 +223,12 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H110 b2 | Micro-grid enable | lineage-wide | `lineage-inferred` | current | 1 | Canonical safe map. |
 | H110 b3 | Shared battery | lineage-wide | `lineage-inferred` | current | 1 | Portal name exists; no complete toggle tuple. |
 | H110 b4 | Charge last | lineage-wide | `lineage-inferred` | current | 1 | Canonical safe map. |
-| H110 b5 | Function unknown | tested 18kPV disproof; wider applicability unresolved | `asserted-unverified` | unresolved | 0 | The pinned b10 toggle shows b5 stayed set, refuting the historic Take Load Together label without identifying b5's actual function. [`registers.py` at `204b95d`, lines 625-634](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L625-L634). |
+| H110 b5 | Function unknown | tested 18kPV disproof; wider applicability unresolved | `asserted-unverified` | unresolved | 0 | The b10 toggle shows b5 stayed set, refuting the historic Take Load Together label without identifying b5's actual function. [pylxpweb #242 live-capture record](https://github.com/joyfulhouse/pylxpweb/issues/242#issuecomment-5152609179). |
 | H110 b6 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); historic buzzer position is refuted below. |
 | H110 b7 | Buzzer enable | tested portal scope | `portal-correlated` | current | 1 | Named/raw correlation lacks full toggle tuple. |
 | H110 b8 | **Function unknown** | all | `asserted-unverified` | unresolved | 0 | Only the wrong write and firmware ACK were established; it did not control Green Mode. No PVCT/CT semantic is claimed. See [contradiction C5](../60-history/open-contradictions.md) and `memory/issue-476-green-mode-bit14.md`. |
 | H110 b9 | Function unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); historic ECO position is refuted below. |
-| H110 b10 | Take Load Together | tested 18kPV (`45XXXXXX18`) | `hardware-toggle-proven` | current | 1 | Driving EG4 cloud `functionControl` by name from True to False and back moved raw H110 `1056 → 32 → 1056`: a single b10 delta with byte-perfect restoration while b5 stayed set. Component firmware version unrecorded — scope limited to the tested unit. [`registers.py` at `204b95d`, lines 625-634](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L625-L634). |
+| H110 b10 | Take Load Together | tested 18kPV (`45XXXXXX18`) | `hardware-toggle-proven` | current | 1 | Driving EG4 cloud `functionControl` by name from True to False and back moved raw H110 `1056 → 32 → 1056`: a single b10 delta with byte-perfect restoration while b5 stayed set. Component firmware version unrecorded — scope limited to the tested unit. [pylxpweb #242 live-capture record](https://github.com/joyfulhouse/pylxpweb/issues/242#issuecomment-5152609179). Issue #242 also records that `inverter_holding.py:969-976` had tagged the wrong b5 mapping as `# verified`; code annotations may repeat a finding but are not evidence for a hardware grade. |
 | H110 b11-b13 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H110 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
 | H110 b14 | Green/Off-Grid Mode | tested 18kPV hybrid | `hardware-toggle-proven` | current | 1 | Named Green/Off-Grid Mode action and raw 1056→17440→1056 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/issue-476-green-mode-bit14.md`. |
 | H110 b14 | Green/Off-Grid Mode candidate | 12000XP/6000XP | `lineage-inferred` | unresolved | 1 | Unified layout inference only; requires a family-specific controlled behavior-and-restore capture. |
@@ -343,7 +343,7 @@ These historic claims are excluded from the 335-current-claim denominator. `refu
 | Historic claim | Evidence | Status | Current bounded result | Durable basis |
 |---|---|---|---|---|
 | H110 b8 is Green/Off-Grid Mode. | `portal-correlated` | refuted | H110 b8 is **UNKNOWN**. The wrong b8 write was ACKed and did not control Green Mode; no PVCT/CT function is claimed. H110 b14 is `hardware-toggle-proven` on the tested 18kPV unit. | [Contradiction C5](../60-history/open-contradictions.md); `memory/issue-476-green-mode-bit14.md`. |
-| H110 b5 is Take Load Together. | `hardware-toggle-proven` | refuted | The named Take Load Together control toggled b10 while b5 stayed set throughout; b10 was restored byte-perfectly. | [`registers.py` at `204b95d`, lines 625-634](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L625-L634). |
+| H110 b5 is Take Load Together. | `hardware-toggle-proven` | refuted | The named Take Load Together control toggled b10 while b5 stayed set throughout; b10 was restored byte-perfectly. | [pylxpweb #242 live-capture record](https://github.com/joyfulhouse/pylxpweb/issues/242#issuecomment-5152609179). |
 | H110 b6 is Buzzer. | `portal-correlated` | refuted | Current candidate is b7; b6 is unknown. | Safe register map and portal correlation. |
 | H110 b9 is Battery ECO. | `portal-correlated` | refuted | Current candidate is b15; b9 is unknown. | Safe register map and raw correlation. |
 | 12000XP/off-grid I123 is generator power. | `firmware-proven` | refuted | It is an ARM-initialization counter modulo 65,536 with nominal ~1 Hz increment. | `OFFGRID_GENERATOR_REGISTERS.md`. |
