@@ -220,9 +220,11 @@ evidence, so they are graded separately.
    long syntax with `bind.create_host_path: false` — which it does not, though that too is only
    `asserted-unverified` against parent workspace `docker-compose.yaml:21-28`.
 
-Confirm the directory exists before switching. The hazard is latent rather than live: all four
-config directories are present today, so this bites a typo or a newly added mode, not the modes
-listed above.
+Confirm the directory exists before switching. The hazard is latent rather than triggered on every
+run: the script maps only the four known modes and rejects anything else with a usage message and
+`exit 1` — `asserted-unverified`, parent workspace `eg4-switch-mode.sh:20-43`. So what reaches the
+missing-directory case is a typo inside a `case` arm's directory name, a newly added mode, or a
+config directory that has been moved or never provisioned — not routine use of the four modes above.
 
 ## Operational hazards (do not skip)
 

@@ -220,34 +220,43 @@ tree**, so confirm them on GitHub each time rather than inheriting a belief abou
 |---|---|---|---|
 | 1 | The `pypi` environment restricts **which refs may deploy** to protected release tags — GitHub evaluates its deployment branch/tag policy against the run's `github.ref`, and it is the only automatic control that constrains *which ref* may publish | Repo → Settings → Environments → `pypi` → deployment branches and tags | **Unverified — settings not in the tree** |
 | 2 | The `pypi` environment requires **review by someone other than the dispatcher** | Same screen → required reviewers | **Unverified — settings not in the tree** |
-| 3 | An **immutable, protected release tag** exists, and the version in `pyproject.toml` at that tag equals the version being published | `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit; a tag protection rule or ruleset to stop the tag being moved afterwards | **Unverified — tag protection is a repo setting.** And see below: the release tags carry no immutability of their own |
+| 3 | An **immutable, protected release tag** exists, and the version in `pyproject.toml` at that tag equals the version being published | `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit; a tag protection rule or ruleset to stop the tag being moved afterwards | **Unverified — tag protection is a repo setting.** Re-check the tag itself too: when last observed the release tags were lightweight and so supplied no immutability of their own ([below](#a-lightweight-tag-carries-no-evidence-of-its-own)) |
 
 If any is unconfirmed, **publish through a published GitHub Release instead of a manual dispatch**,
 and treat the manual `pypi` path as unavailable. The release path at least binds the checkout to
 `github.event.release.tag_name`; note that this still assumes the tag is protected, since an
 unprotected git tag can be moved after review (precondition 3 covers both paths).
 
-**The release tags are lightweight, so they carry no evidence of their own.** Checked at the pin:
-`git cat-file -t refs/tags/v0.9.39b10` returns `commit`, not `tag` — the ref points straight at the
-commit with no tag object behind it. The same holds for `v0.9.39b9`. A lightweight tag has **no
-tagger identity, no timestamp and no signature**, and it is an ordinary ref that anyone with push
-access can move with `git push --force origin v0.9.39b10`. So a tag matching the artifact proves only
-where the ref points *right now*; it is not evidence of who cut the release or that it has not been
-repointed since. Precondition 3's immutability therefore rests **entirely** on GitHub tag protection
-rules — there is no fallback in the git data — `verified-against-code` — pylxpweb@`204b95d`:
-`git cat-file -t` on both release tag refs.
+#### A lightweight tag carries no evidence of its own
 
-Worked example at the pin, which resolves gate checks 1 and 2 concretely:
+A lightweight tag is an ordinary ref pointing straight at a commit, with no tag object behind it, so
+it has **no tagger identity, no timestamp and no signature**, and anyone with push access can move it
+with `git push --force origin <tag>`. A tag
+matching the artifact therefore proves only where the ref points at the moment you look; it is not
+evidence of who cut the release, nor that the ref has not been repointed since. That is a property
+of git's data model, not of this project — `inferred`.
 
-| Step | Result |
-|---|---|
-| `git rev-parse 'v0.9.39b10^{commit}'` | `204b95d…` |
-| `git ls-remote --tags origin refs/tags/v0.9.39b10` | `204b95d…` — local and origin agree, so the ref has not been repointed on one side only |
-| `git show 204b95d:pyproject.toml` → `[project].version` | `0.9.39b10` — matches the tag name and the floor `manifest.json:13` pins |
+**pylxpweb's release tags are of that kind.** Observed **2026-08-09**: `git cat-file -t
+refs/tags/v0.9.39b10` returns `commit` rather than `tag`, and the same holds for `v0.9.39b9`.
+`asserted-unverified` — and deliberately not graded higher, because **a tag ref is not pinnable**.
+`204b95d` identifies a commit; nothing identifies the state of a ref that points at it, so this
+observation has an expiry a reader cannot see and must be re-run rather than trusted. Consequence
+while it holds: precondition 3's immutability rests **entirely** on GitHub tag protection rules,
+with no fallback in the git data.
 
-That is a clean tag → commit → version chain, and it is what checks 1 and 2 look like when they pass.
-It still says nothing about *who* published or whether the tag moved before you looked, which is the
-gap the paragraph above describes.
+Worked example — what gate checks 1 and 2 look like when they pass. The first two rows read **mutable
+refs** and are an observation of **2026-08-09**, not a durable fact; re-run them rather than citing
+this table. Only the third row is pinned, and therefore reproducible by anyone at any time:
+
+| Step | Result | Durable? |
+|---|---|---|
+| `git rev-parse 'v0.9.39b10^{commit}'` | `204b95d…` | No — local tag ref, movable |
+| `git ls-remote --tags origin refs/tags/v0.9.39b10` | `204b95d…` — origin agreed with local, so the ref had not been repointed on one side only | No — remote ref, movable |
+| `git show 204b95d:pyproject.toml` → `[project].version` | `0.9.39b10` — matches the tag name and the floor `manifest.json:13` pins | **Yes** — addressed by commit |
+
+That is a clean tag → commit → version chain. It still says nothing about *who* published, or whether
+the tag moved before you looked — which is exactly the gap above, and the reason the first two rows
+carry a date instead of a grade.
 
 **Who can trigger it.** The workflow declares no actor restriction — `verified-against-code` for the
 absence of one (pylxpweb@`204b95d` `release.yml`: the only job-level `if:` conditions are `:76` and
