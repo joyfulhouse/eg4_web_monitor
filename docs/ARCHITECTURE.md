@@ -12,22 +12,30 @@ WiFi dongle, and serial RS485). A single config entry maps to one station/plant.
 
 ## Components
 
-- **Config flow** (`config_flow/`) — a unified `EG4ConfigFlow` with menu-based
+- **Config flow** (`_config_flow/`) — a unified `EG4ConfigFlow` with menu-based
   navigation. The connection type (`http` / `local` / `hybrid`) is *derived* from
   the configured data rather than chosen upfront. Submodules cover device
-  discovery, voluptuous schema builders, helpers, and the options flow.
-- **Coordinator** — a `DataUpdateCoordinator` composed from focused mixins
-  (device processing, device info, parameter management, DST sync, background
-  tasks, firmware updates). HTTP and local data paths live in dedicated modules,
-  with a shared mappings module translating raw data into sensor values.
+  discovery, voluptuous schema builders, helpers, serial-port enumeration, and
+  the options flow. The top-level `config_flow.py` is a thin re-export that
+  exists only to satisfy hassfest's requirement that a file of that name exist;
+  the implementation lives in the underscore package.
+- **Coordinator** — a `DataUpdateCoordinator` composed from eight focused mixins.
+  In MRO order: `HTTPUpdateMixin` (`coordinator_http.py`) and
+  `LocalTransportMixin` (`coordinator_local.py`) come first and own the two data
+  paths, followed by `DeviceProcessingMixin`, `DeviceInfoMixin`,
+  `ParameterManagementMixin`, `DSTSyncMixin`, `BackgroundTaskMixin` and
+  `FirmwareUpdateMixin` (all in `coordinator_mixins.py`). A shared
+  `coordinator_mappings.py` translates raw data into sensor values.
 - **Base entities** (`base_entity.py`) — shared base classes for device,
   battery, station, sensor, switch, and battery-bank entities to eliminate
   duplication.
 - **Entity platforms** — `sensor.py`, `binary_sensor.py`, `switch.py`,
   `number.py`, `select.py`, `button.py`, `time.py` (schedule windows), and
   `update.py`, plus service actions in `services.py`.
-- **Constants** (`const/`) — typed configuration (e.g. `SensorConfig`),
-  `SENSOR_TYPES`, and config keys.
+- **Constants** (`const/`) — a package, not a single `const.py` module. Holds
+  typed configuration (`SensorConfig` lives in `const/sensors/types.py`),
+  `SENSOR_TYPES`, config keys and polling defaults (`const/config_keys.py`),
+  register constants (`const/modbus.py`), and branding (`const/brand.py`).
 
 ## Device Hierarchy
 
@@ -49,11 +57,14 @@ SoC/SoH, temperature, cycle count, and per-cell metrics.
 - **HTTP (cloud):** the coordinator authenticates against EG4's cloud API
   (2-hour session with auto-reauthentication), fetches station, device, runtime,
   energy, battery, and MID data with concurrent calls, and maps the responses to
-  entities. Default polling is 30 seconds.
+  entities. Default polling is 120 seconds
+  (`DEFAULT_HTTP_POLLING_INTERVAL`, `const/config_keys.py`).
 - **Local:** the coordinator reads holding/input registers over the selected
-  transport. Default polling is 5 seconds. The first refresh creates entities
-  from config metadata (zero Modbus reads); real values fill in on the next
-  refresh.
+  transport. Polling defaults differ per transport: 5 seconds for Modbus TCP and
+  serial (`DEFAULT_MODBUS_UPDATE_INTERVAL`), 30 seconds for the WiFi dongle
+  (`DEFAULT_DONGLE_UPDATE_INTERVAL`, whose reads take ~8-10 s). The first refresh
+  creates entities from config metadata (zero Modbus reads); real values fill in
+  on the next refresh.
 - **Hybrid:** local transports drive fast sensor updates while the cloud API
   supplies cloud-only features (DST sync) and any transport-exclusive overlays.
   Controls fall back to the cloud when the local link is down. pylxpweb handles
