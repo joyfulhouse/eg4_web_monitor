@@ -34,8 +34,51 @@ Line numbers are pinned per repo by the `verified-against:` mapping above — `9
 `eg4_web_monitor`, `204b95d` for `pylxpweb`. Each citation names its repo where it is not this one.
 Symbol names are the durable anchor.
 
-Every control platform — switch, number, select, time — and the coordinator's own battery-regime
-write funnel through **one** router. Do not add a second write path.
+**The rule: do not add a second write path.** Route control writes through
+`async_write_with_cloud_fallback` so that fallback, cache seeding and the error contract come with
+them.
+
+**The rule is not a description of the current code.** Two shipped controls bypass the router and
+call the coordinator's write primitives directly, so a reader must not assume the router's
+guarantees hold for them (§1.3). Both are in `number.py` → `async_set_native_value`.
+
+## 0. What derives this set
+
+**Scope.** This section derives one thing: *which control writes go through the router*. It is not
+the full local-write surface — which registers are reachable, and which of those stand on an
+unproven mapping, is derived in
+[README](../README.md#the-rule-is-not-enforced-anywhere-in-the-code), which owns that question and
+whose procedure includes this one as a step. Read README's if you are auditing register exposure;
+read this one if you are asking whether a given control gets the router's guarantees.
+
+A completeness claim about write paths is only as good as the procedure that produced it, so here
+is the procedure rather than a curated list. The distinction that matters is **closure versus
+bypass**: most direct `.write_*` calls sit inside a `local_write` closure that is handed *to* the
+router, and those are router traffic, not exceptions.
+
+| Step | Command / check |
+|---|---|
+| 1 | `grep -nE '\.write_(named_parameter\|raw_parameter\|register)\(' number.py select.py switch.py time.py base_entity.py coordinator.py` — match on the **method name, not the receiver**: the coordinator calls its own primitives as `self.write_*`, so a `coordinator\.write_` pattern silently misses the battery-regime path |
+| 2 | For each hit, find the **enclosing `def`**. A `local_write` / `_local_write` closure is router traffic; resolve one more level if the closure delegates to a helper |
+| 3 | A hit whose enclosing `def` is the entity's own `async_set_native_value` / `async_turn_on` / `async_turn_off` is a **bypass** |
+| 4 | Confirm each closure's enclosing scope actually calls `async_write_with_cloud_fallback` — a function named `local_write` is not proof it is passed to the router |
+| 5 | Discard hits inside docstrings and comments. At `9f6d6e2` two of the fourteen hits are usage examples in a `coordinator.py` docstring, not call sites |
+
+Applying that at `9f6d6e2` yields fourteen hits: **two bypasses**
+(`number.py:1004`, `:2279`), ten closure call sites (`number.py:463`, `:514`, `:831`;
+`select.py:370`, `:492`, `:629`; `time.py:378`; `base_entity.py:1943`;
+`coordinator.py:1870`, `:1874` inside `_async_write_battery_control_mode`), and two docstring
+examples (`coordinator.py:1690`, `:1693`).
+`switch.py` contains no direct coordinator write call at all — the switch platform reaches the
+router through `base_entity.py` → `_execute_local_with_fallback`.
+
+`verified-against-code` — enumerated with the procedure above at `9f6d6e2`.
+
+> **Step 2 is where a survey goes wrong.** `base_entity.py:1943` looks like a bypass: its
+> enclosing `def` is `_execute_named_parameter_action`, not a closure. It resolves to router
+> traffic only one level further out, because that helper's sole caller is the `local_write`
+> closure at `base_entity.py:1731`. A grep that stops at the first enclosing `def` over-reports;
+> a grep scoped to the four platform files misses the site entirely.
 
 ## 1. The router: `async_write_with_cloud_fallback`
 
@@ -87,6 +130,34 @@ Evidence: `verified-against-code` — `utils.py:259-267` and its docstring; seed
 
 **Rule:** any new call site that passes a `cloud_write` must also pass `local_values`, unless the
 control genuinely has no local representation.
+
+### 1.3 The two shipped bypasses
+
+Both call a coordinator write primitive directly from `async_set_native_value`. Neither is a
+defect in itself — each has a reason — but **the router's guarantees do not extend to them**, and
+that is what a reader must not assume.
+
+| | `QuickChargeDurationNumber` | `StartChargePowerNumber` |
+|---|---|---|
+| Bypass site | `number.py:1004` | `number.py:2279` |
+| Primitive | `coordinator.write_named_parameter` (H234) | `coordinator.write_raw_parameter` (**raw H117**) |
+| Why not the router | There is no cloud equivalent of the live H234 write: on CLOUD the value is stored as a start *preference*, not written. A firmware-rejected lone idle write is guarded by a live enable-bit read first (#251) | LOCAL/HYBRID only by construction — H117 has no cloud parameter name, so there is no `cloud_write` to fall back to |
+| **Loses: cloud fallback** | n/a — no cloud write exists | n/a — no cloud write exists |
+| **Loses: link-down short-circuit** | Yes. `has_local_transport()` stays `True` through an outage, so a known-down link is not detected and the write waits out the Modbus timeout | Yes, same |
+| **Loses: `local_values` cache seeding** | Yes — it hand-seeds `quick_charge_status` instead, a different cache | Yes — nothing is seeded |
+| **Loses: optimistic envelope** | Yes — no `optimistic_value_context`; it writes, seeds, then calls `async_write_ha_state()` directly, so §4's retention and TTL escape do not apply | No — it runs inside `optimistic_value_context`, so retention applies |
+| Error contract | Raises `HomeAssistantError` when the live state read returns `None`, rather than the router's no-path error | Raises `HomeAssistantError` naming the missing cloud path when no local transport is attached |
+
+Whole table: `verified-against-code` — `number.py` → `QuickChargeDurationNumber.async_set_native_value`
+and `StartChargePowerNumber.async_set_native_value` at `9f6d6e2`.
+
+> **H117 is the one to watch.** It is written **raw**, and the keeper grades the mapping
+> `asserted-unverified`, status **unresolved**, with "no cloud name or validated behavior"
+> ([H117 row](../40-hardware/registers.md)). A raw write to an unresolved mapping is the shape
+> §9 rule 1 warns about: the firmware ACKs a wrong target and no readback distinguishes it. The
+> LOCAL-only guard limits *who* can trigger it; it does not make the target correct.
+>
+> The register grade is the keeper's — read it there, not here.
 
 ## 2. Coordinator write primitives
 

@@ -33,9 +33,10 @@ Evidence grades used here are defined in [../README.md](../README.md#evidence-gr
 | One HA config entry == one cloud *station* (plant) **or** one bag of local devices | `verified-against-code` (`_config_flow/helpers.py` → `build_unique_id`) |
 | One `EG4DataUpdateCoordinator` per entry, composed from **eight mixins plus HA's `DataUpdateCoordinator`** | `verified-against-code` (`coordinator.py` → `EG4DataUpdateCoordinator` class bases) |
 | Connection mode (`http`/`local`/`hybrid`) is **derived** from what is configured, never chosen by the user | `verified-against-code` (`_config_flow/__init__.py` → `_derive_connection_type`) |
-| The coordinator publishes ONE dict; every entity is a pure reader of it | `verified-against-code` (`base_entity.py` — every `available` property and `_get_raw_value` read `coordinator.data`) |
+| The coordinator publishes ONE dict, and **for state** every entity is a reader of it — no entity fetches its own data | `verified-against-code` (`base_entity.py` — the `available` properties and `_get_raw_value` all read `coordinator.data`) |
+| "Reader" describes the **state path only.** On the write path several entities mutate coordinator caches directly — the parameter dict, the quick-charge status dict, the quick-charge preference map | `verified-against-code` (`base_entity.py` → `_execute_named_parameter_action`; `number.py` → `QuickChargeDurationNumber.async_set_native_value`). See [controls-and-writes.md §1.3](controls-and-writes.md#13-the-two-shipped-bypasses) |
 | For most entity classes, availability is key presence in that dict | `verified-against-code` (see [entities-identity-availability.md](entities-identity-availability.md)) |
-| Controls write local-first, cloud-fallback, publish an optimistic value, then run a bounded post-write refresh | `verified-against-code` (`utils.py` → `async_write_with_cloud_fallback`; `base_entity.py` → `EG4OptimisticEntity`) |
+| Most controls route writes through one shared router: local first, then cloud **where a cloud client exists** (HYBRID; a LOCAL-only entry has no cloud leg to fall back to), publishing an optimistic value and running a bounded post-write refresh. **Two controls bypass the router** and do not get its guarantees | `verified-against-code` (`utils.py` → `async_write_with_cloud_fallback`; `base_entity.py` → `EG4OptimisticEntity`; the bypasses are enumerated in [controls-and-writes.md §1.3](controls-and-writes.md#13-the-two-shipped-bypasses)) |
 
 ### Canonical published data shape
 

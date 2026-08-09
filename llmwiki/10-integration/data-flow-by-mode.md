@@ -88,7 +88,7 @@ Entry point: `_async_update_local_data` (`coordinator_local.py:1946-2221`). Evid
 
 | Fact | Evidence |
 |---|---|
-| On the first refresh only, `_build_static_local_data()` returns **every sensor key with value `None`**, derived purely from config-entry metadata — **zero Modbus reads** | `verified-against-code` — `coordinator_local.py:1969-1985`; builder at `:1774-1871` |
+| On the first refresh only, `_build_static_local_data()` emits **every key in `ALL_INVERTER_SENSOR_KEYS`** (or `GRIDBOSS_STATIC_ENTITY_KEYS` for a GridBOSS) with value `None`, derived purely from config-entry metadata — **zero Modbus reads**. The set is those two constants, not an open-ended "all sensors": per-device filtering happens later, at `sensor.py` → `_should_create_sensor` | `verified-against-code` — `coordinator_local.py:1969-1985`; builder at `:1774-1871`, key selection at `:1797-1800` |
 | Purpose: entities get created inside HA's setup timeout | `verified-against-code` — comment at `:1969-1971` |
 | The phase is one-shot, gated by `_local_static_phase_done` | `verified-against-code` — `coordinator_local.py:1971` |
 | It schedules an immediate follow-up `async_request_refresh()` as a tracked background task; Phase 2 populates real data | `verified-against-code` — `coordinator_local.py:1978-1985` |

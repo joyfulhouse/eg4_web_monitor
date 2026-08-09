@@ -132,8 +132,25 @@ Evidence: `verified-against-code` — `is_supported_control_model` docstring and
 All rows: `verified-against-code`.
 
 > Note the deliberate asymmetry between `is_offgrid_family` (**open**) and `is_hybrid_family`
-> (**closed**). Each direction was chosen so that the *unknown* case does the harmless thing for
-> that specific consumer. Do not "unify" them.
+> (**closed**). Each direction was chosen so that the *unknown* case does the least-damaging thing
+> for that specific consumer — for suppression gates, not deleting a working entity. Do not
+> "unify" them.
+
+> **Fail-open has a safety cost, and it compounds with §2.3.** The control gates fail open by
+> design: `is_family_control_supported`'s own docstring says "a device whose family is missing or
+> unknown keeps every control". Combine that with `INVERTER_FAMILY_UNKNOWN` being a truthy string
+> (§2.3) and the consequence is that **the control surface is widest exactly where family
+> identification is weakest** — an unidentified device gets every control, including ones whose
+> register mapping was only ever proven on a different family.
+>
+> That is the right trade for *entity deletion*, which is irreversible for the user. It is not a
+> safety property for *writes*. **Never reason "the family gate would have caught it"** — for an
+> unresolved family the gate catches nothing. Whether a given write is reachable is answered by
+> the entity and its routing, not by a family gate; see
+> [controls-and-writes.md §0](controls-and-writes.md#0-what-derives-this-set).
+>
+> `verified-against-code` — `utils.py` → `is_family_control_supported`, `is_offgrid_family`, and
+> their docstrings; `const/device_types.py` → `INVERTER_FAMILY_UNKNOWN`.
 
 ### 2.3 `INVERTER_FAMILY_UNKNOWN` is a TRUTHY STRING
 
@@ -258,9 +275,25 @@ Grades for the **left** column — that these gates, purges and routings exist i
 > [../60-history/open-contradictions.md](../60-history/open-contradictions.md). Changing the routing
 > is a code change and is out of scope for documentation — do not "fix" it by editing this page.
 >
-> The same shape applies to **H179 b11 (AC Couple)**, also written local-first with cloud fallback
-> on a lineage-inferred bit; its own code comment says a write landing on the wrong bit "would still
-> ACK, which no readback can catch" (`verified-against-code` — `switch.py:795`).
+> **H161 is not the only register in this shape, and this page does not enumerate the others.**
+> That set is not a list anyone maintains — it is a consequence of tables in the code. README owns
+> both halves and this page restates neither:
+>
+> | What you want | Where it lives |
+> |---|---|
+> | How to **derive** the current local-write surface | [README → the rule is not enforced anywhere in the code](../README.md#the-rule-is-not-enforced-anywhere-in-the-code) |
+> | The narrower set where **the keeper itself** marks writability or family scope unresolved | [README → registers the keeper marks unresolved](../README.md#registers-the-keeper-marks-unresolved) |
+>
+> Run the derivation rather than reading the tables as complete. **A register's absence from
+> README's table is not a clearance** — it means only that the keeper has not flagged it, and
+> README says so in terms.
+
+> **Do not infer a gate from a weak grade.** H161 is one instance of a general fact: a
+> `lineage-inferred`, `asserted-unverified` or scope-unresolved grade in the ledger does not close
+> a write path, and nothing in the code consults the grade. Whether a register is reachable is
+> answered by the entity and its write routing — see
+> [controls-and-writes.md §0](controls-and-writes.md#0-what-derives-this-set) for the procedure
+> that derives the routing, and the README table above for the register-side criterion.
 
 > **The H233 rejection is a tested-scope observation, not a family property.**
 > "Returns ILLEGAL DATA ADDRESS on the off-grid units we tested" and "no off-grid inverter has this
