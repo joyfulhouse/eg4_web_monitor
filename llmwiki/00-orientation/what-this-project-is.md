@@ -7,8 +7,10 @@ canonical-for:
 sources:
   - custom_components/eg4_web_monitor/manifest.json
   - custom_components/eg4_web_monitor/const/brand.py
-  - /Users/bryanli/Projects/joyfulhouse/python/pylxpweb/src/pylxpweb/client.py
-  - /tmp/llmwiki-research/knowledge-corpus-index.VERIFIED-claude_code.md
+  - pylxpweb src/pylxpweb/client.py
+  - memory/feedback_eg4-data-model-and-sensor-noise.md
+  - memory/issue-544-generator-power-offgrid.md
+  - memory/maintainability-findings-and-live-bugs.md
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 see-also:
@@ -40,7 +42,8 @@ the parts, not from any one of them.
 | Domain is `eg4_web_monitor`, `integration_type: device`, `iot_class: local_polling`, `quality_scale: platinum` | `manifest.json` | `verified-against-code` |
 | Runtime deps are `pylxpweb`, `pymodbus`, `pyserial` | `manifest.json` → `requirements` (exact pins live there, not here) | `verified-against-code` |
 | Portal base URL `https://monitor.eg4electronics.com` | `const/brand.py` → `default_base_url`; also `diagnostics.py` | `verified-against-code` |
-| Auth is `POST /WManage/api/login`, session valid 2 hours | pylxpweb `client.py` → `_request("POST", "/WManage/api/login", …)`; `self._session_expires = datetime.now() + timedelta(hours=2)` | `verified-against-code` |
+| Auth is `POST /WManage/api/login` | pylxpweb `client.py` → `_request("POST", "/WManage/api/login", …)` | `verified-against-code` |
+| pylxpweb re-authenticates after a **locally assumed** 2-hour threshold | `client.py` → `self._session_expires = datetime.now() + timedelta(hours=2)`. This is a client-side refresh threshold, **not a server TTL** — the portal communicates no expiry, and real expiry is detected by other means. Session semantics are owned by [`30-portal-api/auth-and-session.md`](../30-portal-api/auth-and-session.md). | `verified-against-code` for the client threshold only |
 
 ## How a value reaches Home Assistant
 
@@ -63,15 +66,15 @@ register values the dongle reads, or computes a derivation from them. When a clo
 field looks "missing", trace it to its register before calling it cloud-only; a
 `cloud_api_field=None` on a register means the cloud does not carry that field, not
 that the data is unavailable. `asserted-unverified`
-(source: corpus §2.1, from `memory/feedback_eg4-data-model-and-sensor-noise.md`).
+(`memory/feedback_eg4-data-model-and-sensor-noise.md`).
 
 Consequences that have each cost a debugging session:
 
 | Consequence | Grade |
 |---|---|
-| A "cloud-only" value may be a derivation the portal computes from registers you already have — e.g. PV current has no register on any family; the portal derives it from P/V | `asserted-unverified` (corpus §3, #243b) |
-| A value may exist only over Modbus because the cloud never carries it — fault/warning codes have no cloud field at all | `asserted-unverified` (corpus §2.1) |
-| The same concept can be genuinely different per mode — per-inverter consumption vs whole-home consumption are two non-summing scopes, not one value with a bug | `asserted-unverified` (corpus §2.1; owned by `10-integration/data-semantics.md`) |
+| A "cloud-only" value may be a derivation computed from registers you already have. PV current is the worked case: registers 72-74 exist as candidates but read 0 or garbage on tested EG4 hardware, so the integration derives current from P/V. Register-level detail is owned by [`40-hardware/registers.md`](../40-hardware/registers.md). | `asserted-unverified` (issue #243; `memory/issue-243-eps-aggregate-and-pv-current.md`) |
+| A value may exist only over Modbus because the cloud never carries it — fault/warning codes have no cloud field at all | `asserted-unverified` (`memory/architecture-patterns.md`) |
+| The same concept can be genuinely different per mode — per-inverter consumption vs whole-home consumption are two non-summing scopes, not one value with a bug. Owned by [`10-integration/data-semantics.md`](../10-integration/data-semantics.md). | `asserted-unverified` (`memory/consumption-energy-sources.md`) |
 
 ## Device hierarchy
 
@@ -84,18 +87,17 @@ Plant / Station  (plantId)
 ```
 
 The integration creates one config entry per station. Terms are defined in
-[glossary.md](glossary.md). `asserted-unverified` (source: repo `CLAUDE.md` "Device
-Hierarchy"; the shapes are corroborated by entity unique-ID forms in `base_entity.py`
-— see `10-integration/`).
+[glossary.md](glossary.md). `asserted-unverified` (`CLAUDE.md` "Device Hierarchy"; the
+shapes are corroborated by the entity unique-ID forms owned by
+[`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md)).
 
 ## The two-repo relationship
 
 | Fact | Detail | Grade |
 |---|---|---|
-| Register decode, scaling, and transport live in **pylxpweb**, not here | The integration consumes decoded dataclasses and named-parameter reads/writes | `asserted-unverified` (corpus §2.13; corroborated by `manifest.json` requirements) |
-| A register/scale fix therefore usually starts in pylxpweb | The integration then bumps its pin | `asserted-unverified` (corpus §2.18) |
-| Change ordering is: merge library PR → release to PyPI → confirm a fresh resolve installs it → bump the integration's manifest pin → merge integration | Full procedure and its traps are owned by `50-operations/release-process.md` | `asserted-unverified` (corpus §2.18) |
-| The seam between the two repos is maintained by convention, not enforced by types | Historically the integration duck-typed the library and read/wrote private attributes; `mypy --strict` could not see across the seam because consuming functions were typed `Any` | `asserted-unverified` (corpus §2.13) |
+| Register decode, scaling, and transport live in **pylxpweb**, not here | The integration consumes decoded dataclasses and named-parameter reads/writes | `asserted-unverified` (`docs/claude/MAINTAINABILITY_FINDINGS.md`; corroborated by `manifest.json` requirements) |
+| A register/scale fix therefore usually starts in pylxpweb, and the integration then bumps its pin | The cross-repo change ordering, its traps, and the pre-release pin rule are owned by [`50-operations/release-process.md`](../50-operations/release-process.md) | `asserted-unverified` (`memory/feedback_release-strategy.md`) |
+| The seam between the two repos is maintained by convention, not enforced by types | Historically the integration duck-typed the library and read/wrote private attributes; `mypy --strict` could not see across the seam because consuming functions were typed `Any` | `asserted-unverified` (`docs/claude/MAINTAINABILITY_FINDINGS.md`) |
 
 **Working rule:** when you fix anything that crosses the seam, check which side the
 data actually flows through. The integration reads transport dataclasses directly, so

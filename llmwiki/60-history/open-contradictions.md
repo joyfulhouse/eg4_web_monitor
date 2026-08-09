@@ -2,7 +2,13 @@
 canonical-for:
   - "Unresolved contradictions between project sources (C1-C11)"
 sources:
-  - /tmp/llmwiki-research/knowledge-corpus-index.VERIFIED-claude_code.md
+  - docs/claude/FINAL_VALIDATION_REPORT.md
+  - docs/claude/MODE_COMPARISON_REPORT.md
+  - docs/claude/DEVICE_OBJECTS_DESIGN_PRINCIPLES.md
+  - docs/audits/2026-08-02-register-race-performance-audit.md
+  - memory/consumption-energy-sources.md
+  - memory/soc-charge-limit-101-top-balance.md
+  - memory/release-3.4.0-beta.18-status.md
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 see-also:
@@ -20,10 +26,10 @@ a human decision.
 needs a contested fact, cite this page and state that the fact is contested. If you
 acquire real evidence, record it here and hand the adjudication to the maintainer.
 
-Quotations are reproduced from the migration corpus (§4), which quoted the underlying
-files. Grade for every quotation: `asserted-unverified` — the corpus is the source, and
-several of the quoted files are historical artefacts under `docs/claude/` or in the
-maintainer's out-of-repo memory directory.
+Each entry names the file it quotes; those files are the durable sources. Grade for every
+quotation: `asserted-unverified` — several are historical artefacts under `docs/claude/`
+or notes in the maintainer's out-of-repo `memory/` directory, and none has been
+re-verified against hardware or code here.
 
 ---
 
@@ -34,8 +40,9 @@ maintainer's out-of-repo memory directory.
 > `memory/queue-cleanup-2026-07-26.md`: "The `{serial}_{data_type}_{sensor_key}` unique-ID format documented in eg4's `CLAUDE.md` was **NEVER IMPLEMENTED** — device IDs are `{serial}_{sensor_key}` today and at v3.2.0, and no Python in the repo's history emits a data-type segment. But a test fixture had been written to match the documentation, and a registry-cleanup matcher was then designed to satisfy that fixture."
 
 **Status: UNRESOLVED as a document conflict.** The repo `CLAUDE.md` now carries the
-correction, and the real emitted forms are `verified-against-code` (see
-[repo-map.md](../00-orientation/repo-map.md)). The stale claim nevertheless survives
+correction, and the real emitted forms are `verified-against-code` (owned by
+[`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md)).
+The stale claim nevertheless survives
 uncorrected in `FINAL_VALIDATION_REPORT.md`. What a human must decide: whether that
 file is deleted, banner-tombstoned, or kept as an archive.
 
@@ -102,7 +109,7 @@ lifetime source. What a human must decide: whether the early table is struck out
 > `docs/DATA_MAPPING.md:545` now says bit 14 with the correction inline; repo `CLAUDE.md` also says bit 14 "(hardware-verified 2026-07-21, #476; historic bit-8 mapping was wrong)".
 
 **Status: UNRESOLVED in one narrow respect.** No live contradiction remains between
-those two files — bit 14 is `hardware-proven` and is recorded in
+those two files — bit 14 is `hardware-toggle-proven` and is recorded in
 [superseded-claims.md](superseded-claims.md). But `release-3.5.1-beta.3-shipped.md`
 records that the changelog then over-claimed a **third** time about bit 8, saying it
 "controls something and those toggles were changing it — only the write attempt and

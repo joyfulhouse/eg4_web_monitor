@@ -4,7 +4,8 @@ canonical-for:
   - "Path traps: _config_flow/, const/ package, the two firmware RE trees"
 sources:
   - git ls-files at 9f6d6e2
-  - /tmp/llmwiki-research/docs-accuracy-audit.md
+  - PR #557 (documentation-defect corrections)
+  - issue #549
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 see-also:
@@ -27,12 +28,12 @@ command file.
 |---|---|---|
 | `config_flow/` (package) | `_config_flow/` (package) + `config_flow.py` (thin re-export) | An agent creates or edits the wrong directory. Classed *breaks-agent* in the docs audit. |
 | `const.py` | `const/` (package) | The file does not exist. `SensorConfig` is in `const/sensors/types.py`. A CI step in `.github/workflows/quality-validation.yml` still compiles the nonexistent path (tracked as issue #549). |
-| `async_step_reconfigure_plant()` | No such step. `async_step_reconfigure` exists; the station step is `async_step_reconfigure_cloud_station` | Named in `CLAUDE.md`; not present in `_config_flow/`. `asserted-unverified` (docs-accuracy-audit §2, verified there against `_config_flow/__init__.py`) |
+| `async_step_reconfigure_plant()` | No such step. `async_step_reconfigure` exists; the station step is `async_step_reconfigure_cloud_station` | Named in `CLAUDE.md`; not present in `_config_flow/`. `asserted-unverified` (PR #557, which corrects it against `_config_flow/__init__.py`) |
 | Coordinator mixin list without HTTP/Local | `HTTPUpdateMixin` and `LocalTransportMixin` are the **first two** bases | See the coordinator table below |
 
 An **empty untracked `config_flow/` directory** may exist in a working copy and is a
 known hazard — it looks like the package and is not. `asserted-unverified`
-(docs-accuracy-audit §2, §5 item 11; not present in this worktree at 9f6d6e2).
+(PR #557; not present in this worktree at 9f6d6e2).
 
 ## Top level
 
@@ -86,34 +87,19 @@ Coordinator bases, in MRO order (`coordinator.py` → `class EG4DataUpdateCoordi
 | `manifest.json` | **Source of truth** for version and dependency pins |
 | `py.typed` | Typing marker |
 
-Unique-ID forms emitted by the code (`base_entity.py`, `sensor.py`):
-
-| Scope | Form | Site |
-|---|---|---|
-| Device | `{serial}_{sensor_key}` | `base_entity.py:457` |
-| Battery | `{serial}_{battery_key}_{sensor_key}` | `base_entity.py:565` |
-| Battery bank | `{serial}_battery_bank_{sensor_key}` | `base_entity.py:660` |
-| Station | `station_{plant_id}_{sensor_key}` | `sensor.py:829` |
-
-Line numbers here are valid only at `9f6d6e2` (see `verified-against:`). Entity-ID
-derivation is **not** the same shape as unique-ID and is owned by `10-integration/`;
-the format documented in older docs is wrong (see
-[superseded-claims](../60-history/superseded-claims.md)).
+Unique-ID and entity-ID forms are owned by
+[`10-integration/entities-identity-availability.md`](../10-integration/entities-identity-availability.md).
+They are deliberately **not** reproduced here: duplicating that exact table across
+documents is what produced the fictional format recorded in
+[superseded-claims](../60-history/superseded-claims.md), and it would be indefensible to
+triplicate it in the cure.
 
 ### `_config_flow/`
 
-`config_flow.py` is a 14-line re-export that exists only to satisfy hassfest's
-requirement that `config_flow.py` be a file; its own docstring says so. The
-implementation is:
-
-| File | Role |
-|---|---|
-| `_config_flow/__init__.py` | `EG4ConfigFlow`, `EG4OptionsFlow` |
-| `_config_flow/discovery.py` | Device auto-discovery |
-| `_config_flow/schemas.py` | Voluptuous schema builders |
-| `_config_flow/helpers.py` | Unique IDs, migration, utilities |
-| `_config_flow/options.py` | Options flow |
-| `_config_flow/serial_ports.py` | Serial port enumeration (omitted from older docs) |
+`config_flow.py` is a thin re-export that exists only to satisfy hassfest's requirement
+that `config_flow.py` be a file; its own docstring says so. The implementation lives in
+the `_config_flow/` package, whose module-by-module breakdown is owned by
+[`10-integration/config-flow.md`](../10-integration/config-flow.md).
 
 ### `const/`
 

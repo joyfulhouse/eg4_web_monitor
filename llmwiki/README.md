@@ -5,9 +5,12 @@ canonical-for:
   - "Evidence-grade legend and grading rules"
   - "Freshness discipline"
 sources:
-  - /tmp/llmwiki-research/knowledge-corpus-index.VERIFIED-claude_code.md
-  - /tmp/llmwiki-research/docs-accuracy-audit.md
-  - .pollux/registry.json
+  - CLAUDE.md
+  - docs/ARCHITECTURE.md
+  - docs/CONFIGURATION.md
+  - PR #557 (documentation-defect corrections)
+  - issue #549
+  - memory/issue-476-green-mode-bit14.md
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
@@ -25,30 +28,28 @@ and the traps that have caused shipped bugs.
 
 ## Why it exists
 
-An accuracy audit of the repo's own documentation found **39 verified software-accuracy
-defects** — 18 of them classed *breaks-agent* — across `CLAUDE.md`, `README.md`,
-`docs/*.md`, and CI config (`docs-accuracy-audit.md` §2, §6). The dominant cause was
-not neglect: it was **duplication**. The same fact (polling intervals, entity-ID
-formats, config-flow paths, the register table) lived in three or four documents, was
-corrected in one, and rotted in the rest. `llmwiki` answers that with a single rule:
-one fact, one owner.
+An accuracy pass over the repo's own documentation catalogued dozens of software-accuracy
+defects across `CLAUDE.md`, `README.md`, `docs/*.md`, and CI config; the corrections are
+applied in PR #557 ("correct 38 verified documentation defects against code") and two
+were severe enough to file as issues (#549, #550). Three verified here directly: the
+config-flow package path, the nonexistent `const.py`, and a fourth docker mode absent
+from every document. The dominant cause was not neglect: it was **duplication**. The
+same fact — polling intervals, entity-ID formats, config-flow paths, the register table —
+lived in three or four documents, was corrected in one, and rotted in the rest.
+`llmwiki` answers that with a single rule: one fact, one owner.
 
 ## Navigation
 
-| Directory | Owns | Status |
-|---|---|---|
-| `00-orientation/` | What the system is, where code lives, vocabulary | present |
-| `10-integration/` | HA integration internals: architecture, data flow by mode, entity identity/availability, controls and writes, config flow, diagnostics, data semantics | planned |
-| `20-pylxpweb/` | The `pylxpweb` library: API surface, transports, models and scaling, write paths, release and pinning | planned |
-| `30-portal-api/` | EG4 cloud portal API: auth/session, endpoint table, schemas and scaling, errors | planned |
-| `40-hardware/` | Registers (with per-claim evidence grades), firmware reverse engineering, GridBOSS, probing playbook | planned |
-| `50-operations/` | Dev environment, quality gates, release process, issue pipeline | planned |
-| `60-history/` | Bug postmortems, open contradictions, superseded claims | present |
-| `_conventions.md` | The page template every writer follows | present |
-
-`planned` = contracted in the orchestration registry (`.pollux/registry.json`, untracked
-working-copy state) and authored in parallel branches; the page names above are
-`asserted-unverified` until those PRs land. Check the directory before linking.
+| Directory | Owns |
+|---|---|
+| `00-orientation/` | What the system is, where code lives, vocabulary |
+| `10-integration/` | HA integration internals: architecture, data flow by mode, entity identity/availability, controls and writes, config flow, diagnostics, data semantics |
+| `20-pylxpweb/` | The `pylxpweb` library: API surface, transports, models and scaling, write paths, release and pinning |
+| `30-portal-api/` | EG4 cloud portal API: auth/session, endpoint table, schemas and scaling, errors |
+| `40-hardware/` | Registers (with per-claim evidence grades), firmware reverse engineering, GridBOSS, probing playbook |
+| `50-operations/` | Dev environment, quality gates, release process, issue pipeline |
+| `60-history/` | Bug postmortems, open contradictions, superseded claims |
+| `_conventions.md` | The page template every writer follows |
 
 ### Cold-start reading order
 
@@ -74,34 +75,88 @@ working-copy state) and authored in parallel branches; the page names above are
 
 ## Evidence-grade legend
 
-Every factual claim carries one of these five grades. They are ordered strongest first.
+**This page is the single legend for the whole wiki.** No chapter may define, rename, or
+locally weaken a grade, and no chapter may introduce a synonym. If you need a distinction
+that is not here, add it here. A chapter-local legend does not stay parallel: it drifts
+toward whatever that chapter's evidence happens to support, the weaker definition wins by
+proximity, and every page that links to it inherits the weakening silently.
+
+### Proof grades
+
+Every factual claim carries exactly one. Ordered strongest first.
 
 | Grade | Means | Minimum proof to use it |
 |---|---|---|
-| `verified-against-code` | Checked against source in this repo, or a named sibling repo, at the commit in `verified-against:` | Cite the path and the symbol (`coordinator_mixins.py` → `_TRANSPORT_OVERLAY`) |
-| `hardware-proven` | Observed on physical hardware — a before/after raw value from a real toggle, read, or write — **or** established by disassembling a shipped firmware image | Cite the observation: raw values, register, device family/serial class |
+| `verified-against-code` | The cited source implements or locks the claim, at the commit in `verified-against:` | Cite the repo path and the symbol (`coordinator_mixins.py` → `_TRANSPORT_OVERLAY`) |
+| `firmware-proven` | Established by disassembling a shipped firmware image | Cite the image and family, and the code site — function, increment site, dispatcher entry |
+| `hardware-toggle-proven` | A named vendor control or UI action on the target family, correlated to raw values captured before and after, with the original state restored | Cite the action, the raw before/after pair, and the family |
+| `hardware-proven` | Umbrella for the two above. **Requires a before/after raw value pair** (one exception below). | As above. A source that merely records "a live-device result", with no raw pair, is `asserted-unverified` — however it was phrased |
 | `portal-correlated` | The EG4 portal or mobile app exposes it, and it agrees with our reading | Cite the endpoint, field, or widget |
-| `inferred` | Deduced from lineage, naming, or an adjacent proven fact. Plausible and unproven. | State what it was inferred from |
-| `asserted-unverified` | A source states it; nothing here independently corroborates it | Name the source |
+| `lineage-inferred` | Inherited from a related family or a neighbouring register, with no direct evidence on the target | Name the family or register it was inherited from |
+| `inferred` | Deduced from an adjacent proven fact | State what it was inferred from |
+| `asserted-unverified` | A source states it; nothing here independently corroborates it | Name a **durable** artifact: a repo path, a `memory/*.md` filename, an issue or PR number |
 
-**Rules**
+**The one exception to the raw-pair requirement** is a *negative* claim — that a register
+is absent, rejected, or dead on a family — where no pair can exist. There the proof is the
+device's own captured response: an ILLEGAL DATA ADDRESS or NAK, or a read that stays
+constant while the quantity is demonstrably live. Cite the response and the family, and
+scope the claim to the units tested: "reads 0 on every unit we tested" and "no family has
+this register" are different claims, and only the first is proven.
+
+### Status, orthogonal to proof strength
+
+| Status | Means | Use |
+|---|---|---|
+| `refuted` | Actively disproven. **Must not regress.** | Not a weak proof grade — a refutation can itself be `hardware-toggle-proven`. Pair `refuted` with the grade of the disproof and cite it. Applied to a register bit it means: the historical semantic is false **and** no replacement semantic is established, so the bit stays write-inaccessible. |
+
+### Rules
 
 - **Never upgrade a grade you cannot justify.** Downgrade freely; downgrading is cheap
   and correct. Upgrading requires new proof recorded on the page.
-- `hardware-proven` requires a **before/after raw value pair**, not a successful write.
-  A wrong-but-writable bit is firmware-ACKed: writing register 110 bit 8 succeeded,
-  raised nothing, logged nothing above DEBUG, and read back true — while green mode
-  never moved. Readback cannot prove targeting; only a delta test can
+- **Readback proves storage and transport only.** It says nothing about semantics. A
+  wrong-but-writable bit is firmware-ACKed: writing register 110 bit 8 succeeded, raised
+  nothing, logged nothing above DEBUG, and read back true — while Green Mode never
+  moved. See the proof standard for bit semantics under the register-annotation ladder
+  below.
+- **Never grade `hardware-proven` on the strength of source code, a README, or a code
+  comment.** Downgrade to `verified-against-code` for what the code does, or
+  `asserted-unverified` for the hardware claim the comment repeats.
+- **Never cite a prose document as `verified-against-code`.** Re-verify against the real
+  source file, or grade `asserted-unverified` naming the document. Citing `CLAUDE.md` as
+  code re-imports the exact defect class this wiki exists to end.
+- **Do not import a `# verified` annotation as any proof grade.** In this project's
+  register tables it has historically meant "the names matched", not "a toggle was
+  observed" — the direct cause of issue #476
   (`60-history/superseded-claims.md`).
-- **Do not import a `# verified` annotation as `hardware-proven`.** In this project's
-  register tables that annotation has historically meant "the names matched", not "a
-  toggle was observed". That false annotation is the direct cause of issue #476.
-- **Cross-integration agreement is not proof.** It ranks below a toggle and above a
-  vendor document: toggle-proven > cross-integration agreement > vendor document >
-  lineage inference.
+- **Notation is `` `backticks` ``,** never `[brackets]` and never bare words. Grades are
+  machine-extracted.
 - **Contradiction is not resolved by grading.** If two sources disagree and neither is
   provable here, both go to `60-history/open-contradictions.md` marked UNRESOLVED.
   Do not pick a winner to make a page read cleanly.
+
+### Named refinement: the register-annotation ladder
+
+Scoped to **register and bit annotations only**. It refines the proof grades above for
+the one case where getting it wrong writes to unknown hardware. Cross-linked from
+`40-hardware/registers.md`, which applies it per row.
+
+| Rung | Evidence | Grade it earns | What may be built on it |
+|---|---|---|---|
+| 1 | A named vendor/UI action on the target family, an independent observation that the intended physical state changed, a complete raw before/after delta, and restoration | `hardware-toggle-proven` | Reads and writes |
+| 2 | Canonical pylxpweb definition **plus** an independent hardware capture | `hardware-proven` | Reads; writes only with a gate |
+| 3 | Canonical definition alone | `verified-against-code` for the definition, `asserted-unverified` for the semantic | Read-only diagnostics |
+| 4 | A vendor or third-party table | `lineage-inferred` at best | Nothing. It is a family-specific hypothesis |
+
+**Binding consequence:** a bit at rung 3 or 4 stays **write-inaccessible** — no entity,
+no named-write path, no placeholder key reachable by a write helper. Gating is the only
+mitigation for an unproven mapping, because a wrong write cannot be detected after the
+fact.
+
+Cross-integration agreement sits at rung 2 at best: it is corroboration, not observation.
+
+The contract harness is **not** independent evidence at any rung — it resolves against
+the same pylxpweb tables, so it catches internal drift and cannot prove an address is
+correct on hardware.
 
 ## Freshness discipline
 
@@ -114,7 +169,8 @@ Every factual claim carries one of these five grades. They are ordered strongest
   contains three mutually incompatible sets. Cite `file` + symbol name and let the
   reader grep. A line number is acceptable only inside a page whose `verified-against:`
   commit pins it.
-- **Sources feeding this wiki are ephemeral.** The migration dossiers live in
-  `/tmp/llmwiki-research/` and the maintainer's memory corpus lives outside the repo in
-  `~/.claude/projects/…/memory/`. Neither is guaranteed to exist when you read this.
-  `llmwiki/` is the durable copy — if a fact matters, it must be written here.
+- **Cite durable artifacts only.** A source is durable if a future reader can still open
+  it: a repo path, a `memory/*.md` filename, an issue or PR number. Working files from an
+  authoring run are not durable and must never appear in `sources:` or behind an
+  `asserted-unverified` grade — a row whose only support has been deleted is functionally
+  ungraded. `llmwiki/` is the durable copy: if a fact matters, it must be written here.
