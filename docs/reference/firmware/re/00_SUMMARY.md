@@ -24,8 +24,17 @@
 > `live_register_dump.json` and `live_register_probe_full.json` are **live Modbus probes, not
 > firmware output**, and remain valid as hardware measurements.
 >
-> Current method: [`../FIRMWARE_ACQUISITION.md`](../FIRMWARE_ACQUISITION.md).
-> Worked analysis: [`../OFFGRID_GENERATOR_REGISTERS.md`](../OFFGRID_GENERATOR_REGISTERS.md).
+> **Superseded.** Use these instead:
+>
+> - Current acquisition + decoding method: [`../FIRMWARE_ACQUISITION.md`](../FIRMWARE_ACQUISITION.md)
+> - Worked, authoritative analyses:
+>   [`../OFFGRID_GENERATOR_REGISTERS.md`](../OFFGRID_GENERATOR_REGISTERS.md),
+>   [`../OFFGRID_EPS_REGISTERS.md`](../OFFGRID_EPS_REGISTERS.md),
+>   [`../HYBRID_EPS_REGISTERS.md`](../HYBRID_EPS_REGISTERS.md)
+>
+> **Duplicate tree.** `docs/reference/firmware_re/` is a byte-identical copy of this
+> directory (only this summary differs — that copy lacks this banner). Both are invalid.
+> Neither is deleted, so the record of what was believed in 2026-04 stays intact.
 
 **Date**: 2026-04-13
 **Firmware files analyzed**:
