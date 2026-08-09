@@ -147,7 +147,7 @@ All rows: `verified-against-code`.
 > safety property for *writes*. **Never reason "the family gate would have caught it"** — for an
 > unresolved family the gate catches nothing. Whether a given write is reachable is answered by
 > the entity and its routing, not by a family gate; see
-> [controls-and-writes.md §0](controls-and-writes.md#0-what-derives-this-set).
+> [controls-and-writes.md §0](controls-and-writes.md#0-two-write-mechanisms-not-one).
 >
 > `verified-against-code` — `utils.py` → `is_family_control_supported`, `is_offgrid_family`, and
 > their docstrings; `const/device_types.py` → `INVERTER_FAMILY_UNKNOWN`.
@@ -233,7 +233,7 @@ If an echoed grade disagrees with the ledger, the ledger is right and this table
 | AC Charge SOC Limit is gated off `EG4_OFFGRID` with a one-shot Repairs issue | H67 is the AC-charge stop SOC on **grid-tied only**; off-grid rejects the control | `portal-correlated` — [H67 row](../40-hardware/registers.md) |
 | AC Charge Start Battery SOC exists as the off-grid equivalent | H160, AC-charge start SOC, off-grid plus hybrid read scope | `portal-correlated` — [H160 row](../40-hardware/registers.md) |
 | AC Charge End Battery SOC is created on `EG4_OFFGRID` and **its writes are attempted local-first** — see the safety note below, this is an un-discharged risk | H161 mapping is known; **LOCAL writability is unresolved** and family behaviour conflicts across the tested grid-tied and off-grid paths. The owner says explicitly: do not treat H161 as a safe local write | `portal-correlated`, write unresolved — [H161 row](../40-hardware/registers.md); conflict preserved as [C6/C7](../60-history/open-contradictions.md) |
-| Quick Charge status **and** control are cloud-routed on off-grid families | LOCAL FC03/FC06 access to H233 is **reported to return ILLEGAL DATA ADDRESS on the off-grid units tested**. No raw request/exception-response capture was preserved, so this is not a proof-grade claim and **not** a family-wide one — see the note below | `asserted-unverified` — [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
+| Quick Charge status **and** control are cloud-routed on off-grid families — but **only on cloud-capable entries (CLOUD/HYBRID)**. In pure-LOCAL the cloud preference cannot engage and the switch attempts the local H233 write instead; see the note below | LOCAL FC03/FC06 access to H233 is **reported to return ILLEGAL DATA ADDRESS on the off-grid units tested**. No raw request/exception-response capture was preserved, so this is not a proof-grade claim and **not** a family-wide one | `asserted-unverified` — [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
 | Generator Power and its two siblings are suppressed on `EG4_OFFGRID` (purged, with a Repairs issue) and kept on `EG4_HYBRID` | The owner splits I123 **by decoded image, not by family**: on the decoded 12000XP off-grid image it is an ARM-initialization counter, not generator power; on the decoded 18kPV/FlexBOSS hybrid image it is genuine GEN-port power; on **6000XP the meaning is unresolved** with no validated image | `firmware-proven` (12000XP off-grid), `firmware-proven` (hybrid), `asserted-unverified` (6000XP) — [I123 rows](../40-hardware/registers.md) |
 | The Off-Grid/green switch writes bit 14 of H110 | H110 b14 is Green/Off-Grid Mode on the **tested 18kPV hybrid unit**; for 12000XP/6000XP it is a layout inference awaiting a family-specific capture. H110 b8 is **UNKNOWN** and was the wrong bit (#476) | `hardware-toggle-proven` (tested 18kPV), `lineage-inferred` (12000XP/6000XP) — [H110 rows](../40-hardware/registers.md); refutation recorded as **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md) |
 
@@ -292,8 +292,25 @@ Grades for the **left** column — that these gates, purges and routings exist i
 > `lineage-inferred`, `asserted-unverified` or scope-unresolved grade in the ledger does not close
 > a write path, and nothing in the code consults the grade. Whether a register is reachable is
 > answered by the entity and its write routing — see
-> [controls-and-writes.md §0](controls-and-writes.md#0-what-derives-this-set) for the procedure
+> [controls-and-writes.md §0](controls-and-writes.md#0-two-write-mechanisms-not-one) for the procedure
 > that derives the routing, and the README table above for the register-side criterion.
+
+> **The off-grid Quick Charge cloud routing is conditional on a cloud client.**
+>
+> | Fact | Grade |
+> |---|---|
+> | The gate is `is_offgrid_family(self._device_data) and self.coordinator.has_http_api()` | `verified-against-code` — `switch.py` → `EG4QuickChargeSwitch._prefers_cloud_control` |
+> | In pure-LOCAL there is no HTTP API, so the gate is False even on off-grid, and `enable_method` stays the string `"enable_quick_charge"` — pylxpweb's **transport-first** path, i.e. the local H233 write | `verified-against-code` — `switch.py:620-626`; routing policy at pylxpweb `204b95d`, `devices/inverters/base.py:4011` |
+> | The mitigation scopes itself in its own docstring: "Go straight to the cloud start/stop endpoints **when a cloud client is configured**" | `verified-against-code` — same docstring that records the ILLEGAL DATA ADDRESS rejection (#296) |
+>
+> So on a pure-LOCAL off-grid entry the switch attempts precisely the write the same docstring
+> calls firmware-rejected. This is a **scope gap in a mitigation**, not a defect in it: the
+> cloud-preference path was built for #296 and covers every configuration that has a cloud client.
+> Tracked on issue **#558**. This page records the routing; it does not propose a code change.
+>
+> Mechanism detail — including why this write is invisible to a grep of the coordinator's write
+> primitives — is in
+> [controls-and-writes.md §2.4](controls-and-writes.md#24-the-h233-exposure-this-makes-visible).
 
 > **The H233 rejection is a tested-scope observation, not a family property.**
 > "Returns ILLEGAL DATA ADDRESS on the off-grid units we tested" and "no off-grid inverter has this
@@ -516,7 +533,7 @@ What this page owns is the **behavioural consequence** for the integration:
 | A seed expires on its own TTL, with a shorter grace window once the write is confirmed | Bounds how long an acknowledged write can override a genuine read. Values live in `coordinator.py` — read them there rather than copying them | `verified-against-code` — `coordinator.py` → the write-seed TTL and confirmed-grace constants |
 
 Write-then-refresh retention semantics and the data-object-identity check live in
-[controls-and-writes.md](controls-and-writes.md) §3–4.
+[controls-and-writes.md](controls-and-writes.md) §4–5.
 
 ## 8. The `time.monotonic()` fresh-boot throttle trap
 

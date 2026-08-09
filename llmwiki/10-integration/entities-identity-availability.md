@@ -100,6 +100,16 @@ availability rule.
 
 Every row: `verified-against-code`.
 
+> **Frame: this table is the base layer, not the whole availability model.** Thirteen further
+> `available` properties are defined on **platform subclasses**, and several narrow availability
+> beyond what their base class does (§2.4). Resolving an entity's real behaviour means finding its
+> concrete class first, not stopping at the base. A table of base classes that reads as complete is
+> the same defect this chapter documents for write paths — see
+> [controls-and-writes.md §0](controls-and-writes.md#0-two-write-mechanisms-not-one).
+>
+> `verified-against-code` — `grep -rn 'def available'` over the component at `9f6d6e2` returns 21
+> definitions: the 8 above plus 13 platform overrides.
+
 ### 2.1 The asymmetry that causes flicker bugs
 
 > **A missing sensor key means `unknown` for `EG4BaseSensor` but `unavailable` for
@@ -161,6 +171,29 @@ changing that, note that whether the per-class availability split is the intende
 **contested under C10** — see the scope note at the top of §2. A change here would alter the
 behaviour several shipped fixes depend on, so it needs the C10 adjudication first, not a local
 judgement call.
+
+### 2.4 The platform override layer
+
+Concrete platform classes may narrow availability further. These are the overrides that change
+the contract rather than simply delegating to the base:
+
+| Class | Site | What it adds |
+|---|---|---|
+| `EG4ScheduleTimeEntity` | `time.py:320` | `super().available and self.native_value is not None` — **key-presence semantics for a control**, the shape §2.1 attributes to `EG4BatteryBankEntity` |
+| `EG4CloudStoreSwitch` | `switch.py:689` | Unavailable while the cloud-store state is absent — first fetch pending, an older pylxpweb lacking the getter, or a family that genuinely lacks the feature |
+| `EG4WorkingModeSwitch` | `switch.py:1316` | Modes flagged `requires_known_state` go **unavailable** while their state key is absent, instead of publishing a fake OFF (#497) |
+| `ACCoupleSOCNumberBase` | `number.py:1647` | Unavailable on an absent value, same known-state rationale |
+| `SmartLoadNumber` | `number.py:1932` | `super().available`, then treats a held optimistic value as available |
+| `EG4SmartPortModeSelect` | `select.py:468` | `_control_device_available(DEVICE_TYPE_GRIDBOSS)` — the expected device type is a **parameter** (`base_entity.py` → `_control_device_available(expected_type="inverter")`), so the "device type is `inverter`" rule in §2 is the default, not a universal |
+| `EG4DSTSwitch` | `switch.py:1592` | Its own coordinator-health check; it descends from `CoordinatorEntity` directly, not from the base classes in §2 |
+
+Whole table: `verified-against-code` at `9f6d6e2`. The remaining overrides delegate to
+`_control_device_available()` or `super().available` and do not change the contract.
+
+**Derivation, so this does not need hand-maintaining:** `grep -rn 'def available'` over
+`custom_components/eg4_web_monitor/`, then for each hit read whether the body delegates to a base
+(`super().available`, `_control_device_available()`) or adds a condition. Only the latter belong
+in this table.
 
 ## 3. Value pipeline for sensors
 

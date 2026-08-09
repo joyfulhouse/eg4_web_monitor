@@ -179,9 +179,14 @@ otherwise the entry would have no data source at all.
 | `async_step_reconfigure_add_serial` | `:1228` |
 | `async_step_reconfigure_add_serial_manual` | `:1276` |
 
-All `verified-against-code` — enumerated by grepping `async def async_step_` at `9f6d6e2`.
+All `verified-against-code` — enumerated by grepping `async def async_step_` in
+**`_config_flow/__init__.py`** at `9f6d6e2`. That file is the frame: it holds every config-flow
+step. The only `async_step_*` defined anywhere else in the component is the options flow's
+`async_step_init` (`_config_flow/options.py:119`, §9), which belongs to a different flow class
+and is deliberately not in this list (`verified-against-code` — a component-wide grep returns
+exactly that one additional definition).
 
-> **There is no `async_step_reconfigure_plant`** — the exhaustive enumeration above contains no
+> **There is no `async_step_reconfigure_plant`** — the enumeration above contains no
 > `reconfigure_plant`, and the station-selection step during reconfigure is
 > **`async_step_reconfigure_cloud_station`** (`verified-against-code`).
 >

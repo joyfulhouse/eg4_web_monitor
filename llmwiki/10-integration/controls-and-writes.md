@@ -1,6 +1,8 @@
 ---
 canonical-for:
+  - the two control-write mechanisms and how to derive each one's population
   - async_write_with_cloud_fallback write routing
+  - _execute_switch_action, where pylxpweb chooses the transport
   - local-vs-cloud write decision, incl. link-down short-circuit
   - optimistic state, retention, and the 300s TTL coupling
   - post-write refresh judged by data-object identity
@@ -38,49 +40,53 @@ Symbol names are the durable anchor.
 `async_write_with_cloud_fallback` so that fallback, cache seeding and the error contract come with
 them.
 
-**The rule is not a description of the current code.** Two shipped controls bypass the router and
-call the coordinator's write primitives directly, so a reader must not assume the router's
-guarantees hold for them (§1.3). Both are in `number.py` → `async_set_native_value`.
+**The rule is not a description of the current code, in two separate ways.** Two controls bypass
+the router and call a coordinator primitive directly (§1.3). And a **second write mechanism
+exists alongside the router entirely** (§2): `_execute_switch_action` hands a pylxpweb method name
+to the library and lets the library decide the transport. Nothing on that path is routed by eg4.
 
-## 0. What derives this set
+**Read §0 before trusting any count of write paths on this page or elsewhere.**
 
-**Scope.** This section derives one thing: *which control writes go through the router*. It is not
-the full local-write surface — which registers are reachable, and which of those stand on an
-unproven mapping, is derived in
-[README](../README.md#the-rule-is-not-enforced-anywhere-in-the-code), which owns that question and
-whose procedure includes this one as a step. Read README's if you are auditing register exposure;
-read this one if you are asking whether a given control gets the router's guarantees.
+## 0. Two write mechanisms, not one
 
-A completeness claim about write paths is only as good as the procedure that produced it, so here
-is the procedure rather than a curated list. The distinction that matters is **closure versus
-bypass**: most direct `.write_*` calls sit inside a `local_write` closure that is handed *to* the
-router, and those are router traffic, not exceptions.
+A control write reaches the device by one of two mechanisms, and **they differ in who decides the
+transport**. Every completeness claim on this page is scoped to one of them; a claim that does not
+say which is not a claim about the write surface.
 
-| Step | Command / check |
-|---|---|
-| 1 | `grep -nE '\.write_(named_parameter\|raw_parameter\|register)\(' number.py select.py switch.py time.py base_entity.py coordinator.py` — match on the **method name, not the receiver**: the coordinator calls its own primitives as `self.write_*`, so a `coordinator\.write_` pattern silently misses the battery-regime path |
-| 2 | For each hit, find the **enclosing `def`**. A `local_write` / `_local_write` closure is router traffic; resolve one more level if the closure delegates to a helper |
-| 3 | A hit whose enclosing `def` is the entity's own `async_set_native_value` / `async_turn_on` / `async_turn_off` is a **bypass** |
-| 4 | Confirm each closure's enclosing scope actually calls `async_write_with_cloud_fallback` — a function named `local_write` is not proof it is passed to the router |
-| 5 | Discard hits inside docstrings and comments. At `9f6d6e2` two of the fourteen hits are usage examples in a `coordinator.py` docstring, not call sites |
+| | **Mechanism A — the router** | **Mechanism B — the switch action** |
+|---|---|---|
+| Entry point | `utils.py` → `async_write_with_cloud_fallback`, reached via `base_entity.py` → `_execute_local_with_fallback` (switch), `number.py` → `_write_parameter` / `_write_voltage_register`, the select/time `local_write` closures, and the coordinator's battery-regime write | `base_entity.py` → `_execute_switch_action`, called **directly by an entity** |
+| How the write is issued | eg4 calls a coordinator primitive (`write_named_parameter` / `write_raw_parameter` / `write_register`) | eg4 resolves `getattr(inverter, method_ref)` — a pylxpweb method **name** — or takes a pre-bound callable, and awaits it. **pylxpweb performs the write** |
+| Who chooses local vs cloud | **eg4**, in one place, by one policy | **pylxpweb**, per method, and the policies are **not uniform** (§2.1) |
+| Cloud fallback on local failure | Yes, where a cloud client exists | No — nothing in the body calls the router |
+| Link-down short-circuit | Yes (§1.1) | No |
+| `local_values` → `note_parameters_written` seeding | Yes (§1.2) | No. A different channel, `seed_param_key`, is available and is used by some callers |
+| Optimistic envelope / retention | Yes | Yes — both go through `_optimistic_write_envelope` |
+| Visible to a grep of the three coordinator primitives | Yes | **No** |
 
-Applying that at `9f6d6e2` yields fourteen hits: **two bypasses**
-(`number.py:1004`, `:2279`), ten closure call sites (`number.py:463`, `:514`, `:831`;
-`select.py:370`, `:492`, `:629`; `time.py:378`; `base_entity.py:1943`;
-`coordinator.py:1870`, `:1874` inside `_async_write_battery_control_mode`), and two docstring
-examples (`coordinator.py:1690`, `:1693`).
-`switch.py` contains no direct coordinator write call at all — the switch platform reaches the
-router through `base_entity.py` → `_execute_local_with_fallback`.
+`verified-against-code` — `base_entity.py` → `_execute_switch_action` (`:1543-1668`) contains **no**
+call to `async_write_with_cloud_fallback`; the router is invoked at `base_entity.py:1788` inside
+`_execute_local_with_fallback`, which is a different helper.
 
-`verified-against-code` — enumerated with the procedure above at `9f6d6e2`.
+> **A grep over the three coordinator primitives under-reports the local-write surface.** It finds
+> mechanism A and its bypasses and is blind to mechanism B, because on that path the register
+> write happens inside pylxpweb and no `coordinator.write_*` call appears in this repo at all.
+> Any audit that greps only the primitives will report a clean, exhaustive-looking count over an
+> incomplete frame.
 
-> **Step 2 is where a survey goes wrong.** `base_entity.py:1943` looks like a bypass: its
-> enclosing `def` is `_execute_named_parameter_action`, not a closure. It resolves to router
-> traffic only one level further out, because that helper's sole caller is the `local_write`
-> closure at `base_entity.py:1731`. A grep that stops at the first enclosing `def` over-reports;
-> a grep scoped to the four platform files misses the site entirely.
+> **One helper, two roles — do not conflate them.** `_execute_switch_action` is *also* used as the
+> router's own cloud leg (`base_entity.py:1766`, inside `_execute_local_with_fallback`'s
+> `cloud_write` closure). That usage is mechanism A. Mechanism B is specifically an **entity
+> calling `_execute_switch_action` directly**, with no router above it
+> (`verified-against-code` — the two direct call sites are enumerated in §2.2).
 
-## 1. The router: `async_write_with_cloud_fallback`
+Two further paths write, but neither can reach a register locally, so neither is part of the
+local-write surface: `_execute_cloud_function_action` (the generic cloud `control_function` API)
+and the cloud-store writes in `EG4CloudStoreSwitch._async_set_enabled` / `EG4DSTSwitch._set_dst`,
+which call `client.api.control.*` and `station.set_daylight_saving_time` respectively
+(`verified-against-code` — `base_entity.py`, `switch.py:721-752`, `switch.py` → `_set_dst`).
+
+## 1. Mechanism A — the router: `async_write_with_cloud_fallback`
 
 Location: `utils.py:185-270`. Evidence for this whole section: `verified-against-code`.
 
@@ -131,7 +137,13 @@ Evidence: `verified-against-code` — `utils.py:259-267` and its docstring; seed
 **Rule:** any new call site that passes a `cloud_write` must also pass `local_values`, unless the
 control genuinely has no local representation.
 
-### 1.3 The two shipped bypasses
+### 1.3 The two router bypasses
+
+**Scope: this is a claim about mechanism A only.** Two controls that *use* a coordinator primitive
+do not route it through `async_write_with_cloud_fallback`. It says nothing about mechanism B,
+whose writes never touch a coordinator primitive and so cannot appear in this count at all. Both
+review engines that independently re-derived "exactly two" were right inside this scope, and the
+scope was not stated — that omission is what §0 now fixes.
 
 Both call a coordinator write primitive directly from `async_set_native_value`. Neither is a
 defect in itself — each has a reason — but **the router's guarantees do not extend to them**, and
@@ -145,7 +157,7 @@ that is what a reader must not assume.
 | **Loses: cloud fallback** | n/a — no cloud write exists | n/a — no cloud write exists |
 | **Loses: link-down short-circuit** | Yes. `has_local_transport()` stays `True` through an outage, so a known-down link is not detected and the write waits out the Modbus timeout | Yes, same |
 | **Loses: `local_values` cache seeding** | Yes — it hand-seeds `quick_charge_status` instead, a different cache | Yes — nothing is seeded |
-| **Loses: optimistic envelope** | Yes — no `optimistic_value_context`; it writes, seeds, then calls `async_write_ha_state()` directly, so §4's retention and TTL escape do not apply | No — it runs inside `optimistic_value_context`, so retention applies |
+| **Loses: optimistic envelope** | Yes — no `optimistic_value_context`; it writes, seeds, then calls `async_write_ha_state()` directly, so §5's retention and TTL escape do not apply | No — it runs inside `optimistic_value_context`, so retention applies |
 | Error contract | Raises `HomeAssistantError` when the live state read returns `None`, rather than the router's no-path error | Raises `HomeAssistantError` naming the missing cloud path when no local transport is attached |
 
 Whole table: `verified-against-code` — `number.py` → `QuickChargeDurationNumber.async_set_native_value`
@@ -154,12 +166,137 @@ and `StartChargePowerNumber.async_set_native_value` at `9f6d6e2`.
 > **H117 is the one to watch.** It is written **raw**, and the keeper grades the mapping
 > `asserted-unverified`, status **unresolved**, with "no cloud name or validated behavior"
 > ([H117 row](../40-hardware/registers.md)). A raw write to an unresolved mapping is the shape
-> §9 rule 1 warns about: the firmware ACKs a wrong target and no readback distinguishes it. The
+> §10 rule 1 warns about: the firmware ACKs a wrong target and no readback distinguishes it. The
 > LOCAL-only guard limits *who* can trigger it; it does not make the target correct.
 >
 > The register grade is the keeper's — read it there, not here.
 
-## 2. Coordinator write primitives
+### 1.4 Deriving mechanism A's population
+
+**Scope: mechanism A only.** This derives which coordinator-primitive writes go through the
+router and which bypass it. It cannot see mechanism B (§2), and it is not the full local-write
+surface — which registers are reachable, and which stand on an unproven mapping, is derived in
+[README](../README.md#the-rule-is-not-enforced-anywhere-in-the-code), which owns that question.
+
+A completeness claim about write paths is only as good as the procedure that produced it, so here
+is the procedure rather than a curated list. The distinction that matters is **closure versus
+bypass**: most direct `.write_*` calls sit inside a `local_write` closure that is handed *to* the
+router, and those are router traffic, not exceptions.
+
+| Step | Command / check |
+|---|---|
+| 1 | `grep -nE '\.write_(named_parameter\|raw_parameter\|register)\(' number.py select.py switch.py time.py base_entity.py coordinator.py` — match on the **method name, not the receiver**: the coordinator calls its own primitives as `self.write_*`, so a `coordinator\.write_` pattern silently misses the battery-regime path |
+| 2 | For each hit, find the **enclosing `def`**. A `local_write` / `_local_write` closure is router traffic; resolve one more level if the closure delegates to a helper |
+| 3 | A hit whose enclosing `def` is the entity's own `async_set_native_value` / `async_turn_on` / `async_turn_off` is a **bypass** |
+| 4 | Confirm each closure's enclosing scope actually calls `async_write_with_cloud_fallback` — a function named `local_write` is not proof it is passed to the router |
+| 5 | Discard hits inside docstrings and comments. At `9f6d6e2` two of the fourteen hits are usage examples in a `coordinator.py` docstring, not call sites |
+
+Applying that at `9f6d6e2` yields fourteen hits: **two bypasses**
+(`number.py:1004`, `:2279`), ten closure call sites (`number.py:463`, `:514`, `:831`;
+`select.py:370`, `:492`, `:629`; `time.py:378`; `base_entity.py:1943`;
+`coordinator.py:1870`, `:1874` inside `_async_write_battery_control_mode`), and two docstring
+examples (`coordinator.py:1690`, `:1693`).
+`switch.py` contains no direct coordinator write call at all — the switch platform reaches the
+router through `base_entity.py` → `_execute_local_with_fallback`.
+
+`verified-against-code` — enumerated with the procedure above at `9f6d6e2`.
+
+> **Step 2 is where a survey goes wrong.** `base_entity.py:1943` looks like a bypass: its
+> enclosing `def` is `_execute_named_parameter_action`, not a closure. It resolves to router
+> traffic only one level further out, because that helper's sole caller is the `local_write`
+> closure at `base_entity.py:1731`. A grep that stops at the first enclosing `def` over-reports;
+> a grep scoped to the four platform files misses the site entirely.
+
+## 2. Mechanism B — `_execute_switch_action`
+
+`base_entity.py:1543-1668`. Evidence for this section: `verified-against-code`.
+
+### 2.1 What it does, and why the transport is not eg4's decision
+
+```python
+method = (getattr(inverter, method_ref, None)      # a pylxpweb method NAME
+          if isinstance(method_ref, str)
+          else method_ref)                          # or a pre-bound callable
+success = await method(**(enable_kwargs or {})) if turn_on else await method()
+```
+
+eg4 names a method; **pylxpweb performs the write and chooses the transport.** The body contains
+no call to `async_write_with_cloud_fallback`, so §1's fallback, link-down short-circuit and
+`local_values` seeding are simply not in play. What it *does* keep is the optimistic envelope: it
+delegates to `_optimistic_write_envelope`, so §5's retention and TTL escape apply, and a caller
+may seed the parameter cache through the separate `seed_param_key` channel.
+
+The code says so explicitly at the log site: *"The routing (local transport vs cloud API) is
+decided by the called method itself, so the log names the method, not a transport."*
+
+> **The per-method policies are not uniform, and that is the trap.** Two methods reachable through
+> this mechanism route in opposite directions:
+>
+> | pylxpweb method | Routing policy, from its own docstring |
+> |---|---|
+> | `enable_quick_charge` | **Transport-first** — "With a local transport (Modbus/Dongle, including HYBRID — which prefers local) this writes … to holding register 233 bit 0." Cloud only "without a transport" |
+> | `enable_ac_charge_mode` | **Client-first** — "cloud and HYBRID instances keep the dedicated cloud endpoint, while a clientless LOCAL instance uses the transport's … RMW" |
+>
+> `verified-against-code` at pylxpweb `204b95d` — `devices/inverters/base.py:4011` and `:4359`.
+> You cannot predict whether a switch-action write goes local by reading eg4. **Read the pylxpweb
+> method.**
+
+### 2.2 The population, and which part of it can write locally
+
+Two entities call `_execute_switch_action` directly. They are not equivalent in risk, and the
+difference is the branch guard, not the helper:
+
+| Caller | Site | Guard | Can it write a register locally? |
+|---|---|---|---|
+| `EG4QuickChargeSwitch._async_set_quick_charge` | `switch.py:627` | none — this is the only write path the entity has | **Yes.** Passes `"enable_quick_charge"` / `"disable_quick_charge"`, which are transport-first, so with a local transport attached the write goes to **H233** |
+| `EG4WorkingModeSwitch._async_set_working_mode` | `switch.py:1511` | `elif self.coordinator.has_http_api() and methods:` — reached only when the mode has **no** local parameter mapping (or the pylxpweb version guard nulled it), and only when a cloud client exists | **No.** **All seven** `_WORKING_MODE_METHODS` targets are client-first, and the guard requires a client, so the client branch is always taken |
+
+`verified-against-code` — call sites and guards read at `9f6d6e2`. The working-mode conclusion was
+checked against **all seven** entries of `_WORKING_MODE_METHODS`, not extrapolated from one: at
+pylxpweb `204b95d`, `enable_ac_charge_mode` (`:4359`), `enable_pv_charge_priority` (`:4451`),
+`enable_forced_discharge` (`:4543`), `enable_peak_shaving_mode` (`:4635`),
+`enable_battery_backup_ctrl` (`:2667`), `enable_feed_in_grid` (`:3394`) and `enable_pv_sell_to_grid`
+(`:3481`) each document "client-first" routing.
+
+That matters because of the branch's second entry condition: the pylxpweb **version guard** can
+null `param_name` on a legacy flat-HYBRID install that *does* have a local transport attached
+(`switch.py:1473-1481`). Were any of the seven transport-first, that install would take a local
+write through mechanism B. None is — so the conclusion holds, but it rests on a property of the
+library, not on the guard.
+
+**So mechanism B's local-write population is exactly one entity: Quick Charge, targeting H233.**
+That is a derived result, not a maintained list — re-derive it with §2.3 rather than trusting the
+count, and note that it would change the moment a working mode gained a transport-first method or
+a new entity called the helper directly.
+
+### 2.3 Deriving mechanism B's population
+
+| Step | Command / check |
+|---|---|
+| 1 | `grep -n '_execute_switch_action' switch.py number.py select.py time.py base_entity.py` |
+| 2 | Discard the definition, docstring mentions, and **`base_entity.py:1766`** — that call is the router's own cloud leg (mechanism A), not a direct entity call |
+| 3 | For each remaining call, read the **branch guard**. A branch gated on `has_http_api()` with client-first methods cannot write locally |
+| 4 | For each `enable_method` / `disable_method` value, **open the pylxpweb method and read its routing policy.** Transport-first means a local register write; client-first with a client present means cloud. There is no eg4-side signal for this |
+| 5 | Cross the resulting registers against [`40-hardware/registers.md`](../40-hardware/registers.md) |
+
+`verified-against-code` — the procedure was run at `9f6d6e2` / pylxpweb `204b95d` to produce §2.2.
+
+### 2.4 The H233 exposure this makes visible
+
+Running §2.3 surfaces a write that a coordinator-primitive grep cannot see:
+
+| Fact | Grade |
+|---|---|
+| In pure-LOCAL on an `EG4_OFFGRID` family, `EG4QuickChargeSwitch` attempts a **local H233 write** | `verified-against-code` — `switch.py` → `_prefers_cloud_control` returns `is_offgrid_family(...) and self.coordinator.has_http_api()`; with no cloud client that is False, so `enable_method` stays the transport-first `"enable_quick_charge"` |
+| That is the write the same file's docstring describes as firmware-rejected on this family | `verified-against-code` — `_prefers_cloud_control`'s docstring: register 233 is rejected "(ILLEGAL DATA ADDRESS, #296)", and the mitigation is scoped — "Go straight to the cloud start/stop endpoints **when a cloud client is configured**" |
+| The keeper marks the H233 off-grid access boundary **unresolved** | grade owned by [`40-hardware/registers.md`](../40-hardware/registers.md#h233-off-grid-access-boundary) — read it there |
+
+**This is a scope gap in a mitigation, not a bug report.** The cloud-preference path was built for
+#296 and works wherever a cloud client exists; pure-LOCAL off-grid is the configuration it does
+not cover. Tracked on issue **#558**. Changing the routing is a code change and is out of scope
+for documentation.
+
+## 3. Coordinator write primitives
 
 | Method | What it calls | Used for | Cite |
 |---|---|---|---|
@@ -174,7 +311,7 @@ All rows: `verified-against-code`.
 `write_raw_parameter` and `write_register` are **acknowledged near-duplicates**; the code
 explicitly says "do not merge them piecemeal" (`verified-against-code` — `coordinator.py:1768-1770`).
 
-### 2.1 Two lock layers
+### 3.1 Two lock layers
 
 | Lock | Scope | Why | Cite |
 |---|---|---|---|
@@ -183,7 +320,7 @@ explicitly says "do not merge them piecemeal" (`verified-against-code` — `coor
 
 All rows: `verified-against-code`.
 
-### 2.2 Routing convention
+### 3.2 Routing convention
 
 Entity and coordinator writes go through `coordinator.write_named_parameter` (local) and
 `client.api.control.*` (cloud) — **not** through pylxpweb device methods, which need the inverter's
@@ -197,7 +334,7 @@ own transport plus reconnect handling.
 
 This page records what the code does and does not adjudicate C3.
 
-## 3. Switch write envelope
+## 4. Switch write envelope
 
 Location: `base_entity.py:1440-1541`. Evidence: `verified-against-code`.
 
@@ -226,7 +363,7 @@ _settle_acknowledged_write(action, pre_write_state, refresh_phase | None)
 > helper already had, so switch writes attempted a local RMW on a known-down link. The general
 > lesson: **when two helpers do "the same thing", diff them.**
 
-### 3.1 Post-write refresh success is judged by data-object identity
+### 4.1 Post-write refresh success is judged by data-object identity
 
 ```python
 # base_entity.py:1422-1438
@@ -245,11 +382,11 @@ async def _refresh_coordinator_data(self) -> bool:
 
 **Never** substitute `last_update_success` for this check. That substitution is bug #362.
 
-## 4. Optimistic state and retention
+## 5. Optimistic state and retention
 
 Location: `EG4OptimisticEntity`, `base_entity.py:741-961`. Evidence: `verified-against-code`.
 
-### 4.1 The two exits
+### 5.1 The two exits
 
 Retention ends at the **first** of:
 
@@ -261,7 +398,7 @@ Retention ends at the **first** of:
 Exit 2 is the **silent-firmware-NAK escape**. Without it, a write the firmware quietly rejected
 would display as applied forever.
 
-### 4.2 The 300 s TTL coupling — change both or neither
+### 5.2 The 300 s TTL coupling — change both or neither
 
 | Constant | Location | Value |
 |---|---|---|
@@ -275,7 +412,7 @@ would display as applied forever.
 >
 > Evidence: `verified-against-code` — `base_entity.py:58-63`.
 
-### 4.3 The `_cache_state()` contract
+### 5.3 The `_cache_state()` contract
 
 | Requirement | Consequence if violated | Cite |
 |---|---|---|
@@ -285,7 +422,7 @@ would display as applied forever.
 
 All rows: `verified-against-code`.
 
-## 5. Per-platform write specifics
+## 6. Per-platform write specifics
 
 | Platform | Mechanism | Notes | Cite |
 |---|---|---|---|
@@ -293,11 +430,11 @@ All rows: `verified-against-code`.
 | **Voltage registers** | Local writes by **name**; cloud writes by **raw register address** | Asymmetric on purpose | `number.py:513-525` |
 | **Time** | **Explicit** optimistic management — no `finally`-clearing context manager | Because a successful write with a failed refresh must **retain**. LOCAL/HYBRID write one packed FC06 register; CLOUD uses `write_time_parameter` (writeTime families) or separate `*_HOUR` + `*_MINUTE` writes | `base_entity.py:1109-1114`; `time.py:23-33` |
 | **Select** | `EG4BaseSelect._cache_state()` masks the optimistic option **synchronously** | | `base_entity.py:1220-1233` |
-| **Switch** | Full envelope, §3 | | `base_entity.py:1440-1541` |
+| **Switch** | Full envelope, §4 | | `base_entity.py:1440-1541` |
 
 All rows: `verified-against-code`.
 
-## 6. Error surfacing
+## 7. Error surfacing
 
 | Exception | When | Cite |
 |---|---|---|
@@ -316,7 +453,7 @@ All rows: `verified-against-code`. Repairs detail: [diagnostics-repairs.md](diag
 > general error-taxonomy claim is `asserted-unverified`
 > (`memory/live-write-window-findings.md`).
 
-## 7. Firmware update entity
+## 8. Firmware update entity
 
 | Behavior | Evidence |
 |---|---|
@@ -324,7 +461,7 @@ All rows: `verified-against-code`. Repairs detail: [diagnostics-repairs.md](diag
 | `in_progress` reports `True` for the **whole chain** while the lock is held, because coordinator-derived status can flicker idle between components of a multi-step update | `verified-against-code` — `update.py:167-189` |
 | `async_install` runs `run_firmware_update_to_completion()`, always writes state and requests a coordinator refresh in `finally` (best-effort, must not raise), and raises `HomeAssistantError` when `result.success` is false | `verified-against-code` — `update.py:213-285` |
 
-## 8. Late control discovery
+## 9. Late control discovery
 
 Location: `control_discovery.py:122-189`. Evidence: `verified-against-code`.
 
@@ -341,7 +478,7 @@ Platform route signatures: `number.py:743-759`, `switch.py:384-404`.
 `_control_discovery_supported` feeds directly into control availability — see
 [entities-identity-availability.md](entities-identity-availability.md) §2.
 
-## 9. Write-path landmines
+## 10. Write-path landmines
 
 | # | Rule | Evidence |
 |---|---|---|

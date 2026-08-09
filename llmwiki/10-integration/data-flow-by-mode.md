@@ -204,7 +204,7 @@ what**, and the relationships between them.
 | Cloud side-fetch timeouts and cadences | Quick charge, firmware, battery backup, event log, PV strings, cloud param stores | `coordinator_mixins.py` → the per-fetch timeout/interval constants |
 | Side-fetch breaker | Consecutive-failure count and skip window | `coordinator_mixins.py` → the breaker constants |
 | Parameter write seed TTL / confirmed grace | How long an acknowledged write overrides a read | `coordinator.py` → the write-seed TTL constants |
-| Optimistic retention TTL | Entity-level hold after write-ok + refresh-fail | `base_entity.py` → `RETAINED_OPTIMISTIC_TTL`; see [controls-and-writes.md](controls-and-writes.md#42-the-300-s-ttl-coupling--change-both-or-neither) |
+| Optimistic retention TTL | Entity-level hold after write-ok + refresh-fail | `base_entity.py` → `RETAINED_OPTIMISTIC_TTL`; see [controls-and-writes.md](controls-and-writes.md#52-the-300-s-ttl-coupling--change-both-or-neither) |
 | Cloud request budget | Concurrency cap shared per account | `coordinator.py` → the shared request-budget semaphore |
 | Local transport attach retry | Spacing of attach retries after a failure | `coordinator_local.py` → `ATTACH_RETRY_INTERVAL_SECONDS` |
 
