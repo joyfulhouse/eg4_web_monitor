@@ -1,16 +1,17 @@
 ---
 canonical-for: gridboss-power-hub-uart-map
 sources:
-  - /tmp/llmwiki-research/firmware-re-and-registers.md
-  - /tmp/llmwiki-research/knowledge-corpus-index.VERIFIED-claude_code.md
+  - docs/reference/firmware/FIRMWARE_ACQUISITION.md
+  - docs/CONFIGURATION.md
   - docs/DATA_MAPPING.md
+  - docs/audits/2026-08-02-register-race-performance-audit.md
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
 
 # GridBOSS / POWER_HUB UART map
 
-> **Only USART3 is initialized by the reviewed POWER_HUB application firmware. UART4 contains dormant second-RS485 plumbing, but no DIP switch, GPIO input, or serial-dispatch path can enable it. Its external connector routing is unknown.** [`firmware-proven`]
+> **Only USART3 is initialized by the reviewed POWER_HUB application firmware. UART4 contains dormant second-RS485 plumbing, but no DIP switch, GPIO input, or serial-dispatch path can enable it. Its external connector routing is unknown.** Evidence: `firmware-proven` for the decoded application behavior; `asserted-unverified` for physical connector routing.
 
 ## Firmware-visible serial map
 
@@ -37,20 +38,29 @@ last-verified: 2026-08-08
 
 | Unknown | Current evidence grade | Evidence required |
 |---|---|---|
-| Which external connector, test pad, or transceiver—if any—carries UART4 TX/RX/DE | `asserted-unverified` | PCB continuity from MCU pins through transceiver to connector, a schematic, or scoped traffic under explicitly authorized diagnostic firmware. |
-| UART4 electrical polarity, termination, and connector pinout | `asserted-unverified` | Schematic/board tracing and electrical measurement. |
-| Exact purpose intended by the dormant UART4 code | `asserted-unverified` | Symbols/design documentation or a reachable consumer in another validated firmware build. |
-| Exact MCU/package topology beyond the decoded application behavior | `asserted-unverified` | Part marking, schematic, and a validated full image/load map. |
+| Which external connector, test pad, or transceiver—if any—carries UART4 TX/RX/DE | `asserted-unverified` | The reviewed image boundary is recorded in [`FIRMWARE_ACQUISITION.md`](../../docs/reference/firmware/FIRMWARE_ACQUISITION.md); settlement requires PCB continuity, a schematic, or scoped traffic under separately authorized diagnostic firmware. |
+| UART4 electrical polarity, termination, and connector pinout | `asserted-unverified` | [`FIRMWARE_ACQUISITION.md`](../../docs/reference/firmware/FIRMWARE_ACQUISITION.md) cannot establish PCB routing; settlement requires schematic/board tracing and electrical measurement. |
+| Exact purpose intended by the dormant UART4 code | `asserted-unverified` | The current POWER_HUB artifact list is in [`FIRMWARE_ACQUISITION.md`](../../docs/reference/firmware/FIRMWARE_ACQUISITION.md); settlement requires symbols/design documentation or a reachable consumer in another validated build. |
+| Exact MCU/package topology beyond the decoded application behavior | `asserted-unverified` | [`FIRMWARE_ACQUISITION.md`](../../docs/reference/firmware/FIRMWARE_ACQUISITION.md) records only the image family; settlement requires part marking, schematic, and a validated full image/load map. |
 
-Do not use UART4 dormancy to infer an inverter-side UART map. The reviewed finding is specific to GridBOSS/POWER_HUB. The inverter↔dongle external bus is separately known as 19,200 8N1 half-duplex RS485, but no reviewed source establishes the inverter ARM MCU’s internal USART pins. [`lineage-inferred` for the external wiring; `asserted-unverified` for inverter MCU routing]
+Do not use UART4 dormancy to infer an inverter-side UART map. The reviewed finding is specific to GridBOSS/POWER_HUB. The inverter↔dongle external bus is separately documented as 19,200 8N1 half-duplex RS485 in [`CONFIGURATION.md`](../../docs/CONFIGURATION.md), but no reviewed source establishes the inverter ARM MCU’s internal USART pins. Evidence: `lineage-inferred` for the external wiring; `asserted-unverified` for inverter MCU routing.
 
-## Register-map boundary
+## Smart-port mode register owner
 
-GridBOSS serial hardware and GridBOSS register semantics are separate proof questions.
+This section is canonical for the GB-H20 packing and its grade. GridBOSS serial hardware and register semantics remain separate proof questions.
+
+| Port | GB-H20 field | Value `0` | Value `1` | Value `2` | Value `3` | Evidence |
+|---:|---|---|---|---|---|---|
+| 1 | b0-b1 | Unused | Smart load | AC couple | Reserved/unknown | `portal-correlated` |
+| 2 | b2-b3 | Unused | Smart load | AC couple | Reserved/unknown | `portal-correlated` |
+| 3 | b4-b5 | Unused | Smart load | AC couple | Reserved/unknown | `portal-correlated` |
+| 4 | b6-b7 | Unused | Smart load | AC couple | Reserved/unknown | `portal-correlated` |
+
+The full-word decoding is `mode(port) = (GB-H20 >> (2 × (port - 1))) & 0x3`. It remains `portal-correlated`, not `hardware-toggle-proven`: the durable evidence does not contain the complete family/component-firmware/raw-before/raw-after/behavior/restore tuple for all four fields. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md) owns the implementation derivation; [registers.md](registers.md) owns the register-ledger count.
 
 | Register fact | Evidence grade | Boundary |
 |---|---|---|
-| GB-H20 packs four 2-bit smart-port modes. | `portal-correlated` | Port 1 uses b0-1 through port 4 b6-7; values 0 unused, 1 smart load, 2 AC couple. |
+| GB-H20 packs four 2-bit smart-port modes. | `portal-correlated` | Port 1 uses b0-b1 through port 4 b6-b7; value 3 remains reserved/unknown. |
 | GB-I104-I119 are AC-couple lifetime-energy words. | `portal-correlated` | GB-I105-I108 are therefore not the smart-port status source. |
 | GB-I18-I25 carry smart-port currents. | `lineage-inferred` | These are Modbus-only in the current map; the UART decode does not independently prove their units/semantics. |
 
