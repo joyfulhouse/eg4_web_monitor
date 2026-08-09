@@ -72,15 +72,21 @@ MRO order: `HTTPUpdateMixin` (`coordinator_http.py`), `LocalTransportMixin`
 slugifies `{device name}_{entity name}`. The 17 `_attr_entity_id` assignments in
 the codebase are **inert**: `homeassistant.helpers.entity.Entity.entity_id` is a
 plain class attribute, not `_attr_`-backed, so HA ignores them (issue #550).
-There is therefore **no `eg4_` prefix on live entity IDs**. Verified live shapes:
+There is therefore **no `eg4_` prefix on live entity IDs**. The *shapes* below are
+verified against a live registry capture; the **serials are synthetic** (`1234567890`
+18kPV, `9876543210` GridBOSS, `1234A56789` FlexBOSS21):
 
 ```
-sensor.18kpv_4512670118_battery_voltage
-sensor.battery_bank_4512670118_battery_bank_max_cell_temperature
-select.grid_boss_4524850115_smart_port_1_mode
-number.flexboss21_52842p0581_battery_charge_current
+sensor.18kpv_1234567890_battery_voltage
+sensor.battery_bank_1234567890_battery_bank_max_cell_temperature
+select.grid_boss_9876543210_smart_port_1_mode
+number.flexboss21_1234a56789_battery_charge_current
 sensor.parallel_group_a_ac_power
 ```
+
+Note the FlexBOSS21 line: slugification **lowercases** the serial, so a serial
+containing `A` appears as `a` inside the entity ID. Never match entity IDs
+case-sensitively against a serial as the portal reports it.
 
 Adjudicate any entity-ID claim against a live registry capture
 (`scratchpad/prod-baseline/prod_eg4_entities.txt`), never against `entity_key`

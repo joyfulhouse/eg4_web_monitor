@@ -181,7 +181,7 @@ How it behaves:
 
 > **Entity IDs in these examples are illustrative.** Home Assistant builds each
 > entity ID by slugifying the device name and the entity name, so yours depend on
-> your inverter model and serial (e.g. `sensor.18kpv_4512670118_battery_voltage`).
+> your inverter model and serial (e.g. `sensor.18kpv_1234567890_battery_voltage`).
 > Look up the real IDs in **Developer Tools → States** before copying an example.
 
 ### Charge batteries during off-peak hours
