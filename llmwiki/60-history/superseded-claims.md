@@ -229,8 +229,9 @@ by [`40-hardware/registers.md`](../40-hardware/registers.md). It ranks a live to
 canonical definition plus an independent capture, above a canonical definition alone, above
 a vendor table — and **requires** anything below the top two rungs to be kept
 write-inaccessible. It ranks evidence and sets the write-access rule; the grade comes from
-the legend. That rule is a requirement, not a description of what ships: two write paths
-currently violate it (issue #558, [C7](open-contradictions.md)).
+the legend. That rule is a requirement, not a description of what ships, and it is
+currently violated — [README's ladder](../README.md#shipped-exceptions-to-the-write-access-rule)
+enumerates the shipped exceptions and owns that list.
 `asserted-unverified` (`docs/audits/2026-08-02-register-race-performance-audit.md`).
 
 ---

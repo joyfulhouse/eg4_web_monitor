@@ -187,12 +187,42 @@ entity, no named-write path, no placeholder key reachable by a write helper. Gat
 only mitigation for an unproven mapping, because a wrong write cannot be detected after
 the fact.
 
-**This is a requirement, not a description of the current code, and it is currently
-violated.** Two shipped write paths stand on unpinned mappings — H179 b11 and H161, both
-writing local-first in LOCAL and HYBRID (issue #558; [C7](60-history/open-contradictions.md),
-which owns the detail). Never read this rule as an assurance that some other page's
-register is unreachable: a weak grade does not close a write path, and on this project it
-twice did not. Check the entity.
+#### Shipped exceptions to the write-access rule
+
+**The rule above is a requirement, not a description of the current code, and it is
+currently violated.** Three shipped write paths reach a mapping the keeper has not pinned
+for a family they can be used on. All three write **local-first with cloud fallback** in
+LOCAL and HYBRID. The grades below are quoted from the keeper — this section reports
+them, it does not award them:
+
+| Register | Entity | Why the mapping is not pinned for what it can reach |
+|---|---|---|
+| H179 b11 | AC Couple switch | `lineage-inferred`, never toggle-pinned on any family |
+| H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`, **LOCAL writability unresolved** |
+| H110 b14 | Off-Grid / Green Mode switch | **Family-scoped gap.** Proven on the tested 18kPV, but the switch is created for *every* family, and for 12000XP/6000XP the mapping is `lineage-inferred`, status **unresolved** |
+
+The third is the sharpest of the three, because H110 is the register from issue #476: its
+Green-Mode bit was documented as b8 for years, the wrong b8 write was firmware-ACKed, and
+no readback detected it. A local-first write on an unresolved family mapping of that same
+register is the #476 setup, not merely a similar one.
+
+That all three route local-first is `verified-against-code`: `switch.py` →
+`EG4ACCoupleSwitch` and `EG4OffGridModeSwitch` both call `_execute_local_with_fallback`,
+`number.py` → `ACChargeEndBatterySOCNumber` calls `_write_parameter`, and both helpers
+delegate to `utils.py` → `async_write_with_cloud_fallback`. The Off-Grid switch's
+family reach is likewise `verified-against-code`: `switch.py` appends it with no family
+gate — the `is_offgrid_family` check just below it governs the *working-mode* switches,
+not this one. The grades in the table are the keeper's.
+
+Per-bit grades and scope belong to the keeper,
+[`40-hardware/registers.md`](40-hardware/registers.md); the risk is tracked on issue
+**#558** and [C7](60-history/open-contradictions.md), which owns the detail. **Never read
+this rule as an assurance that some other page's register is unreachable.** A weak grade
+does not close a write path — three times now it has not. Check the entity.
+
+This list is owned here. If a fourth path appears, add it here and let the other pages
+keep linking; do not paste a copy elsewhere. Two pages once carried this list and both
+went stale in the same round.
 
 Cross-integration agreement sits at rung 2 at best: it is corroboration, not observation.
 
