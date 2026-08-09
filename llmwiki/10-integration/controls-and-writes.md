@@ -14,9 +14,16 @@ sources:
   - custom_components/eg4_web_monitor/time.py
   - custom_components/eg4_web_monitor/update.py
   - custom_components/eg4_web_monitor/control_discovery.py
-  - /tmp/llmwiki-research/integration-architecture.md
+  - memory/cloud-raw-register-write-broken.md
+  - memory/issue-476-green-mode-bit14.md
+  - memory/battery-control-mode-soc-vs-voltage.md
+  - eg4_web_monitor issues #310, #328, #362, #476, #485
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
+see-also:
+  - ../40-hardware/registers.md
+  - ../60-history/open-contradictions.md
+  - ../60-history/superseded-claims.md
 ---
 
 # Controls and writes
@@ -107,11 +114,13 @@ Entity and coordinator writes go through `coordinator.write_named_parameter` (lo
 `client.api.control.*` (cloud) — **not** through pylxpweb device methods, which need the inverter's
 own transport plus reconnect handling.
 
-Evidence: `asserted-unverified` — this is a stated convention with a mechanical reason. It
-**directly contradicts** an older internal design doc that says the integration must *never* call
-`client.api.*` ("there are no exceptions"). The later rule with the mechanical justification is the
-one the code follows; the contradiction is unresolved in the corpus and is flagged here rather than
-silently picked.
+| Claim | Grade |
+|---|---|
+| The code routes local writes through `coordinator.write_named_parameter` and cloud writes through `client.api.control.*` | `verified-against-code` — `coordinator.py` → `write_named_parameter`; the cloud legs in `switch.py`, `number.py`, `select.py`, `time.py` |
+| The stated reason is that pylxpweb device methods need the inverter's own transport plus reconnect handling | `asserted-unverified` — `memory/battery-control-mode-soc-vs-voltage.md` |
+| Whether calling `client.api.*` at all is permitted is **contested** | **C3** in [../60-history/open-contradictions.md](../60-history/open-contradictions.md#c3--never-use-clientapi-versus-the-current-write-routing-convention), status UNRESOLVED: an older internal design doc states the integration must *never* call `client.api.*` ("there are no exceptions") |
+
+This page records what the code does and does not adjudicate C3.
 
 ## 3. Switch write envelope
 
@@ -226,9 +235,11 @@ All rows: `verified-against-code`. Repairs detail: [diagnostics-repairs.md](diag
 
 > `DATAFRAME_TIMEOUT` on a cloud write does **not** mean the relay is down. The same error appears
 > for a parameter the server's write path cannot handle, and for a firmware NAK when the owning
-> mode is disabled (Grid Peak Shaving writes are NAKed and the setpoint zeroed while PS mode is
-> off). **Always verify with a read.** Evidence: `hardware-proven` for the PS case (#328,
-> confirmed on hardware); `asserted-unverified` for the general taxonomy.
+> mode is disabled — Grid Peak Shaving writes are NAKed and the setpoint zeroed while PS mode is
+> off. **Always verify with a read.** Evidence: the Grid Peak Shaving register behaviour is owned by
+> [../40-hardware/registers.md](../40-hardware/registers.md) (#328) — read the grade there; the
+> general error-taxonomy claim is `asserted-unverified`
+> (`memory/live-write-window-findings.md`).
 
 ## 7. Firmware update entity
 
@@ -259,12 +270,12 @@ Platform route signatures: `number.py:743-759`, `switch.py:384-404`.
 
 | # | Rule | Evidence |
 |---|---|---|
-| 1 | **A guessed register bit is worse than no local write.** A wrong-but-writable bit is firmware-ACKed: no exception, no cloud fallback, no log above DEBUG — and readback cannot catch it (writing bit 14 sets bit 14 and reads back True whether or not the feature moved). **Gating is the only mitigation** for an unproven bit mapping | `hardware-proven` (#476, toggle-proven on 18kPV) |
+| 1 | **A guessed register bit is worse than no local write.** A wrong-but-writable bit is firmware-ACKed: no exception, no cloud fallback, no log above DEBUG — and readback cannot catch it, because writing a bit sets that bit and reads back true whether or not the feature moved. **Gating is the only mitigation** for an unproven bit mapping | The falsification case is **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md); read the grade there. The consequence for write routing is `inferred` from it |
 | 2 | `FUNC_SMART_LOAD_ENABLE` has **no pinned bit** (179 bit 13 is a placeholder) → Smart Load stays cloud-only | `verified-against-code` — `switch.py:252-262` |
 | 3 | `_local_params_can_carry()` probes pylxpweb's `REGISTER_TO_PARAM_KEYS` and doubles as a **version guard**: a param absent from that map can never appear in a local-raw cache, so the switch would report a permanent lying OFF | `verified-against-code` — `switch.py:143-158`, used at `:352-360` |
 | 4 | `params_are_local_raw()` must **not** treat the deprecated global-transport fallback as raw. Legacy flat HYBRID entries populate the cache from the cloud (already scaled); treating them as raw shows 12 kW as 1.2 | `verified-against-code` — `coordinator.py:1079-1108` |
-| 5 | Voltage scaling is **magnitude-normalized**, not blindly ÷10 — local is decivolts, cloud is already-scaled volts | `verified-against-code` — `number.py:283-294`. See [data-semantics.md](data-semantics.md) §3 |
+| 5 | Voltage scaling is **magnitude-normalised**, not blindly ÷10 — local is decivolts, cloud is already-scaled volts | `verified-against-code` — `number.py` → the voltage normalisation helper. See [data-semantics.md](data-semantics.md#3-value-scaling-cloud-vs-local-divergence) |
 | 6 | Cloud-only param stores must **never** be seeded into the parameter cache: with a local transport attached, pylxpweb rebuilds `inverter.parameters` from register reads and wipes anything cloud-seeded. Hence the separate `CloudParamStoreSpec` stores with write-seed registries living **outside** `self.data` | `verified-against-code` — `coordinator_mixins.py:303-337`, `coordinator.py:1273-1347` |
 | 7 | **Per-field** seed timestamps: a later write to one store key must not renew an older key's seed, or an in-flight read of a legitimate portal change gets clobbered | `verified-against-code` — `coordinator.py:1304-1310` |
 | 8 | A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started. Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state | `verified-against-code` — seed supersede logic, `coordinator.py:1273-1347` |
-| 9 | Only a **delta test** (write → readback → restore) proves a write path works. A no-op write proves format acceptance, not targeting. pylxpweb's cloud `write_parameters({reg: raw})` form-encoded a dict that aiohttp serialized as `data=<key>&data=<key>`, dropping every value **since inception**, while looking successful | `hardware-proven` (the delta test that found it); `asserted-unverified` for the historical scope |
+| 9 | Only a **delta test** (write → readback → restore) proves a write path works. A no-op write proves format acceptance, not targeting. pylxpweb's cloud `write_parameters({reg: raw})` form-encoded a dict that aiohttp serialised as `data=<key>&data=<key>`, dropping every value while looking successful | `hardware-proven` — the write→readback→restore delta test that found it, `memory/cloud-raw-register-write-broken.md`; `asserted-unverified` for "since inception" |

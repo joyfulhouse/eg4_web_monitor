@@ -17,10 +17,26 @@ sources:
   - custom_components/eg4_web_monitor/coordinator_http.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
   - custom_components/eg4_web_monitor/base_entity.py
-  - /tmp/llmwiki-research/knowledge-corpus-index.VERIFIED-claude_code.md
-  - /tmp/llmwiki-research/integration-architecture.md
+  - pylxpweb src/pylxpweb/transports/data.py
+  - memory/issue-227-consumption-no-reset-local-clamp.md
+  - memory/issue-258-battery-rr-reg96-unreliable.md
+  - memory/issue-258-beta18-carry-forward.md
+  - memory/issue-259-control-gate-family-aware.md
+  - memory/issue-346-daily-energy-float-boundary.md
+  - memory/issue-348-one-inverter-all-unknown.md
+  - memory/issue-479-cloud-lost-freeze.md
+  - memory/issue-514-capacity-percent-fake-zero.md
+  - memory/issue-544-generator-power-offgrid.md
+  - memory/voltage-param-scaling-cloud-vs-local.md
+  - memory/consumption-energy-sources.md
+  - memory/queue-cleanup-2026-07-26.md
+  - eg4_web_monitor issues #170, #256, #258, #261, #300, #367, #378, #380, #490, #511, #516
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
+see-also:
+  - ../40-hardware/registers.md
+  - ../60-history/open-contradictions.md
+  - ../60-history/superseded-claims.md
 ---
 
 # Data semantics — the rules behind this project's repeated regressions
@@ -42,8 +58,8 @@ entities and the customizations attached to them.
 | 2 | **Staleness is expressed as data, not as availability.** Carried entries keep their **old** `battery_last_seen` | The consumer can see the entry is stale; the entity does not flap | `verified-against-code` — same |
 | 3 | **Bound every never-evict rule.** LOCAL keeps a 6 h eviction bound so a physically removed pack converges without a restart | `BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)` | `verified-against-code` — `coordinator_mixins.py:382`; enforced at `coordinator_local.py:492-524` |
 | 4 | **Eviction must run unconditionally per merge**, not only on empty polls | The original eviction was gated on an empty poll and was therefore **unreachable** on non-empty polls — a removed pack stayed frozen until restart (#300) | `verified-against-code` — `coordinator_local.py:479-488` ("Age-based eviction must run on every merge, not only on empty…") |
-| 5 | **Freshness must be relative, not absolute.** The supplemental-battery gate counts a transport battery as "surfaced" only if its `last_seen` is within 2 minutes **of the freshest sibling** | Relative ⇒ poll-interval agnostic, needs no clock read, and is shorter than the 5-minute overlay window so cloud data is ready before the overlay switches | `asserted-unverified` — corpus; the 5-min overlay constant is `verified-against-code` (`coordinator_http.py:71`) |
-| 6 | **Status codes may be carried forward; measurements may not.** `fault_code` / `warning_code` carry forward across link-down polls (no other source of truth); measurements stay honestly absent | | `asserted-unverified` — corpus rule from #261 |
+| 5 | **Freshness must be relative, not absolute.** The supplemental-battery gate counts a transport battery as "surfaced" only if its `last_seen` is within a short window **of the freshest sibling** | Relative ⇒ poll-interval agnostic, needs no clock read, and is shorter than the transport-freshness overlay window so cloud data is ready before the overlay switches | `verified-against-code` — `coordinator_http.py` → the supplemental-battery gate and the transport-freshness constant |
+| 6 | **Status codes may be carried forward; measurements may not.** `fault_code` / `warning_code` carry forward across link-down polls (no other source of truth); measurements stay honestly absent | | `verified-against-code` — the fault/warning carry-forward in `coordinator_mixins.py`; `asserted-unverified` (`memory/issue-261-hybrid-sensor-flicker.md`) for the rule's origin |
 | 7 | **Cloud freshness must be gated on the portal's own `lost` verdict.** A `lost:true` payload still returns `success:true` with the last register mirror — indistinguishable from live data unless you read the flag | This is #479 | `portal-correlated` — verified against live portal payloads during #479 |
 | 8 | Parameter/param-cache carry-forward: a single failed range read must **not** blank parameter-backed controls for an hour. Sticky carry-forward + a **2-minute retry floor** + a per-device retry set, at both the integration and library layers | This is #282 | `verified-against-code` — retry floor `coordinator_mixins.py:371`; retry set `coordinator_local.py:2174-2202` |
 
@@ -57,7 +73,7 @@ entities and the customizations attached to them.
 >
 > **When adding a staleness rule, enumerate what the other rules already assume.**
 >
-> Evidence: `asserted-unverified` — postmortem #170/#258.
+> Evidence: `asserted-unverified` — `memory/issue-258-battery-rr-reg96-unreliable.md`.
 
 ### 1.3 Never blank by dropping keys
 
@@ -180,45 +196,59 @@ here stays eligible for late registration, and `_async_discover_device_sensors` 
 evidence is thin, because a wrong purge is irreversible for the user and a wrong gate is not
 self-correcting.
 
-### 2.5 Family-scoped register facts
+### 2.5 Family-scoped register behaviour
 
-| Fact | Evidence |
+**Register ground truth is owned by
+[../40-hardware/registers.md](../40-hardware/registers.md), including its evidence grades.** This
+page does not restate register semantics and must never grade a register fact higher than the
+canonical ledger does. What follows is only the *integration consequence* — what the code must do
+about it — with a pointer for the underlying claim.
+
+| Integration consequence | Register fact (owner: `40-hardware/registers.md`) |
 |---|---|
-| Reg 67 (AC Charge SOC Limit) is **grid-tied-only**; off-grid firmware rejects it | `hardware-proven` (#331 — live `REMOTE_SET_ERROR`) + `portal-correlated` (absent from the off-grid portal page) |
-| Regs 160/161 (AC Charge Start/End Battery SOC) are the off-grid equivalents | `portal-correlated` (#331) |
-| Off-grid families NAK reg 233 (Quick Charge) entirely → must be cloud-routed | `hardware-proven` (#296/#308 — family-wide ILLEGAL DATA ADDRESS) |
-| Off-grid reg 123 is an ARM-local ~1 Hz **counter**; hybrid reg 123 is genuine generator power. Regs 124/125/126 are status bitfields, not energy | `hardware-proven` (#544 — firmware disassembly: one increment site, one memset) |
-| Reg 110 green-mode bit is **14**, not 8 | `hardware-proven` (#476 — toggle-proven on 18kPV) |
+| AC Charge SOC Limit is gated off `EG4_OFFGRID` with a one-shot Repairs issue | H67 is grid-tied-only; see the H67 rows in the ledger |
+| Start/End Battery SOC numbers exist as the off-grid equivalents | H160 / H161; see the ledger |
+| Quick Charge status **and** control are cloud-routed on off-grid families | Off-grid firmware rejects H233; see the ledger |
+| Generator Power and its two siblings are suppressed on `EG4_OFFGRID` (and purged, with a Repairs issue), but kept on `EG4_HYBRID` | Off-grid I123 is not generator power; see the ledger and `../40-hardware/firmware-re.md` |
+| The Off-Grid/green switch writes bit 14 of H110 | H110 bit assignment; see the ledger and **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md) |
 
-> **Portal page presence per family is real evidence** for register applicability (#331). It is
-> weaker than a hardware toggle but stronger than lineage inference.
+Grades for the left column: `verified-against-code` — the gates and purges exist at `sensor.py` →
+`_should_create_sensor`, `utils.py` → `flag_offgrid_control_suppression`, `switch.py`, `number.py`,
+`time.py`. Grades for the right column belong to the ledger; **read them there.**
+
+> **Portal page presence per family is evidence** for register applicability — weaker than a
+> hardware toggle, stronger than lineage inference. The ordering is defined in
+> [../README.md](../README.md#evidence-grade-legend).
 
 ## 3. Value scaling: cloud vs local divergence
 
 | Fact | Evidence |
 |---|---|
-| Local `read_named_parameters` returns the **raw register** (decivolts: reg 228 → `595`). Cloud `read_parameters` returns the **already-scaled value in volts** (`"59.5"`, whole-volt regs as `"40"`) | `hardware-proven` — cross-transport live comparison |
+| Local `read_named_parameters` returns the **raw register** (decivolts: reg 228 → `595`). Cloud `read_parameters` returns the **already-scaled value in volts** (`"59.5"`, whole-volt regs as `"40"`) | `hardware-proven` — live cross-transport read of the same parameter, raw pair `595` vs `"59.5"`; `memory/voltage-param-scaling-cloud-vs-local.md` |
 | A blind ÷10 makes the cloud read 10× low → fails the entity range → blank/unavailable | `verified-against-code` — normalization at `number.py:283-294` |
 | Normalize **by magnitude** (`value/10 if value >= 100 else value`) for battery-bank voltages: 400–640 decivolts vs 40–64 volts is unambiguous | `verified-against-code` — `number.py:283-294` |
 | This trick **cannot** work for PV Start Voltage (90–500 V overlaps the decivolt range) — that needs a mode-aware fix, shipped as `VoltageNumberSpec.decivolt_threshold = 600` | `verified-against-code` — `number.py:2739` (`VoltageNumberSpec`) |
 | **The write side is uniform:** raw decivolts (value × 10) for both transports. Only reads need normalization | `verified-against-code` — `number.py:491-536` |
-| Cloud **named** writes take engineering units; the raw→string conversion must use the canonical ScaleFactor (`595 → "59.5"`, `%g` format) | `hardware-proven` — established by delta test during the cloud-write repair |
-| Unit conventions | energy raw = 0.1 kWh everywhere; power raw = watts; AC/PV charge power regs 66/74 = 100 W units; grid peak shaving reg 206 = 0.1 kW (`hardware-proven`, #328); charge/discharge currents = 0.1 A (`DIV_10`, not `DIV_100`) |
+| Cloud **named** writes take engineering units; the raw→string conversion must use the canonical ScaleFactor (`595 → "59.5"`, `%g` format) | `hardware-proven` — write→readback→restore delta test during the cloud-write repair; recorded in `memory/cloud-raw-register-write-broken.md` |
+| Unit conventions per register (energy resolution, power units, charge-power units, current scaling) | **Owned by [../40-hardware/registers.md](../40-hardware/registers.md)**, which grades each register individually — several energy rows there are `lineage-inferred`, not proven. Do not summarise them as a single "everywhere" rule |
 
-### 3.1 "Two scale tables disagree" is necessary but not sufficient
+### 3.1 Compare physical values, never scale symbols
 
-> The `maxChgCurr` episode: cloud `maxChgCurr` raw 6000 is 0.01 A (→ 60.0 A); Modbus reg 81 raw 600
-> is 0.1 A (→ 60.0 A). **Same physical amps, different raw units.** Two independent reviewers called
-> it a 10× bug; a prior session had already "fixed" it into a 600 A reading. Only validation against
-> real payloads settled it.
->
-> **Compare resulting physical values, never scale symbols.**
->
-> Evidence: `asserted-unverified` — postmortem; the counter-example (#172, a genuine `DIV_100`
-> where `DIV_10` was correct) proves *some* scale disagreements are real.
+**Rule:** two scale tables disagreeing on the *symbol* is not evidence of a bug. Convert both to
+the physical quantity first; if they agree, there is nothing to fix. Different raw units producing
+the same amps, volts, or kWh is normal across the cloud and Modbus paths.
 
-**Standing rule:** every scaling fix must be validated against a live system (prod HA or real cloud
-payloads) before shipping. Unit tests cannot settle a scale question.
+The worked case — cloud `maxChgCurr` versus Modbus register 81, where two independent reviewers
+called a 10× bug that did not exist and a prior session had already "fixed" it into a wrong reading
+— is recorded as **S7** in
+[../60-history/superseded-claims.md](../60-history/superseded-claims.md). The genuine
+counter-example (a real scale mismatch, #172) is recorded there too. Read both before acting on any
+scale report.
+
+**Standing rule:** every scaling fix must be validated against a live system — production HA or
+real cloud payloads — before shipping. Unit tests cannot settle a scale question, because they
+encode the same assumption they are meant to test.
+(`asserted-unverified` — `memory/feedback_empirical-register-validation.md`.)
 
 ## 4. Energy: monotonicity, clamps, and the two consumption meters
 
@@ -230,8 +260,9 @@ payloads) before shipping. Unit tests cannot settle a scale question.
 >
 > HA natively treats a >10 % drop as a meter reset. **Trust `total_increasing`.**
 >
-> Evidence: `asserted-unverified` — postmortem #227; the HA reset semantics are
-> `verified-against-code` via the comment at `base_entity.py:302-308`.
+> Evidence: `asserted-unverified` — `memory/issue-227-consumption-no-reset-local-clamp.md` for the
+> field symptom; the Home Assistant reset semantics and the current threshold are
+> `verified-against-code` (`base_entity.py` → `_guard_total_increasing` and its comment).
 
 ### 4.2 The sanctioned alternative
 
@@ -258,25 +289,67 @@ All rows: `verified-against-code`.
 | `load_power` | — | reg 170, Modbus-only | — |
 | `total_load_power` | — | Modbus-only | — |
 
-Evidence: `asserted-unverified` for the per-mode source mapping (corpus); the overlay tables
-themselves are `verified-against-code` (`coordinator_mixins.py:408`, `:446`, `:483`).
+Evidence: `asserted-unverified` for the per-mode source mapping
+(`memory/consumption-energy-sources.md`); the overlay tables themselves are
+`verified-against-code` (`coordinator_mixins.py` → `_GRIDBOSS_PG_OVERLAY`, `_TRANSPORT_OVERLAY`,
+`_ENERGY_OVERLAY`).
 
-| Rule | Detail |
+| Claim | Grade |
 |---|---|
-| A documented divergence of **~7 %** between a computed value and a counter value is **expected, not a bug** | `asserted-unverified` — corpus |
-| **Whole-home LIFETIME consumption must never come from per-inverter `energy_balance`** — it wraps. Sum was 10.6 MWh vs a true 34.71 MWh. Use the cloud group value (CLOUD/HYBRID) or GridBOSS UPS+Load CT totals (LOCAL) | `asserted-unverified` — corpus, explicitly a **reversal** of an earlier conclusion in the same source file. Do not lift the earlier table |
-| `hybridPower` has **no Modbus register** — it is cloud-computed and must be derived locally | `portal-correlated` |
-| Per-inverter consumption uses `energy_balance`, **not** the Eload register and **not** cloud `totalUsage` | `asserted-unverified` — corpus |
+| A divergence of roughly 7 % between a computed value and a counter value is **expected, not a bug** | `asserted-unverified` — `memory/consumption-energy-sources.md` |
+| `hybridPower` has **no Modbus register** — it is cloud-computed and must be derived locally | `portal-correlated` — `memory/consumption-energy-sources.md`; register absence is owned by [../40-hardware/registers.md](../40-hardware/registers.md) |
+| Per-inverter consumption is computed from `energy_balance`, not from the Eload register and not from cloud `totalUsage` | `verified-against-code` (`coordinator_mixins.py` → the consumption computation) for what the code does; `asserted-unverified` for whether that is the right source |
+
+#### The lifetime-consumption source is CONTESTED — no binding rule here
+
+`memory/consumption-energy-sources.md` contains **both** of these, sequenced by date and never
+reconciled:
+
+| Position | Text |
+|---|---|
+| Earlier | Whole-home consumption ≈ cloud GROUP `todayUsage`, "so `energy_balance` for the GROUP is right" |
+| Later | "`energy_balance` is unusable for LIFETIME consumption. Sum 10.6 MWh vs true 34.71 MWh" — lifetime must come from the cloud group (CLOUD/HYBRID) or GridBOSS UPS+Load CT totals (LOCAL) |
+
+This is **C4** in
+[../60-history/open-contradictions.md](../60-history/open-contradictions.md#c4--consumption-source-an-early-conclusion-was-reversed-and-both-texts-still-read-as-current),
+status **UNRESOLVED**. An earlier revision of this page issued the later position as a "must
+never" imperative; that resolved the contradiction by fiat and is retracted.
+
+What is safe to act on today:
+
+| Statement | Grade |
+|---|---|
+| The two positions exist and disagree | `verified-against-code` — both appear in the same memory file |
+| The later position carries a concrete arithmetic discrepancy (10.6 MWh vs 34.71 MWh) that the earlier one does not address | `asserted-unverified` — `memory/consumption-energy-sources.md` |
+| The same file separately retracts its own older table for using a lifetime register with slave counter-drift | `asserted-unverified` — same file |
+| Therefore: **do not lift the earlier table**, and **do not ship a lifetime-source change** on the strength of either position until C4 is adjudicated | `inferred` — from the two rows above |
 
 ### 4.4 Other energy validation facts
 
 | Fact | Where | Evidence |
 |---|---|---|
-| Lifetime counters are protected in **pylxpweb** (`validate_energy_monotonicity`), not in the coordinator. Warm-up bypasses the first 2 reads; self-heal accepts a persistent downward drift after 3 rejections / upward after 5 | pylxpweb | `asserted-unverified` — corpus |
-| Daily bounds = `rated_power × elapsed × 2`, floored at the 0.1 kWh resolution, with **elapsed measured from the last value change**, not the poll interval — which is why logs show 4.1 s / 17.9 s windows on a 15 s poll | pylxpweb | `asserted-unverified` — corpus |
-| **Widening a validation cap requires evidence of a stale source**, not just a large delta. The post-outage lifetime catch-up widening is armed only by `lost` payloads or a link-down transition, never by transient fetch errors; idle devices keep the tight canary | #479 | `portal-correlated` |
-| Bank-current canary scales with installation size (150 A/battery, 500 A floor, 2000 A ceiling, with present-battery corroboration) | #367 | `asserted-unverified` — corpus |
-| Battery temperature: the **exact** value 127 (0x7F) is a "no reading" sentinel on a no-BMS secondary. Normalize the exact sentinel → `None` on every read path (including the raw cloud property, which bypasses `__post_init__`) — **never widen the >100 °C canary** | #348 | `hardware-proven` — reproduced on the reporter's unit |
+| Lifetime counters are protected in **pylxpweb** (`validate_energy_monotonicity`), not in the coordinator. Warm-up bypasses the first reads; self-heal accepts a persistent drift after a bounded number of rejections | pylxpweb `validation.py` | `verified-against-code` (pylxpweb → `validate_energy_monotonicity`) for the mechanism; `asserted-unverified` (`memory/data-validation-architecture.md`) for the specific counts, not re-read here |
+| Daily bounds scale with rated power and **elapsed measured from the last value change**, not from the poll interval — which is why logs show sub-poll-interval windows | pylxpweb `validation.py` | `asserted-unverified` — `memory/data-validation-architecture.md` |
+| **Widening a validation cap requires evidence of a stale source**, not just a large delta. The post-outage lifetime catch-up widening is armed only by `lost` payloads or a link-down transition, never by transient fetch errors; idle devices keep the tight canary | #479 | `portal-correlated` — the `lost` flag is a portal field; `memory/issue-479-cloud-lost-freeze.md` |
+| Battery temperature has a "no reading" sentinel that must be normalised to `None` on **every** read path, including the raw cloud property that bypasses `__post_init__` — and the temperature canary must **not** be widened to accommodate it | #348 | The sentinel value and its register are owned by [../40-hardware/registers.md](../40-hardware/registers.md) (I67 rows) — read the grade there. The integration-side rule is `verified-against-code` (pylxpweb normalises on all read paths; the canary is unchanged) |
+
+#### Bank-current canary thresholds (owned by this page)
+
+The corrupt-read guard on aggregate battery-bank current is **not** a flat cap: a flat cap falsely
+rejected a large bank's genuine solar-noon charging current, staling the bank sensors exactly at
+peak (#367).
+
+| Element | Value | Grade |
+|---|---|---|
+| Per-battery allowance | 150 A | `verified-against-code` — pylxpweb `transports/data.py` → `BatteryBankData.is_corrupt`, `max_amps = min(max(500.0, count * 150.0), 2000.0)` |
+| Floor | 500 A | `verified-against-code` — same expression |
+| Ceiling | 2000 A | `verified-against-code` — same expression; the comment derives it as the 20-battery count canary × a 100 A-class physical max |
+| Count used | `max(battery_count, batteries actually present in this read)` | `verified-against-code` — same method. Register 96 alone is not trusted: it shares the BMS block with the current register, so a correlated desync can garble both, and it under-reports on some rotating firmware |
+| Rationale for a ceiling at all | Keeps the canonical corrupt value rejected even when a garbled-but-plausible count inflates the scaled cap | `verified-against-code` — the method's own comment |
+| Sibling canaries | Per-battery current bound, per-battery SOC/SOH bounds, and a battery-count bound, all in the same module | `verified-against-code` — pylxpweb `transports/data.py` → the per-battery and bank `is_corrupt` methods |
+
+**Rule:** a canary threshold must scale with the installation. A constant that is correct for a
+4-battery bank rejects real data on a 9-battery bank.
 
 ## 5. Float tolerance on quantized deltas
 
@@ -290,52 +363,62 @@ themselves are `verified-against-code` (`coordinator_mixins.py:408`, `:446`, `:4
 | Fix | `DELTA_FLOAT_TOLERANCE = 1e-6` |
 | Test discipline | Pick test pairs that **actually overshoot**. A boundary test that does not exercise the overshoot proves nothing |
 
-Evidence: `asserted-unverified` — postmortem #345/#346; the IEEE-754 arithmetic is verifiable in
-any Python REPL.
+Evidence: `asserted-unverified` — `memory/issue-346-daily-energy-float-boundary.md` for the field
+case; the IEEE-754 arithmetic is `verified-against-code` (reproducible in any Python REPL).
 
 **Generalization:** any `delta > floor` or `delta >= floor` comparison over values that arrive
 quantized (0.1 kWh, 0.1 A, decivolts) needs an explicit tolerance.
 
 ## 6. Battery accumulation: key by SERIAL, distrust reg 96
 
-### 6.1 The protocol ceiling
+### 6.1 The protocol ceiling belongs to the hardware chapter
 
-| Fact | Evidence |
+The dongle Modbus window's **four-slot battery ceiling** — the register block, its extent, and the
+evidence for it — is owned by
+[../40-hardware/registers.md](../40-hardware/registers.md#individual-battery-extended-input-ledger).
+The refuted "fifth slot" is recorded as **S6** in
+[../60-history/superseded-claims.md](../60-history/superseded-claims.md). Read the grade there;
+this page does not restate it and must not out-grade it.
+
+What this page owns is the **behavioural consequence** for the integration:
+
+| Consequence | Grade |
 |---|---|
-| The inverter dongle Modbus protocol exposes **at most 4 battery slots** (regs 5002–5121 = 120 registers = 4 × 30, read atomically to fit the FC04 125-register PDU limit) | `hardware-proven` — 5- and 6-slot probe reads return EMPTY |
-| A "dedicated 5th slot" commit was written, proved wrong, and **reverted** | `hardware-proven` — the refuted read |
-| The other community integration (`ant0nkr/luxpower-ha-integration`) reads batteries identically with a hard 4-block ceiling | `asserted-unverified` — cross-integration agreement |
-| **The ceiling is the protocol, not the code.** >4 batteries are reachable only via rotation accumulation, cloud backfill, or a direct RS485-to-BMS path | `hardware-proven` |
+| Banks larger than the readable window are reachable only via rotation accumulation, cloud backfill, or another transport — never by widening the read | `inferred` — from the ceiling fact owned by `40-hardware/registers.md` |
+| Therefore the accumulator keys on **serial** and does not evict on a short page (§6.3) | `verified-against-code` (`coordinator_local.py` → `_merge_round_robin_batteries`) |
+| Therefore eviction must be **age-bounded rather than absence-triggered**, or a rotating bank evicts itself every poll (§1.1 rule 4) | `verified-against-code` (`coordinator_local.py` → `_evict_aged_rr_batteries`) |
+| A proposal to "read the 5th slot" is a refuted design, not a feature request | see S6 in `60-history/superseded-claims.md` |
 
 ### 6.2 Register 96 (battery count) is unreliable and ambiguous
 
-| Fact | Evidence |
+| Claim | Grade |
 |---|---|
-| A logged `reg 96 = 0` can mean genuine firmware-0 / rotation **or** a dropped read | `hardware-proven` |
-| Why: reg 96 lives in the `bms_data` group (80–112), the **only** group allowed to fail non-fatally, while battery voltage/SOC live in `power_energy` (0–31) | `hardware-proven` |
-| A bms-only drop therefore yields a **half-empty bank** (SOC valid, count `None`) that overwrites the good cache — whereas a *full* read failure is safe | `hardware-proven` |
-| Distinguish by the `bms_data registers unavailable` debug line | `verified-against-code` — pylxpweb debug output |
-| Fix: return `battery=None` on a failed/short bms read so callers preserve the last-good cache | `verified-against-code` — pylxpweb |
-| In this integration, reg 96 is used **only as a rotation hint** (values > slots-per-page) | `verified-against-code` — `coordinator_local.py:200-201` |
-| A momentary reg-96 = 0 under-report is explicitly guarded against | `verified-against-code` — `coordinator_local.py:1485` |
+| A logged `reg 96 = 0` is **ambiguous**: it can mean a genuine firmware zero / rotation state, or a dropped read | `inferred` — from the two structural facts below plus field reports in `memory/issue-258-battery-rr-reg96-unreliable.md` |
+| Register 96 is decoded from the `bms_data` register group, which is the **only** group allowed to fail non-fatally, while battery voltage/SOC come from the `power_energy` group | `verified-against-code` — pylxpweb `transports/data.py`, group definitions and the non-fatal `bms_data` branch |
+| A bms-only drop therefore yields a **half-empty bank** (SOC valid, count `None`) that can overwrite a good cache, whereas a *full* read failure is safe | `verified-against-code` — pylxpweb read path; the asymmetry follows from the group split above |
+| Distinguish the two by the `bms_data registers unavailable` debug line | `verified-against-code` — pylxpweb debug logging |
+| Fix: return `battery=None` on a failed/short bms read so callers preserve the last-good cache | `verified-against-code` — pylxpweb read path |
+| In this integration, reg 96 is used **only as a rotation hint** (values greater than slots-per-page) | `verified-against-code` — `coordinator_local.py` → `_merge_round_robin_batteries` docstring and body |
+| A momentary reg-96 = 0 under-report is explicitly guarded against | `verified-against-code` — `coordinator_local.py`, the battery-bank creation guard |
+| The bank-current canary deliberately takes `max(reg 96, batteries present in this read)` for the same reason | `verified-against-code` — pylxpweb `transports/data.py` → `BatteryBankData.is_corrupt` (§4.4) |
 
 ### 6.3 Accumulation rules
 
-| Rule | Evidence |
+| Rule | Grade |
 |---|---|
-| **Accumulate by serial, never by slot position** | `verified-against-code` — serial-keyed accumulation in `coordinator_local.py:177-527` |
-| Within-page duplicate serials are disambiguated as `{serial}@pos{N}` and re-verified on the next clean read of that position | `verified-against-code` — pylxpweb; consumed at `coordinator_local.py:376-429` |
-| **Never diagnose serial collisions from the `Pos N:` debug dump** — it decoded only 14 of the 15 serial characters (the final character is the low byte of offset 24; the high byte is the bank position) | `hardware-proven` — this red herring cost a full investigation |
-| Rotation is **firmware-dependent and its trigger is unknown.** One reporter's firmware never rotates (reg 5001 static at 0 across 220 reads) and shows 1 battery by day, 5 at night | `hardware-proven` — reporter capture |
-| Diagnostics must log the **RAW physical-slot → identity page** *before* accumulation. The accumulator's own dump is a merged/virtual map and will happily print a frozen value forever | `asserted-unverified` — corpus rule |
-| Positional battery retirement/migration is **deliberately conservative**: rotating packs and duplicate serials permanently suppress migration for that inverter *this session*; colliding canonical targets are dropped with a WARNING | `verified-against-code` — `coordinator.py:1441-1551` |
+| **Accumulate by serial, never by slot position** | `verified-against-code` — serial-keyed accumulation in `coordinator_local.py` → `_merge_round_robin_batteries` |
+| Within-page duplicate serials are disambiguated as `{serial}@pos{N}` and re-verified on the next clean read of that position | `verified-against-code` — pylxpweb; consumed in `coordinator_local.py` → the rr-cache merge |
+| **Never diagnose serial collisions from the `Pos N:` debug dump.** An earlier dump decoded only 14 of the 15 serial characters, so distinct packs printed as duplicates | `verified-against-code` — the dump was corrected in pylxpweb to print the full serial; `asserted-unverified` (`memory/issue-258-battery-rr-reg96-unreliable.md`) for the investigation it derailed |
+| Rotation is **firmware-dependent and its trigger is unknown.** At least one reporter's firmware never rotates and shows a different battery count by day and by night | `asserted-unverified` — reporter capture recorded in `memory/issue-258-battery-rr-reg96-unreliable.md`; the raw page-by-page capture is not reproduced here |
+| Diagnostics must log the **RAW physical-slot → identity page** *before* accumulation. The accumulator's own dump is a merged/virtual map and will print a frozen value indefinitely | `asserted-unverified` — `memory/issue-258-battery-rr-reg96-unreliable.md` |
+| Positional battery retirement/migration is **deliberately conservative**: rotating packs and duplicate serials suppress migration for that inverter for the session; colliding canonical targets are dropped with a WARNING | `verified-against-code` — `coordinator.py` → the positional-retirement helpers |
 
 ## 7. Parameter cache seeding after writes
 
 | Rule | Detail | Evidence |
 |---|---|---|
 | After a successful write, **seed the parameter cache with the written value** | Otherwise the entity displays a stale read | `verified-against-code` — `coordinator.py:1110-1144`; router seeding `utils.py:259-267` |
-| **Seed unconditionally.** A conditional seed left Quick Charge Duration showing a stale preference whenever the preceding status read had failed | | `asserted-unverified` — postmortem (3.5.0 pre-ship fix) |
+| **Seed unconditionally.** A conditional seed left Quick Charge Duration showing a stale preference whenever the preceding status read had failed | | `verified-against-code` — the seed is unconditional in `coordinator.py`; `asserted-unverified` (repo `CHANGELOG.md`, v3.5.0) for the field symptom |
 | Seeds must live **outside** `self.data` when the store is replaced each cycle | A HYBRID healthy-local parameter refresh **hard-replaces** `data["parameters"][serial]`, wiping cloud-only keys hourly and after every other control write. Hence `CloudParamStoreSpec` stores with their own per-serial/per-field seed registries | `verified-against-code` — `coordinator_mixins.py:303-337`, `coordinator.py:1273-1347` |
 | **Per-field** seed timestamps | A later write to one store key must not renew an older key's seed, or an in-flight read of a legitimate portal change gets clobbered | `verified-against-code` — `coordinator.py:1304-1310` |
 | A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started | Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state. (Found by a post-PR review after two tri-vendor rounds missed it) | `verified-against-code` — `coordinator.py:1273-1347` |
@@ -389,9 +472,9 @@ immediately after a fresh host boot."*
 
 | Fact | Evidence |
 |---|---|
-| This bit **two PRs on the same day** (#378, #380; fix commit `d66cc92`) | `asserted-unverified` — corpus / repo `CLAUDE.md` |
-| A later audit (2026-08-02) found **five more sites** (INT-08) | `asserted-unverified` — corpus |
-| Regression-test it by patching `monotonic` to a small value | `asserted-unverified` — corpus test recipe |
+| It bit two PRs on the same day, #378 and #380 (fix commit `d66cc92`) | `asserted-unverified` — repo `CLAUDE.md` "Throttle gotcha" note; not re-verified against the PRs |
+| A 2026-08-02 audit found further sites (finding INT-08) | `asserted-unverified` — `docs/audits/2026-08-02-register-race-performance-audit.md` |
+| Regression-test it by patching `monotonic` to a small value, simulating a freshly booted host | `verified-against-code` — this is the shape the existing throttle tests use |
 
 **Every** monotonic-based throttle, fetch stamp, and poll gate in this codebase must use the
 `None` sentinel. Grep for `time.monotonic()` before adding one.
@@ -405,41 +488,39 @@ immediately after a fresh host boot."*
 
 ## 9. Cloud payload robustness
 
-| Rule | Evidence |
+These are **cloud/portal** behaviours. None of them is a hardware observation, so none carries a
+hardware grade.
+
+| Rule | Grade |
 |---|---|
-| **Any cloud live-measurement field must be Optional.** Any device can go offline and return a partial payload; a required field turns that into a total entity blackout (#256) | `hardware-proven` — reproduced |
-| This class has recurred **at least three times**: `InverterRuntime`/`BatteryInfo` (#256); `UserVisitRecord` on login (#258 — the cloud reports a parallel GROUP as the "last visited device", omitting ten fields declared required, breaking ~96 % of logins for that account); the firmware `UpdateStatus` enum missing `WAITING` (#353) | `hardware-proven` |
-| **Any vendor enum needs an unknown-value fallback** (`_missing_`) | `verified-against-code` — pylxpweb firmware enums |
-| **A silent `except` on a fetch hides the whole class.** `_fetch_runtime_http` swallowed every exception at DEBUG while `_fetch_battery_http` already split `ValidationError` → WARNING. That diagnostic gap made #348 take three wrong hypotheses | `asserted-unverified` — postmortem |
-| **Fake-confident zeros are their own family** (#490 internal temperature, #497 known-state, #514 capacity percent): the cloud returns a structurally valid 0 for a field it cannot compute. **Detect by contradiction with a live sibling value** (capacity 0 while SOC is 52), then derive or blank — do not trust the 0 | `hardware-proven` (#514, reporter-confirmed pattern) |
-| A truthiness check on a schema-shaped result is **not** a reachability check. Store getters returning truthy all-`None` schema dicts on total failure hid failures inside normal returns, so the breaker never opened (#511/#516). **Only a non-`None` value proves reachability** (`False`/`0` count) | `verified-against-code` — breaker at `coordinator_mixins.py:173-174` |
-| `0 if 0 else None` — **falsy-vs-absent confusion in a merge is a whole bug class.** `inv if inv else bms` turned a healthy 0 into `None` (#261) | `asserted-unverified` — postmortem |
+| **Any cloud live-measurement field must be Optional.** A device that goes offline returns a partial payload; a required field turns that into a total entity blackout (#256) | `portal-correlated` — the partial payload came from the live portal; `memory/issue-256-offline-inverter-blackout.md`. The fix is `verified-against-code` (pylxpweb models declare the omittable live fields Optional) |
+| This class has recurred at least three times: `InverterRuntime`/`BatteryInfo` (#256); `UserVisitRecord` on login (#258 — the portal reports a parallel GROUP as the "last visited device", omitting fields declared required, which broke logins for that account); the firmware `UpdateStatus` enum missing `WAITING` (#353) | `portal-correlated` — all three are portal-payload shapes; `memory/issue-258-battery-rr-reg96-unreliable.md`, `memory/issue-353-firmware-status-round2.md` |
+| **Any vendor enum needs an unknown-value fallback** (`_missing_`) | `verified-against-code` — pylxpweb firmware enums implement it |
+| **A silent `except` on a fetch hides the whole class.** One HTTP fetch swallowed every exception at DEBUG while its sibling already split `ValidationError` → WARNING; that diagnostic gap sent #348 down three wrong hypotheses | `verified-against-code` for the asymmetry between the two fetch helpers; `asserted-unverified` (`memory/issue-348-one-inverter-all-unknown.md`) for the investigation cost |
+| **Fake-confident zeros are their own family** (#490 internal temperature, #497 known-state, #514 capacity percent): the cloud returns a structurally valid 0 for a field it cannot compute. **Detect by contradiction with a live sibling value** (capacity 0 while SOC is non-zero), then derive or blank — do not trust the 0 | `portal-correlated` — the zeros are cloud-payload values contradicted by live sibling fields in the same payload; `memory/issue-514-capacity-percent-fake-zero.md` |
+| A truthiness check on a schema-shaped result is **not** a reachability check. Store getters returning truthy all-`None` schema dicts on total failure hid failures inside normal returns, so the breaker never opened (#511/#516). **Only a non-`None` value proves reachability** (`False`/`0` count) | `verified-against-code` — `coordinator_mixins.py` → `_breakered_cloud_call` and the store getters |
+| `0 if 0 else None` — **falsy-vs-absent confusion in a merge is a whole bug class.** A merge written `inv if inv else bms` turned a healthy 0 into `None` (#261) | `asserted-unverified` — `memory/issue-261-hybrid-sensor-flicker.md` |
 
-## 10. What "verified" means for a register claim
+## 10. Grading a new register claim
 
-Use this hierarchy when annotating any new mapping. It exists because **`# verified` in a register
-table has historically meant "the names matched", not "a toggle was observed"** — the false
-annotation on reg 110 bit 8 caused #476, and the same conflation was re-committed *in the comment
-documenting the fix*.
+The evidence-grade legend — including the **register-annotation refinement** (toggle-proven >
+canonical definition plus an independent capture > canonical definition alone > vendor table) — is
+defined once, in [../README.md](../README.md#evidence-grade-legend). This page does not define a
+vocabulary. Use README's, and record register claims themselves in
+[../40-hardware/registers.md](../40-hardware/registers.md).
 
-| Grade | Meaning |
-|---|---|
-| 1. **toggle-proven** | A live named-control/UI action correlated to raw before/after values **on the target family**, with restoration |
-| 2. canonical + independent capture | A canonical pylxpweb definition **plus** an independent hardware capture |
-| 3. canonical alone | Read-only diagnostics only — never a write path |
-| 4. vendor/third-party table | A family-specific **hypothesis**, nothing more |
-
-Evidence: `asserted-unverified` — the hierarchy is a corpus audit product; the #476 falsification is
-`hardware-proven`.
+Two consequences that bite integration code specifically:
 
 > **The contract harness is valuable but NOT independent.** It resolves against the same pylxpweb
-> tables, so it catches internal drift but **cannot prove an address is correct on hardware**.
+> tables the runtime uses, so it catches internal drift but **cannot prove an address is correct on
+> hardware**. A green harness is not evidence for a register mapping.
 > (`verified-against-code` — `tests/test_register_contract_harness.py` resolves against pylxpweb.)
 
 > **A wrong-but-writable bit is firmware-ACKed.** No exception, no cloud fallback, no log above
-> DEBUG — and readback cannot catch it, because writing bit 14 sets bit 14 and reads back True
+> DEBUG — and readback cannot catch it, because writing a bit sets that bit and reads back true
 > whether or not the feature moved. **Gating is the only mitigation** for an unproven bit mapping.
-> (`hardware-proven` — #476.)
+> The falsification case is **S2** in
+> [../60-history/superseded-claims.md](../60-history/superseded-claims.md); read the grade there.
 
 ## 11. Quick regression checklist
 
@@ -458,4 +539,4 @@ Before shipping a change in this area, confirm each line:
 | 9 | Every never-evict rule has a bound, and eviction runs unconditionally per merge |
 | 10 | New staleness rules checked against what the existing three already assume |
 | 11 | The **sibling mode path** grepped and fixed too (HTTP vs LOCAL vs the HYBRID delegate) |
-| 12 | Any new register claim carries its evidence grade, and no write ships on grade 3 or 4 |
+| 12 | Any new register claim is recorded in `40-hardware/registers.md` with a grade from README's legend, and no local write ships on a bit mapping weaker than toggle-proven without a gate |

@@ -11,10 +11,17 @@ sources:
   - custom_components/eg4_web_monitor/update.py
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
-  - homeassistant/helpers/entity.py (installed HA, .venv)
-  - /tmp/llmwiki-research/integration-architecture.md
+  - homeassistant/helpers/entity.py (installed Home Assistant, repo .venv)
+  - memory/issue-261-hybrid-sensor-flicker.md
+  - memory/issue-253-duplicate-has-runtime-data.md
+  - memory/issue-262-operating-state-and-i18n-names.md
+  - memory/queue-cleanup-2026-07-26.md
+  - eg4_web_monitor issues #550, #253, #256, #261, #479
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
+see-also:
+  - ../60-history/open-contradictions.md
+  - data-semantics.md
 ---
 
 # Entities: inheritance, identity, availability
@@ -46,11 +53,11 @@ CoordinatorEntity
 │   └── EG4StationRefreshButton                button.py:379
 ├── EG4OptimisticEntity                        base_entity.py:741
 │   ├── EG4BaseNumber                          base_entity.py:1029
-│   │   └── EG4BaseNumberEntity(+NumberEntity) number.py:177  → ~30 concrete classes
+│   │   └── EG4BaseNumberEntity(+NumberEntity) number.py:177  → concrete number classes
 │   ├── EG4BaseTime                            base_entity.py:1117
 │   │   └── EG4ScheduleTimeEntity              time.py:185
-│   ├── EG4BaseSelect(+SelectEntity)           base_entity.py:1184  → 5 concrete selects
-│   └── EG4BaseSwitch(+SwitchEntity)           base_entity.py:1246  → 7 concrete switches
+│   ├── EG4BaseSelect(+SelectEntity)           base_entity.py:1184  → concrete selects
+│   └── EG4BaseSwitch(+SwitchEntity)           base_entity.py:1246  → concrete switches
 ├── EG4FirmwareUpdateEntity                    update.py:55
 └── EG4DSTSwitch                               switch.py:1540   (direct CoordinatorEntity)
 ```
@@ -65,6 +72,16 @@ deliberately different availability contracts (§2).
 
 This is the single most-cited non-obvious mechanic in this codebase. There is **no** shared
 availability rule.
+
+> **Scope of this section.** Everything in §2.1–§2.4 describes the **verified current
+> implementation** at `9f6d6e2` — what the code does. Whether that behaviour is the *intended*
+> contract is an open question, recorded as **C10** in
+> [../60-history/open-contradictions.md](../60-history/open-contradictions.md#c10--availability-contract-the-audit-contests-a-base-entity-behaviour-the-bug-notes-rely-on):
+> the #261 notes treat "missing key → unknown, stays available" as deliberate, while the
+> 2026-08-02 audit lists base-entity convergence treating a `None` cache state as fresh data as
+> "deliberate, **contested**". Multiple shipped fixes (#253, #258, #261, #479) are built on the
+> first reading. **This page does not pick a side.** Read the rows below as observed behaviour you
+> must code against today, not as a contract you may rely on surviving adjudication.
 
 | Class | `available` returns | Checks `last_update_success`? | Checks `"error"` key? | Checks key presence? | Cite |
 |---|---|---|---|---|---|
@@ -91,18 +108,23 @@ Every row: `verified-against-code`.
 
 Evidence: `verified-against-code` — both properties read at `9f6d6e2`.
 
-This asymmetry is the root of the #261 HYBRID flicker. It compounds with a coordinator behavior:
+This asymmetry is the root of the #261 HYBRID flicker. It compounds with a coordinator behaviour:
 **the coordinator writes a sensor key only when its value is non-None**, so a transient transport
-gap silently *drops* the key rather than nulling it. That is why `fault_code` went *unknown* while
-`battery_bank_soc` went *unavailable* in the same poll (`asserted-unverified` — postmortem #261;
-the key-omission behavior itself is `verified-against-code` in `_map_device_properties` and the
-overlays).
+gap silently *drops* the key rather than nulling it. That is why `fault_code` read *unknown* while
+`battery_bank_soc` read *unavailable* in the same poll.
 
-**Standing rule:** never gate bank/battery data by *dropping keys*. **Extract-then-null** instead.
-Dropping keys reproduces the #261 unavailable flicker — a defect that survived three tri-vendor
-review rounds on #479 and was caught only by a post-PR review.
+| Claim | Grade |
+|---|---|
+| The coordinator omits a sensor key whose value is `None` | `verified-against-code` (`coordinator_mappings.py` → `_map_device_properties`, and the transport/energy overlays) |
+| That omission produced the divergent #261 states in the field | `asserted-unverified` — `memory/issue-261-hybrid-sensor-flicker.md` |
+| The same defect shape recurred on #479 and was caught only after the pre-merge review rounds | `asserted-unverified` — `memory/issue-479-cloud-lost-freeze.md` |
 
-### 2.2 Full state-resolution table
+**Engineering rule (applies to the current implementation):** never gate bank/battery data by
+*dropping keys*. **Extract-then-null** instead. Dropping keys reproduces the #261 unavailable
+flicker under the semantics above. This rule is stable under either resolution of C10 — nulling is
+correct whether or not the key-presence behaviour is later changed.
+
+### 2.2 Full state-resolution table (observed behaviour)
 
 | Situation | Resulting state |
 |---|---|
@@ -116,18 +138,25 @@ review rounds on #479 and was caught only by a post-PR review.
 Evidence: `verified-against-code` for the availability rows; the `has_data` row is
 `verified-against-code` via `device_present_and_healthy` not setting `"error"` on that path.
 
-**Design intent:** an offline device should read `Status = offline` with live metrics *unknown* —
-not a total blackout (#256).
+An offline device therefore reads `Status = offline` with live metrics *unknown*, rather than
+blacking out entirely. That this is the **desired** outcome rather than merely the current one is
+the #256 fix rationale, and it is `asserted-unverified`
+(`memory/issue-256-offline-inverter-blackout.md`); the state resolution itself is
+`verified-against-code`.
 
-### 2.3 Why controls ignore the `"error"` key
+### 2.3 Controls do not consult the `"error"` key
 
-The docstring states it directly: *"controls are setpoints, not live readings, and stay available
-through a transport link-down or a transient processing failure"*
-(`verified-against-code` — `base_entity.py:796-806`). The same contract is documented on
-`_sync_transport_link_state` (`coordinator_local.py:2885-2911`) and applied to never-attached
-`transport_attach_failed` devices.
+| Claim | Grade |
+|---|---|
+| `EG4OptimisticEntity._control_device_available()` does not test for the `"error"` key | `verified-against-code` (`base_entity.py` → `_control_device_available`) |
+| Its docstring gives the reason: *"controls are setpoints, not live readings, and stay available through a transport link-down or a transient processing failure"* | `verified-against-code` (the docstring exists and says this) — note that a code comment is evidence of **stated** intent, not of adjudicated intent |
+| The same wording appears on `_sync_transport_link_state` and is applied to never-attached `transport_attach_failed` devices | `verified-against-code` (`coordinator_local.py` → `_sync_transport_link_state`) |
 
-Do not "fix" a link-down by making controls unavailable. That is the intended behavior.
+Practical consequence: a link-down does **not** currently make controls unavailable. Before
+changing that, note that whether the per-class availability split is the intended contract is
+**contested under C10** — see the scope note at the top of §2. A change here would alter the
+behaviour several shipped fixes depend on, so it needs the C10 adjudication first, not a local
+judgement call.
 
 ## 3. Value pipeline for sensors
 
@@ -161,7 +190,7 @@ energy sensor.
 | This repo contains **17** `_attr_entity_id` assignments | `verified-against-code` — `grep -rn '_attr_entity_id' --include='*.py'` → 17 |
 | They are spread across 5 files | `verified-against-code` — `base_entity.py` (6), `button.py` (4), `select.py` (4), `update.py` (2), `binary_sensor.py` (1) |
 | **All 17 are dead attributes.** Setting `_attr_entity_id` does nothing; HA never reads it | `verified-against-code` — the two facts above, combined |
-| Tracked as issue **#550** | `asserted-unverified` — issue number supplied by the chapter brief, not read from the tracker |
+| Tracked as issue **#550** — "Dead code: `_attr_entity_id` assignments are inert (not a Home Assistant Entity attribute)", OPEN | `verified-against-code` — issue read from the `joyfulhouse/eg4_web_monitor` tracker on 2026-08-08 |
 
 `utils.generate_entity_id` (`utils.py:649-674`) likewise only feeds these dead attributes
 (`verified-against-code`).
@@ -176,8 +205,8 @@ the `entity_id` object_id by **slugifying that name** at first registration.
 | Consequence | Detail |
 |---|---|
 | Entity IDs come from **slugified names**, never from `entity_key` constants | `verified-against-code` — HA `Entity`/`EntityPlatform` naming path + the `_attr_entity_id` finding |
-| Live registry examples | `switch.18kpv_<serial>_eps_battery_backup` (despite `entity_key='battery_backup'`); `sensor.battery_bank_<serial>_battery_bank_max_cell_temperature` — `asserted-unverified` (live prod registry capture, not re-captured here) |
-| **HA freezes `entity_id` at first registration** | A device whose model string drifted across pylxpweb versions shows entities with two different model prefixes. That is one device, not two (`asserted-unverified` — corpus) |
+| Live registry examples | `switch.18kpv_<serial>_eps_battery_backup` (despite `entity_key='battery_backup'`); `sensor.battery_bank_<serial>_battery_bank_max_cell_temperature` — `asserted-unverified` — production entity-registry capture recorded in `memory/queue-cleanup-2026-07-26.md`; not re-captured here |
+| **HA freezes `entity_id` at first registration** | A device whose model string drifted across pylxpweb versions shows entities with two different model prefixes. That is one device, not two (`asserted-unverified` — `memory/queue-cleanup-2026-07-26.md`) |
 
 > **Review trap.** Reasoning about entity IDs from `entity_key` constants produces false positives.
 > Adjudicate any entity-ID claim against a live registry capture, not against source constants.
@@ -198,10 +227,14 @@ entity ID, to write a test assertion about registry contents, or to build a dash
 
 | Rule | Why | Evidence |
 |---|---|---|
-| **Do not set `_attr_name` when you want a translatable name.** HA's `_name_internal()` returns `_attr_name` if the attribute exists, so it always beats `translation_key` for the NAME | This integration historically set `_attr_name` on every sensor, which made every locale's `entity.*.name` string dead. State/enum translations are a separate path and localize regardless | `asserted-unverified` — corpus lesson from #262 |
-| **Two `SENSOR_TYPES` keys must never share a display `name`** | Same slug → same `entity_id` candidate, different `unique_id`s → HA keeps **both** as distinct active entities and neither can be deleted. That is the whole of issue #253 | `asserted-unverified` — postmortem; the regression guard is a test asserting no two keys in the property map share a `SENSOR_TYPES` name |
+| **Do not set `_attr_name` when you want a translatable name.** HA's `_name_internal()` returns `_attr_name` if the attribute exists, so it always beats `translation_key` for the NAME | This integration historically set `_attr_name` on every sensor, which made every locale's `entity.*.name` string dead. State/enum translations are a separate path and localize regardless | `asserted-unverified` — `memory/issue-262-operating-state-and-i18n-names.md` |
+| **Two `SENSOR_TYPES` keys must never share a display `name`** | Same slug → same `entity_id` candidate, different `unique_id`s → HA keeps **both** as distinct active entities and neither can be deleted. That is the whole of issue #253 | `asserted-unverified` — `memory/issue-253-duplicate-has-runtime-data.md`; the regression guard is a test asserting no two keys in the property map share a `SENSOR_TYPES` name |
 
 ## 5. `unique_id` formats — as implemented
+
+**This page is canonical for the unique-ID format table** (adjudication A1). `00-orientation/repo-map.md`
+and `60-history/superseded-claims.md` link here rather than restating it.
+
 
 These are what the code actually emits. `unique_id` **is** honored by HA (unlike `entity_id`), so
 these strings are real and stable.
@@ -233,10 +266,15 @@ All rows: `verified-against-code`. `utils.generate_unique_id` (`utils.py:677-693
 | An older unique-ID form `{serial}_{data_type}_{sensor_key}_{batteryKey?}` | **Never implemented.** No Python in this repo's history emits a data-type segment; `git log --all -S` finds that shape only in markdown and one test fixture |
 | Why the allowlist still exists | `_DEVICE_UID_DATA_TYPE_SEGMENTS` is kept **purely defensively** and is an allowlist on purpose |
 
-Evidence: `verified-against-code` — the repo's own comment and allowlist at `__init__.py:792-814`,
-`:817-876`; repo `CLAUDE.md` now carries the correction inline.
+Evidence: `verified-against-code` — the allowlist `_DEVICE_UID_DATA_TYPE_SEGMENTS` in
+`__init__.py` and the comment above it, which records the `git log --all -S` result. The claim is
+also recorded as **S1** in
+[../60-history/superseded-claims.md](../60-history/superseded-claims.md) and as **C1** in
+[../60-history/open-contradictions.md](../60-history/open-contradictions.md); repo `CLAUDE.md`
+carries the correction inline (`asserted-unverified` for that last statement — it is a doc, not
+code).
 
-> **Corpus warning.** `docs/claude/FINAL_VALIDATION_REPORT.md:148,152` still states the fictional
+> **Stale-source warning.** `docs/claude/FINAL_VALIDATION_REPORT.md` still states the fictional
 > format as fact. **Do not lift entity-ID or unique-ID formats from that file.** The failure chain
 > is instructive: documentation-only fiction → a test fixture written to match the docs → real
 > registry-cleanup code designed to satisfy the fixture.
@@ -275,6 +313,6 @@ All rows: `verified-against-code`.
 
 | Rule | Consequence |
 |---|---|
-| Statistics carry over **only** if `unique_id` is unchanged | `asserted-unverified` — HA recorder behavior, corpus-confirmed in practice |
+| Statistics carry over **only** if `unique_id` is unchanged | `asserted-unverified` — Home Assistant recorder behaviour as relied on in `memory/queue-cleanup-2026-07-26.md`; not re-verified against HA source here |
 | A semantic level-shift on an **unchanged** `unique_id` must be documented as breaking | Nothing "breaks" mechanically, but the recorded history changes meaning mid-series |
 | Renaming an entity's display name changes the slug for **new** registrations only | HA freezes `entity_id` at first registration |

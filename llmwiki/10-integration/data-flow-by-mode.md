@@ -9,10 +9,16 @@ sources:
   - custom_components/eg4_web_monitor/coordinator_local.py
   - custom_components/eg4_web_monitor/coordinator.py
   - custom_components/eg4_web_monitor/const/config_keys.py
-  - /tmp/llmwiki-research/integration-architecture.md
-  - /tmp/llmwiki-research/knowledge-corpus-index.VERIFIED-claude_code.md
+  - memory/architecture-patterns.md
+  - memory/feedback_eg4-data-model-and-sensor-noise.md
+  - memory/consumption-energy-sources.md
+  - eg4_web_monitor issues #83, #233
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
+see-also:
+  - ../00-orientation/repo-map.md
+  - ../40-hardware/registers.md
+  - ../60-history/open-contradictions.md
 ---
 
 # Data flow by connection mode
@@ -34,8 +40,8 @@ Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
    read `_async_update_http_data` first.
 2. A fix applied to the LOCAL path does **not** reach HYBRID. This is the shape of the HYBRID
    GridBOSS energy-divergence bug: the CT overlay was fixed in LOCAL and missed in HTTP
-   (`asserted-unverified` — recorded in the notes corpus as a structural hazard; the general rule
-   below is what matters).
+   (`asserted-unverified` — `memory/architecture-patterns.md`; the general rule below is what
+   matters, not the specific incident).
 3. **When fixing anything mode-specific, grep for the sibling path.** Parallel-group construction
    exists in three places (`coordinator_http`, `coordinator_local` static, `coordinator_local`
    runtime), and `apply_gridboss_overlay()` is shared but called from three unrelated lifecycle
@@ -87,13 +93,13 @@ Entry point: `_async_update_local_data` (`coordinator_local.py:1946-2221`). Evid
 | It schedules an immediate follow-up `async_request_refresh()` as a tracked background task; Phase 2 populates real data | `verified-against-code` — `coordinator_local.py:1978-1985` |
 | Features on this path come from `_features_from_family()` — without it, BOTH split-phase and three-phase sensors get created | `verified-against-code` — `coordinator_mappings.py:1935` |
 
-**Why the phase exists.** Multiple devices on one Modbus gateway meant 60+ sequential reads on
-first setup, which exceeded HA's ~90 s setup timeout; the resulting `CancelledError` left the
-connection dirty (issue #83). The steady-state read budget is ~23 Modbus transactions per inverter
-per refresh — roughly 7 input reads (including one atomic 120-register battery read), ~8 holding
-params, ~8 coordinator reads (`asserted-unverified` — budget figure is from the notes corpus, not
-re-counted at `9f6d6e2`; the timeout hazard itself is `verified-against-code` via the static-phase
-comment).
+**Why the phase exists.**
+
+| Claim | Grade |
+|---|---|
+| Multiple devices on one Modbus gateway produced enough sequential reads on first setup to exceed Home Assistant's config-entry setup timeout; the resulting `CancelledError` left the connection dirty (issue #83) | `asserted-unverified` — `memory/architecture-patterns.md` and issue #83. The exact read count and the exact timeout are not re-derived here |
+| The static phase exists specifically so entity creation completes inside that timeout | `verified-against-code` — `coordinator_local.py` → `_async_update_local_data`, the static-phase comment |
+| The steady-state per-inverter read budget is on the order of two dozen Modbus transactions per refresh (input reads including one atomic battery block, holding parameters, coordinator reads) | `asserted-unverified` — `memory/architecture-patterns.md`; not re-counted at `9f6d6e2`. Treat the magnitude, not the number, as the knowledge |
 
 > Do **not** "optimize" the static phase away by making the first refresh read registers. That is
 > the exact regression #83 documents.
@@ -133,10 +139,10 @@ Entry point: `_async_update_hybrid_data` (`coordinator_http.py:342-418`). Eviden
 
 > **The HYBRID first refresh must not force a Modbus read.** Python 3.11's `asyncio.wait_for()`
 > does not interrupt an in-flight pymodbus read; a stale RS485 bus can block 3–5 minutes and take
-> the whole setup with it. The first regular poll (~5 s later) populates `_transport_runtime` once
-> the bus clears. Evidence: `asserted-unverified` — recorded in the notes corpus as a design
-> constraint; the HYBRID path's reliance on the HTTP first cycle is `verified-against-code`
-> (`coordinator_http.py:366-369`).
+> the whole setup with it. The first regular poll populates `_transport_runtime` once the bus
+> clears. Evidence: `asserted-unverified` — `memory/architecture-patterns.md`; the HYBRID
+> path's reliance on the HTTP first cycle is `verified-against-code` (`coordinator_http.py` →
+> `_async_update_hybrid_data`).
 
 ### 4.1 Why HYBRID omits the `error` key but LOCAL sets it
 
@@ -150,9 +156,9 @@ Evidence: `verified-against-code` — `coordinator_local.py:2120` (LOCAL) vs
 
 ## 5. Transport-exclusive and cloud-only data
 
-Both statements below are `asserted-unverified` at the field level (lifted from the notes corpus,
-not re-derived from the overlay tables at `9f6d6e2`) but the **mechanism** is
-`verified-against-code`: the overlay tables `_TRANSPORT_OVERLAY` and `_ENERGY_OVERLAY` exist at
+Both field lists below are `asserted-unverified` (`memory/architecture-patterns.md`,
+`memory/issue-243-eps-aggregate-and-pv-current.md`) — they were not re-derived from the overlay
+tables at `9f6d6e2`. The **mechanism** is `verified-against-code`: the overlay tables `_TRANSPORT_OVERLAY` and `_ENERGY_OVERLAY` exist at
 `coordinator_mixins.py:446` / `:483` and are asserted by `tests/test_register_contract_harness.py`.
 
 | Class | Fields |
@@ -164,37 +170,45 @@ not re-derived from the overlay tables at `9f6d6e2`) but the **mechanism** is
 Modbus register values the dongle reads, or computes a derivation from them. When a cloud field
 looks "missing", trace it to its register before calling it cloud-only. `cloud_api_field=None` on a
 register means the cloud does not carry that field — not that the data is unavailable.
-(`asserted-unverified` — corpus principle; it has held across every investigation recorded there.)
+(`asserted-unverified` — `memory/feedback_eg4-data-model-and-sensor-noise.md`.)
 
 ## 6. Intervals, throttles and caches
 
-All rows `verified-against-code`.
+**Values are not reproduced here.** `const/config_keys.py` owns every user-configurable interval
+default and bound, and the coordinator modules own the internal TTLs; see
+[`00-orientation/repo-map.md`](../00-orientation/repo-map.md). Copying those numbers into prose is
+exactly the duplication that rotted the old docs. What this page owns is **which knob governs
+what**, and the relationships between them.
 
-| Thing | Value | Cite |
+| Knob | Governs | Constant / symbol that owns the value |
 |---|---|---|
-| HTTP polling default / min / max | 120 / 60 / 600 s | `const/config_keys.py:152-154` |
-| Legacy HTTP sensor interval default | 90 s | `const/config_keys.py:126-127` |
-| Modbus default / min / max | 5 / 3 / 300 s | `const/config_keys.py:142,146-147` |
-| Dongle default / min / max | 30 / 5 / 300 s | `const/config_keys.py:143,148-149` |
-| Parameter refresh default / min / max | 60 / 5 / 1440 min | `const/config_keys.py:130,138-139` |
-| Coordinator tick | HTTP: the HTTP interval. LOCAL/HYBRID: the **fastest** configured transport interval. MODBUS/DONGLE-only: its own interval | `coordinator.py:707-722` |
-| Per-transport poll gate | monotonic stamps, **`None` sentinel** for "never ran" | `coordinator.py:678-686`, `:1414-1439` |
-| Modbus TCP and serial share ONE gate key | `_poll_gate_key()` normalizes both to `"modbus"` | `coordinator.py:1401-1412` |
-| Parameter retry floor | 2 min | `coordinator_mixins.py:371` |
-| Battery carry-forward eviction | 6 h | `coordinator_mixins.py:382` |
-| HYBRID transport battery freshness | 5 min | `coordinator_http.py:71` |
-| Quick-charge cloud status timeout | 10 s | `coordinator_mixins.py:91` |
-| Firmware / battery-backup cloud timeouts | 10 s each; backup fetch every 30 s | `coordinator_mixins.py:96-98` |
-| Event-log fetch / timeout | 300 s / 10 s | `coordinator_mixins.py:105,111` |
-| PV-string daily / lifetime fetch | 300 s / 3600 s | `coordinator_mixins.py:117-118` |
-| Cloud param store fetch / timeout / retry floor | 300 / 30 / 120 s | `coordinator_mixins.py:130,134,143` |
-| Side-fetch breaker | 3 consecutive connectivity failures → 300 s skip | `coordinator_mixins.py:173-174` |
-| Parameter write seed TTL / confirmed grace | 1800 s / 120 s | `coordinator.py:141,146` |
-| Optimistic retention TTL | 300 s (**numerically equal** to `QUICK_CHARGE_OPTIMISTIC_TTL`) | `base_entity.py:63`, `switch.py:447` |
-| Cloud request budget | semaphore of 3, shared per `(username, base_url, verify_ssl)` | `coordinator.py:766-769` |
-| Per-device mapping/side-fetch semaphore | 3 | `coordinator.py:641` |
-| Modbus block-size presets | conservative 40 / fast 120 registers | `const/config_keys.py:58-65` |
-| Local transport attach retry | 60 s | `coordinator_local.py:153` |
+| HTTP polling interval | Cloud poll cadence, and the pylxpweb client cache TTLs aligned to it | `const/config_keys.py` → `DEFAULT_HTTP_POLLING_INTERVAL`, `MIN_HTTP_POLLING_INTERVAL`, `MAX_HTTP_POLLING_INTERVAL` |
+| Legacy generic sensor interval | Pre-split entries that never gained a per-transport interval | `const/config_keys.py` → `DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP`, `MIN_SENSOR_UPDATE_INTERVAL`, `MAX_SENSOR_UPDATE_INTERVAL` |
+| Modbus interval | Modbus TCP **and** serial poll cadence (one shared knob) | `const/config_keys.py` → `DEFAULT_MODBUS_UPDATE_INTERVAL`, `MIN_MODBUS_UPDATE_INTERVAL`, `MAX_MODBUS_UPDATE_INTERVAL` |
+| Dongle interval | WiFi-dongle poll cadence; also gates HYBRID MID/GridBOSS refresh | `const/config_keys.py` → `DEFAULT_DONGLE_UPDATE_INTERVAL`, `MIN_DONGLE_UPDATE_INTERVAL`, `MAX_DONGLE_UPDATE_INTERVAL` |
+| Parameter refresh interval | How often holding parameters are re-read | `const/config_keys.py` → `DEFAULT_PARAMETER_REFRESH_INTERVAL`, `MIN_/MAX_PARAMETER_REFRESH_INTERVAL` |
+| Modbus block size | Registers per read frame (conservative vs fast preset) | `const/config_keys.py` → `BLOCK_SIZE_CONSERVATIVE`, `BLOCK_SIZE_FAST`, `DEFAULT_MODBUS_BLOCK_SIZE` |
+| Parameter retry floor | Minimum spacing between per-device parameter retries | `coordinator_mixins.py` → the parameter-retry floor constant |
+| Battery carry-forward eviction | Age at which a carried battery is dropped | `coordinator_mixins.py` → `BATTERY_CARRY_FORWARD_MAX_AGE` |
+| HYBRID transport battery freshness | Overlay window for transport-sourced batteries | `coordinator_http.py` → the hybrid transport-freshness constant |
+| Cloud side-fetch timeouts and cadences | Quick charge, firmware, battery backup, event log, PV strings, cloud param stores | `coordinator_mixins.py` → the per-fetch timeout/interval constants |
+| Side-fetch breaker | Consecutive-failure count and skip window | `coordinator_mixins.py` → the breaker constants |
+| Parameter write seed TTL / confirmed grace | How long an acknowledged write overrides a read | `coordinator.py` → the write-seed TTL constants |
+| Optimistic retention TTL | Entity-level hold after write-ok + refresh-fail | `base_entity.py` → `RETAINED_OPTIMISTIC_TTL`; see [controls-and-writes.md](controls-and-writes.md#42-the-ttl-coupling--change-both-or-neither) |
+| Cloud request budget | Concurrency cap shared per account | `coordinator.py` → the shared request-budget semaphore |
+| Local transport attach retry | Spacing of attach retries after a failure | `coordinator_local.py` → `ATTACH_RETRY_INTERVAL_SECONDS` |
+
+Whole table: `verified-against-code` — symbols read at `9f6d6e2`.
+
+### 6.0 Relationships the constants do not tell you
+
+| Relationship | Detail | Grade |
+|---|---|---|
+| **Coordinator tick derivation** | HTTP: the HTTP interval. LOCAL/HYBRID: the **fastest** configured transport interval. MODBUS/DONGLE-only: its own interval | `verified-against-code` (`coordinator.py` → `_compute_update_interval`) |
+| **Client cache alignment** | On the cloud path the pylxpweb per-endpoint cache TTLs are set **equal to** the HTTP polling interval, so raising the interval does not double-poll | `verified-against-code` (`coordinator_http.py` → `_align_client_cache_with_http_interval`) |
+| **One gate key for two transport types** | Modbus TCP and serial normalize to a single gate key, so they share both the interval and the timestamp | `verified-against-code` (`coordinator.py` → `_poll_gate_key`) |
+| **`None`, never `0.0`, is the "never ran" sentinel** | Monotonic time is host uptime; a `0.0` default throttles the first-ever call on a freshly booted host | `verified-against-code` (`coordinator.py` → `_should_poll_transport`, and the initializer comment on the poll stamps) |
+| **HYBRID MID gating is the dongle interval, not the HTTP interval** | And a degraded MID escalates past it | `verified-against-code` (`coordinator_http.py` → `_should_poll_hybrid_local`, `_async_update_hybrid_data`) |
 
 ### 6.1 Two poll-gate rules that have each caused a shipped bug
 
@@ -205,8 +219,9 @@ All rows `verified-against-code`.
 
 Related and equally load-bearing: a shared throttle stamp consumed inside a per-device loop starves
 every device after the first. With 2+ same-type local devices, only the first was ever polled
-(`asserted-unverified` — postmortem "per-transport interval" in the corpus; the current
-pre-compute-once shape is `verified-against-code` at `coordinator_local.py:2013-2024`).
+(`asserted-unverified` — `memory/architecture-patterns.md`, "per-transport interval bug"; the
+current pre-compute-once shape is `verified-against-code` at `coordinator_local.py` →
+`_async_update_local_data`).
 
 See also the `time.monotonic()` fresh-boot trap in [data-semantics.md](data-semantics.md) — the
 `None` sentinel in the table above is not stylistic.
@@ -231,10 +246,12 @@ is only the map.
 
 | Expectation | Status |
 |---|---|
-| `hybrid ⊇ cloud` exactly | `asserted-unverified` — validation-sweep convention from the corpus |
-| `local − cloud` = the documented cloud-only set (§5) | `asserted-unverified` — same |
-| Compare **registries by unique_id, not states** | `asserted-unverified` — a states-only comparison produces 35–40 false "missing" entries from slug drift (`grid_boss` vs `gridboss`, `output_power` vs `power_output`) and from enablement differences |
+| `hybrid ⊇ cloud` exactly | `asserted-unverified` — `memory/architecture-patterns.md` (three-mode validation sweeps) |
+| `local − cloud` = the documented cloud-only set (§5) | `asserted-unverified` — `memory/architecture-patterns.md` |
+| Compare **registries by unique_id, not states** | `asserted-unverified` — `memory/architecture-patterns.md`: a states-only comparison produces false "missing" entries from slug drift (`grid_boss` vs `gridboss`, `output_power` vs `power_output`) and from enablement differences |
 
-Entity **counts** per mode are deliberately omitted here: six documents in the corpus give six
-different numbers, each a snapshot of a different version, and several state them as standing
-facts. Do not quote a mode entity count without a version stamp.
+Entity **counts** per mode are deliberately omitted here. Six sources give six different numbers,
+each a snapshot of a different version, and several state them as standing facts; the conflict is
+recorded as **C2** in
+[../60-history/open-contradictions.md](../60-history/open-contradictions.md). Do not quote a mode
+entity count without a version stamp.

@@ -11,9 +11,12 @@ sources:
   - custom_components/eg4_web_monitor/coordinator_local.py
   - custom_components/eg4_web_monitor/__init__.py
   - custom_components/eg4_web_monitor/strings.json
-  - /tmp/llmwiki-research/integration-architecture.md
+  - memory/issue-reporting-hardening.md
+  - eg4_web_monitor issues #174, #322, #515
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
+see-also:
+  - ../50-operations/issue-pipeline.md
 ---
 
 # Diagnostics, Repairs, and device removal
@@ -43,9 +46,9 @@ Evidence: `verified-against-code` — `diagnostics.py:200-263`.
 
 All rows: `verified-against-code`.
 
-> The diagnostics platform **did not exist until 2026-08-02**. Triage comments predating that
-> asked reporters to download diagnostics that were not implemented. (`asserted-unverified` —
-> corpus history.)
+> The diagnostics platform **did not exist until 2026-08-02** (issue #515). Triage comments
+> predating that asked reporters to download diagnostics that were not implemented.
+> (`asserted-unverified` — `memory/issue-reporting-hardening.md`.)
 
 ## 2. Redaction rules
 
@@ -62,16 +65,37 @@ All rows: `verified-against-code`.
 
 | Rule | Detail | Cite |
 |---|---|---|
-| Every serial → `SN_1 … SN_n`; plant id → `PLANT_1` | Built as an uppercase-keyed alias map | `diagnostics.py:218-226` |
+| Each **collected** serial → `SN_1 … SN_n`; plant id → `PLANT_1` | Built as an uppercase-keyed alias map. "Collected" is doing real work here — see §3.1 | `diagnostics.py:218-226` |
 | Applied to **keys, values, and embedded substrings**, recursively | `_alias_serials` walks dicts (both key and value), lists/tuples, and strings | `diagnostics.py:153-181` |
 | **Case-insensitive matching** | Letter-bearing dongle/battery serials appear **lowercased** inside derived strings such as entity IDs; the pattern compiles with `re.IGNORECASE` and looks the match up via `.upper()` | `diagnostics.py:150`, `:175` |
 | **Longest-first ordering** | So a serial that embeds another is replaced before its fragment can be | `diagnostics.py:128-131` |
 | **Digit-boundary guards** | A purely numeric serial or plant id is wrapped in `(?<!\d)…(?!\d)`, so it only matches where it is not part of a longer number. Without this, an energy reading containing the plant id as a substring would be corrupted | `diagnostics.py:134-151` |
-| **Minimum serial length = 4** | Shorter (or empty) values are **dropped** rather than aliased — a short string is more likely to be a coincidental substring than a serial | `diagnostics.py:68-69`, `:127` |
+| **Minimum serial length = 4** | Shorter (or empty) values are **dropped from the alias map** rather than aliased — a short string is more likely to be a coincidental substring than a serial. This is a deliberate trade-off with a residual gap; see §3.1 | `diagnostics.py:68-69`, `:127` |
 | **int-typed occurrences handled explicitly** | The cloud returns `plantId` as a number; an int-typed serial or plant id would otherwise sail past the string replacement | `diagnostics.py:178-180` |
 | Serial collection sources | Device dict keys + a recursive walk (`batteries` keys, any key containing `serial` or `battery_sn`) + entry data (`inverter_serial`, `dongle_serial`) + transports | `diagnostics.py:64-132` |
 
 All rows: `verified-against-code`.
+
+### 3.1 Residual limitation — aliasing is not a redaction guarantee
+
+An earlier revision of this page said "every serial" is aliased. That is **false**, and the gap is
+worth stating precisely because a reporter attaches this output to a public issue.
+
+| Claim | Grade |
+|---|---|
+| The alias map is built only from serials the collector **found**, then filtered to those at least four characters long | `verified-against-code` — `diagnostics.py` → `_collect_serials`, `_MIN_SERIAL_LEN` |
+| A real serial shorter than four characters is therefore **dropped from the alias map and survives verbatim** in the dump | `verified-against-code` — the length filter drops it before `_build_alias_pattern` runs; nothing else removes it |
+| A serial-bearing value the collector does not reach is likewise not aliased. The collector walks device keys, `batteries` keys, keys containing `serial` or `battery_sn`, entry data, and transports — anything outside that walk is uncovered | `verified-against-code` — `diagnostics.py` → `_collect_serials` |
+| Whether any real EG4/dongle/battery serial is under four characters | **Unknown here.** Observed serials are 10+ characters (`memory/issue-reporting-hardening.md`), which is the assumption the filter encodes — but the code enforces a length rule, not a schema, so a short value in a serial-designated field is not protected | `asserted-unverified` |
+
+The trade-off the length filter buys is real: a two-character "serial" would match constantly as a
+coincidental substring and corrupt the dump. The current code chooses dump integrity over
+guaranteed coverage.
+
+**Until the code changes, state the guarantee accurately:** diagnostics aliases *collected serials
+of at least four characters*, plus the plant id. It is not a proof that no identifier appears in the
+output. A fix would redact serial-**designated** fields by key regardless of value length (or drop
+them), independently of the substring aliasing — that is a code change, out of scope for this page.
 
 > **These rules must be preserved as a set.** Each one closes a specific leak: the title omission
 > hides the plant name; case-insensitivity catches serials lowercased into entity IDs; the
@@ -133,8 +157,9 @@ Registered in `async_setup`, so they exist even with no loaded entry
 
 > `refresh_data` forces runtime + energy + battery + parameters and **raises** on
 > `parameters_complete=False`. A bare `refresh()` is a cache-respecting no-op that never reads
-> params — that was bug #322. Note also that "log and raise" is fiction inside a
-> `gather(return_exceptions=True)`. (`asserted-unverified` — postmortem #322.)
+> params — that was issue #322. Note also that "log and raise" is fiction inside a
+> `gather(return_exceptions=True)`. (`verified-against-code` — `__init__.py` → the `refresh_data`
+> handler; `asserted-unverified` for the #322 field history.)
 
 ## 6. Device-removal observation ledger
 

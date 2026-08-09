@@ -10,9 +10,14 @@ sources:
   - custom_components/eg4_web_monitor/_config_flow/options.py
   - custom_components/eg4_web_monitor/config_flow.py
   - custom_components/eg4_web_monitor/__init__.py
-  - /tmp/llmwiki-research/integration-architecture.md
+  - tests/conftest.py
+  - tests/test_config_flow.py
+  - eg4_web_monitor issue #275
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
+see-also:
+  - architecture.md
+  - ../00-orientation/repo-map.md
 ---
 
 # Config flow
@@ -24,8 +29,8 @@ Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
 | Fact | Evidence |
 |---|---|
 | The implementation package is **`_config_flow/`** (leading underscore) | `verified-against-code` — directory listing |
-| **`config_flow.py` is a 13-line re-export shim.** Its only job is to satisfy hassfest's requirement that a file named `config_flow.py` exists. It re-exports `EG4ConfigFlow` and `EG4OptionsFlow` and declares `__all__` | `verified-against-code` — `config_flow.py:1-13` |
-| Repo `CLAUDE.md` documents the directory as `config_flow/` and the main module as "~920 lines" | Both wrong: the package is `_config_flow/`, and `_config_flow/__init__.py` is **1,583 lines** (`verified-against-code`) |
+| **`config_flow.py` is a thin re-export shim** (reproduced in full below). Its only job is to satisfy hassfest's requirement that a file named `config_flow.py` exists. It re-exports `EG4ConfigFlow` and `EG4OptionsFlow` and declares `__all__` | `verified-against-code` — `config_flow.py` |
+| Repo `CLAUDE.md` documents the directory as `config_flow/` and gives a line count for the main module | The directory name is wrong — the package is `_config_flow/` (`verified-against-code`). The line count is also stale, but counts do not belong in prose either way; read the file |
 
 ```python
 # config_flow.py — the entire file
@@ -36,20 +41,22 @@ from custom_components.eg4_web_monitor._config_flow import (  # noqa: F401
 __all__ = ["EG4ConfigFlow", "EG4OptionsFlow"]
 ```
 
-> Tests patch `LuxpowerClient` at **`config_flow.LuxpowerClient`** — i.e. through the shim's
-> module namespace. (`asserted-unverified` — stated convention in repo `CLAUDE.md`; the shim's
-> existence is `verified-against-code`.)
+> Tests patch `LuxpowerClient` at **`config_flow.LuxpowerClient`** — through the shim's module
+> namespace. (`verified-against-code` — the patch target used in `tests/test_config_flow.py`; the
+> shim's existence is `verified-against-code` at `config_flow.py`.)
 
-| File | Lines | Responsibility |
-|---|---|---|
-| `_config_flow/__init__.py` | 1,583 | Single `EG4ConfigFlow` (`VERSION = 3`) — onboarding, network scan, reauth, reconfigure, entry build/update |
-| `_config_flow/options.py` | 433 | `EG4OptionsFlow` — connection-aware interval form + battery-control-mode pickers |
-| `_config_flow/discovery.py` | 498 | Device auto-discovery over Modbus / dongle / serial |
-| `_config_flow/schemas.py` | 358 | Voluptuous schema builders |
-| `_config_flow/helpers.py` | 221 | `build_unique_id`, `cloud_unique_id_from_data`, conflict finders, `migrate_legacy_entry`, `timezone_observes_dst` |
-| `_config_flow/serial_ports.py` | 119 | Serial port enumeration |
+| File | Responsibility |
+|---|---|
+| `_config_flow/__init__.py` | Single `EG4ConfigFlow` (`VERSION = 3`) — onboarding, network scan, reauth, reconfigure, entry build/update |
+| `_config_flow/options.py` | `EG4OptionsFlow` — connection-aware interval form and battery-control-mode pickers |
+| `_config_flow/discovery.py` | Device auto-discovery over Modbus / dongle / serial |
+| `_config_flow/schemas.py` | Voluptuous schema builders |
+| `_config_flow/helpers.py` | `build_unique_id`, `cloud_unique_id_from_data`, conflict finders, `migrate_legacy_entry`, `timezone_observes_dst` |
+| `_config_flow/serial_ports.py` | Serial port enumeration |
 
-All rows: `verified-against-code`.
+All rows: `verified-against-code`. This table is the **canonical** `_config_flow/` package layout
+(adjudication A7); `architecture.md` and `00-orientation/repo-map.md` link here instead of
+restating it.
 
 ## 2. The flow class
 
