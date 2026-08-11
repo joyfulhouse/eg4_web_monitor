@@ -238,3 +238,13 @@ three independent reviews.
 hardware. This entry is now `asserted-unverified` and says plainly that its detailed record
 is not in the repo — because it is not, and the previous version's confident tone was doing
 work that no reader-openable source supported.
+
+## [2026-08-11] ingest | H179 b15 = FUNC_ON_GRID_ALWAYS_ON (GH #559)
+
+Pinned Grid Always On to holding register 179 bit 15 from the EG4 mobile app
+`Local12KSetFragment.getBitByFunction` smali resolver (app write-path evidence,
+graded `firmware-proven` for the name→bit binding; explicitly **not**
+`hardware-toggle-proven`). Validated 4-for-4 against confirmed H179 anchors
+b3/b7/b9/b10. Updated `40-hardware/registers.md` (split former b12-b15 unknown
+row) and `10-integration/controls-and-writes.md` landmine #2 (local write now
+allowed once pylxpweb PR #270 maps the bit). #476 wrong-bit ACK caveat retained.

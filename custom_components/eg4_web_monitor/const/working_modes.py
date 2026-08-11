@@ -185,14 +185,14 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
         # absent key must read unavailable rather than a confident OFF.
         "requires_known_state": True,
     },
-    # Grid Always On (FUNC_ON_GRID_ALWAYS_ON, GH #484) — the portal's
+    # Grid Always On (FUNC_ON_GRID_ALWAYS_ON, GH #484 / #559) — the portal's
     # Maintenance -> Remote Set "Smart Load Port" section, "Smart Load" tab,
     # second row (the reporter's 12000XP screenshot); sibling of the "AC
     # coupling" tab that GH #471/#352 already expose. Keeps the smart load
     # port energized from the grid instead of dropping it when the Smart
     # Load Start/End SOC window closes.
     #
-    # CLOUD-ONLY, and no family gate. Both halves are evidence-driven:
+    # LOCAL + HYBRID + CLOUD, and no family gate. Both halves are evidence-driven:
     #   - Read-only probe 2026-07-27 against the maintainer's own account:
     #     the cloud returns FUNC_ON_GRID_ALWAYS_ON among reg 179's 16 named
     #     params on an 18kPV, a FlexBOSS21 and a GridBOSS, in the very
@@ -203,24 +203,16 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
     #     strip it from the device that asked for it, and there is no
     #     family with evidence of absence to fail-open suppress. The gate
     #     is therefore the enclosing is_supported_control_model() only,
-    #     exactly as GH #471's AC Couple switch reasoned.
-    #   - No reg-179 BIT is pinned for it, so it is deliberately absent from
-    #     _WORKING_MODE_PARAMETERS (switch.py): writing an unpinned bit
-    #     locally is ACKed by the firmware, which means the cloud fallback
-    #     never fires and readback-verify cannot catch a wrong guess. The
-    #     _local_params_can_carry() setup probe suppresses the switch
-    #     wherever the parameter cache is local-raw (LOCAL, or HYBRID with
-    #     a transport), so it exists only where its state is readable.
-    #     Enforced on two levels, because either alone has a blind spot:
-    #     the contract harness guards the TABLE (no control may be locally
-    #     wired to any reg-179 name lacking a pinned contract entry, nor to
-    #     any FUNC_<reg>_BIT<n> placeholder), and
-    #     TestGridAlwaysOnSwitchBehavior guards BEHAVIOR on both turn-on and
-    #     turn-off (a bespoke local write inside the entity bypasses the
-    #     table entirely, and a one-action test misses the other action —
-    #     both holes were open at once until PR review found them).
-    # No dedicated pylxpweb enable/disable methods either: the cloud path
-    # uses the generic function-control API — the exact call the portal makes.
+    #     exactly as GH #471's AC Couple switch reasoned. NEVER family-gate
+    #     (#490).
+    #   - Reg-179 bit 15 pinned 2026-08-11 (GH #559): app-write-path-proven
+    #     via EG4 mobile Local12KSetFragment.getBitByFunction (smali);
+    #     4-for-4 against confirmed anchors bits 3/7/9/10. Not
+    #     hardware-toggle-proven — keep readback-verify; _local_params_can_carry()
+    #     is the version guard for pylxpweb builds that still carry the
+    #     FUNC_179_BIT15 placeholder.
+    # No dedicated pylxpweb enable/disable methods: local path is the named
+    # reg-179 bit write; cloud path uses the generic function-control API.
     # Disabled by default like Share Battery: only meaningful once the smart
     # load port is configured, so it stays out of everyone else's entity list.
     "grid_always_on_mode": {

@@ -25,10 +25,12 @@ sources:
   - pylxpweb@204b95d:src/pylxpweb/registers/__init__.py
   - pylxpweb@204b95d:src/pylxpweb/constants/registers.py
   - https://github.com/joyfulhouse/pylxpweb/issues/242
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/559
+  - https://github.com/joyfulhouse/pylxpweb/pull/270
 verified-against:
   eg4_web_monitor: 9f6d6e2
-  pylxpweb: 204b95d
-last-verified: 2026-08-09
+  pylxpweb: d8372ef
+last-verified: 2026-08-11
 ---
 
 # Register ground truth
@@ -258,7 +260,8 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H179 b9 | Battery charge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) describes the 2026-02-18 toggle, but the durable raw before/after and restoration record is incomplete. |
 | H179 b10 | Battery discharge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | Same durable audit and evidence boundary as b9. |
 | H179 b11 | AC coupling function; **LOCAL writability unresolved** | lineage-wide | `lineage-inferred` | current; live write risk unresolved | 1 | Requires a named/raw lockstep toggle. Shipped-path fact (`verified-against-code`): `EG4ACCoupleSwitch._async_set_enabled` routes LOCAL/HYBRID through `_execute_local_with_fallback`; its class contract says a wrong-target write “would still ACK, which no readback can catch.” Code anchors: [`EG4ACCoupleSwitch` wrong-bit ACK contract](../../custom_components/eg4_web_monitor/switch.py#L789) and [`_async_set_enabled`](../../custom_components/eg4_web_monitor/switch.py#L958). Safety conclusion (`inferred`): **do not treat this as a safe local write**; it is a live, un-discharged risk tracked by [issue #558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558) and [contradiction C7](../60-history/open-contradictions.md#c7--register-161-writability-read-only-on-flexboss-versus-a-shipped-off-grid-write-entity). |
-| H179 b12-b15 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
+| H179 b12-b14 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. Bit 13 is where `FUNC_SMART_LOAD_ENABLE` is *suspected* but unpinned — Smart Load stays cloud-only. |
+| H179 b15 | Grid Always On / `FUNC_ON_GRID_ALWAYS_ON` | family-wide (app resolver has no per-model branch; SNA-US 12K / deviceTypeCode 54 membership corroborated by `docs/inverters/SNA12KUS_52XXXXXX68.json` register_blocks) | `firmware-proven` | current; **not** `hardware-toggle-proven` | 1 | EG4 mobile app `Local12KSetFragment.getBitByFunction` name→bit resolver places `FUNC_ON_GRID_ALWAYS_ON` at H179 b15 (smali: `scratchpad/com.nfcx.eg4.xapk.out/.../Local12KSetFragment.smali`, `_179Functions` membership). Decode validated 4-for-4 against independently confirmed anchors: b3 Export PV Only (`hardware-toggle-proven` #135), b7 Grid Peak Shaving, b9/b10 battery charge/discharge control (#48). **Not** a live raw before/after toggle on hardware — one notch below the #476 gold standard. Wrong-bit writes ACK (#476 lesson); contract test + readback-verify are the guards. GH #559 / pylxpweb PR #270. |
 
 ### H233 safe bit map
 

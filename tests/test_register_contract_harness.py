@@ -102,6 +102,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
+    PARAM_FUNC_ON_GRID_ALWAYS_ON,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
     PARAM_FUNC_RUN_WITHOUT_GRID,
     PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
@@ -1368,6 +1369,13 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_PV_SELL_TO_GRID_EN: (179, 3),
     PARAM_FUNC_BAT_CHARGE_CONTROL: (179, 9),
     PARAM_FUNC_BAT_DISCHARGE_CONTROL: (179, 10),
+    # Grid Always On (GH #559): reg 179 bit 15. App-write-path-proven via
+    # EG4 mobile Local12KSetFragment.getBitByFunction (smali); 4-for-4
+    # against confirmed anchors bits 3/7/9/10. Not hardware-toggle-proven
+    # — contract + readback-verify guard the #476 wrong-bit ACK risk.
+    # Graduated from _CLOUD_ONLY_FUNCTION_PARAMS once pylxpweb mapped the
+    # bit (PR #270).
+    PARAM_FUNC_ON_GRID_ALWAYS_ON: (179, 15),
     # AC Couple function (GH #471/#472): reg 179 bit 11. NOT pinned by this
     # project's raw<->named lockstep toggle — it ships on lineage inference
     # (the Luxpower Modbus doc and ant0nkr/luxpower-ha-integration both place
@@ -1649,24 +1657,11 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
         "local register; never write it through the local transport name "
         "map.",
     ),
-    # Grid Always On (GH #484): the portal's Smart Load Port -> Smart Load
-    # tab enable, sibling of the AC coupling tab above. A READ-ONLY cloud
-    # probe 2026-07-27 confirmed the name comes back among register 179's
-    # 16 named params on an 18kPV, a FlexBOSS21 and a GridBOSS — including
-    # in the 127-253 range read that builds the cloud parameter cache — and
-    # the reporter's portal screenshot shows it live on a 12000XP. But
-    # WHICH of register 179's bits it occupies is UNPINNED: the register's
-    # bit map still carries FUNC_179_BIT{0,1,2,4,5,6,8,12,13,14,15}
-    # placeholders. Writing a guessed bit is not a safe failure — the
-    # firmware ACKs it, so the cloud fallback never fires and
-    # readback-verify cannot catch it (the #476 reg-110 bit-8 lesson).
-    # Cloud functionControl only until a live raw<->named toggle pins it.
-    "FUNC_ON_GRID_ALWAYS_ON": (
-        179,
-        "Cloud-only function param for the smart load port's Grid Always On "
-        "enable — reg 179 membership is confirmed but the BIT is unpinned; "
-        "never write it through the local transport name map.",
-    ),
+    # Grid Always On (GH #484/#559) graduated 2026-08-11: its reg-179 bit 15
+    # was pinned app-write-path-proven (EG4 mobile Local12KSetFragment
+    # getBitByFunction smali; 4-for-4 against anchors 3/7/9/10) and the
+    # control moved into _CONTROL_REGISTER_CONTRACT above, exactly the
+    # promotion path this allowlist's honesty test was designed to force.
     # Smart Load panel (GH #499): the rest of the same portal tab Grid Always
     # On came from. A READ-ONLY cloud probe 2026-08-01 found all five
     # threshold holdParams plus FUNC_SMART_LOAD_ENABLE in the 127-253 range
@@ -1674,9 +1669,9 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
     # param but NONE of the five (it carries the per-port MIDBOX_HOLD_SL_*
     # family instead), which is exactly why the entities must go unavailable
     # rather than render a zero. No local register is pinned for any of them
-    # — for the function param the reg-179 bit is unpinned like Grid Always
-    # On's, and for the five holdParams no register is claimed at all. Reads
-    # come from the coordinator's dedicated smart_load store (throttled
+    # — for the function param the reg-179 bit is still unpinned, and for
+    # the five holdParams no register is claimed at all. Reads come from
+    # the coordinator's dedicated smart_load store (throttled
     # get_inverter_smart_load_limits); writes route exclusively through
     # client.api.control.set_inverter_smart_load_*.
     "FUNC_SMART_LOAD_ENABLE": (
