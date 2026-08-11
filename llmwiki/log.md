@@ -261,3 +261,25 @@ reading"). Corrected `40-hardware/registers.md` and
 `hardware-toggle-proven`; #476 wrong-bit ACK caveat unchanged. Scratchpad smali
 path dropped as a durable source (conventions: working artifacts are not
 sources); durable cites are #559 / pylxpweb PR #270.
+
+## [2026-08-11] lint | H179 b15 re-graded `app-write-path-proven` (new legend grade)
+
+The erratum above downgraded the Grid Always On name→bit binding to
+`portal-correlated`, but that grade's definition ("exposes it, and it agrees
+with our reading") undersells what the evidence is: a binding recovered from
+the decompiled **write path** of the official EG4 mobile app
+(`Local12KSetFragment.getBitByFunction`), validated 4-for-4 against
+independently proven anchor bits on the same register (b3 `hardware-toggle-proven`
+#135, b7, b9/b10 #48). The legend had no rung for that class, so the erratum's
+grade was the least-wrong available — a legend gap, not an evidence change.
+Extended `README.md`'s Proof grades with `app-write-path-proven` (below
+`firmware-proven`, above `portal-correlated`; minimum proof: decompiled
+official-client write-path binding + ≥3 proven same-register anchors;
+explicitly NOT proof the firmware honors the write — wrong-bit writes ACK,
+#476) and placed the class at annotation-ladder rung 2 (reads; writes only
+with a gate). Re-graded `40-hardware/registers.md` H179 b15 and
+`10-integration/controls-and-writes.md` landmine #2 accordingly; accounting
+header/table re-derived from the audit command (336 counted claims — the
+ingest entry above had added the b15 row without updating the 335 total).
+Still **not** `hardware-toggle-proven`; #476 caveat unchanged. Durable cites:
+#559 / pylxpweb PR #270.

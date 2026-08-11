@@ -101,6 +101,7 @@ Every factual claim carries exactly one. Ordered strongest first.
 | `firmware-proven` | Established by disassembling a shipped firmware image | Cite the image and family, and the code site — function, increment site, dispatcher entry |
 | `hardware-toggle-proven` | A named vendor control or UI action on the target family, correlated to raw values captured before and after, with the original state restored | Cite the action, the raw before/after pair, and the family. Component firmware version is **scope metadata, not a grade gate**: record it when it is known, and when it is not, say so and scope the claim to the tested unit |
 | `hardware-proven` | Umbrella for the two above. **Requires a before/after raw value pair.** | As above. A source that merely records "a live-device result", with no raw pair, is `asserted-unverified` — however it was phrased |
+| `app-write-path-proven` | A name→bit (or name→register) binding recovered from the decompiled **write path of an official vendor client** (mobile app or portal code): the client demonstrably uses this binding when it writes | Cite the client artifact and the resolver symbol via a durable source, and validate the recovered binding against **≥3 independently proven anchor bits on the same register**, naming each anchor and its own grade. This proves what the *client* writes, explicitly **not** that the firmware honors the write — wrong-bit writes ACK (#476) — so record that it is not `hardware-toggle-proven` and keep the wrong-bit caveat with the claim. Stronger than `portal-correlated` (the binding is taken from executable write code, not a displayed field); weaker than `firmware-proven` (nothing here disassembled what the inverter does with it) |
 | `portal-correlated` | The EG4 portal or mobile app exposes it, and it agrees with our reading | Cite the endpoint, field, or widget |
 | `lineage-inferred` | Inherited from a related family or a neighbouring register, with no direct evidence on the target | Name the family or register it was inherited from |
 | `inferred` | Deduced from an adjacent proven fact | State what it was inferred from |
@@ -181,7 +182,7 @@ It does not grade. Cross-linked from `40-hardware/registers.md`, which applies i
 | Rung | What evidence exists | What may be built on it |
 |---|---|---|
 | 1 | A named vendor/UI action on the target family, an independent observation that the intended physical state changed, a complete raw before/after delta, and restoration | Reads and writes |
-| 2 | A canonical pylxpweb definition **plus** an independent hardware capture | Reads; writes only with a gate |
+| 2 | A canonical pylxpweb definition **plus** an independent hardware capture, **or** an official-client write-path binding validated against ≥3 proven anchor bits on the same register (the evidence class the legend grades `app-write-path-proven`) | Reads; writes only with a gate — for the write-path case that means the version/contract-test gate plus readback of the intended bit, which confirms the round-trip but can never detect a wrong-bit ACK (#476) |
 | 3 | A canonical definition alone | Read-only diagnostics |
 | 4 | A vendor or third-party table | Nothing. It is a family-specific hypothesis |
 
