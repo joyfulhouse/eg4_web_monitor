@@ -1088,9 +1088,8 @@ def _build_runtime_sensor_mapping(
     # register for the subset is validated (needs XP hardware probing), so
     # the sensor is CLOUD-ONLY for now: absent in pure LOCAL, populated in
     # CLOUD/HYBRID whenever cloud runtime is fetched (HTTP property map).
-    # The off-grid DSP can serve a constant 0 in the temperature registers
-    # (64/67/108) while the radiators read live (#560) — same blanking as
-    # the CLOUD/HYBRID path, applied to the mapped register values.
+    # Blank constant-zero temperature registers (#560) — same treatment as
+    # the CLOUD/HYBRID call site; rationale in the function's docstring.
     blank_constant_zero_temperatures(mapping)
     return mapping
 

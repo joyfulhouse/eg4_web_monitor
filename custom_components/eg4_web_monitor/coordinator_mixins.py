@@ -2726,15 +2726,10 @@ class DeviceProcessingMixin(_MixinBase):
             if (val := getattr(inverter, "total_load_power", None)) is not None:
                 processed["sensors"]["total_load_power"] = val
 
-        # Some hardware serves a constant 0 in the temperature channels while
-        # the radiator temps read live — cloud `tinner: 0` on a 12000XP
-        # (#490), and the LOCAL registers 64/67/108 serving the same constant
-        # 0 on a HYBRID off-grid 12000XP (#560).  Blank an exact 0 to unknown
-        # when the live radiators corroborate a running-warm unit.  Runs
-        # AFTER the transport overlay above so an overlaid bt_temperature
-        # (reg 108) is treated too.  Value-scoped, NOT family-scoped: a
-        # 6000XP reports live Tinner while a 12000XP reports 0, and both are
-        # EG4_OFFGRID (deviceTypeCode 54).
+        # Blank constant-zero temperature channels corroborated as bogus by
+        # live radiator temps (#490/#560 — rationale and evidence in the
+        # function's docstring).  Runs AFTER the transport overlay above so
+        # an overlaid bt_temperature (reg 108) is treated too.
         blank_constant_zero_temperatures(processed["sensors"])
 
         # Carry the last-known fault/warning code forward across a HYBRID local
