@@ -1,17 +1,27 @@
-"""Regression tests for issue #490 — cloud Internal Temperature is a constant 0.
+"""Regression tests for the constant-zero temperature blanking (#490, #560).
 
-The cloud ``getInverterRuntime`` payload relays a constant ``tinner: 0`` for
-some hardware while the radiator temperatures read live values (the #490
-reporter's 12000XP, and the #76 raw payload from a second 12000XP with
-``tinner: 0`` next to ``tradiator1: 46`` / ``tradiator2: 54``).  ``tinner`` is
-a REQUIRED pydantic field in pylxpweb, so the 0 is literally on the wire —
-there is no sentinel to translate — and the sensor rendered a permanent bogus
-0 °C / 32 °F.
+Two reports, two sources, same shape — a temperature channel stuck at
+exactly 0 while the radiator temperatures read live:
+
+- #490: the cloud ``getInverterRuntime`` payload relays a constant
+  ``tinner: 0`` for some hardware (the reporter's 12000XP, and the #76 raw
+  payload from a second 12000XP with ``tinner: 0`` next to ``tradiator1:
+  46`` / ``tradiator2: 54``).  ``tinner`` is a REQUIRED pydantic field in
+  pylxpweb, so the 0 is literally on the wire — there is no sentinel to
+  translate — and the sensor rendered a permanent bogus 0 °C / 32 °F.
+- #560: a HYBRID-mode 12000XP (EG4_OFFGRID, deviceTypeCode 54) whose LOCAL
+  input registers serve the same constant 0 in reg 64 (internal), reg 67
+  (battery) and reg 108 (BT), while radiator1/2 read 58/61 °C and the BMS
+  cell temps read a healthy 30/32 °C.  Not a sentinel (127 → 0x7F already
+  maps to None in pylxpweb), not signed-decode, not scaling — the DSP
+  genuinely serves 0.  #560 falsifies the #490 exemption for
+  transport-backed values, so the blanking now covers all three registers
+  on every path (CLOUD, HYBRID, LOCAL).
 
 THE FIX IS NOT A FAMILY GATE, and these tests exist partly to keep it from
 becoming one.  The bad value does not track the inverter family: a 6000XP
-owner reports live ``Tinner`` of 31-32 °C alongside radiators at 58-65 °C in
-EG4's own data table
+owner reports live ``Tinner`` of 31-32 °C alongside radiators at 58-65 °C
+in EG4's own data table
 
     https://forum.eg4electronics.com/community/troubleshooting/3-6000xps-in-parallel-fans-do-not-run-at-low-wattage/
 
@@ -21,16 +31,14 @@ split (#259/#307).  So the split is WITHIN the family, and gating by family
 would suppress a sensor that demonstrably works on real hardware.  That is
 the #307 over-gating failure, confirmed rather than hypothetical.
 
-Instead only the observed VALUE is treated, and only on the source it was
-observed on: a CLOUD-sourced ``internal_temperature`` of exactly 0 is
-published as None (HA "unknown").  LOCAL/HYBRID read input register 64
-directly and there is no evidence against that path.
-
-ACCEPTED TRADE-OFF, pinned below: 0 °C is a physically legitimate reading, so
-a unit genuinely sitting at 0 on a cloud connection now reads unknown instead
-of 0 — the same caveat #348 raised for ``tBat``.  Small and bounded against a
-permanently-wrong constant, and reversible in a way deleting the entity would
-not be.
+Instead only the observed VALUE is treated, corroborated by live radiators:
+an exact 0 in ``internal_temperature`` / ``battery_temperature`` /
+``bt_temperature`` is published as None (HA "unknown") when a radiator
+reads a live nonzero value — a unit whose radiators read 58 °C is not at
+0 °C ambient.  A genuinely cold unit (radiators ~0 too) keeps its 0, which
+bounds the cold-climate trade-off #490 accepted (the same caveat #348
+raised for ``tBat``).  With no radiator reading at all, corroboration is
+not feasible and the plain value-scoped #490 blanking applies.
 """
 
 from __future__ import annotations
@@ -56,7 +64,8 @@ from custom_components.eg4_web_monitor.const import (
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.coordinator_mappings import (
-    blank_cloud_zero_internal_temperature,
+    _build_runtime_sensor_mapping,
+    blank_constant_zero_temperatures,
 )
 from custom_components.eg4_web_monitor.sensor import _should_create_sensor
 
@@ -96,19 +105,19 @@ def cloud_config_entry() -> MockConfigEntry:
     )
 
 
-# ── The cloud-zero treatment ─────────────────────────────────────────
+# ── The constant-zero treatment ────────────────────────────────────────
 
 
-class TestCloudZeroBlanking:
-    """A cloud ``tinner`` of exactly 0 becomes None; everything else passes."""
+class TestConstantZeroBlanking:
+    """An exact 0 becomes None; every other value passes through."""
 
-    def test_cloud_zero_becomes_none(self) -> None:
+    def test_zero_becomes_none(self) -> None:
         """FAILS without the fix: the sensor published a bogus 0 °C forever."""
         sensors: dict[str, Any] = {"internal_temperature": 0}
-        blank_cloud_zero_internal_temperature(sensors, False)
+        blank_constant_zero_temperatures(sensors)
         assert sensors["internal_temperature"] is None
 
-    def test_cloud_zero_key_is_kept_not_popped(self) -> None:
+    def test_zero_key_is_kept_not_popped(self) -> None:
         """The key must survive as None so the entity reads unknown.
 
         Dropping the key entirely is the other available idiom in this module
@@ -117,21 +126,29 @@ class TestCloudZeroBlanking:
         availability flip for keys shared with bank entities (#261).
         """
         sensors: dict[str, Any] = {"internal_temperature": 0}
-        blank_cloud_zero_internal_temperature(sensors, False)
+        blank_constant_zero_temperatures(sensors)
         assert "internal_temperature" in sensors
 
-    def test_cloud_live_value_passes_through(self) -> None:
-        """The 6000XP counterexample: a live cloud reading is never touched.
+    def test_battery_and_bt_temperature_covered(self) -> None:
+        """FAILS without #560 coverage: regs 67 and 108 serve the same 0."""
+        sensors: dict[str, Any] = {"battery_temperature": 0, "bt_temperature": 0}
+        blank_constant_zero_temperatures(sensors)
+        assert sensors["battery_temperature"] is None
+        assert sensors["bt_temperature"] is None
+
+    def test_live_values_pass_through(self) -> None:
+        """The 6000XP counterexample: a live reading is never touched.
 
         This is the case that killed the family-gate approach — 31-32 °C
         reported on EG4's own data table by a 6000XP, which is EG4_OFFGRID.
         """
-        for value in (31, 32, 41, 65):
-            sensors: dict[str, Any] = {"internal_temperature": value}
-            blank_cloud_zero_internal_temperature(sensors, False)
-            assert sensors["internal_temperature"] == value
+        for key in ("internal_temperature", "battery_temperature", "bt_temperature"):
+            for value in (31, 32, 41, 65):
+                sensors: dict[str, Any] = {key: value}
+                blank_constant_zero_temperatures(sensors)
+                assert sensors[key] == value
 
-    def test_cloud_negative_value_passes_through(self) -> None:
+    def test_negative_value_passes_through(self) -> None:
         """A cold-climate install reporting below zero must survive.
 
         Guards the check being ``== 0`` rather than a falsy test or a
@@ -139,55 +156,140 @@ class TestCloudZeroBlanking:
         """
         for value in (-1, -12, -30):
             sensors: dict[str, Any] = {"internal_temperature": value}
-            blank_cloud_zero_internal_temperature(sensors, False)
+            blank_constant_zero_temperatures(sensors)
             assert sensors["internal_temperature"] == value
 
-    def test_cloud_none_stays_none(self) -> None:
+    def test_none_stays_none(self) -> None:
         """An already-absent reading is unchanged (no key invented)."""
         sensors: dict[str, Any] = {"internal_temperature": None}
-        blank_cloud_zero_internal_temperature(sensors, False)
+        blank_constant_zero_temperatures(sensors)
         assert sensors["internal_temperature"] is None
 
     def test_missing_key_is_not_added(self) -> None:
         sensors: dict[str, Any] = {}
-        blank_cloud_zero_internal_temperature(sensors, False)
+        blank_constant_zero_temperatures(sensors)
         assert "internal_temperature" not in sensors
+        assert "battery_temperature" not in sensors
+        assert "bt_temperature" not in sensors
 
-    def test_transport_backed_zero_survives(self) -> None:
-        """FAILS without the source scoping: register 64 is never treated.
 
-        pylxpweb's ``inverter_temperature`` is
-        ``_raw_int("internal_temperature", "tinner")`` — it returns the
-        transport register whenever transport runtime exists and only falls
-        back to cloud ``tinner`` when it does not.  So a transport-backed 0
-        is a genuine register-64 reading and must be published as 0.  There is
-        no evidence against reg 64 on any family.
+class TestRadiatorCorroboration:
+    """Live radiators corroborate the bogus 0; cold radiators protect it.
+
+    This is the cold-climate bound on the #490 trade-off: 0 °C is a
+    physically legitimate reading, but a unit whose radiators read 58 °C is
+    not at 0 °C ambient.
+    """
+
+    def test_live_radiators_corroborate_blank(self) -> None:
+        """The #560 shape: regs 64/67/108 at 0, radiators live at 58/61."""
+        sensors: dict[str, Any] = {
+            "internal_temperature": 0,
+            "battery_temperature": 0,
+            "bt_temperature": 0,
+            "radiator1_temperature": 58,
+            "radiator2_temperature": 61,
+        }
+        blank_constant_zero_temperatures(sensors)
+        assert sensors["internal_temperature"] is None
+        assert sensors["battery_temperature"] is None
+        assert sensors["bt_temperature"] is None
+
+    def test_one_live_radiator_is_enough(self) -> None:
+        for radiator_key in ("radiator1_temperature", "radiator2_temperature"):
+            sensors: dict[str, Any] = {"internal_temperature": 0, radiator_key: 46}
+            blank_constant_zero_temperatures(sensors)
+            assert sensors["internal_temperature"] is None
+
+    def test_zero_radiators_keep_a_genuine_cold_zero(self) -> None:
+        """A genuinely cold idle unit reads ~0 everywhere — leave it alone.
+
+        FAILS if the corroboration gate is dropped: without it the
+        cold-climate false positive #490 accepted comes back unbounded.
         """
-        sensors: dict[str, Any] = {"internal_temperature": 0}
-        blank_cloud_zero_internal_temperature(sensors, True)
+        sensors: dict[str, Any] = {
+            "internal_temperature": 0,
+            "battery_temperature": 0,
+            "bt_temperature": 0,
+            "radiator1_temperature": 0,
+            "radiator2_temperature": 0,
+        }
+        blank_constant_zero_temperatures(sensors)
         assert sensors["internal_temperature"] == 0
+        assert sensors["battery_temperature"] == 0
+        assert sensors["bt_temperature"] == 0
 
-    def test_transport_backed_values_untouched(self) -> None:
-        for value in (0, -5, 41, None):
-            sensors: dict[str, Any] = {"internal_temperature": value}
-            blank_cloud_zero_internal_temperature(sensors, True)
-            assert sensors["internal_temperature"] == value
+    def test_absent_radiator_reading_falls_back_to_value_scope(self) -> None:
+        """No radiator data at all: the plain #490 value-scoped blanking."""
+        sensors: dict[str, Any] = {
+            "internal_temperature": 0,
+            "radiator1_temperature": None,
+            "radiator2_temperature": None,
+        }
+        blank_constant_zero_temperatures(sensors)
+        assert sensors["internal_temperature"] is None
 
-    def test_other_temperature_keys_untouched(self) -> None:
-        """Only ``internal_temperature`` is treated; radiators read live."""
+    def test_radiator_values_themselves_untouched(self) -> None:
+        """The radiators are the corroborating evidence, never a target."""
         sensors: dict[str, Any] = {
             "internal_temperature": 0,
             "radiator1_temperature": 0,
-            "radiator2_temperature": 0,
-            "battery_temperature": 0,
-            "bt_temperature": 0,
+            "radiator2_temperature": 54,
         }
-        blank_cloud_zero_internal_temperature(sensors, False)
-        assert sensors["internal_temperature"] is None
+        blank_constant_zero_temperatures(sensors)
         assert sensors["radiator1_temperature"] == 0
-        assert sensors["radiator2_temperature"] == 0
-        assert sensors["battery_temperature"] == 0
-        assert sensors["bt_temperature"] == 0
+        assert sensors["radiator2_temperature"] == 54
+
+
+class TestLocalRegisterPath:
+    """#560: the LOCAL register mapping gets the same treatment.
+
+    These drive ``_build_runtime_sensor_mapping`` — the LOCAL path — on a
+    real pylxpweb ``InverterRuntimeData``.
+    """
+
+    def test_register_zeros_blanked_when_radiators_live(self) -> None:
+        """FAILS without the fix: the LOCAL mapping published the bogus 0."""
+        runtime = InverterRuntimeData(
+            internal_temperature=0,
+            battery_temperature=0,
+            temperature_t1=0,
+            radiator_temperature_1=58,
+            radiator_temperature_2=61,
+        )
+        mapping = _build_runtime_sensor_mapping(runtime)
+        assert mapping["internal_temperature"] is None
+        assert mapping["battery_temperature"] is None
+        assert mapping["bt_temperature"] is None
+        assert mapping["radiator1_temperature"] == 58
+        assert mapping["radiator2_temperature"] == 61
+
+    def test_live_register_values_pass_through(self) -> None:
+        runtime = InverterRuntimeData(
+            internal_temperature=31,
+            battery_temperature=32,
+            temperature_t1=33,
+            radiator_temperature_1=58,
+            radiator_temperature_2=61,
+        )
+        mapping = _build_runtime_sensor_mapping(runtime)
+        assert mapping["internal_temperature"] == 31
+        assert mapping["battery_temperature"] == 32
+        assert mapping["bt_temperature"] == 33
+
+    def test_cold_unit_register_zeros_survive(self) -> None:
+        """All-zero registers consistent with genuine cold are kept."""
+        runtime = InverterRuntimeData(
+            internal_temperature=0,
+            battery_temperature=0,
+            temperature_t1=0,
+            radiator_temperature_1=0,
+            radiator_temperature_2=0,
+        )
+        mapping = _build_runtime_sensor_mapping(runtime)
+        assert mapping["internal_temperature"] == 0
+        assert mapping["battery_temperature"] == 0
+        assert mapping["bt_temperature"] == 0
 
 
 class TestNoFamilyGate:
@@ -294,19 +396,30 @@ class TestEndToEndWiring:
         assert result["sensors"]["internal_temperature"] == 32
 
     @pytest.mark.asyncio
-    async def test_transport_backed_zero_survives_end_to_end(
+    async def test_hybrid_register_zeros_blank_end_to_end(
         self, hass, cloud_config_entry
     ) -> None:
-        """A LOCAL/HYBRID register-64 reading of 0 is published as 0.
+        """#560 end-to-end: HYBRID regs 64/67/108 at constant 0 publish unknown.
 
-        Transport runtime present means the value came from register 64, not
-        cloud ``tinner`` — genuine, and never treated.
+        FAILS without the fix — the #560 bug itself: transport runtime
+        present exempted the value from the #490 blanking, and regs 67/108
+        were never covered, so all three sensors rendered a bogus 0 °C
+        (32 °F) on a unit running at 58/61 °C radiator temperature.  The
+        bt_temperature row also pins the call ORDER: the transport overlay
+        writes reg 108 after the property map, so the blanking must run
+        after the overlay to treat it.
         """
         cloud_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, cloud_config_entry)
         coordinator.client = stub_cloud_client()
 
-        runtime = InverterRuntimeData(internal_temperature=0)
+        runtime = InverterRuntimeData(
+            internal_temperature=0,
+            battery_temperature=0,
+            temperature_t1=0,
+            radiator_temperature_1=58,
+            radiator_temperature_2=61,
+        )
         inverter = make_real_inverter("3333333333", "12000XP", runtime=runtime)
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
@@ -321,7 +434,46 @@ class TestEndToEndWiring:
         ):
             result = await coordinator._process_inverter_object(inverter)
 
-        assert result["sensors"]["internal_temperature"] == 0
+        assert result["sensors"]["internal_temperature"] is None
+        assert result["sensors"]["battery_temperature"] is None
+        assert result["sensors"]["bt_temperature"] is None
+        # The radiators are the live corroboration that the unit is warm.
+        assert result["sensors"]["radiator1_temperature"] == 58
+        assert result["sensors"]["radiator2_temperature"] == 61
+
+    @pytest.mark.asyncio
+    async def test_hybrid_live_temperatures_survive_end_to_end(
+        self, hass, cloud_config_entry
+    ) -> None:
+        """A HYBRID unit reporting real temperatures is never treated."""
+        cloud_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, cloud_config_entry)
+        coordinator.client = stub_cloud_client()
+
+        runtime = InverterRuntimeData(
+            internal_temperature=31,
+            battery_temperature=32,
+            temperature_t1=33,
+            radiator_temperature_1=58,
+            radiator_temperature_2=61,
+        )
+        inverter = make_real_inverter("1212121212", "12000XP", runtime=runtime)
+        inverter.refresh = AsyncMock()
+        inverter.detect_features = AsyncMock()
+        cls = type(inverter)
+        with (
+            patch.object(cls, "has_data", property(lambda s: True)),
+            patch.object(
+                coordinator,
+                "_extract_inverter_features",
+                return_value={"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+            ),
+        ):
+            result = await coordinator._process_inverter_object(inverter)
+
+        assert result["sensors"]["internal_temperature"] == 31
+        assert result["sensors"]["battery_temperature"] == 32
+        assert result["sensors"]["bt_temperature"] == 33
 
 
 # ── The independent #197 purge corrections ───────────────────────────

@@ -207,19 +207,41 @@ def drop_offgrid_cloud_output_power(
     sensors.pop("output_power", None)
 
 
-def blank_cloud_zero_internal_temperature(
-    sensors: dict[str, Any],
-    has_transport_runtime: bool,
-) -> None:
-    """Blank a CLOUD-sourced ``internal_temperature`` of exactly 0 (#490).
+# Temperature sensor keys covered by the constant-zero blanking (#490,
+# generalized for #560): internal_temperature (input reg 64 / cloud
+# ``tinner``), battery_temperature (reg 67) and bt_temperature (reg 108,
+# transport-only overlay).  The #560 reporter's 12000XP serves a constant 0
+# in all three registers while the radiators read live.
+_CONSTANT_ZERO_TEMPERATURE_KEYS: tuple[str, ...] = (
+    "internal_temperature",
+    "battery_temperature",
+    "bt_temperature",
+)
 
-    The cloud ``getInverterRuntime`` payload relays a constant ``tinner: 0``
-    for some hardware while the radiator temperatures read live values (the
-    #490 reporter's 12000XP, and the #76 raw payload from a second 12000XP
-    with ``tinner: 0`` next to ``tradiator1: 46``/``tradiator2: 54``).
-    ``tinner`` is a REQUIRED pydantic field in pylxpweb, so that 0 is
-    literally on the wire — there is no sentinel to translate — and the
-    sensor rendered a permanent bogus 0 °C / 32 °F.
+
+def blank_constant_zero_temperatures(sensors: dict[str, Any]) -> None:
+    """Blank a constant-0 temperature reading corroborated as bogus (#490/#560).
+
+    Two reports, two sources, same shape — a temperature channel stuck at
+    exactly 0 while the radiator temperatures read live:
+
+    - #490: the cloud ``getInverterRuntime`` payload relays a constant
+      ``tinner: 0`` for some hardware (the reporter's 12000XP, and the #76
+      raw payload from a second 12000XP with ``tinner: 0`` next to
+      ``tradiator1: 46``/``tradiator2: 54``).  ``tinner`` is a REQUIRED
+      pydantic field in pylxpweb, so the 0 is literally on the wire — there
+      is no sentinel to translate.
+    - #560: a HYBRID-mode 12000XP (EG4_OFFGRID, deviceTypeCode 54) whose
+      LOCAL input registers serve the same constant 0 in reg 64
+      (internal), reg 67 (battery) and reg 108 (BT), while radiator1/2 read
+      58/61 °C and the BMS cell temps read a healthy 30/32 °C.  Not a
+      sentinel (127 → 0x7F already maps to None in pylxpweb), not
+      signed-decode, not scaling — the DSP genuinely serves 0.
+
+    #560 falsifies the #490 exemption for transport-backed values: the
+    register path serves the same constant 0 the cloud relays, so the
+    blanking now applies on every path — CLOUD, HYBRID and LOCAL — and
+    covers all three affected registers.
 
     This is deliberately NOT a family gate.  The bad value does not track
     the inverter family: a 6000XP owner reports live ``Tinner`` of 31-32 °C
@@ -229,41 +251,44 @@ def blank_cloud_zero_internal_temperature(
     (#259/#307).  So the split is WITHIN the family and a family gate would
     suppress a sensor that demonstrably works on real hardware — the #307
     over-gating failure, confirmed rather than hypothetical.  Only the
-    observed VALUE is treated, and only on the path it was observed on.
+    observed VALUE is treated.
 
-    Scope is the CLOUD source, not the connection mode.  pylxpweb's
-    ``Inverter.inverter_temperature`` is ``_raw_int("internal_temperature",
-    "tinner")``: it returns the transport register whenever transport runtime
-    exists and falls back to cloud ``tinner`` only when it does not.  So
-    ``has_transport_runtime`` is exactly "this value came from cloud
-    ``tinner`` rather than from input register 64" — LOCAL is untouched, and
-    HYBRID cycles that fell back to the cloud are correctly treated.  There
-    is no evidence against register 64 on any family: the repo holds no
-    reg-64 reading from an off-grid unit at all, and the only live register
-    probe covers an 18kPV and a FlexBOSS21 (both EG4_HYBRID) which read it
-    fine.
-
-    ACCEPTED TRADE-OFF: 0 °C is a physically legitimate internal temperature
-    (a cold-climate install, idle, in an unheated space), so a unit genuinely
-    sitting at 0 on a cloud connection now reads "unknown" instead of 0.  The
-    same caveat the ``tBat`` sentinel work raised (#348: 0 can be a real
-    battery reading) applies here.  That is a small, bounded loss against a
-    permanently-wrong constant, it costs no data on any other value, and
-    unlike deleting the entity it is trivially reversible.
+    CORROBORATION: a live NONZERO radiator reading proves the unit is
+    running warm — a unit whose radiators read 58 °C is not at 0 °C ambient
+    — so a 0 in the other temperature channels is the bogus constant.  This
+    bounds the cold-climate trade-off #490 accepted (and #348 raised for
+    ``tBat``): 0 °C is a physically legitimate reading for an idle,
+    unheated install, and such a unit's radiators read ~0 too, so when the
+    radiators also read 0 the values are consistent with genuine cold and
+    are left alone.  When NO radiator reading is available at all,
+    corroboration is not feasible and the plain value-scoped #490 behavior
+    applies: an exact 0 is blanked.  The residual loss — a unit genuinely
+    at 0 °C whose radiators nonetheless read live reads "unknown" — is
+    small, bounded, and reversible in a way deleting the entity would not
+    be.
 
     Args:
-        sensors: Mutable sensor dict to update.
-        has_transport_runtime: True when Modbus transport runtime backs the
-            mapped value, i.e. it came from register 64 and is genuine.
+        sensors: Mutable sensor dict to update.  Radiator values, when
+            present, corroborate; every path that calls this maps them.
     """
-    if has_transport_runtime:
+    radiator_readings = (
+        sensors.get("radiator1_temperature"),
+        sensors.get("radiator2_temperature"),
+    )
+    radiators_live = any(
+        isinstance(reading, (int, float)) and reading != 0
+        for reading in radiator_readings
+    )
+    radiators_absent = all(reading is None for reading in radiator_readings)
+    if not (radiators_live or radiators_absent):
         return
-    # Exact zero only.  A falsy test would be wrong in both directions: it
-    # must not fire on a valid sub-zero reading (those are truthy, but the
-    # intent matters if this is ever refactored) and must not re-blank an
-    # already-None value into a different meaning.
-    if sensors.get("internal_temperature") == 0:
-        sensors["internal_temperature"] = None
+    for key in _CONSTANT_ZERO_TEMPERATURE_KEYS:
+        # Exact zero only.  A falsy test would be wrong in both directions:
+        # it must not fire on a valid sub-zero reading (those are truthy,
+        # but the intent matters if this is ever refactored) and must not
+        # re-blank an already-None value into a different meaning.
+        if sensors.get(key) == 0:
+            sensors[key] = None
 
 
 # Sensor keys that stay populated while the cloud reports the inverter lost
@@ -1063,6 +1088,10 @@ def _build_runtime_sensor_mapping(
     # register for the subset is validated (needs XP hardware probing), so
     # the sensor is CLOUD-ONLY for now: absent in pure LOCAL, populated in
     # CLOUD/HYBRID whenever cloud runtime is fetched (HTTP property map).
+    # The off-grid DSP can serve a constant 0 in the temperature registers
+    # (64/67/108) while the radiators read live (#560) — same blanking as
+    # the CLOUD/HYBRID path, applied to the mapped register values.
+    blank_constant_zero_temperatures(mapping)
     return mapping
 
 
