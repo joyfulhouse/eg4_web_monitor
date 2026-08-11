@@ -1373,8 +1373,6 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # EG4 mobile Local12KSetFragment.getBitByFunction (smali); 4-for-4
     # against confirmed anchors bits 3/7/9/10. Not hardware-toggle-proven
     # — contract + readback-verify guard the #476 wrong-bit ACK risk.
-    # Graduated from _CLOUD_ONLY_FUNCTION_PARAMS once pylxpweb mapped the
-    # bit (PR #270).
     PARAM_FUNC_ON_GRID_ALWAYS_ON: (179, 15),
     # AC Couple function (GH #471/#472): reg 179 bit 11. NOT pinned by this
     # project's raw<->named lockstep toggle — it ships on lineage inference
@@ -1657,11 +1655,6 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
         "local register; never write it through the local transport name "
         "map.",
     ),
-    # Grid Always On (GH #484/#559) graduated 2026-08-11: its reg-179 bit 15
-    # was pinned app-write-path-proven (EG4 mobile Local12KSetFragment
-    # getBitByFunction smali; 4-for-4 against anchors 3/7/9/10) and the
-    # control moved into _CONTROL_REGISTER_CONTRACT above, exactly the
-    # promotion path this allowlist's honesty test was designed to force.
     # Smart Load panel (GH #499): the rest of the same portal tab Grid Always
     # On came from. A READ-ONLY cloud probe 2026-08-01 found all five
     # threshold holdParams plus FUNC_SMART_LOAD_ENABLE in the 127-253 range

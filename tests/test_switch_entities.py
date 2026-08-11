@@ -4226,30 +4226,23 @@ class TestGridAlwaysOnGating:
         assert "FUNC_ON_GRID_ALWAYS_ON" in params
 
     @pytest.mark.asyncio
-    async def test_local_only_creates_grid_always_on_when_pinned(self, hass):
-        """LOCAL-only: pinned bit 15 makes the key appear in the local-raw
-        cache, so the switch is created (GH #559)."""
+    @pytest.mark.parametrize(
+        "has_http,local_only",
+        [
+            (False, True),  # LOCAL-only
+            (True, False),  # HYBRID with transport
+        ],
+        ids=["local_only", "hybrid_transport"],
+    )
+    async def test_local_raw_creates_grid_always_on_when_pinned(
+        self, hass, has_http, local_only
+    ):
+        """Pinned bit 15: LOCAL and HYBRID create the switch (GH #559)."""
         coordinator = _mock_coordinator(
-            model="FlexBOSS21", has_http=False, has_local=True, local_only=True
-        )
-        entry = MagicMock()
-        entry.runtime_data = coordinator
-
-        entities = []
-        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
-
-        params = {
-            e._mode_config["param"]
-            for e in entities
-            if isinstance(e, EG4WorkingModeSwitch)
-        }
-        assert "FUNC_ON_GRID_ALWAYS_ON" in params
-
-    @pytest.mark.asyncio
-    async def test_hybrid_transport_creates_grid_always_on_when_pinned(self, hass):
-        """HYBRID with a local transport: same local-raw cache, same create."""
-        coordinator = _mock_coordinator(
-            model="FlexBOSS21", has_http=True, has_local=True
+            model="FlexBOSS21",
+            has_http=has_http,
+            has_local=True,
+            local_only=local_only,
         )
         entry = MagicMock()
         entry.runtime_data = coordinator
@@ -4318,17 +4311,6 @@ class TestGridAlwaysOnSwitchBehavior:
         coordinator = _mock_coordinator(parameters={"FUNC_ON_GRID_ALWAYS_ON": False})
         switch = _make_grid_always_on_switch(coordinator)
         assert switch.is_on is False
-        assert switch.available is True
-
-    def test_local_state_decode_from_reg179_bit15_cache(self):
-        """LOCAL/HYBRID state is the same named key the bit-15 decode emits."""
-        coordinator = _mock_coordinator(
-            has_http=False,
-            has_local=True,
-            parameters={"FUNC_ON_GRID_ALWAYS_ON": True},
-        )
-        switch = _make_grid_always_on_switch(coordinator)
-        assert switch.is_on is True
         assert switch.available is True
 
     def test_absent_param_is_unavailable_not_a_fake_off(self):
@@ -4436,10 +4418,15 @@ class TestGridAlwaysOnSwitchBehavior:
         )
 
     @pytest.mark.parametrize("turn_on", [True, False])
+    @pytest.mark.parametrize(
+        "has_http",
+        [False, True],
+        ids=["local", "hybrid"],
+    )
     @pytest.mark.asyncio
-    async def test_local_write_uses_named_reg179_bit15(self, turn_on):
-        """LOCAL path writes FUNC_ON_GRID_ALWAYS_ON by name (reg 179 bit 15)."""
-        coordinator = _mock_coordinator(has_http=False, has_local=True)
+    async def test_local_raw_write_uses_named_reg179_bit15(self, turn_on, has_http):
+        """LOCAL/HYBRID write FUNC_ON_GRID_ALWAYS_ON by name (reg 179 bit 15)."""
+        coordinator = _mock_coordinator(has_http=has_http, has_local=True)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
 
@@ -4453,25 +4440,8 @@ class TestGridAlwaysOnSwitchBehavior:
         assert call_args[0][0] == "FUNC_ON_GRID_ALWAYS_ON"
         assert call_args[0][1] is turn_on
         coordinator.write_raw_parameter.assert_not_called()
-
-    @pytest.mark.parametrize("turn_on", [True, False])
-    @pytest.mark.asyncio
-    async def test_hybrid_prefers_local_named_write(self, turn_on):
-        """HYBRID with transport: named local write, not cloud functionControl."""
-        coordinator = _mock_coordinator(has_http=True, has_local=True)
-        switch = _make_grid_always_on_switch(coordinator)
-        _prep(switch)
-
-        if turn_on:
-            await switch.async_turn_on()
-        else:
-            await switch.async_turn_off()
-
-        coordinator.write_named_parameter.assert_called_once()
-        call_args = coordinator.write_named_parameter.call_args
-        assert call_args[0][0] == "FUNC_ON_GRID_ALWAYS_ON"
-        assert call_args[0][1] is turn_on
-        coordinator.client.api.control.control_function.assert_not_called()
+        if has_http:
+            coordinator.client.api.control.control_function.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_write_failure_raises_and_clears_optimistic_state(self):

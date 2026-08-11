@@ -1266,10 +1266,8 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # website makes (reporter-verified).
     "FUNC_BAT_SHARED": PARAM_FUNC_BAT_SHARED,
     # Register 179, bit 15 (GH #559) — Grid Always On. App-write-path-proven
-    # via EG4 mobile Local12KSetFragment.getBitByFunction (smali); 4-for-4
-    # against confirmed anchors bits 3/7/9/10. Not hardware-toggle-proven —
-    # readback-verify stays on. Requires pylxpweb with the bit-15 mapping
-    # (PR #270); older installs are handled by _local_params_can_carry().
+    # (smali); not hardware-toggle-proven. Requires pylxpweb bit-15 mapping
+    # (PR #270); older installs via _local_params_can_carry().
     "FUNC_ON_GRID_ALWAYS_ON": PARAM_FUNC_ON_GRID_ALWAYS_ON,
 }
 
@@ -1531,8 +1529,7 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             # through to the raise below and every write would fail, so a
             # mode may omit both mappings only because this route exists.
             # Seeding is a no-op on pure cloud (the helper guards on
-            # has_local_transport). (Grid Always On used this branch until
-            # GH #559 pinned reg 179 bit 15 and wired it locally.)
+            # has_local_transport).
             await self._execute_cloud_function_action(
                 action_name=action_name,
                 parameter=param,
