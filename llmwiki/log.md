@@ -248,3 +248,16 @@ graded `firmware-proven` for the name→bit binding; explicitly **not**
 b3/b7/b9/b10. Updated `40-hardware/registers.md` (split former b12-b15 unknown
 row) and `10-integration/controls-and-writes.md` landmine #2 (local write now
 allowed once pylxpweb PR #270 maps the bit). #476 wrong-bit ACK caveat retained.
+
+## [2026-08-11] lint | Erratum: H179 b15 grade was overstated as firmware-proven
+
+The prior ingest entry graded the Grid Always On name→bit binding
+`firmware-proven`. That grade requires disassembly of a shipped **inverter
+firmware** image. The evidence is the EG4 **mobile app** write-path resolver
+(`Local12KSetFragment.getBitByFunction`), which the legend grades
+`portal-correlated` ("portal or mobile app exposes it, and it agrees with our
+reading"). Corrected `40-hardware/registers.md` and
+`10-integration/controls-and-writes.md` landmine #2. Still explicitly **not**
+`hardware-toggle-proven`; #476 wrong-bit ACK caveat unchanged. Scratchpad smali
+path dropped as a durable source (conventions: working artifacts are not
+sources); durable cites are #559 / pylxpweb PR #270.
