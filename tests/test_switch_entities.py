@@ -4172,13 +4172,25 @@ class TestGridAlwaysOnGating:
     pylxpweb carries the mapping, LOCAL and HYBRID create the switch too.
     """
 
-    def test_local_map_can_carry_on_grid_always_on_when_pinned(self):
-        """Pinned pylxpweb exposes FUNC_ON_GRID_ALWAYS_ON in the local map.
+    def test_local_map_carry_probe_tracks_installed_pylxpweb(self):
+        """The probe's answer equals what the INSTALLED pylxpweb map says.
 
-        Against a pylxpweb that still carries FUNC_179_BIT15 this is False
-        and the setup probe keeps the switch cloud-only — the version guard.
+        True once the reg-179 bit-15 pin lands (pylxpweb PR #270); False
+        against 0.9.39b10's FUNC_179_BIT15 placeholder, where the setup
+        probe keeps the switch cloud-only — the version guard.  Green on
+        both sides of the pin (the b6-pin tolerance pattern), because the
+        pin ships in an UNRELEASED pylxpweb while the manifest floor stays
+        b10 until the release-cut pin bump.
         """
-        assert switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
+        from pylxpweb.constants.registers import REGISTER_TO_PARAM_KEYS
+
+        expected = any(
+            "FUNC_ON_GRID_ALWAYS_ON" in names
+            for names in REGISTER_TO_PARAM_KEYS.values()
+        )
+        assert (
+            switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON") == expected
+        )
 
     @pytest.mark.asyncio
     async def test_cloud_mode_creates_grid_always_on(self, hass):
@@ -4235,9 +4247,17 @@ class TestGridAlwaysOnGating:
         ids=["local_only", "hybrid_transport"],
     )
     async def test_local_raw_creates_grid_always_on_when_pinned(
-        self, hass, has_http, local_only
+        self, hass, has_http, local_only, monkeypatch
     ):
-        """Pinned bit 15: LOCAL and HYBRID create the switch (GH #559)."""
+        """Pinned bit 15: LOCAL and HYBRID create the switch (GH #559).
+
+        The pin is simulated (probe -> True, like the Export PV Only
+        "when_pinned" tests) so this stays green on the b10 manifest floor,
+        where the real probe answers False until the release-cut pin bump.
+        """
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda param: True
+        )
         coordinator = _mock_coordinator(
             model="FlexBOSS21",
             has_http=has_http,
@@ -4256,6 +4276,29 @@ class TestGridAlwaysOnGating:
             if isinstance(e, EG4WorkingModeSwitch)
         }
         assert "FUNC_ON_GRID_ALWAYS_ON" in params
+
+    @pytest.mark.asyncio
+    async def test_local_raw_gate_tracks_installed_pylxpweb(self, hass):
+        """Reality check (no probe patching): the HYBRID setup gate's answer
+        for Grid Always On must equal what the INSTALLED pylxpweb register
+        map says — green on both sides of the bit-15 pin, and exercises the
+        real probe end to end (mirrors the Export PV Only b6 check)."""
+        coordinator = _mock_coordinator(
+            model="FlexBOSS21", has_http=True, has_local=True
+        )
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
+
+        params = {
+            e._mode_config["param"]
+            for e in entities
+            if isinstance(e, EG4WorkingModeSwitch)
+        }
+        expected = switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
+        assert ("FUNC_ON_GRID_ALWAYS_ON" in params) == expected
 
     @pytest.mark.asyncio
     async def test_hybrid_transport_skips_when_unpinned(self, hass, monkeypatch):
@@ -4424,8 +4467,20 @@ class TestGridAlwaysOnSwitchBehavior:
         ids=["local", "hybrid"],
     )
     @pytest.mark.asyncio
-    async def test_local_raw_write_uses_named_reg179_bit15(self, turn_on, has_http):
-        """LOCAL/HYBRID write FUNC_ON_GRID_ALWAYS_ON by name (reg 179 bit 15)."""
+    async def test_local_raw_write_uses_named_reg179_bit15(
+        self, turn_on, has_http, monkeypatch
+    ):
+        """LOCAL/HYBRID write FUNC_ON_GRID_ALWAYS_ON by name (reg 179 bit 15).
+
+        The pin is simulated (probe -> True): the execution-time version
+        guard in ``_execute_working_mode`` degrades to the cloud route on
+        the b10 manifest floor, so the named local write only exists on a
+        pinned pylxpweb — this test pins THAT route, tolerantly of which
+        pylxpweb is installed (b6-pin pattern).
+        """
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda param: True
+        )
         coordinator = _mock_coordinator(has_http=has_http, has_local=True)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
@@ -4442,6 +4497,55 @@ class TestGridAlwaysOnSwitchBehavior:
         coordinator.write_raw_parameter.assert_not_called()
         if has_http:
             coordinator.client.api.control.control_function.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "has_http",
+        [False, True],
+        ids=["local", "hybrid"],
+    )
+    @pytest.mark.asyncio
+    async def test_local_write_rides_the_shared_settle_path(
+        self, has_http, monkeypatch
+    ):
+        """The LOCAL/HYBRID write goes through the SHARED refresh/settle path.
+
+        The dispatch test above proves only which coordinator method the
+        write reaches; a bespoke reroute of just this mode around
+        ``_execute_named_parameter_action`` would keep it green while
+        silently dropping the #362 settle/readback (codex residual, #559
+        round 2). This test fails if EITHER (a) the mode stops routing
+        through ``_execute_named_parameter_action``, or (b) that helper's
+        post-write refresh phase stops running a full coordinator refresh.
+        """
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda param: True
+        )
+        coordinator = _mock_coordinator(has_http=has_http, has_local=True)
+        switch = _make_grid_always_on_switch(coordinator)
+        _prep(switch)
+
+        shared_path_calls: list[dict] = []
+        real_named_action = switch._execute_named_parameter_action
+
+        async def _spy(*args, **kwargs) -> None:
+            shared_path_calls.append(kwargs)
+            await real_named_action(*args, **kwargs)
+
+        monkeypatch.setattr(switch, "_execute_named_parameter_action", _spy)
+
+        await switch.async_turn_on()
+
+        # (a) Routed through the shared named-parameter envelope, with the
+        # right parameter — not a bespoke direct write.
+        assert len(shared_path_calls) == 1
+        assert shared_path_calls[0].get("parameter") == "FUNC_ON_GRID_ALWAYS_ON"
+        # (b) The #362 settle/readback ran: the acknowledged write triggered
+        # a full coordinator refresh (the refresh_phase inside
+        # _settle_acknowledged_write), so a stale pre-write register state
+        # cannot be republished as if it were the post-write truth.
+        coordinator.async_refresh.assert_awaited_once()
+        # The settle path resolved cleanly: no lingering optimistic override.
+        assert switch._optimistic_state is None
 
     @pytest.mark.asyncio
     async def test_write_failure_raises_and_clears_optimistic_state(self):
@@ -4472,13 +4576,19 @@ class TestGridAlwaysOnSwitchBehavior:
         assert switch._optimistic_state is None
 
     @pytest.mark.asyncio
-    async def test_no_transport_raises(self):
+    async def test_no_transport_raises(self, monkeypatch):
         """Neither cloud nor a usable local path -> explicit error.
 
         With the local named mapping wired (GH #559), the no-transport case
         goes through ``_execute_local_with_fallback`` and raises its
         transport-missing error rather than the older cloud-only fallthrough.
+        The pin is simulated (probe -> True) so that route — not b10's
+        degraded cloud-only fallthrough with its different error text — is
+        the one under test regardless of the installed pylxpweb.
         """
+        monkeypatch.setattr(
+            switch_module, "_local_params_can_carry", lambda param: True
+        )
         coordinator = _mock_coordinator(has_http=False, has_local=False)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)

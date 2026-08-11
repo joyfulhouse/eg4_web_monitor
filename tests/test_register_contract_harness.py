@@ -1480,6 +1480,21 @@ def _resolve_param_in_pylxpweb(name: str) -> list[tuple[str, int, int | None]]:
     return resolutions
 
 
+# Grid Always On (#559) is pinned to reg 179 bit 15 by pylxpweb PR #270,
+# which is UNRELEASED: the manifest floor 0.9.39b10 still ships the
+# FUNC_179_BIT15 placeholder, so the name resolves in NEITHER pylxpweb table
+# there.  Until the release-cut pin bump, this suite must be green against
+# both the pinned editable install and the b10 floor (the b6-pin tolerance
+# pattern — see test_switch_entities.py's
+# test_all_wired_working_mode_parameters_resolve_or_are_the_b6_pin).  The
+# checks below therefore tolerate the name's ABSENCE from an unpinned
+# install; a present-but-wrong (address, bit) still fails everywhere, which
+# is the wrong-bit-ACK failure class this harness exists to catch.
+_ON_GRID_ALWAYS_ON_PINNED = bool(
+    _resolve_param_in_pylxpweb(PARAM_FUNC_ON_GRID_ALWAYS_ON)
+)
+
+
 def test_control_params_resolve_to_documented_registers() -> None:
     """Every control parameter name maps to its documented (address, bit) in
     pylxpweb, and pylxpweb's own tables agree with each other."""
@@ -1487,6 +1502,9 @@ def test_control_params_resolve_to_documented_registers() -> None:
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         resolutions = _resolve_param_in_pylxpweb(name)
         if not resolutions:
+            if name == PARAM_FUNC_ON_GRID_ALWAYS_ON:
+                # b10 tolerance (see _ON_GRID_ALWAYS_ON_PINNED above).
+                continue
             offenders.append(
                 f"{name}: unknown to BOTH pylxpweb tables (canonical holding "
                 f"map and REGISTER_TO_PARAM_KEYS) — writes would fail"
@@ -1580,6 +1598,10 @@ def test_register_179_contract_holds_for_every_family(family: str | None) -> Non
     checked: list[str] = []
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         if expected_addr != 179:
+            continue
+        if name == PARAM_FUNC_ON_GRID_ALWAYS_ON and not _ON_GRID_ALWAYS_ON_PINNED:
+            # b10 tolerance (see _ON_GRID_ALWAYS_ON_PINNED above): the
+            # unpinned floor knows only the FUNC_179_BIT15 placeholder.
             continue
         checked.append(name)
         assert name in keys, f"{family}: {name} absent from register 179 — writes fail"
