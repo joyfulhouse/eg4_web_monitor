@@ -211,7 +211,7 @@ def drop_offgrid_cloud_output_power(
 # generalized for #560): internal_temperature (input reg 64 / cloud
 # ``tinner``), battery_temperature (reg 67) and bt_temperature (reg 108,
 # transport-only overlay).  The #560 reporter's 12000XP serves a constant 0
-# in all three registers while the radiators read live.
+# in all three registers while the radiators read live (58/61 °C).
 _CONSTANT_ZERO_TEMPERATURE_KEYS: tuple[str, ...] = (
     "internal_temperature",
     "battery_temperature",
@@ -220,7 +220,7 @@ _CONSTANT_ZERO_TEMPERATURE_KEYS: tuple[str, ...] = (
 
 
 def blank_constant_zero_temperatures(sensors: dict[str, Any]) -> None:
-    """Blank a constant-0 temperature reading corroborated as bogus (#490/#560).
+    """Blank a constant-0 temperature reading only on positive warmth evidence (#490/#560).
 
     Two reports, two sources, same shape — a temperature channel stuck at
     exactly 0 while the radiator temperatures read live:
@@ -234,9 +234,10 @@ def blank_constant_zero_temperatures(sensors: dict[str, Any]) -> None:
     - #560: a HYBRID-mode 12000XP (EG4_OFFGRID, deviceTypeCode 54) whose
       LOCAL input registers serve the same constant 0 in reg 64
       (internal), reg 67 (battery) and reg 108 (BT), while radiator1/2 read
-      58/61 °C and the BMS cell temps read a healthy 30/32 °C.  Not a
-      sentinel (127 → 0x7F already maps to None in pylxpweb), not
-      signed-decode, not scaling — the DSP genuinely serves 0.
+      58/61 °C and the BMS cell temps read a healthy 30/32 °C (reporter
+      diagnostics confirm those live radiators).  Not a sentinel
+      (127 → 0x7F already maps to None in pylxpweb), not signed-decode,
+      not scaling — the DSP genuinely serves 0.
 
     #560 falsifies the #490 exemption for transport-backed values: the
     register path serves the same constant 0 the cloud relays, so the
@@ -253,34 +254,48 @@ def blank_constant_zero_temperatures(sensors: dict[str, Any]) -> None:
     over-gating failure, confirmed rather than hypothetical.  Only the
     observed VALUE is treated.
 
-    CORROBORATION: a live NONZERO radiator reading proves the unit is
-    running warm — a unit whose radiators read 58 °C is not at 0 °C ambient
-    — so a 0 in the other temperature channels is the bogus constant.  This
-    bounds the cold-climate trade-off #490 accepted (and #348 raised for
-    ``tBat``): 0 °C is a physically legitimate reading for an idle,
-    unheated install, and such a unit's radiators read ~0 too, so when the
-    radiators also read 0 the values are consistent with genuine cold and
-    are left alone.  When NO radiator reading is available at all,
-    corroboration is not feasible and the plain value-scoped #490 behavior
-    applies: an exact 0 is blanked.  The residual loss — a unit genuinely
-    at 0 °C whose radiators nonetheless read live reads "unknown" — is
-    small, bounded, and reversible in a way deleting the entity would not
-    be.
+    CORROBORATION (positive warmth only): blank a constant-zero target
+    temperature ONLY when at least one radiator reading is STRICTLY ``> 0``
+    °C.  A unit whose radiators read 58 °C is not at 0 °C ambient, so the
+    0 is the bogus constant.  Radiators ``<= 0`` (cold-consistent, including
+    negatives and exact 0) and absent/``None`` radiators do NOT corroborate
+    — they PROTECT the reading and the 0 is published, because there is no
+    evidence it is bogus.  (Earlier #490 blanked absent-radiator cloud
+    ``tinner: 0`` unconditionally; that path is now warmth-narrowed.  The
+    known #490/#76 reporter payloads carried live radiators, so they remain
+    fixed.)
+
+    ACCEPTED RESIDUALS (do not paper over with family/freshness heuristics —
+    boot placeholder and genuine cold are physically indistinguishable, and
+    the #490 lesson / ponytail ladder forbid guessing):
+
+    - An all-zero boot/placeholder frame (targets 0, radiators 0) publishes
+      the zeros until radiators warm — the original symptom on a cold start,
+      accepted because the frame cannot be told apart from a genuinely cold
+      unit.
+    - A unit genuinely at 0 °C whose radiators nonetheless read ``> 0``
+      reads "unknown" instead of 0 — small, bounded, reversible.
+    - Radiators oscillating across the ``> 0`` freeze point (0↔1) can flap
+      the blanking decision; the stricter threshold shrinks that window but
+      the residual cosmetic noise is accepted.
 
     Args:
         sensors: Mutable sensor dict to update.  Radiator values, when
-            present, corroborate; every path that calls this maps them.
+            present and strictly warm, corroborate; every path that calls
+            this maps them.
     """
     radiator_readings = (
         sensors.get("radiator1_temperature"),
         sensors.get("radiator2_temperature"),
     )
-    radiators_live = any(
-        isinstance(reading, (int, float)) and reading != 0
+    # Strictly > 0 only.  ``!= 0`` would treat negatives as warmth evidence
+    # and blank a cold-consistent 0; absent/None readings must not fall
+    # through as corroboration either.
+    warmth_evidence = any(
+        isinstance(reading, (int, float)) and reading > 0
         for reading in radiator_readings
     )
-    radiators_absent = all(reading is None for reading in radiator_readings)
-    if not (radiators_live or radiators_absent):
+    if not warmth_evidence:
         return
     for key in _CONSTANT_ZERO_TEMPERATURE_KEYS:
         # Exact zero only.  A falsy test would be wrong in both directions:

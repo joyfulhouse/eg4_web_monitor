@@ -31,14 +31,17 @@ split (#259/#307).  So the split is WITHIN the family, and gating by family
 would suppress a sensor that demonstrably works on real hardware.  That is
 the #307 over-gating failure, confirmed rather than hypothetical.
 
-Instead only the observed VALUE is treated, corroborated by live radiators:
-an exact 0 in ``internal_temperature`` / ``battery_temperature`` /
-``bt_temperature`` is published as None (HA "unknown") when a radiator
-reads a live nonzero value — a unit whose radiators read 58 °C is not at
-0 °C ambient.  A genuinely cold unit (radiators ~0 too) keeps its 0, which
-bounds the cold-climate trade-off #490 accepted (the same caveat #348
-raised for ``tBat``).  With no radiator reading at all, corroboration is
-not feasible and the plain value-scoped #490 blanking applies.
+Instead only the observed VALUE is treated, and only on positive warmth
+evidence: an exact 0 in ``internal_temperature`` / ``battery_temperature``
+/ ``bt_temperature`` is published as None (HA "unknown") when at least one
+radiator reads STRICTLY ``> 0`` °C — a unit whose radiators read 58 °C is
+not at 0 °C ambient.  Radiators ``<= 0`` (including negatives) and
+absent/``None`` radiators PROTECT the reading (publish the 0): there is no
+evidence it is bogus.  That narrows the earlier #490 unconditional
+absent-radiator cloud blanking; known #490/#76 reporter payloads had live
+radiators, so they remain fixed.  An all-zero boot/placeholder frame is
+physically indistinguishable from genuine cold and is an accepted residual
+(publishes the zeros until radiators warm) — no family/freshness guess.
 """
 
 from __future__ import annotations
@@ -109,11 +112,14 @@ def cloud_config_entry() -> MockConfigEntry:
 
 
 class TestConstantZeroBlanking:
-    """An exact 0 becomes None; every other value passes through."""
+    """An exact 0 becomes None only with warmth evidence; other values pass."""
 
-    def test_zero_becomes_none(self) -> None:
+    def test_zero_becomes_none_with_warm_radiator(self) -> None:
         """FAILS without the fix: the sensor published a bogus 0 °C forever."""
-        sensors: dict[str, Any] = {"internal_temperature": 0}
+        sensors: dict[str, Any] = {
+            "internal_temperature": 0,
+            "radiator1_temperature": 46,
+        }
         blank_constant_zero_temperatures(sensors)
         assert sensors["internal_temperature"] is None
 
@@ -125,13 +131,21 @@ class TestConstantZeroBlanking:
         value is what makes the sensor read "unknown" rather than risking an
         availability flip for keys shared with bank entities (#261).
         """
-        sensors: dict[str, Any] = {"internal_temperature": 0}
+        sensors: dict[str, Any] = {
+            "internal_temperature": 0,
+            "radiator1_temperature": 46,
+        }
         blank_constant_zero_temperatures(sensors)
         assert "internal_temperature" in sensors
+        assert sensors["internal_temperature"] is None
 
     def test_battery_and_bt_temperature_covered(self) -> None:
         """FAILS without #560 coverage: regs 67 and 108 serve the same 0."""
-        sensors: dict[str, Any] = {"battery_temperature": 0, "bt_temperature": 0}
+        sensors: dict[str, Any] = {
+            "battery_temperature": 0,
+            "bt_temperature": 0,
+            "radiator1_temperature": 58,
+        }
         blank_constant_zero_temperatures(sensors)
         assert sensors["battery_temperature"] is None
         assert sensors["bt_temperature"] is None
@@ -144,7 +158,10 @@ class TestConstantZeroBlanking:
         """
         for key in ("internal_temperature", "battery_temperature", "bt_temperature"):
             for value in (31, 32, 41, 65):
-                sensors: dict[str, Any] = {key: value}
+                sensors: dict[str, Any] = {
+                    key: value,
+                    "radiator1_temperature": 58,
+                }
                 blank_constant_zero_temperatures(sensors)
                 assert sensors[key] == value
 
@@ -155,18 +172,24 @@ class TestConstantZeroBlanking:
         ``<= 0``/``not value`` formulation that would swallow valid readings.
         """
         for value in (-1, -12, -30):
-            sensors: dict[str, Any] = {"internal_temperature": value}
+            sensors: dict[str, Any] = {
+                "internal_temperature": value,
+                "radiator1_temperature": 58,
+            }
             blank_constant_zero_temperatures(sensors)
             assert sensors["internal_temperature"] == value
 
     def test_none_stays_none(self) -> None:
         """An already-absent reading is unchanged (no key invented)."""
-        sensors: dict[str, Any] = {"internal_temperature": None}
+        sensors: dict[str, Any] = {
+            "internal_temperature": None,
+            "radiator1_temperature": 58,
+        }
         blank_constant_zero_temperatures(sensors)
         assert sensors["internal_temperature"] is None
 
     def test_missing_key_is_not_added(self) -> None:
-        sensors: dict[str, Any] = {}
+        sensors: dict[str, Any] = {"radiator1_temperature": 58}
         blank_constant_zero_temperatures(sensors)
         assert "internal_temperature" not in sensors
         assert "battery_temperature" not in sensors
@@ -174,11 +197,11 @@ class TestConstantZeroBlanking:
 
 
 class TestRadiatorCorroboration:
-    """Live radiators corroborate the bogus 0; cold radiators protect it.
+    """Positive warmth corroborates the bogus 0; cold/absent radiators protect.
 
-    This is the cold-climate bound on the #490 trade-off: 0 °C is a
-    physically legitimate reading, but a unit whose radiators read 58 °C is
-    not at 0 °C ambient.
+    Blank only when at least one radiator is STRICTLY ``> 0`` °C.  Mutation
+    check: ``> 0`` → ``!= 0`` fails the negative-radiator test; ``> 0`` →
+    always-blank (dropped gate) fails the all-zero / absent protect tests.
     """
 
     def test_live_radiators_corroborate_blank(self) -> None:
@@ -201,11 +224,12 @@ class TestRadiatorCorroboration:
             blank_constant_zero_temperatures(sensors)
             assert sensors["internal_temperature"] is None
 
-    def test_zero_radiators_keep_a_genuine_cold_zero(self) -> None:
-        """A genuinely cold idle unit reads ~0 everywhere — leave it alone.
+    def test_all_zero_frame_publishes_accepted_residual(self) -> None:
+        """All-zero boot/placeholder is indistinguishable from genuine cold.
 
-        FAILS if the corroboration gate is dropped: without it the
-        cold-climate false positive #490 accepted comes back unbounded.
+        Publishes the zeros (accepted residual) until radiators warm — do NOT
+        add family gates or freshness heuristics to guess (#490 lesson).
+        FAILS if the corroboration gate is dropped (unconditional blank).
         """
         sensors: dict[str, Any] = {
             "internal_temperature": 0,
@@ -219,15 +243,55 @@ class TestRadiatorCorroboration:
         assert sensors["battery_temperature"] == 0
         assert sensors["bt_temperature"] == 0
 
-    def test_absent_radiator_reading_falls_back_to_value_scope(self) -> None:
-        """No radiator data at all: the plain #490 value-scoped blanking."""
+    def test_negative_radiators_protect_zero(self) -> None:
+        """internal=0 with radiators -2/-1 must PUBLISH the 0.
+
+        Kills the surviving ``!= 0`` → ``> 0`` mutation: after the redesign,
+        mutating ``> 0`` back to ``!= 0`` treats negatives as warmth and
+        blanks — this test goes red.
+        """
+        sensors: dict[str, Any] = {
+            "internal_temperature": 0,
+            "radiator1_temperature": -2,
+            "radiator2_temperature": -1,
+        }
+        blank_constant_zero_temperatures(sensors)
+        assert sensors["internal_temperature"] == 0
+
+    def test_absent_radiators_protect_zero(self) -> None:
+        """No radiator data at all: no warmth evidence → publish the 0.
+
+        Narrows #490's unconditional absent-radiator blanking.  FAILS if
+        absent radiators are treated as corroboration again.
+        """
         sensors: dict[str, Any] = {
             "internal_temperature": 0,
             "radiator1_temperature": None,
             "radiator2_temperature": None,
         }
         blank_constant_zero_temperatures(sensors)
-        assert sensors["internal_temperature"] is None
+        assert sensors["internal_temperature"] == 0
+
+    def test_tri_state_zero_and_none_radiators_publish(self) -> None:
+        """One radiator 0 + one None → no warmth evidence → publish.
+
+        Pins the mixed tri-state explicitly; no silent fall-through.
+        """
+        sensors: dict[str, Any] = {
+            "internal_temperature": 0,
+            "radiator1_temperature": 0,
+            "radiator2_temperature": None,
+        }
+        blank_constant_zero_temperatures(sensors)
+        assert sensors["internal_temperature"] == 0
+
+        sensors = {
+            "internal_temperature": 0,
+            "radiator1_temperature": None,
+            "radiator2_temperature": 0,
+        }
+        blank_constant_zero_temperatures(sensors)
+        assert sensors["internal_temperature"] == 0
 
     def test_radiator_values_themselves_untouched(self) -> None:
         """The radiators are the corroborating evidence, never a target."""
@@ -239,6 +303,7 @@ class TestRadiatorCorroboration:
         blank_constant_zero_temperatures(sensors)
         assert sensors["radiator1_temperature"] == 0
         assert sensors["radiator2_temperature"] == 54
+        assert sensors["internal_temperature"] is None
 
 
 class TestLocalRegisterPath:
@@ -277,8 +342,11 @@ class TestLocalRegisterPath:
         assert mapping["battery_temperature"] == 32
         assert mapping["bt_temperature"] == 33
 
-    def test_cold_unit_register_zeros_survive(self) -> None:
-        """All-zero registers consistent with genuine cold are kept."""
+    def test_all_zero_frame_publishes_accepted_residual(self) -> None:
+        """All-zero boot/placeholder frame publishes zeros (accepted residual).
+
+        Indistinguishable from a genuinely cold unit — no heuristic guess.
+        """
         runtime = InverterRuntimeData(
             internal_temperature=0,
             battery_temperature=0,
@@ -290,6 +358,47 @@ class TestLocalRegisterPath:
         assert mapping["internal_temperature"] == 0
         assert mapping["battery_temperature"] == 0
         assert mapping["bt_temperature"] == 0
+
+    def test_raw_register_decode_path_to_blanking(self) -> None:
+        """Drive real ``from_modbus_registers`` decode through to blanking.
+
+        Pins signed decode on reg 64 and ÷10 scaling on reg 108 so a
+        pre-decoded dataclass cannot hide sign/scaling regressions.
+        Mutation-check: treating reg 64 as unsigned makes ``0xFFFE`` → 65534
+        (this test goes red on the ``== -2`` expectation); dropping ÷10 on
+        reg 108 makes raw 250 → 250 instead of 25.0.
+        """
+        warm_zeros = InverterRuntimeData.from_modbus_registers(
+            {
+                64: 0,
+                65: 58,
+                66: 61,
+                67: 0,
+                108: 0,
+            },
+            model_family="EG4_OFFGRID",
+        )
+        mapping = _build_runtime_sensor_mapping(warm_zeros)
+        assert mapping["internal_temperature"] is None
+        assert mapping["battery_temperature"] is None
+        assert mapping["bt_temperature"] is None
+        assert mapping["radiator1_temperature"] == 58
+        assert mapping["radiator2_temperature"] == 61
+
+        signed_and_scaled = InverterRuntimeData.from_modbus_registers(
+            {
+                64: 0xFFFE,  # signed int16 → -2 °C
+                65: 58,
+                66: 61,
+                67: 30,
+                108: 250,  # ÷10 → 25.0 °C
+            },
+            model_family="EG4_OFFGRID",
+        )
+        mapping = _build_runtime_sensor_mapping(signed_and_scaled)
+        assert mapping["internal_temperature"] == -2
+        assert mapping["bt_temperature"] == 25.0
+        assert mapping["battery_temperature"] == 30
 
 
 class TestNoFamilyGate:

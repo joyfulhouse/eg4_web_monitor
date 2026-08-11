@@ -317,18 +317,24 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 > payload from a second 12000XP), and a HYBRID-mode 12000XP serves the
 > same constant 0 in LOCAL input regs 64 (internal), 67 (battery) and 108
 > (BT) while radiator1/2 read 58/61 °C and the BMS cell temps read a
-> healthy 30/32 °C (#560). `tinner` is a REQUIRED pydantic field in
-> pylxpweb and the register 0 is genuinely what the DSP serves — there is
-> no sentinel to translate on either path. An exact 0 in
-> `internal_temperature`, `battery_temperature` or `bt_temperature` is
-> therefore published as `None` (HA “unknown”) instead of a wrong
-> constant, via `blank_constant_zero_temperatures` in
-> `coordinator_mappings.py` — on every path (CLOUD, HYBRID, LOCAL), gated
-> only by the value plus radiator corroboration: a live nonzero radiator
-> reading proves the unit is running warm, so the 0 is bogus. When the
-> radiators also read 0 the values are consistent with a genuinely cold
-> unit and are left alone; when no radiator reading is available at all,
-> the plain value-scoped blanking applies.
+> healthy 30/32 °C (#560 — reporter diagnostics confirm those live
+> radiators). `tinner` is a REQUIRED pydantic field in pylxpweb and the
+> register 0 is genuinely what the DSP serves — there is no sentinel to
+> translate on either path. An exact 0 in `internal_temperature`,
+> `battery_temperature` or `bt_temperature` is therefore published as
+> `None` (HA “unknown”) instead of a wrong constant, via
+> `blank_constant_zero_temperatures` in `coordinator_mappings.py` — on
+> every path (CLOUD, HYBRID, LOCAL), gated only by the value plus
+> **positive warmth** radiator corroboration: blank only when at least
+> one radiator reading is STRICTLY `> 0` °C. Radiators `<= 0`
+> (cold-consistent, including negatives) and absent/`None` radiators
+> PROTECT the reading (publish the 0) — there is no evidence it is bogus.
+>
+> **CLOUD-path narrowing vs #490:** earlier #490 blanked cloud `tinner: 0`
+> unconditionally (including when radiators were absent). The warmth gate
+> now applies on the cloud path too. Known #490/#76 reporter payloads
+> carried live radiators (`tradiator1`/`tradiator2` at 46/54 and similar),
+> so those cases remain fixed.
 >
 > **This is NOT a family difference — do not turn it into one.** The
 > defect splits *within* deviceTypeCode 54: a **12000XP** reports the
@@ -339,9 +345,13 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 > (#259/#307), so a family gate would suppress a sensor that
 > demonstrably works. Only the observed VALUE is treated.
 >
-> **Trade-off:** 0 °C is a physically legitimate reading, so a unit
-> genuinely at 0 on a cloud connection now reads unknown — the same
-> caveat #348 raised for `tBat`. Bounded, and reversible.
+> **Accepted residuals:** an all-zero boot/placeholder frame (targets 0,
+> radiators 0) is physically indistinguishable from a genuinely cold unit
+> and publishes the zeros until radiators warm — no family/freshness
+> heuristic. A unit genuinely at 0 °C whose radiators nonetheless read
+> `> 0` reads unknown. Radiators oscillating across the `> 0` freeze
+> point (0↔1) can flap the blanking decision (cosmetic). Bounded, and
+> reversible.
 
 ### Read-Only Operational Diagnostics
 
