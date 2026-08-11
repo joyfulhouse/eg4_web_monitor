@@ -1,10 +1,10 @@
 # GitHub Actions Workflows
 
-This repository uses streamlined GitHub Actions workflows for quality validation and code review.
+This repository uses streamlined GitHub Actions workflows for quality validation and issue automation. AI code review runs off-CI — see [Polly Review (external)](#polly-review-external).
 
 ## Active Workflows
 
-### 1. Quality Validation (`quality-validation.yml`)
+### Quality Validation (`quality-validation.yml`)
 
 **Purpose:** Comprehensive quality tier validation with proper dependency chain
 
@@ -20,8 +20,6 @@ Bronze Tier (10 jobs)
 Silver Tier (9 jobs)
     ↓
 Gold Tier (5 jobs)
-    ↓
-Claude Code Review (1 job, PR only)
 ```
 
 **Bronze Tier Requirements (18 total):**
@@ -54,24 +52,32 @@ Claude Code Review (1 job, PR only)
 - Comprehensive test coverage with pytest
 - Manifest completeness
 
-**Claude Code Review:**
-- Runs only on pull requests
-- Executes only after Gold tier passes
-- Reviews code quality, Home Assistant best practices, and Gold tier compliance
+### Other Active Workflows
 
-### 2. Claude Code (`claude.yml`)
+- `home-assistant-validation.yml` — Hassfest and HACS validation (PRs, daily schedule)
+- `issue-log-validation.yml` — enforces the bug-report debug-log requirement (auto-close/reopen)
+- `issue-triage.yml` — automated triage of newly opened issues
+- `release.yml` — attaches the integration zip to published releases
 
-**Purpose:** Interactive Claude Code assistance on issues and PRs
+## Polly Review (external)
 
-**Triggers:**
-- Issue comments containing `@claude`
-- Pull request comments containing `@claude`
-- New issues with `@claude` mention
-- Pull request reviews containing `@claude`
+AI code review is no longer part of CI. Instead, an off-CI "polly review" runs on
+the repository owner's local infrastructure:
 
-**Permissions:**
-- Read: contents, pull-requests, issues, actions
-- Write: id-token
+1. A `pull_request_review` webhook fires on every submitted review (approval,
+   changes-requested, or comment).
+2. A trust gate acts only on **approving** reviews from a login in the
+   maintainer allowlist, [`.github/MAINTAINER`](MAINTAINER). The gate always
+   reads that file from the base repository's **default branch** — never from
+   the PR head — so a PR that modifies the allowlist cannot self-authorize.
+3. The owner's local infrastructure runs an Omnigent polly review of the PR.
+4. The result is posted as an advisory PR comment marked
+   `<!-- polly-review-bot sha=<head_sha> -->`.
+
+The polly review is advisory only: it is not a required check and never blocks
+merge. A review covers the PR head commit at approval time — the `sha` in the
+comment marker; an approval of an older revision does not cover commits pushed
+afterwards. To have new commits reviewed, re-approve the PR after the push.
 
 ## Workflow Design Principles
 
@@ -87,11 +93,13 @@ Claude Code Review (1 job, PR only)
 - `bronze-tier-validation.yml` → Consolidated into `quality-validation.yml`
 - `silver-tier-validation.yml` → Consolidated into `quality-validation.yml`
 - `gold-tier-validation.yml` → Consolidated into `quality-validation.yml`
-- `claude-issue-assistant.yml` → Superseded by `claude.yml`
-- `claude-code-review.yml.disabled` → Enabled and integrated into `quality-validation.yml`
+- `claude-issue-assistant.yml` → Removed (was superseded by `claude.yml`, itself since removed)
+- `claude-code-review.yml.disabled` → Removed in 8e6621f (workflow consolidation); in-CI AI review has since been replaced by the external polly review
+- `code-review.yml` → Removed (automatic on-open Claude review, deleted in 72a854f)
+- `claude.yml` → Removed (the `@claude` mention responder; maintainer decision to drop it). With it gone, no workflow uses the `CLAUDE_CODE_OAUTH_TOKEN` repository secret — it can be removed or rotated.
 
 **Benefits of consolidation:**
-- 535 fewer lines of YAML (1,272 → 737 lines)
+- Substantially less YAML than the per-tier workflow files it replaced
 - Single source of truth for quality validation
 - Clear dependency chain prevents partial validation
 - Better CI/CD resource utilization
@@ -158,10 +166,11 @@ Add to README.md:
 - Check test coverage with pytest
 - Verify all README.md sections present
 
-### Claude Code Review Failures
-- Review will only run on pull requests
-- Requires Gold tier to pass first
-- Check `CLAUDE_CODE_OAUTH_TOKEN` secret is configured
+### Polly Review Not Posting
+- The polly review runs off-CI on the owner's local infrastructure; nothing
+  appears in the Actions tab
+- It only triggers on an approving review from a login in `.github/MAINTAINER`
+- Re-approve the PR to retrigger; the comment is advisory and never blocks merge
 
 ## Future Enhancements
 
