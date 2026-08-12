@@ -1182,8 +1182,6 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
             cloud_method="set_ac_charge_power",
             cloud_kwargs={"power_kw": value},
             label=f"AC charge power to {value:.1f} kW",
-            # Protected register (#558): cloud-only unless the family is
-            # positively resolved as non-off-grid. See the class docstring.
             local_write_blocked_reason=self._offgrid_cloud_only_reason(
                 66, "AC charge power"
             ),
