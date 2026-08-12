@@ -47,12 +47,14 @@ Companion files:
 from __future__ import annotations
 
 import dataclasses
+import importlib.metadata
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
 from typing import Any
 
 import pytest
+from packaging.version import Version
 from pylxpweb.constants.registers import (
     MULTI_BIT_FIELDS,
     REGISTER_TO_PARAM_KEYS,
@@ -1490,8 +1492,27 @@ def _resolve_param_in_pylxpweb(name: str) -> list[tuple[str, int, int | None]]:
 # checks below therefore tolerate the name's ABSENCE from an unpinned
 # install; a present-but-wrong (address, bit) still fails everywhere, which
 # is the wrong-bit-ACK failure class this harness exists to catch.
+#
+# The tolerance is VERSION-KEYED (#559 round 3): an unconditional one would
+# also swallow a FUTURE pylxpweb regression that drops the pin, keeping CI
+# green while the switch silently vanished in pure LOCAL.  Absence is
+# tolerated ONLY on the exact b10 floor signature — installed version at or
+# below 0.9.39b10 AND the b10 FUNC_179_BIT15 placeholder still sitting at
+# reg-179 index 15 (the capability sentinel; PR #270 does not bump the
+# version, so the version compare alone cannot distinguish the two installs).
+# Any install that fails that signature must carry the (179, 15) pin or the
+# harness goes red, loudly.  Like the b6 precedent, the release-cut pin bump
+# makes this tolerance dead code — DROP the sentinel and the branches on it
+# then, leaving the unconditional (179, 15) requirement.
 _ON_GRID_ALWAYS_ON_PINNED = bool(
     _resolve_param_in_pylxpweb(PARAM_FUNC_ON_GRID_ALWAYS_ON)
+)
+_REG179_KEYS = REGISTER_TO_PARAM_KEYS.get(179, [])
+_TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON = (
+    not _ON_GRID_ALWAYS_ON_PINNED
+    and Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
+    and len(_REG179_KEYS) > 15
+    and _REG179_KEYS[15] == "FUNC_179_BIT15"
 )
 
 
@@ -1502,8 +1523,12 @@ def test_control_params_resolve_to_documented_registers() -> None:
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         resolutions = _resolve_param_in_pylxpweb(name)
         if not resolutions:
-            if name == PARAM_FUNC_ON_GRID_ALWAYS_ON:
-                # b10 tolerance (see _ON_GRID_ALWAYS_ON_PINNED above).
+            if (
+                name == PARAM_FUNC_ON_GRID_ALWAYS_ON
+                and _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON
+            ):
+                # Version-keyed b10 tolerance (see the sentinel above); any
+                # other unpinned install falls through and fails loudly.
                 continue
             offenders.append(
                 f"{name}: unknown to BOTH pylxpweb tables (canonical holding "
@@ -1599,9 +1624,13 @@ def test_register_179_contract_holds_for_every_family(family: str | None) -> Non
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         if expected_addr != 179:
             continue
-        if name == PARAM_FUNC_ON_GRID_ALWAYS_ON and not _ON_GRID_ALWAYS_ON_PINNED:
-            # b10 tolerance (see _ON_GRID_ALWAYS_ON_PINNED above): the
-            # unpinned floor knows only the FUNC_179_BIT15 placeholder.
+        if (
+            name == PARAM_FUNC_ON_GRID_ALWAYS_ON
+            and _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON
+        ):
+            # Version-keyed b10 tolerance (see the sentinel above): only the
+            # exact b10 floor, which knows just the FUNC_179_BIT15
+            # placeholder, is excused; a pin-dropping regression fails.
             continue
         checked.append(name)
         assert name in keys, f"{family}: {name} absent from register 179 — writes fail"

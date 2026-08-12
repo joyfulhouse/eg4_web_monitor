@@ -269,12 +269,14 @@ The erratum above downgraded the Grid Always On name→bit binding to
 with our reading") undersells what the evidence is: a binding recovered from
 the decompiled **write path** of the official EG4 mobile app
 (`Local12KSetFragment.getBitByFunction`), validated 4-for-4 against
-independently proven anchor bits on the same register (b3 `hardware-toggle-proven`
-#135, b7, b9/b10 #48). The legend had no rung for that class, so the erratum's
+independently confirmed anchor bits on the same register, each
+`portal-correlated` or better — b3 `hardware-toggle-proven` (#135), b7
+`portal-correlated`, b9/b10 `portal-correlated` (#48). The legend had no rung for that class, so the erratum's
 grade was the least-wrong available — a legend gap, not an evidence change.
 Extended `README.md`'s Proof grades with `app-write-path-proven` (below
 `firmware-proven`, above `portal-correlated`; minimum proof: decompiled
-official-client write-path binding + ≥3 proven same-register anchors;
+official-client write-path binding + ≥3 independently confirmed same-register
+anchors (`portal-correlated` or better), naming each anchor and its grade;
 explicitly NOT proof the firmware honors the write — wrong-bit writes ACK,
 #476) and placed the class at annotation-ladder rung 2 (reads; writes only
 with a gate). Re-graded `40-hardware/registers.md` H179 b15 and

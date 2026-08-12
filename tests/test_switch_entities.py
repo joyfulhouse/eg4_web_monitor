@@ -4282,7 +4282,21 @@ class TestGridAlwaysOnGating:
         """Reality check (no probe patching): the HYBRID setup gate's answer
         for Grid Always On must equal what the INSTALLED pylxpweb register
         map says — green on both sides of the bit-15 pin, and exercises the
-        real probe end to end (mirrors the Export PV Only b6 check)."""
+        real probe end to end (mirrors the Export PV Only b6 check).
+
+        The unpinned answer is VERSION-KEYED (#559 round 3): a missing pin
+        is acceptable only on the exact b10 floor signature (version at or
+        below 0.9.39b10 AND the FUNC_179_BIT15 placeholder still at reg-179
+        index 15). On any other install a False probe means a pin-dropping
+        pylxpweb regression, and this test fails instead of tracking it.
+        The release-cut pin bump makes the tolerance dead code — drop it
+        then, requiring True unconditionally (b6 precedent).
+        """
+        import importlib.metadata
+
+        from packaging.version import Version
+        from pylxpweb.constants.registers import REGISTER_TO_PARAM_KEYS
+
         coordinator = _mock_coordinator(
             model="FlexBOSS21", has_http=True, has_local=True
         )
@@ -4298,6 +4312,18 @@ class TestGridAlwaysOnGating:
             if isinstance(e, EG4WorkingModeSwitch)
         }
         expected = switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
+        if not expected:
+            reg179 = REGISTER_TO_PARAM_KEYS.get(179, [])
+            b10_floor_signature = (
+                Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
+                and len(reg179) > 15
+                and reg179[15] == "FUNC_179_BIT15"
+            )
+            assert b10_floor_signature, (
+                "installed pylxpweb does not carry the reg-179 bit-15 pin "
+                "and is NOT the b10 floor — a pin-dropping regression would "
+                "silently remove the Grid Always On switch in pure LOCAL"
+            )
         assert ("FUNC_ON_GRID_ALWAYS_ON" in params) == expected
 
     @pytest.mark.asyncio
