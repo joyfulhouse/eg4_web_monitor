@@ -26,13 +26,8 @@ jobs:
 
       - name: Validate Python syntax
         run: |
-          # Compile the whole integration tree: compileall silently skips a
-          # nonexistent file argument (prints "Can't list" but exits 0), so
-          # the old explicit list quietly never compiled const.py — which is
-          # the const/ package, not a module — while still passing (#549).
-          # Compiling the tree removes the stale-list failure mode. Under the
-          # default bash -e shell a compileall failure aborts the step
-          # directly, so no exit-code guard is needed.
+          # Compile the whole tree: compileall exits 0 on a nonexistent file
+          # argument, so an explicit file list can silently skip files (#549).
           python -m compileall -q custom_components/eg4_web_monitor
           echo "✅ All Python files have valid syntax"
 
@@ -206,15 +201,11 @@ jobs:
 
       - name: Run ruff linter
         run: |
-          # Under the default bash -e shell a non-zero ruff exit aborts the
-          # step directly; the old `if [ $? -ne 0 ]` guard was unreachable.
           ruff check . --output-format=github
           echo "✅ Ruff linter passed"
 
       - name: Run ruff formatter check
         run: |
-          # Same bash -e reasoning as the ruff linter step above: a non-zero
-          # exit fails the step before any exit-code guard could run.
           ruff format --check .
           echo "✅ Ruff formatter check passed"
 
@@ -826,8 +817,6 @@ jobs:
       - name: Run mypy type checking
         run: |
           echo "Running mypy type checking with Home Assistant 2025.11.0+..."
-          # Under the default bash -e shell a non-zero mypy exit aborts the
-          # step directly; the old `if [ $? -ne 0 ]` guard was unreachable.
           mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
           echo "✅ Mypy type checking passed with zero errors"
 
