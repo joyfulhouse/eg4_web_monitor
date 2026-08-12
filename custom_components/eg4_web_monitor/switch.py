@@ -676,12 +676,11 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         # unproven on CCAA — see _offgrid_without_cloud).
         if self._offgrid_without_cloud():
             raise HomeAssistantError(
-                f"Cannot control quick charge on {self._serial}: this "
-                "inverter family rejects the local quick-charge register "
-                "write (#296) — or could not be positively identified as "
-                "one that accepts it — and no cloud connection is "
-                "configured; add cloud credentials to this integration "
-                "entry to use it (issue #558)"
+                f"Cannot control quick charge on {self._serial}: there is "
+                "no proven safe local quick-charge route for this inverter "
+                "family (#296) and no cloud connection is configured; add "
+                "cloud credentials to this integration entry to use it "
+                "(issue #558)"
             )
 
         enable_method: str | Callable[..., Awaitable[bool]] = "enable_quick_charge"
