@@ -26,13 +26,12 @@ jobs:
 
       - name: Validate Python syntax
         run: |
-          python -m compileall -q custom_components/eg4_web_monitor/__init__.py custom_components/eg4_web_monitor/_config_flow/__init__.py custom_components/eg4_web_monitor/coordinator.py custom_components/eg4_web_monitor/sensor.py custom_components/eg4_web_monitor/number.py custom_components/eg4_web_monitor/switch.py custom_components/eg4_web_monitor/button.py custom_components/eg4_web_monitor/select.py custom_components/eg4_web_monitor/utils.py custom_components/eg4_web_monitor/const.py
-          if [ $? -eq 0 ]; then
-            echo "✅ All Python files have valid syntax"
-          else
-            echo "❌ Python syntax errors found"
-            exit 1
-          fi
+          # Compile the whole integration tree: const.py and utils.py do not
+          # exist (const/ is a package), so the old explicit file list always
+          # failed (#549). Under the default bash -e shell a compileall
+          # failure aborts the step directly, so no exit-code guard is needed.
+          python -m compileall -q custom_components/eg4_web_monitor
+          echo "✅ All Python files have valid syntax"
 
   bronze-config-flow-tests:
     name: Bronze - Config Flow Tests
@@ -204,20 +203,16 @@ jobs:
 
       - name: Run ruff linter
         run: |
+          # Under the default bash -e shell a non-zero ruff exit aborts the
+          # step directly; the old `if [ $? -ne 0 ]` guard was unreachable.
           ruff check . --output-format=github
-          if [ $? -ne 0 ]; then
-            echo "❌ Ruff linter found issues"
-            exit 1
-          fi
           echo "✅ Ruff linter passed"
 
       - name: Run ruff formatter check
         run: |
+          # Same bash -e reasoning as the ruff linter step above: a non-zero
+          # exit fails the step before any exit-code guard could run.
           ruff format --check .
-          if [ $? -ne 0 ]; then
-            echo "❌ Ruff formatter check failed - code needs formatting"
-            exit 1
-          fi
           echo "✅ Ruff formatter check passed"
 
   bronze-security-scan:
@@ -828,11 +823,9 @@ jobs:
       - name: Run mypy type checking
         run: |
           echo "Running mypy type checking with Home Assistant 2025.11.0+..."
+          # Under the default bash -e shell a non-zero mypy exit aborts the
+          # step directly; the old `if [ $? -ne 0 ]` guard was unreachable.
           mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
-          if [ $? -ne 0 ]; then
-            echo "❌ Type errors found - must be fixed for Platinum tier"
-            exit 1
-          fi
           echo "✅ Mypy type checking passed with zero errors"
 
   platinum-comprehensive-tests:
