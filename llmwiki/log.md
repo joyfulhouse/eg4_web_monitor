@@ -285,3 +285,48 @@ header/table re-derived from the audit command (336 counted claims — the
 ingest entry above had added the b15 row without updating the 335 total).
 Still **not** `hardware-toggle-proven`; #476 caveat unchanged. Durable cites:
 #559 / pylxpweb PR #270.
+
+## [2026-08-12] ingest | H179 b15 promoted to hardware-toggle-proven; #559 pins moved to mainline
+
+Release cut for v3.5.1-beta.11 (pylxpweb 0.9.39b11 on PyPI). Two operations:
+
+1. **Grade promotion.** 2026-08-12 live evidence met the `hardware-toggle-proven`
+   minimum: portal named toggle of Grid Always On flipped the local raw reg-179
+   read 0x1048 → 0x9048 (single-bit XOR exactly 0x8000 = bit 15), and the restore
+   returned 0x1048, verified via both cloud and local reads, on FlexBOSS21
+   52842P0581. `40-hardware/registers.md` H179 b15 re-graded
+   `app-write-path-proven` → `hardware-toggle-proven`, scoped to the tested unit
+   (component firmware unrecorded); the app-resolver lineage is retained in the
+   row as history and still carries the family-wide extension. Accounting ledger
+   re-derived: 27 firmware-proven + 5 hardware-toggle-proven = 32 proven of 336
+   (awk reproduction run and matched). `10-integration/controls-and-writes.md`
+   §ladder row updated to match. The legend's `app-write-path-proven` rung stays
+   defined in README.md (count now 0; other rows may use it later).
+
+2. **Re-pin to mainline.** The #559 pages carried PR-branch SHAs that became
+   non-mainline on squash-merge, as their own frontmatter comments predicted.
+   `registers.md`: pylxpweb `aafc4e3` → `ab87902` (0.9.39b11 release commit;
+   #270 merged as `9c10a07`). `controls-and-writes.md`: eg4 `0e2366f` →
+   `e146d91` (PR #562 merge), pylxpweb `aafc4e3` → `ab87902`. Claims re-verified
+   at the new pins: `FUNC_ON_GRID_ALWAYS_ON` at reg-179 index 15 confirmed at
+   `ab87902` (registers.py:935); between the eg4 pins only
+   `coordinator_mappings.py`/`coordinator_mixins.py` changed (the #560 merge),
+   shifting `_perform_dst_sync` 4563 → 4559 — re-numbered; every other cited
+   line re-checked unchanged.
+
+## [2026-08-12] lint | registers.md eg4 pin also moved to e146d91 (tribunal blocker)
+
+The release-cut entry above re-pinned `registers.md` for pylxpweb only; its
+`verified-against.eg4_web_monitor` stayed `9f6d6e2` — pre-#562, where Grid
+Always On is cloud-only, contradicting the page's own H179 b15 row. Re-pinned
+to `e146d91` and re-checked every eg4 line citation on the page: drifted
+anchors re-numbered (`switch.py` L280→282, L477→478, L605→606, L789→799,
+L958→959, L1196→1197; `device_types.py` L48→55, tightened from the comment to
+the constant), and `number.py` L697/L815, `utils.py` L165/L185,
+`base_entity.py` L1543 confirmed unchanged. Claim text of the affected rows
+(H110 b14 append-before-gate, H179 b11 ACK contract and routing,
+H233 `_prefers_cloud_control` boundary) re-read against the files at
+`e146d91`. Stale pre-promotion grade comments in code/tests were also
+corrected in the same commit (comment-only): `const/modbus.py`,
+`const/working_modes.py`, `switch.py` `_WORKING_MODE_PARAMETERS`, and the
+contract harness's `_CONTROL_REGISTER_CONTRACT` entry.

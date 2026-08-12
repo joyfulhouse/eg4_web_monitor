@@ -21,12 +21,13 @@ sources:
   - memory/battery-control-mode-soc-vs-voltage.md
   - eg4_web_monitor issues #310, #328, #362, #476, #485
 verified-against:
-  # Both are PR-branch SHAs (#559: eg4 PR #562 / pylxpweb PR #270). Both repos
-  # squash-merge, so these become non-mainline after merge — the release-cut
-  # re-verify must re-pin to the merged mainline SHAs.
-  eg4_web_monitor: 0e2366f
-  pylxpweb: aafc4e3
-last-verified: 2026-08-11
+  # Mainline SHAs, re-pinned at the 2026-08-12 release cut from the #559
+  # PR-branch heads (eg4 PR #562 branch 0e2366f → merged as e146d91;
+  # pylxpweb PR #270 branch aafc4e3 → merged as 9c10a07, contained in the
+  # 0.9.39b11 release commit ab87902).
+  eg4_web_monitor: e146d91
+  pylxpweb: ab87902
+last-verified: 2026-08-12
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -35,11 +36,12 @@ see-also:
 
 # Controls and writes
 
-Line numbers are pinned per repo by the `verified-against:` mapping above — `0e2366f` for
-`eg4_web_monitor`, `aafc4e3` for `pylxpweb`. Between the previous pins (`9f6d6e2` / `204b95d`)
-and these, the only source files that changed are eg4 `switch.py` + `const/*` (whose `switch.py`
-citations were re-verified and re-numbered) and pylxpweb `constants/registers.py` (not line-cited
-here); every other cited file is byte-identical, so its line numbers carry over unchanged.
+Line numbers are pinned per repo by the `verified-against:` mapping above — `e146d91` for
+`eg4_web_monitor`, `ab87902` for `pylxpweb`. Between the previous pins (`0e2366f` / `aafc4e3`)
+and these, the only cited source files that changed are eg4 `coordinator_mixins.py` (the #560
+temperature-blanking merge shifted `_perform_dst_sync`, re-numbered below) and pylxpweb
+`constants/registers.py` (comment-only change, not line-cited here); every other cited file is
+byte-identical, so its line numbers carry over unchanged.
 Inline "at `9f6d6e2`" / "at `204b95d`" stamps on derivations record the commit that analysis was
 actually run at and are deliberately retained. Each citation names its repo where it is not this one.
 Symbol names are the durable anchor.
@@ -108,7 +110,7 @@ Every one of these produced a confident, wrong completeness claim in this chapte
 | **a** | A coordinator-primitive grep misses **library-mediated writes** entirely, because no `coordinator.write_*` call appears in this repo for them | `EG4QuickChargeSwitch` writes **H233** through `enable_quick_charge`. Invisible to step 1 |
 | **b** | An `_execute_switch_action` grep misses **direct `inverter.<method>()` calls** | `number.py:1291` → `set_grid_peak_shaving_power` writes **H206**; `select.py:266` → `set_operating_mode`. `select.py` and `number.py` contain **zero** `_execute_switch_action` calls, so step 2 cannot see them |
 | **c** | Reading `base.py` misses **runtime subclass overrides** — resolve the class, then check something **constructs** it | `HybridInverter` overrides `enable_pv_sell_to_grid` to "deliberately remain transport-first" on **H179 b3** (pylxpweb `204b95d`, `devices/inverters/hybrid.py:1294`), and `base.py:3487` warns about the override in its own docstring. A previous revision read only `base.py`, concluded "exactly one entity", and had no basis for it. Resolving the class shows **eg4 never holds a `HybridInverter`**, so that override never runs (§2.2) — but the base method keeps a *clientless* local leg, so the class alone still does not settle where the write lands |
-| **d** | An entity-scoped search misses **background writes** | `coordinator_mixins.py:4563` → `_perform_dst_sync` calls `station.sync_dst_setting()` hourly. `dst_sync_enabled` defaults to **`True`** (`coordinator.py:408`). No entity is involved |
+| **d** | An entity-scoped search misses **background writes** | `coordinator_mixins.py:4559` → `_perform_dst_sync` calls `station.sync_dst_setting()` hourly. `dst_sync_enabled` defaults to **`True`** (`coordinator.py:408`). No entity is involved |
 
 Whole table: `verified-against-code` at `9f6d6e2` / pylxpweb `204b95d`.
 
@@ -352,7 +354,7 @@ class-resolution chain below at pylxpweb `204b95d`, as cited in §2.1 and in the
 > The branch guard is what makes it moot in practice. `elif self.coordinator.has_http_api() and
 > methods:` is reached only when `param_name` is falsy, and for this param that happens **only**
 > through the pylxpweb **version guard** (`switch.py:1479-1486`) on an install predating
-> `0.9.36b6`. At the pinned `aafc4e3` the name resolves, so the entity takes the router branch
+> `0.9.36b6`. At the pinned `ab87902` the name resolves, so the entity takes the router branch
 > (`_execute_local_with_fallback`) instead. Whether any live HYBRID state pairs a clientless cached
 > inverter with that legacy-degraded branch is `asserted-unverified`, status **unresolved** — it
 > needs a legacy install to exercise, and this page does not claim either answer.
@@ -579,7 +581,7 @@ Platform route signatures: `number.py:743-759`, `switch.py:385-405`.
 | # | Rule | Evidence |
 |---|---|---|
 | 1 | **A guessed register bit is worse than no local write.** A wrong-but-writable bit is firmware-ACKed: no exception, no cloud fallback, no log above DEBUG — and readback cannot catch it, because writing a bit sets that bit and reads back true whether or not the feature moved. **Gating is the only mitigation** for an unproven bit mapping | The falsification case is **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md); read the grade there. The consequence for write routing is `inferred` from it |
-| 2 | `FUNC_SMART_LOAD_ENABLE` has **no pinned bit** (179 bit 13 is a placeholder) → Smart Load stays cloud-only. `FUNC_ON_GRID_ALWAYS_ON` is **pinned** at H179 b15 (`app-write-path-proven` — EG4 mobile app write-path resolver, anchor-validated; see [registers.md](../40-hardware/registers.md) H179 safe bit map; **not** `hardware-toggle-proven`, #476 ACK caveat retained: gating + the register-179 contract test are the mitigation, readback only confirms the intended bit's round-trip) and is writable locally once pylxpweb carries the mapping | `verified-against-code` — Smart Load gate `switch.py` setup; Grid Always On `_WORKING_MODE_PARAMETERS` + `_local_params_can_carry()`; GH #559 |
+| 2 | `FUNC_SMART_LOAD_ENABLE` has **no pinned bit** (179 bit 13 is a placeholder) → Smart Load stays cloud-only. `FUNC_ON_GRID_ALWAYS_ON` is **pinned** at H179 b15 (`hardware-toggle-proven` 2026-08-12 on FlexBOSS21 52842P0581 — portal toggle flipped local raw 0x1048→0x9048, XOR exactly 0x8000, clean restore verified cloud+local; see [registers.md](../40-hardware/registers.md) H179 safe bit map for the scope and the `app-write-path-proven` lineage that carries the family-wide extension) and is writable locally on the shipped pylxpweb floor (≥0.9.39b11 carries the mapping) | `verified-against-code` — Smart Load gate `switch.py` setup; Grid Always On `_WORKING_MODE_PARAMETERS` + `_local_params_can_carry()`; GH #559 |
 | 3 | `_local_params_can_carry()` probes pylxpweb's `REGISTER_TO_PARAM_KEYS` and doubles as a **version guard**: a param absent from that map can never appear in a local-raw cache, so the switch would report a permanent lying OFF | `verified-against-code` — `switch.py:144-159`, used at `:352-360` |
 | 4 | `params_are_local_raw()` must **not** treat the deprecated global-transport fallback as raw. Legacy flat HYBRID entries populate the cache from the cloud (already scaled); treating them as raw shows 12 kW as 1.2 | `verified-against-code` — `coordinator.py:1079-1108` |
 | 5 | Voltage scaling is **magnitude-normalised**, not blindly ÷10 — local is decivolts, cloud is already-scaled volts | `verified-against-code` — `number.py` → the voltage normalisation helper. See [data-semantics.md](data-semantics.md#3-value-scaling-cloud-vs-local-divergence) |

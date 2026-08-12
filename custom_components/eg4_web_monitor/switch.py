@@ -1265,9 +1265,10 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # function-control API with FUNC_BAT_SHARED — the exact call the
     # website makes (reporter-verified).
     "FUNC_BAT_SHARED": PARAM_FUNC_BAT_SHARED,
-    # Register 179, bit 15 (GH #559) — Grid Always On. App-write-path-proven
-    # (smali); not hardware-toggle-proven. Requires pylxpweb bit-15 mapping
-    # (PR #270); older installs via _local_params_can_carry().
+    # Register 179, bit 15 (GH #559) — Grid Always On. Hardware-toggle-proven
+    # 2026-08-12 (portal toggle 0x1048 -> 0x9048, XOR exactly 0x8000, clean
+    # restore, FlexBOSS21). Requires pylxpweb bit-15 mapping (>= 0.9.39b11,
+    # PR #270); older installs via _local_params_can_carry().
     "FUNC_ON_GRID_ALWAYS_ON": PARAM_FUNC_ON_GRID_ALWAYS_ON,
 }
 

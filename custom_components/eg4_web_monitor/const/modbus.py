@@ -54,12 +54,14 @@ PARAM_FUNC_GRID_PEAK_SHAVING = "FUNC_GRID_PEAK_SHAVING"
 # param, restores verified by re-read. Local writes resolve through
 # pylxpweb's REGISTER_TO_PARAM_KEYS (>= 0.9.36b6).
 PARAM_FUNC_PV_SELL_TO_GRID_EN = "FUNC_PV_SELL_TO_GRID_EN"
-# Grid Always On (reg 179 bit 15, GH #559). App-write-path-proven via EG4
-# mobile Local12KSetFragment.getBitByFunction (smali); 4-for-4 against
-# confirmed anchors bits 3/7/9/10. Not hardware-toggle-proven — local writes
-# keep readback-verify. Resolves through pylxpweb REGISTER_TO_PARAM_KEYS
-# once the bit-15 mapping ships (pylxpweb PR #270); older installs stay
-# cloud-only via _local_params_can_carry().
+# Grid Always On (reg 179 bit 15, GH #559). Hardware-toggle-proven
+# 2026-08-12 on FlexBOSS21 52842P0581: portal toggle flipped local raw
+# reg-179 0x1048 <-> 0x9048 (XOR exactly 0x8000 = bit 15), clean restore
+# verified via cloud and local reads. (Originally app-write-path-proven via
+# the EG4 mobile app's name->bit resolver, 4-for-4 against anchors bits
+# 3/7/9/10.) Resolves through pylxpweb REGISTER_TO_PARAM_KEYS
+# (>= 0.9.39b11, PR #270); older installs stay cloud-only via
+# _local_params_can_carry().
 PARAM_FUNC_ON_GRID_ALWAYS_ON = "FUNC_ON_GRID_ALWAYS_ON"
 PARAM_FUNC_BATTERY_BACKUP_CTRL = "FUNC_BATTERY_BACKUP_CTRL"
 # AC Couple function (reg 179 bit 11, GH #471/#472) — the inverter-level
