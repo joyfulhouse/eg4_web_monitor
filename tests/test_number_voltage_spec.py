@@ -374,6 +374,10 @@ async def test_voltage_number_write_dispatch(
         register=register,
         label=name,
         cloud_write=None,
+        # No family features in this scaffold → is_offgrid_family fails open
+        # and the #558 cloud-only gate stays disarmed (see
+        # tests/test_offgrid_write_routing.py for the armed cases).
+        local_write_blocked_reason=None,
     )
 
 
