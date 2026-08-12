@@ -1452,8 +1452,10 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
     this entity replaces it on EG4_OFFGRID.
 
     On EG4_HYBRID the register is equally live and MORE dangerous for being
-    invisible: FlexBOSS21 hardware evidence (fw FAAB-2727, local dongle
-    Modbus, read+write verified) shows reg 160 initiates AC charging
+    invisible: a FlexBOSS21 exercise recorded in CHANGELOG.md (fw
+    FAAB-2727, local dongle Modbus, read+write — not yet ingested/graded
+    in the register ledger, which keeps H160 ``portal-correlated`` pending
+    the #570 evidence sweep) showed reg 160 initiating AC charging
     whenever battery SOC is below it, regardless of the reg-120
     ACChargeType selector and of the AC-charge time windows — charges start
     out-of-window at SOC < value, and no window charge starts at

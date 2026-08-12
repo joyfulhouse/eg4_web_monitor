@@ -11,8 +11,10 @@ FAILS CLOSED (tribunal round 1): a missing/UNKNOWN family degrades to the
 cloud-only route too — only a positively resolved non-off-grid family
 keeps the local write. EG4_HYBRID keeps the local-first route for reg 160
 per shipped behavior (FlexBOSS21 read+write exercise recorded in
-CHANGELOG.md; ledger grade still `portal-correlated`, see #570). AC charge power (reg 66) shares the protected-register
-routing — its only write evidence is cloud-path (H66 `portal-correlated`).
+CHANGELOG.md; ledger grade still `portal-correlated`, see #570). AC charge
+power (reg 66) shares the protected-register routing — no write evidence
+is recorded for H66; its `portal-correlated` grade rests on read/scaling
+evidence only.
 
 Task B — the Quick Charge switch has NO working route on pure-LOCAL
 off-grid (firmware rejects the H233 activation write, ILLEGAL DATA ADDRESS,
@@ -406,8 +408,9 @@ class TestOffgridACChargeVoltageCloudOnlyRouting:
 
 
 class TestACChargePowerProtectedRouting:
-    """Reg 66's only write evidence is cloud-path (H66 `portal-correlated`,
-    no local off-grid delta-test) — same protected-register routing (#558).
+    """No write evidence is recorded for H66 (its `portal-correlated` grade
+    rests on read/scaling evidence only) — same protected-register routing
+    (#558).
     """
 
     @pytest.mark.asyncio
