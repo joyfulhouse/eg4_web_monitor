@@ -301,9 +301,11 @@ _VOLTAGE_SPECS_BY_KEY = {spec.key: spec for spec in VOLTAGE_NUMBER_SPECS}
 class TestOffgridACChargeVoltageCloudOnlyRouting:
     """Regs 158/159 share the 160/161 situation and the same routing (#558).
 
-    Their only write evidence is a cloud-path delta-test (llmwiki grades
-    H158/H159 `portal-correlated`, target family unrecorded) — there is no
-    local off-grid write proof, so EG4_OFFGRID routes them cloud-only too.
+    H158's write evidence is a cloud-path delta-test (target family
+    unrecorded); no write evidence is recorded for H159 at all (both
+    llmwiki grades are `portal-correlated`, H159's resting on read/scaling
+    evidence only) — there is no local off-grid write proof for either, so
+    EG4_OFFGRID routes them cloud-only too.
     """
 
     @pytest.mark.asyncio

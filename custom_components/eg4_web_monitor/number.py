@@ -292,11 +292,11 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         reason disables the local write path: local Modbus writes to the
         protected registers — AC-charge SOC window 160/161 (all #331 write
         evidence is the cloud holdParam path), AC-charge voltage window
-        158/159 (only cloud-path write evidence, graded
-        ``portal-correlated`` with the target family unrecorded), and AC
-        charge power 66 (no local write evidence is recorded for H66; its
-        llmwiki ``portal-correlated`` grade rests on read/scaling evidence
-        only) — are
+        158/159 (H158's only write evidence is a cloud-path delta-test,
+        target family unrecorded; H159 has NO write evidence recorded at
+        all), and AC charge power 66 (no write evidence is recorded for
+        H66; its llmwiki ``portal-correlated`` grade rests on read/scaling
+        evidence only) — are
         hardware-UNVERIFIED on the off-grid family, and a post-write
         readback is structurally incapable of catching a wrong
         name→register mapping there, because a wrong-but-writable register
@@ -310,9 +310,11 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         its blind spot. Derivation: a register is protected when the
         llmwiki ledger (``llmwiki/40-hardware/registers.md``) records NO
         local off-grid delta-test for it — its write evidence is
-        cloud-path only (the #331 holdParam trail, the 158/159 cloud
-        delta-test) or absent altogether (H66, whose ``portal-correlated``
-        grade rests on read/scaling evidence only).
+        cloud-path only (the #331 holdParam trail, the 158 cloud
+        delta-test) or absent altogether (H66 and H159: H159's ledger row
+        states the durable record lacks an equivalent write tuple, and
+        both ``portal-correlated`` grades rest on read/scaling evidence
+        only).
         Blind spot: only the AC-charge window (SOC 160/161, voltage
         158/159) and AC charge power (66) have been audited against that
         criterion; other off-grid-writable registers — e.g. PV charge
@@ -2964,7 +2966,9 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         control_key="ac_charge_end_voltage",
         icon="mdi:battery-charging-high",
         related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
-        # Reg 159 mirrors 158: cloud-path write evidence only (#558).
+        # Reg 159 mirrors 158's routing, but unlike 158 no write evidence
+        # is recorded for H159 at all — its grade rests on read/scaling
+        # evidence only (#558).
         offgrid_local_write_unverified=True,
     ),
     VoltageNumberSpec(
