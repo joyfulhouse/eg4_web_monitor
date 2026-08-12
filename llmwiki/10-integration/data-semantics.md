@@ -206,12 +206,16 @@ here stays eligible for late registration, and `_async_discover_device_sensors` 
 > `EG4_OFFGRID`. A family gate would have permanently deleted a working sensor along with the
 > user's customizations.
 >
-> Final shape: **no gate, no purge.** Blank a cloud-sourced *exact* 0 to `None`, scoped by
-> `transport_runtime is not None`.
+> Final shape: **no gate, no purge.** An *exact* 0 in `internal_temperature` /
+> `battery_temperature` / `bt_temperature` is blanked to `None` on every path (CLOUD, HYBRID,
+> LOCAL), and only when at least one radiator reading is strictly `> 0` °C — cold-consistent
+> (`<= 0`) or absent radiators publish the 0. #560 falsified the original cloud-only shape
+> (transport-backed values served the same constant 0) and warmth-narrowed the predicate.
 >
-> Evidence: `verified-against-code` — the value-scoped handling at
-> `coordinator_mixins.py:2652-2660`. The two-owner observation split is `asserted-unverified`
-> (reporter data).
+> Evidence: `verified-against-code` — `blank_constant_zero_temperatures` in
+> `coordinator_mappings.py`, verified at `500f5ed` (the #560 fix branch; supersedes the
+> cloud-only handling this page originally cited at this page's pin). The two-owner
+> observation split is `asserted-unverified` (reporter data).
 
 **Two observations do not make a family rule.** Prefer a value-scoped fix over a gate whenever the
 evidence is thin, because a wrong purge is irreversible for the user and a wrong gate is not
