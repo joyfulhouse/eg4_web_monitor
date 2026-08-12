@@ -27,6 +27,10 @@ from custom_components.eg4_web_monitor.sensor import (
     async_setup_entry,
 )
 
+HYBRID_FAMILY_SENSITIVE_SPLIT_SENSORS = frozenset(
+    {"eps_apparent_power_l1", "eps_apparent_power_l2"}
+)
+
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -99,10 +103,11 @@ class TestShouldCreateSensor:
         assert _should_create_sensor("pv1_voltage", {}) is True
 
     def test_split_phase_sensor_with_support(self):
-        """Split-phase sensor created when device supports it."""
+        """Topology-only sensors pass; family-sensitive sensors defer."""
         features = {"supports_split_phase": True}
         for key in SPLIT_PHASE_ONLY_SENSORS:
-            assert _should_create_sensor(key, features) is True
+            expected = key not in HYBRID_FAMILY_SENSITIVE_SPLIT_SENSORS
+            assert _should_create_sensor(key, features) is expected
 
     def test_split_phase_sensor_without_support(self):
         """Split-phase sensor skipped when device doesn't support it."""
@@ -200,11 +205,12 @@ class TestShouldCreateSensor:
         assert _should_create_sensor("battery_power", features) is True
 
     def test_default_true_when_feature_flag_missing(self):
-        """Legacy phase sensors fail open; ambiguous I25 alone fails closed."""
+        """Legacy phase sensors fail open except family-sensitive EPS keys."""
         # Features dict exists but doesn't have the specific key
         features = {"some_other_feature": True}
         for key in SPLIT_PHASE_ONLY_SENSORS:
-            assert _should_create_sensor(key, features) is True
+            expected = key not in HYBRID_FAMILY_SENSITIVE_SPLIT_SENSORS
+            assert _should_create_sensor(key, features) is expected
         for key in THREE_PHASE_ONLY_SENSORS - {"eps_apparent_power_r"}:
             assert _should_create_sensor(key, features) is True
         assert _should_create_sensor("eps_apparent_power", features) is False
@@ -351,22 +357,23 @@ class TestCreateInverterSensors:
         # Only pv1_voltage should be created, split-phase filtered out
         assert len(inverter_entities) == 1
 
-    def test_no_features_creates_all_sensors(self):
-        """Without features dict, all sensors created (conservative)."""
+    def test_no_features_defers_family_sensitive_sensors(self):
+        """No features keeps generic sensors but defers family-sensitive ones."""
         coordinator = _mock_coordinator(devices={})
-        split_keys = [k for k in SPLIT_PHASE_ONLY_SENSORS if k in SENSOR_TYPES]
-        if not split_keys:
-            pytest.skip("No split-phase keys in SENSOR_TYPES")
-
-        sensors = {"pv1_voltage": 350.0}
-        for k in split_keys[:1]:
-            sensors[k] = 120.0
+        sensors = {
+            "pv1_voltage": 350.0,
+            "eps_power_l1": 120.0,
+            "eps_apparent_power_l1": 125.0,
+        }
 
         device_data = _inverter_device(sensors=sensors)  # No features key
         inverter_entities, _ = _create_inverter_sensors(
             coordinator, "INV001", device_data
         )
-        assert len(inverter_entities) == 2  # Both created
+        assert {entity._sensor_key for entity in inverter_entities} == {
+            "pv1_voltage",
+            "eps_power_l1",
+        }
 
     def test_empty_sensors_dict(self):
         """Empty sensors dict creates no entities."""

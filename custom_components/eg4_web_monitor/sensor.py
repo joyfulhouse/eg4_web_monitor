@@ -23,6 +23,8 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
+    HYBRID_EXCLUDED_SENSORS,
+    INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_UNKNOWN,
     NON_THREE_PHASE_SENSORS,
@@ -80,8 +82,8 @@ def _should_create_sensor(
         sensor_key: The sensor key to check
         features: Device features dictionary from feature detection, or None
         device_type: Device type ("inverter", "gridboss", "parallel_group").
-            EG4_OFFGRID-only gating applies to inverters; other device types
-            share some key names (load_power) without carrying features.
+            Family gating applies to inverters; other device types share some
+            key names without carrying inverter features.
 
     Returns:
         True if the sensor should be created, False if it should be skipped
@@ -103,11 +105,10 @@ def _should_create_sensor(
             return False
         return features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID
 
-    # Inverse gate (#544): sensors whose backing registers are NOT measurements
-    # on EG4_OFFGRID — input reg 123 is an ARM-local 1 Hz counter there, and regs
-    # 124/125/126 are status bitfields (see OFFGRID_EXCLUDED_SENSORS).  The
-    # opposite membership test to the gate above, but the SAME fail-closed
-    # posture: an UNRESOLVED family creates nothing.
+    # Inverse family gates (#544/#548): sensors whose backing registers are NOT
+    # measurements on one positively identified family.  These are the opposite
+    # membership test to the gate above, but use the SAME fail-closed posture:
+    # an UNRESOLVED family creates nothing.
     #
     # Unresolved must include the literal "UNKNOWN" string, not just a missing
     # features dict — pylxpweb emits UNKNOWN (a truthy value) whenever the
@@ -116,21 +117,28 @@ def _should_create_sensor(
     #
     # Failing closed costs nothing permanent: a key filtered out here stays
     # eligible for late registration, and _async_discover_device_sensors
-    # re-evaluates this function with fresh features on every changed cycle, so
-    # a genuine EG4_HYBRID Generator Power appears as soon as its family
-    # resolves.  GridBOSS keeps its own real generator_power via device_type.
-    if device_type == "inverter" and sensor_key in OFFGRID_EXCLUDED_SENSORS:
+    # re-evaluates this function with fresh features on every changed cycle.
+    # Non-inverter namespaces pass through via device_type.
+    excluded_family: str | None = None
+    if device_type == "inverter":
+        if sensor_key in OFFGRID_EXCLUDED_SENSORS:
+            excluded_family = INVERTER_FAMILY_EG4_OFFGRID
+        elif sensor_key in HYBRID_EXCLUDED_SENSORS:
+            excluded_family = INVERTER_FAMILY_EG4_HYBRID
+
+    if excluded_family is not None:
         family = (features or {}).get("inverter_family")
         if not family or family == INVERTER_FAMILY_UNKNOWN:
             _LOGGER.debug(
                 "Deferring %s: inverter family unresolved (%s); it will be "
                 "created on a later cycle if the family resolves to a "
-                "non-EG4_OFFGRID one (#544)",
+                "non-excluded one (#544/#548)",
                 sensor_key,
                 family or "absent",
             )
             return False
-        return bool(family != INVERTER_FAMILY_EG4_OFFGRID)
+        if family == excluded_family:
+            return False
 
     # If no features detected, create all sensors (conservative fallback)
     if not features:

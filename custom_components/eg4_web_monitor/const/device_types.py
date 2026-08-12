@@ -144,7 +144,10 @@ SPLIT_PHASE_ONLY_SENSORS: frozenset[str] = frozenset(
         "eps_voltage_l2",
         "grid_voltage_l1",
         "grid_voltage_l2",
-        # EPS per-leg apparent power and energy
+        # EPS per-leg apparent power and energy.  The L1/L2 apparent-power
+        # keys are additionally excluded on EG4_HYBRID by
+        # HYBRID_EXCLUDED_SENSORS; they remain here because the same registers
+        # are genuine on split-phase EG4_OFFGRID hardware (#547/#548).
         "eps_apparent_power_l1",
         "eps_apparent_power_l2",
         "eps_energy_today_l1",
@@ -276,6 +279,30 @@ OFFGRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
         "generator_power",
         "generator_energy",
         "generator_energy_lifetime",
+    }
+)
+
+# Sensors that are MEANINGLESS on EG4_HYBRID and must not be created there —
+# the family-scoped mirror of OFFGRID_EXCLUDED_SENSORS (issue #548).
+#
+# Proven from the hybrid inverter's own firmware
+# (FAAB-27xx_20260330_App); full derivation with addresses in
+# docs/reference/firmware/HYBRID_EPS_REGISTERS.md:
+#   - eps_apparent_power_l2 (input reg 132): a persistent event counter whose
+#     writer increments only after an accumulator crosses a fixed threshold.
+#     It is not an instantaneous power measurement.
+#   - eps_apparent_power_l1 (input reg 131): a DSP power quantity split by sign
+#     into positive- and negative-direction fields.  A directional field cannot
+#     represent non-negative apparent power.
+#
+# The aggregate eps_apparent_power (input reg 25) is deliberately untouched: it
+# is a genuine physical estimate on hybrid firmware.  EG4_OFFGRID is also
+# deliberately untouched because regs 131/132 are genuine per-leg apparent
+# power on that family (#547).  This gate must stay family-scoped.
+HYBRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
+    {
+        "eps_apparent_power_l1",
+        "eps_apparent_power_l2",
     }
 )
 
