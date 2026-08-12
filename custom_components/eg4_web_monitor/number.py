@@ -144,6 +144,7 @@ from .utils import (
     flag_offgrid_control_suppression,
     is_hybrid_family,
     is_offgrid_family,
+    is_positively_non_offgrid_family,
     is_supported_control_model,
     supports_grid_sellback,
 )
@@ -279,13 +280,19 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
     def _offgrid_cloud_only_reason(self, register: int, label: str) -> str | None:
         """Cloud-only routing reason for hardware-unverified off-grid writes.
 
-        Returns a non-None reason exactly when this entity's device is
-        positively identified as EG4_OFFGRID (family gate, never model
-        substrings). Passed to ``_write_parameter`` /
-        ``_write_voltage_register`` it disables the local write path: local
-        Modbus writes to the AC-charge window registers — SOC 160/161 (all
-        #331 write evidence is the cloud holdParam path) and voltage 158/159
-        (the only write evidence is a cloud-path delta-test, graded
+        Returns None — permitting the local write — ONLY when this entity's
+        device is positively resolved as a non-off-grid family (family gate,
+        never model substrings). EG4_OFFGRID, a missing family, and UNKNOWN
+        all return a reason: the gate FAILS CLOSED, because an unidentified
+        unit might be an off-grid inverter and the protected registers'
+        local writes are exactly the evidence-ungraded class where the safe
+        route must win (tribunal round 1 on #558).
+
+        Passed to ``_write_parameter`` / ``_write_voltage_register`` the
+        reason disables the local write path: local Modbus writes to the
+        protected registers — AC-charge SOC window 160/161 (all #331 write
+        evidence is the cloud holdParam path), AC-charge voltage window
+        158/159 and AC charge power 66 (only cloud-path evidence, graded
         ``portal-correlated`` with the target family unrecorded) — are
         hardware-UNVERIFIED on the off-grid family, and a post-write
         readback is structurally incapable of catching a wrong
@@ -296,13 +303,14 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         hardware-confirmed; on a pure-LOCAL install the returned reason is
         raised instead of silently writing an unverified register.
         """
-        if not is_offgrid_family(self._device_data):
+        if is_positively_non_offgrid_family(self._device_data):
             return None
         return (
             f"Cannot set {label}: local Modbus writes to register {register} "
-            "are not hardware-verified on this inverter family, so this "
-            "control writes through the EG4 cloud API only (issue #558) — "
-            "add cloud credentials to this integration entry to use it"
+            "are not hardware-verified on this inverter family (or the "
+            "family could not be positively identified), so this control "
+            "writes through the EG4 cloud API only (issue #558) — add cloud "
+            "credentials to this integration entry to use it"
         )
 
     # ── Value read helpers ──────────────────────────────────────────
@@ -1097,7 +1105,15 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
 
 
 class ACChargePowerNumber(EG4BaseNumberEntity):
-    """Number entity for AC Charge Power control (stored as 100W units)."""
+    """Number entity for AC Charge Power control (stored as 100W units).
+
+    WRITE ROUTING (#558 tribunal round 1): reg 66 is a protected register —
+    its only write evidence is cloud-path (llmwiki grades H66
+    ``portal-correlated``; no local off-grid delta-test exists), so on
+    EG4_OFFGRID and unresolved/UNKNOWN families the write is CLOUD-ONLY
+    (pure-LOCAL raises a clear error). Positively resolved non-off-grid
+    families keep the local-first route. Local READS stay on everywhere.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
@@ -1152,6 +1168,11 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
             cloud_method="set_ac_charge_power",
             cloud_kwargs={"power_kw": value},
             label=f"AC charge power to {value:.1f} kW",
+            # Protected register (#558): cloud-only unless the family is
+            # positively resolved as non-off-grid. See the class docstring.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                66, "AC charge power"
+            ),
         )
 
 

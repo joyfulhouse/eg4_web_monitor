@@ -127,6 +127,11 @@ async def test_in_range_integer_succeeds(
     """Exact boundary integers reach the mocked write successfully."""
     value = float(min_v) if bound == "min" else float(max_v)
     coordinator = _mock_coordinator(has_local=True)
+    # Positively resolved non-off-grid family: keeps the local write route
+    # for the #558 protected registers so the boundary write is observable.
+    coordinator.data["devices"]["1234567890"]["features"] = {
+        "inverter_family": "EG4_HYBRID"
+    }
     entity = entity_type(coordinator, "1234567890")
     _prep(entity)
 

@@ -49,6 +49,7 @@ from .utils import (
     flag_offgrid_control_suppression,
     is_family_control_supported,
     is_offgrid_family,
+    is_positively_non_offgrid_family,
     is_supported_control_model,
     supports_grid_sellback,
 )
@@ -493,29 +494,36 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         return is_offgrid_family(self._device_data) and self.coordinator.has_http_api()
 
     def _offgrid_without_cloud(self) -> bool:
-        """True when this device has no working quick-charge route (#558).
+        """True when this device has no known-safe quick-charge route (#558).
 
         EG4_OFFGRID firmware rejects the only local mechanism pylxpweb has —
         the H233 activation write (ILLEGAL DATA ADDRESS, #296) — and without
         a cloud client there is no fallback: every toggle would burn a doomed
         Modbus write plus a warning and then fail. Family gate
-        (``is_offgrid_family``), never model substrings; fails open, so an
-        unidentified family keeps the switch.
+        (``is_positively_non_offgrid_family``), never model substrings;
+        FAILS CLOSED (tribunal round 1 on #558): a missing/UNKNOWN family
+        might be a 12000XP/6000XP, so only a positively resolved
+        non-off-grid family keeps the local H233 route on a cloud-less
+        install. With a cloud client the classification is moot — cloud
+        endpoints work on every family, and pylxpweb's local-first attempt
+        (non-off-grid path) has a working fallback.
         """
         return (
-            is_offgrid_family(self._device_data) and not self.coordinator.has_http_api()
+            not is_positively_non_offgrid_family(self._device_data)
+            and not self.coordinator.has_http_api()
         )
 
     @property
     def available(self) -> bool:
-        """Unavailable when no write route exists (pure-LOCAL off-grid, #558).
+        """Unavailable when no known-safe write route exists (#558).
 
         The off-grid family's quick charge is cloud-endpoint-only (#296);
-        with no cloud client configured the switch cannot work, and showing
-        it available would invite toggles whose only possible outcome is a
-        firmware-rejected H233 write. Unavailable is the honest state —
-        same pattern as the cloud-store switches whose state source is
-        absent.
+        on a cloud-less install a device that is off-grid — or not
+        positively identified as anything else — cannot be driven, and
+        showing the switch available would invite toggles whose only
+        possible outcome is a firmware-rejected H233 write. Unavailable is
+        the honest state — same pattern as the cloud-store switches whose
+        state source is absent.
         """
         if self._offgrid_without_cloud():
             return False
@@ -659,9 +667,10 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
             raise HomeAssistantError(
                 f"Cannot control quick charge on {self._serial}: this "
                 "inverter family rejects the local quick-charge register "
-                "write (#296) and no cloud connection is configured — add "
-                "cloud credentials to this integration entry to use it "
-                "(issue #558)"
+                "write (#296) — or could not be positively identified as "
+                "one that accepts it — and no cloud connection is "
+                "configured; add cloud credentials to this integration "
+                "entry to use it (issue #558)"
             )
 
         enable_method: str | Callable[..., Awaitable[bool]] = "enable_quick_charge"

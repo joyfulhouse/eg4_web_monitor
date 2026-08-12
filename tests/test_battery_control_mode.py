@@ -328,6 +328,11 @@ class TestVoltageNumberEntities:
     @pytest.mark.asyncio
     async def test_ac_charge_end_voltage_whole_volt_writes_decivolts(self) -> None:
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 159 (#558) so the decivolt conversion is observable locally.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         end = _voltage_number(coordinator, "ac_charge_end_voltage")
         _prep(end)
 

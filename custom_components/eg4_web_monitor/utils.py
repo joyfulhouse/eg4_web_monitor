@@ -24,6 +24,7 @@ from .const import (
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_LXP,
+    INVERTER_FAMILY_UNKNOWN,
     MANUFACTURER,
     MODEL_NAME_FAMILY_FALLBACK,
     SUPPORTED_INVERTER_MODELS,
@@ -369,6 +370,27 @@ def is_offgrid_family(device_data: dict[str, Any]) -> bool:
     """
     features = device_data.get("features") or {}
     return bool(features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID)
+
+
+def is_positively_non_offgrid_family(device_data: dict[str, Any]) -> bool:
+    """True only when the family is positively resolved as NOT EG4_OFFGRID.
+
+    Fails CLOSED: missing features, an empty value, or UNKNOWN all return
+    False. This is the write-routing polarity for the #558 protected
+    registers — hardware-unverified local writes are permitted only on a
+    unit positively identified as a family where the write is safe; an
+    unidentified unit might BE an off-grid inverter, so it degrades to the
+    cloud-only route (#476 precedent). Contrast :func:`is_offgrid_family`,
+    which fails OPEN and gates entity CREATION/suppression — removing
+    entities needs positive identification, refusing an unverified write
+    needs the opposite.
+    """
+    features = device_data.get("features") or {}
+    family = str(features.get("inverter_family") or "")
+    return bool(family) and family not in (
+        INVERTER_FAMILY_UNKNOWN,
+        INVERTER_FAMILY_EG4_OFFGRID,
+    )
 
 
 def is_hybrid_family(device_data: dict[str, Any]) -> bool:

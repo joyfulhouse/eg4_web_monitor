@@ -6,9 +6,12 @@ write evidence is the cloud holdParam path) and a post-write readback is
 structurally incapable of catching a wrong name→register mapping — a
 wrong-but-writable register is firmware-ACKed and reads back exactly the
 value written (#476). Pure-LOCAL off-grid installs get a clear
-HomeAssistantError instead of an unverified local write. EG4_HYBRID keeps
-the hardware-verified local-first route for reg 160; unidentified families
-fail open to the pre-#558 behavior.
+HomeAssistantError instead of an unverified local write. The routing gate
+FAILS CLOSED (tribunal round 1): a missing/UNKNOWN family degrades to the
+cloud-only route too — only a positively resolved non-off-grid family
+keeps the local write. EG4_HYBRID keeps the hardware-verified local-first
+route for reg 160. AC charge power (reg 66) shares the protected-register
+routing — its only write evidence is cloud-path (H66 `portal-correlated`).
 
 Task B — the Quick Charge switch has NO working route on pure-LOCAL
 off-grid (firmware rejects the H233 activation write, ILLEGAL DATA ADDRESS,
@@ -25,6 +28,7 @@ from homeassistant.exceptions import HomeAssistantError
 from custom_components.eg4_web_monitor.const import INVERTER_FAMILY_EG4_OFFGRID
 from custom_components.eg4_web_monitor.number import (
     ACChargeEndBatterySOCNumber,
+    ACChargePowerNumber,
     ACChargeStartBatterySOCNumber,
     EG4VoltageNumber,
     VOLTAGE_NUMBER_SPECS,
@@ -78,6 +82,7 @@ def _mock_coordinator(
     mock_inverter.refresh = AsyncMock()
     mock_inverter.enable_quick_charge = AsyncMock(return_value=True)
     mock_inverter.disable_quick_charge = AsyncMock(return_value=True)
+    mock_inverter.set_ac_charge_power = AsyncMock(return_value=True)
     mock_inverter.transport = object() if has_local else None
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
@@ -219,20 +224,52 @@ class TestOffgridACChargeSOCCloudOnlyRouting:
         coordinator.client.api.control.write_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_unknown_family_fails_open_to_local_first(self):
-        """A device without a positively identified family keeps the
-        pre-#558 local-first behavior (is_offgrid_family fails open)."""
+    @pytest.mark.parametrize(
+        "device_data",
+        [
+            {"features": {}},  # family missing entirely
+            {"features": {"inverter_family": "UNKNOWN"}},  # unresolved
+            {},  # no features key at all
+        ],
+        ids=["missing-family", "unknown-family", "no-features"],
+    )
+    async def test_unresolved_family_fails_closed_to_cloud(self, device_data):
+        """Tribunal round 1: an unidentified unit might BE an off-grid
+        inverter, so protected-register writes degrade to the cloud route —
+        the local write is permitted only for a positively resolved
+        non-off-grid family."""
         coordinator = _mock_coordinator(
-            has_local=True, has_http=True, device_data={"features": {}}
+            has_local=True, has_http=True, device_data=device_data
         )
         entity = ACChargeEndBatterySOCNumber(coordinator, SERIAL)
         _prep(entity)
 
         await entity.async_set_native_value(95)
 
-        coordinator.write_named_parameter.assert_awaited_once_with(
-            "HOLD_AC_CHARGE_END_BATTERY_SOC", 95, serial=SERIAL
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            SERIAL, "HOLD_AC_CHARGE_END_BATTERY_SOC", "95"
         )
+
+    @pytest.mark.asyncio
+    async def test_unresolved_family_pure_local_write_raises(self):
+        """Unresolved family + no cloud: the protected write is refused,
+        exactly as on a positively identified off-grid unit."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=False,
+            local_only=True,
+            device_data={"features": {"inverter_family": "UNKNOWN"}},
+        )
+        entity = ACChargeEndBatterySOCNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        with pytest.raises(
+            HomeAssistantError, match=r"register 161.*cloud API only.*558"
+        ):
+            await entity.async_set_native_value(95)
+
+        coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_offgrid_cloud_only_install_unchanged(self):
@@ -363,6 +400,75 @@ class TestOffgridACChargeVoltageCloudOnlyRouting:
         coordinator.client.api.control.write_parameters.assert_not_awaited()
 
 
+# ── Tribunal round 1, finding 4: AC charge power (reg 66) is protected ──
+
+
+class TestACChargePowerProtectedRouting:
+    """Reg 66's only write evidence is cloud-path (H66 `portal-correlated`,
+    no local off-grid delta-test) — same protected-register routing (#558).
+    """
+
+    @pytest.mark.asyncio
+    async def test_offgrid_write_goes_cloud_never_local(self):
+        """Off-grid + local transport + cloud: the inverter cloud method
+        runs and the local named write never fires."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = ACChargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(5.0)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_ac_charge_power.assert_awaited_once_with(power_kw=5.0)
+        coordinator.note_parameters_written.assert_called_once_with(
+            SERIAL, {"HOLD_AC_CHARGE_POWER_CMD": 50}
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "device_data",
+        [dict(OFFGRID_FEATURES), {"features": {"inverter_family": "UNKNOWN"}}],
+        ids=["offgrid", "unknown-family"],
+    )
+    async def test_pure_local_write_raises_clear_error(self, device_data):
+        """Pure-LOCAL off-grid/unresolved: the unverified write is refused."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=False, local_only=True, device_data=device_data
+        )
+        entity = ACChargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        with pytest.raises(
+            HomeAssistantError, match=r"register 66.*cloud API only.*558"
+        ):
+            await entity.async_set_native_value(5.0)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_family_keeps_local_first(self):
+        """A positively resolved non-off-grid family keeps local-first."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = ACChargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(5.0)
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_AC_CHARGE_POWER_CMD", 50, serial=SERIAL
+        )
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_ac_charge_power.assert_not_awaited()
+
+
 # ── Task B: pure-LOCAL off-grid Quick Charge has no working route ───────
 
 
@@ -388,6 +494,39 @@ class TestQuickChargePureLocalOffgrid:
         )
         switch = EG4QuickChargeSwitch(coordinator, SERIAL)
         assert switch.available is True
+
+    @pytest.mark.parametrize(
+        "device_data",
+        [{"features": {"inverter_family": "UNKNOWN"}}, {"features": {}}, {}],
+        ids=["unknown-family", "missing-family", "no-features"],
+    )
+    def test_unresolved_family_without_cloud_is_unavailable(self, device_data):
+        """Tribunal round 1: an unidentified pure-LOCAL unit might be a
+        12000XP/6000XP whose firmware rejects H233 — fail closed."""
+        coordinator = _mock_coordinator(
+            has_http=False, has_local=True, local_only=True, device_data=device_data
+        )
+        switch = EG4QuickChargeSwitch(coordinator, SERIAL)
+        assert switch.available is False
+
+    @pytest.mark.asyncio
+    async def test_unresolved_family_without_cloud_toggle_raises_without_h233(self):
+        """Unresolved family, pure-LOCAL: a forced toggle raises and the
+        inverter's local-first method is never called."""
+        coordinator = _mock_coordinator(
+            has_http=False,
+            has_local=True,
+            local_only=True,
+            device_data={"features": {"inverter_family": "UNKNOWN"}},
+        )
+        switch = EG4QuickChargeSwitch(coordinator, SERIAL)
+        _prep(switch)
+
+        with pytest.raises(HomeAssistantError, match=r"#296.*no cloud.*558"):
+            await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.enable_quick_charge.assert_not_called()
 
     def test_non_offgrid_without_cloud_stays_available(self):
         """Pure-LOCAL non-off-grid families keep the switch (H233 works)."""

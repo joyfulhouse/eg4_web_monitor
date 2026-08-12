@@ -1018,6 +1018,11 @@ class TestACChargePowerWrite:
     async def test_write_local_converts_kw_to_100w(self):
         """Local transport converts kW to 100W units for register."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 66 (#558) so the 100W-unit conversion is observable locally.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ACChargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -2582,7 +2587,7 @@ class TestOffgridACChargeSOCWindow:
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_end_soc_hybrid_local_failure_falls_back_to_cloud(self):
+    async def test_end_soc_offgrid_cloud_write_seeds_named_cache(self):
         """HYBRID off-grid: the cloud write seeds the named parameter-cache
         key so the entity converges (#301 pattern). Since #558 the local
         write is never attempted on EG4_OFFGRID — the erroring local mock
