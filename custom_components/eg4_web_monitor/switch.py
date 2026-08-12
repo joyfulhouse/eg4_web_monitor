@@ -479,26 +479,34 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
     def _prefers_cloud_control(self) -> bool:
         """True when quick charge must be driven via the cloud endpoints.
 
-        The EG4_OFFGRID family (12000XP/6000XP) firmware rejects writes to
-        holding register 233 (ILLEGAL DATA ADDRESS, #296), so pylxpweb's
-        local-first enable/disable burns a doomed Modbus write + warning on
-        every toggle before falling back to the cloud. Go straight to the
-        cloud start/stop endpoints when a cloud client is configured; other
-        families keep the local-first behavior (register 233 works there).
+        The EG4_OFFGRID family has no proven local quick-charge route (see
+        the lineage-scoped H233 verdicts on ``_offgrid_without_cloud``), so
+        pylxpweb's local-first enable/disable burns a doomed-or-unproven
+        Modbus write + warning on every toggle before falling back to the
+        cloud (#296). Go straight to the cloud start/stop endpoints when a
+        cloud client is configured; other families keep the local-first
+        behavior (register 233 works there).
 
         On a pure-LOCAL off-grid install there is NO working route at all
-        (H233 rejected, no cloud client), so the switch is unavailable and
-        toggles raise — see ``available`` and ``_async_set_quick_charge``
-        (#558).
+        (no proven local H233 route, no cloud client), so the switch is
+        unavailable and toggles raise — see ``available`` and
+        ``_async_set_quick_charge`` (#558).
         """
         return is_offgrid_family(self._device_data) and self.coordinator.has_http_api()
 
     def _offgrid_without_cloud(self) -> bool:
         """True when this device has no known-safe quick-charge route (#558).
 
-        EG4_OFFGRID firmware rejects the only local mechanism pylxpweb has —
-        the H233 activation write (ILLEGAL DATA ADDRESS, #296) — and without
-        a cloud client there is no fallback: every toggle would burn a doomed
+        The off-grid family has no proven local quick-charge mechanism —
+        firmware-verified per lineage (fw-verify-offgrid-writes, verdicts
+        on PR #569): CEAA (12000XP lineage) REJECTS the H233 activation
+        write, firmware-proven (reader/writer jump H229→H234; unmatched →
+        ILLEGAL DATA ADDRESS — proves #296); CCAA (6000XP lineage)
+        IMPLEMENTS the address, but only bits 1–2 are packed toward the
+        DSP and no bit-0 quick-charge consumer was found, so its H233
+        write semantics are unproven. Either way pylxpweb's local-first
+        H233 write has no proven effect, and without a cloud client there
+        is no fallback: every toggle would burn a doomed-or-unproven
         Modbus write plus a warning and then fail. Family gate
         (``is_positively_non_offgrid_family``), never model substrings;
         FAILS CLOSED (tribunal round 1 on #558): a missing/UNKNOWN family
@@ -521,9 +529,10 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         on a cloud-less install a device that is off-grid — or not
         positively identified as anything else — cannot be driven, and
         showing the switch available would invite toggles whose only
-        possible outcome is a firmware-rejected H233 write. Unavailable is
-        the honest state — same pattern as the cloud-store switches whose
-        state source is absent.
+        possible outcome is an H233 write that is firmware-rejected (CEAA)
+        or of unproven effect (CCAA) — see ``_offgrid_without_cloud``.
+        Unavailable is the honest state — same pattern as the cloud-store
+        switches whose state source is absent.
         """
         if self._offgrid_without_cloud():
             return False
@@ -653,16 +662,18 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         pylxpweb's enable/disable prefer the local transport — the start
         writes the reg 233 activation together with the reg 234 duration
         (the stored preference) in one contiguous frame, falling back to
-        cloud on failure (HYBRID). On the EG4_OFFGRID family register 233 is
-        firmware-rejected, so the cloud-direct callables are used instead
-        (#296). On success the
+        cloud on failure (HYBRID). On the EG4_OFFGRID family that local
+        write has no proven effect — firmware-rejected on CEAA, unproven
+        semantics on CCAA (see ``_offgrid_without_cloud``) — so the
+        cloud-direct callables are used instead (#296). On success the
         commanded state is retained until a status read fresher than the
         write confirms either state (see ``is_on``); a failed action clears
         any prior hold and re-raises.
         """
         # Defense in depth behind the ``available`` gate (#558): HA service
         # calls can still target an unavailable entity, and pylxpweb's
-        # local-first enable would fire the firmware-rejected H233 write.
+        # local-first enable would fire the H233 write (rejected on CEAA,
+        # unproven on CCAA — see _offgrid_without_cloud).
         if self._offgrid_without_cloud():
             raise HomeAssistantError(
                 f"Cannot control quick charge on {self._serial}: this "

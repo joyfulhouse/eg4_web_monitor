@@ -636,10 +636,13 @@ _OFFGRID_FEATURES = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID
 class TestQuickChargeSwitchOffgridCloudFirst:
     """EG4_OFFGRID (12000XP/6000XP) drives quick charge via the cloud (#296).
 
-    The XP firmware rejects holding register 233 (ILLEGAL DATA ADDRESS), so
-    pylxpweb's local-first enable/disable burns a doomed Modbus write on every
-    toggle before falling back to the cloud. The switch goes straight to the
-    cloud start/stop endpoints for that family when a cloud client exists.
+    The family has no proven local H233 route (firmware verification on PR
+    #569: CEAA/12000XP lineage rejects the write, ILLEGAL DATA ADDRESS;
+    CCAA/6000XP lineage implements the address but no bit-0 quick-charge
+    consumer was found), so pylxpweb's local-first enable/disable burns a
+    doomed-or-unproven Modbus write on every toggle before falling back to
+    the cloud. The switch goes straight to the cloud start/stop endpoints
+    for that family when a cloud client exists.
     """
 
     @pytest.mark.asyncio
@@ -681,8 +684,10 @@ class TestQuickChargeSwitchOffgridCloudFirst:
     @pytest.mark.asyncio
     async def test_offgrid_without_cloud_raises_and_is_unavailable(self):
         """Offgrid LOCAL-only (#558): there is NO working route — the H233
-        activation write is firmware-rejected (ILLEGAL DATA ADDRESS, #296)
-        and no cloud fallback exists — so the switch is unavailable and a
+        activation write is firmware-rejected on CEAA (ILLEGAL DATA
+        ADDRESS, #296) and of unproven effect on CCAA (firmware
+        verification on PR #569) — with no cloud fallback the switch is
+        unavailable and a
         forced toggle raises instead of firing pylxpweb's doomed local-first
         enable. (Pre-#558 this test asserted the doomed write ran.) The full
         routing matrix lives in tests/test_offgrid_write_routing.py."""

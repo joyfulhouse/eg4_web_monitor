@@ -17,9 +17,13 @@ is recorded for H66; its `portal-correlated` grade rests on read/scaling
 evidence only.
 
 Task B — the Quick Charge switch has NO working route on pure-LOCAL
-off-grid (firmware rejects the H233 activation write, ILLEGAL DATA ADDRESS,
-#296, and there is no cloud fallback): the switch is unavailable there and
-a forced service call raises instead of firing the doomed write.
+off-grid: per the firmware verification posted on PR #569
+(fw-verify-offgrid-writes), CEAA (12000XP lineage) rejects the H233
+activation write outright (ILLEGAL DATA ADDRESS — proves #296), and CCAA
+(6000XP lineage) implements the address but has no traced bit-0
+quick-charge consumer, so neither lineage has a proven local route; with
+no cloud fallback the switch is unavailable there and a forced service
+call raises instead of firing the doomed-or-unproven write.
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -483,8 +487,9 @@ class TestQuickChargePureLocalOffgrid:
     """The Quick Charge switch must not fire the doomed H233 write (#558)."""
 
     def test_offgrid_without_cloud_is_unavailable(self):
-        """Pure-LOCAL off-grid: no working route (H233 firmware-rejected,
-        #296; no cloud fallback) — the switch is unavailable."""
+        """Pure-LOCAL off-grid: no working route (H233 firmware-rejected on
+        CEAA, unproven on CCAA, #296; no cloud fallback) — the switch is
+        unavailable."""
         coordinator = _mock_coordinator(
             has_http=False,
             has_local=True,
@@ -509,7 +514,8 @@ class TestQuickChargePureLocalOffgrid:
     )
     def test_unresolved_family_without_cloud_is_unavailable(self, device_data):
         """Tribunal round 1: an unidentified pure-LOCAL unit might be a
-        12000XP/6000XP whose firmware rejects H233 — fail closed."""
+        12000XP/6000XP with no proven local H233 route (rejected on CEAA,
+        unproven on CCAA) — fail closed."""
         coordinator = _mock_coordinator(
             has_http=False, has_local=True, local_only=True, device_data=device_data
         )
@@ -551,7 +557,8 @@ class TestQuickChargePureLocalOffgrid:
     async def test_offgrid_without_cloud_toggle_raises_without_h233(self):
         """A forced service call on the unavailable switch raises a clear
         error and never reaches pylxpweb's local-first enable (which would
-        fire the firmware-rejected H233 write)."""
+        fire the H233 write — firmware-rejected on CEAA, unproven on
+        CCAA)."""
         coordinator = _mock_coordinator(
             has_http=False,
             has_local=True,
