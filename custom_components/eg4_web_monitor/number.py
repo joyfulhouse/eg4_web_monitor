@@ -302,6 +302,20 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         write routes through the cloud until a local write is
         hardware-confirmed; on a pure-LOCAL install the returned reason is
         raised instead of silently writing an unverified register.
+
+        HOW THE PROTECTED SET {66, 158, 159, 160, 161} WAS DERIVED — and
+        its blind spot. Derivation: a register is protected when its
+        llmwiki write-evidence grade (``llmwiki/40-hardware/registers.md``)
+        shows NO local off-grid delta-test — i.e. the only write evidence
+        is cloud-path (``portal-correlated`` or the #331 holdParam trail).
+        Blind spot: only the AC-charge window (SOC 160/161, voltage
+        158/159) and AC charge power (66) have been audited against that
+        criterion; other off-grid-writable registers — e.g. PV charge
+        power (reg 74), battery charge/discharge current — have NOT yet
+        been swept and may share the same evidence gap. The full evidence
+        sweep is tracked in issue #570
+        (https://github.com/joyfulhouse/eg4_web_monitor/issues/570); do
+        not treat this set as complete until that sweep closes.
         """
         if is_positively_non_offgrid_family(self._device_data):
             return None
