@@ -26,10 +26,13 @@ jobs:
 
       - name: Validate Python syntax
         run: |
-          # Compile the whole integration tree: const.py and utils.py do not
-          # exist (const/ is a package), so the old explicit file list always
-          # failed (#549). Under the default bash -e shell a compileall
-          # failure aborts the step directly, so no exit-code guard is needed.
+          # Compile the whole integration tree: compileall silently skips a
+          # nonexistent file argument (prints "Can't list" but exits 0), so
+          # the old explicit list quietly never compiled const.py — which is
+          # the const/ package, not a module — while still passing (#549).
+          # Compiling the tree removes the stale-list failure mode. Under the
+          # default bash -e shell a compileall failure aborts the step
+          # directly, so no exit-code guard is needed.
           python -m compileall -q custom_components/eg4_web_monitor
           echo "✅ All Python files have valid syntax"
 
