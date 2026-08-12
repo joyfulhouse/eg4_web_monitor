@@ -9,8 +9,9 @@ value written (#476). Pure-LOCAL off-grid installs get a clear
 HomeAssistantError instead of an unverified local write. The routing gate
 FAILS CLOSED (tribunal round 1): a missing/UNKNOWN family degrades to the
 cloud-only route too — only a positively resolved non-off-grid family
-keeps the local write. EG4_HYBRID keeps the hardware-verified local-first
-route for reg 160. AC charge power (reg 66) shares the protected-register
+keeps the local write. EG4_HYBRID keeps the local-first route for reg 160
+per shipped behavior (FlexBOSS21 read+write exercise recorded in
+CHANGELOG.md; ledger grade still `portal-correlated`, see #570). AC charge power (reg 66) shares the protected-register
 routing — its only write evidence is cloud-path (H66 `portal-correlated`).
 
 Task B — the Quick Charge switch has NO working route on pure-LOCAL
@@ -204,9 +205,10 @@ class TestOffgridACChargeSOCCloudOnlyRouting:
 
     @pytest.mark.asyncio
     async def test_hybrid_family_keeps_local_first_route(self):
-        """EG4_HYBRID reg 160 local writes are hardware-verified (FlexBOSS21,
-        fw FAAB-2727) and keep the local-first route — the #558 gate is a
-        family gate, not a blanket change."""
+        """EG4_HYBRID reg 160 keeps the local-first route per shipped
+        behavior (FlexBOSS21 fw FAAB-2727 read+write exercise recorded in
+        CHANGELOG.md, not yet graded in the register ledger — see #570);
+        the #558 gate is a family gate, not a blanket change."""
         coordinator = _mock_coordinator(
             has_local=True,
             has_http=True,

@@ -292,8 +292,11 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         reason disables the local write path: local Modbus writes to the
         protected registers — AC-charge SOC window 160/161 (all #331 write
         evidence is the cloud holdParam path), AC-charge voltage window
-        158/159 and AC charge power 66 (only cloud-path evidence, graded
-        ``portal-correlated`` with the target family unrecorded) — are
+        158/159 (only cloud-path write evidence, graded
+        ``portal-correlated`` with the target family unrecorded), and AC
+        charge power 66 (no local write evidence is recorded for H66; its
+        llmwiki ``portal-correlated`` grade rests on read/scaling evidence
+        only) — are
         hardware-UNVERIFIED on the off-grid family, and a post-write
         readback is structurally incapable of catching a wrong
         name→register mapping there, because a wrong-but-writable register
@@ -304,10 +307,12 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         raised instead of silently writing an unverified register.
 
         HOW THE PROTECTED SET {66, 158, 159, 160, 161} WAS DERIVED — and
-        its blind spot. Derivation: a register is protected when its
-        llmwiki write-evidence grade (``llmwiki/40-hardware/registers.md``)
-        shows NO local off-grid delta-test — i.e. the only write evidence
-        is cloud-path (``portal-correlated`` or the #331 holdParam trail).
+        its blind spot. Derivation: a register is protected when the
+        llmwiki ledger (``llmwiki/40-hardware/registers.md``) records NO
+        local off-grid delta-test for it — its write evidence is
+        cloud-path only (the #331 holdParam trail, the 158/159 cloud
+        delta-test) or absent altogether (H66, whose ``portal-correlated``
+        grade rests on read/scaling evidence only).
         Blind spot: only the AC-charge window (SOC 160/161, voltage
         158/159) and AC charge power (66) have been audited against that
         criterion; other off-grid-writable registers — e.g. PV charge
@@ -1122,8 +1127,8 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
     """Number entity for AC Charge Power control (stored as 100W units).
 
     WRITE ROUTING (#558 tribunal round 1): reg 66 is a protected register —
-    its only write evidence is cloud-path (llmwiki grades H66
-    ``portal-correlated``; no local off-grid delta-test exists), so on
+    no local write evidence is recorded for H66 (its llmwiki
+    ``portal-correlated`` grade rests on read/scaling evidence only), so on
     EG4_OFFGRID and unresolved/UNKNOWN families the write is CLOUD-ONLY
     (pure-LOCAL raises a clear error). Positively resolved non-off-grid
     families keep the local-first route. Local READS stay on everywhere.
@@ -1469,10 +1474,12 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
     is the cloud holdParam path) and no readback can prove a wrong
     name→register mapping didn't land elsewhere (#476), so the local path
     is not attempted; a pure-LOCAL off-grid install gets a clear error
-    instead. On EG4_HYBRID the local write IS hardware-verified
-    (FlexBOSS21, fw FAAB-2727, read+write) and keeps the normal
-    local-first route. Local READS stay on for both families — reads are
-    harmless and reg 160 reads are verified.
+    instead. On EG4_HYBRID the write keeps the normal local-first route
+    per shipped behavior: a FlexBOSS21 (fw FAAB-2727) read+write exercise
+    is recorded in CHANGELOG.md but not yet ingested/graded in the
+    register ledger, which still grades H160 ``portal-correlated`` (see
+    #570 for the evidence sweep). Local READS stay on for both families —
+    reads are harmless and reg 160 reads are verified.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
