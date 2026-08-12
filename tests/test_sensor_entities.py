@@ -7,6 +7,7 @@ import pytest
 
 from custom_components.eg4_web_monitor.const import (
     DISCHARGE_RECOVERY_SENSORS,
+    HYBRID_EXCLUDED_SENSORS,
     NON_THREE_PHASE_SENSORS,
     SENSOR_TYPES,
     SPLIT_PHASE_ONLY_SENSORS,
@@ -25,10 +26,6 @@ from custom_components.eg4_web_monitor.sensor import (
     _create_station_sensors,
     _should_create_sensor,
     async_setup_entry,
-)
-
-HYBRID_FAMILY_SENSITIVE_SPLIT_SENSORS = frozenset(
-    {"eps_apparent_power_l1", "eps_apparent_power_l2"}
 )
 
 
@@ -106,7 +103,7 @@ class TestShouldCreateSensor:
         """Topology-only sensors pass; family-sensitive sensors defer."""
         features = {"supports_split_phase": True}
         for key in SPLIT_PHASE_ONLY_SENSORS:
-            expected = key not in HYBRID_FAMILY_SENSITIVE_SPLIT_SENSORS
+            expected = key not in HYBRID_EXCLUDED_SENSORS
             assert _should_create_sensor(key, features) is expected
 
     def test_split_phase_sensor_without_support(self):
@@ -209,7 +206,7 @@ class TestShouldCreateSensor:
         # Features dict exists but doesn't have the specific key
         features = {"some_other_feature": True}
         for key in SPLIT_PHASE_ONLY_SENSORS:
-            expected = key not in HYBRID_FAMILY_SENSITIVE_SPLIT_SENSORS
+            expected = key not in HYBRID_EXCLUDED_SENSORS
             assert _should_create_sensor(key, features) is expected
         for key in THREE_PHASE_ONLY_SENSORS - {"eps_apparent_power_r"}:
             assert _should_create_sensor(key, features) is True

@@ -1,11 +1,4 @@
-"""Hybrid registers 131/132 are not per-leg EPS apparent power (#548).
-
-Firmware analysis of ``FAAB-27xx_20260330_App`` proves input register 132 is a
-persistent threshold-gated event counter.  Register 131 is a sign-split
-directional power field, so it cannot represent non-negative apparent power.
-The same two sensor keys are genuine on EG4_OFFGRID (#547); suppression and
-registry cleanup therefore have to remain family-scoped.
-"""
+"""Tests for hybrid EPS apparent-power exclusions (#548)."""
 
 from __future__ import annotations
 
@@ -16,7 +9,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-import custom_components.eg4_web_monitor.const as integration_const
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_DST_SYNC,
@@ -25,6 +17,7 @@ from custom_components.eg4_web_monitor.const import (
     CONF_PLANT_NAME,
     CONF_VERIFY_SSL,
     DOMAIN,
+    HYBRID_EXCLUDED_SENSORS,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_LXP,
@@ -66,7 +59,7 @@ class TestHybridEpsApparentPowerSensorGating:
 
     def test_exclusion_set_is_exported_and_topology_scoped(self) -> None:
         """The semantic exclusion remains layered on split-phase capability."""
-        excluded = integration_const.HYBRID_EXCLUDED_SENSORS
+        excluded = HYBRID_EXCLUDED_SENSORS
         assert excluded == SUPPRESSED
         assert excluded <= SPLIT_PHASE_ONLY_SENSORS
         assert excluded & OFFGRID_EXCLUDED_SENSORS == frozenset()
