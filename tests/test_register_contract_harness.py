@@ -47,12 +47,18 @@ Companion files:
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import importlib.metadata
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 
 import pytest
+from packaging.version import Version
+
+import pylxpweb.constants.registers as pylxpweb_registers_module
 from pylxpweb.constants.registers import (
     MULTI_BIT_FIELDS,
     REGISTER_TO_PARAM_KEYS,
@@ -102,6 +108,7 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
+    PARAM_FUNC_ON_GRID_ALWAYS_ON,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
     PARAM_FUNC_RUN_WITHOUT_GRID,
     PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
@@ -1368,6 +1375,11 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_PV_SELL_TO_GRID_EN: (179, 3),
     PARAM_FUNC_BAT_CHARGE_CONTROL: (179, 9),
     PARAM_FUNC_BAT_DISCHARGE_CONTROL: (179, 10),
+    # Grid Always On (GH #559): reg 179 bit 15. App-write-path-proven via
+    # EG4 mobile Local12KSetFragment.getBitByFunction (smali); 4-for-4
+    # against confirmed anchors bits 3/7/9/10. Not hardware-toggle-proven
+    # — contract + readback-verify guard the #476 wrong-bit ACK risk.
+    PARAM_FUNC_ON_GRID_ALWAYS_ON: (179, 15),
     # AC Couple function (GH #471/#472): reg 179 bit 11. NOT pinned by this
     # project's raw<->named lockstep toggle — it ships on lineage inference
     # (the Luxpower Modbus doc and ant0nkr/luxpower-ha-integration both place
@@ -1474,6 +1486,90 @@ def _resolve_param_in_pylxpweb(name: str) -> list[tuple[str, int, int | None]]:
     return resolutions
 
 
+# Grid Always On (#559) is pinned to reg 179 bit 15 by pylxpweb PR #270,
+# which is UNRELEASED: the manifest floor 0.9.39b10 still ships the
+# FUNC_179_BIT15 placeholder, so the name resolves in NEITHER pylxpweb table
+# there.  Until the release-cut pin bump, this suite must be green against
+# both the pinned editable install and the b10 floor (the b6-pin tolerance
+# pattern — see test_switch_entities.py's
+# test_all_wired_working_mode_parameters_resolve_or_are_the_b6_pin).  The
+# checks below therefore tolerate the name's ABSENCE from an unpinned
+# install; a present-but-wrong (address, bit) still fails everywhere, which
+# is the wrong-bit-ACK failure class this harness exists to catch.
+#
+# The tolerance is VERSION-KEYED (#559 round 3): an unconditional one would
+# also swallow a FUTURE pylxpweb regression that drops the pin, keeping CI
+# green while the switch silently vanished in pure LOCAL.  Absence is
+# tolerated ONLY on the exact b10 floor signature — installed version at or
+# below 0.9.39b10 AND the b10 FUNC_179_BIT15 placeholder still sitting at
+# reg-179 index 15 (the capability sentinel; PR #270 does not bump the
+# version, so the version compare alone cannot distinguish the two installs)
+# AND the installed register map being BYTE-IDENTICAL to the published PyPI
+# 0.9.39b10 artifact (content hash — see
+# _installed_registers_module_is_pristine_b10, #559 round 6).
+# Any install that fails that signature must carry the (179, 15) pin or the
+# harness goes red, loudly.  Like the b6 precedent, the release-cut pin bump
+# makes this tolerance dead code — DROP the sentinel and the branches on it
+# then, leaving the unconditional (179, 15) requirement.
+_ON_GRID_ALWAYS_ON_PINNED = bool(
+    _resolve_param_in_pylxpweb(PARAM_FUNC_ON_GRID_ALWAYS_ON)
+)
+_REG179_KEYS = REGISTER_TO_PARAM_KEYS.get(179, [])
+
+
+# sha256 of pylxpweb/constants/registers.py inside the PUBLISHED PyPI
+# 0.9.39b10 wheel (pylxpweb-0.9.39b10-py3-none-any.whl, itself verified
+# against PyPI's published wheel digest before extracting). Reproduce with:
+#   uvx pip download pylxpweb==0.9.39b10 --no-deps -d . && python -c \
+#     "import hashlib,zipfile;print(hashlib.sha256(zipfile.ZipFile('pylxpweb-0.9.39b10-py3-none-any.whl').read('pylxpweb/constants/registers.py')).hexdigest())"
+_B10_REGISTERS_SHA256 = (
+    "a771ebb0fa86a6c75e7ae2c76e54252b9147729450bf8f3569dbe1eb25078281"
+)
+
+
+def _installed_registers_module_is_pristine_b10() -> bool:
+    """Whether the installed register map is byte-identical to real b10.
+
+    Third tolerance conjunct (#559 round 6, replacing round 5's installer-
+    metadata heuristic). PyPI's 14-day release-mutability window permits
+    ADDING files to the existing 0.9.39b10 release, and two divergent-
+    artifact vectors were empirically proven to defeat any metadata probe:
+    a hand-crafted build-tagged wheel (``0.9.39b10-1``) whose FILENAME tag
+    governs installer preference but is unrecoverable from installed
+    metadata (no WHEEL ``Build:`` line required), and a platform wheel
+    (``cp313-manylinux``) that outranks ``py3-none-any`` on compatibility
+    tag with no build tag and no direct_url at all. The heuristic is
+    unfixable in principle; content is not: if the installed
+    ``pylxpweb/constants/registers.py`` — the load-bearing file every
+    conjunct here reads — is byte-identical to the published b10 artifact,
+    the tolerance's premise (placeholder present, pin absent, floor
+    install) holds BY CONSTRUCTION regardless of which filename or wheel
+    delivered it. Any divergent map — build-tagged, platform-tagged,
+    hand-crafted — hashes differently and fails strict/loud. Unreadable or
+    missing file → NOT tolerated. The pin-bearing dev editable install
+    hashes differently too, but it never reaches the tolerance (strict
+    path). Mirrored by the gate test in test_switch_entities.py, which
+    imports this helper.
+    """
+    module_file = getattr(pylxpweb_registers_module, "__file__", None)
+    if not module_file:
+        return False
+    try:
+        digest = hashlib.sha256(Path(module_file).read_bytes()).hexdigest()
+    except OSError:
+        return False
+    return digest == _B10_REGISTERS_SHA256
+
+
+_TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON = (
+    not _ON_GRID_ALWAYS_ON_PINNED
+    and Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
+    and len(_REG179_KEYS) > 15
+    and _REG179_KEYS[15] == "FUNC_179_BIT15"
+    and _installed_registers_module_is_pristine_b10()
+)
+
+
 def test_control_params_resolve_to_documented_registers() -> None:
     """Every control parameter name maps to its documented (address, bit) in
     pylxpweb, and pylxpweb's own tables agree with each other."""
@@ -1481,6 +1577,13 @@ def test_control_params_resolve_to_documented_registers() -> None:
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         resolutions = _resolve_param_in_pylxpweb(name)
         if not resolutions:
+            if (
+                name == PARAM_FUNC_ON_GRID_ALWAYS_ON
+                and _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON
+            ):
+                # Version-keyed b10 tolerance (see the sentinel above); any
+                # other unpinned install falls through and fails loudly.
+                continue
             offenders.append(
                 f"{name}: unknown to BOTH pylxpweb tables (canonical holding "
                 f"map and REGISTER_TO_PARAM_KEYS) — writes would fail"
@@ -1575,6 +1678,14 @@ def test_register_179_contract_holds_for_every_family(family: str | None) -> Non
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         if expected_addr != 179:
             continue
+        if (
+            name == PARAM_FUNC_ON_GRID_ALWAYS_ON
+            and _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON
+        ):
+            # Version-keyed b10 tolerance (see the sentinel above): only the
+            # exact b10 floor, which knows just the FUNC_179_BIT15
+            # placeholder, is excused; a pin-dropping regression fails.
+            continue
         checked.append(name)
         assert name in keys, f"{family}: {name} absent from register 179 — writes fail"
         assert keys.index(name) == expected_bit, (
@@ -1649,24 +1760,6 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
         "local register; never write it through the local transport name "
         "map.",
     ),
-    # Grid Always On (GH #484): the portal's Smart Load Port -> Smart Load
-    # tab enable, sibling of the AC coupling tab above. A READ-ONLY cloud
-    # probe 2026-07-27 confirmed the name comes back among register 179's
-    # 16 named params on an 18kPV, a FlexBOSS21 and a GridBOSS — including
-    # in the 127-253 range read that builds the cloud parameter cache — and
-    # the reporter's portal screenshot shows it live on a 12000XP. But
-    # WHICH of register 179's bits it occupies is UNPINNED: the register's
-    # bit map still carries FUNC_179_BIT{0,1,2,4,5,6,8,12,13,14,15}
-    # placeholders. Writing a guessed bit is not a safe failure — the
-    # firmware ACKs it, so the cloud fallback never fires and
-    # readback-verify cannot catch it (the #476 reg-110 bit-8 lesson).
-    # Cloud functionControl only until a live raw<->named toggle pins it.
-    "FUNC_ON_GRID_ALWAYS_ON": (
-        179,
-        "Cloud-only function param for the smart load port's Grid Always On "
-        "enable — reg 179 membership is confirmed but the BIT is unpinned; "
-        "never write it through the local transport name map.",
-    ),
     # Smart Load panel (GH #499): the rest of the same portal tab Grid Always
     # On came from. A READ-ONLY cloud probe 2026-08-01 found all five
     # threshold holdParams plus FUNC_SMART_LOAD_ENABLE in the 127-253 range
@@ -1674,9 +1767,9 @@ _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
     # param but NONE of the five (it carries the per-port MIDBOX_HOLD_SL_*
     # family instead), which is exactly why the entities must go unavailable
     # rather than render a zero. No local register is pinned for any of them
-    # — for the function param the reg-179 bit is unpinned like Grid Always
-    # On's, and for the five holdParams no register is claimed at all. Reads
-    # come from the coordinator's dedicated smart_load store (throttled
+    # — for the function param the reg-179 bit is still unpinned, and for
+    # the five holdParams no register is claimed at all. Reads come from
+    # the coordinator's dedicated smart_load store (throttled
     # get_inverter_smart_load_limits); writes route exclusively through
     # client.api.control.set_inverter_smart_load_*.
     "FUNC_SMART_LOAD_ENABLE": (

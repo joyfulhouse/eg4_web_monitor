@@ -25,15 +25,20 @@ sources:
   - pylxpweb@204b95d:src/pylxpweb/registers/__init__.py
   - pylxpweb@204b95d:src/pylxpweb/constants/registers.py
   - https://github.com/joyfulhouse/pylxpweb/issues/242
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/559
+  - https://github.com/joyfulhouse/pylxpweb/pull/270
 verified-against:
   eg4_web_monitor: 9f6d6e2
-  pylxpweb: 204b95d
-last-verified: 2026-08-09
+  # aafc4e3 is the PR #270 branch head; pylxpweb squash-merges, so it becomes
+  # non-mainline after merge — the release-cut re-verify must re-pin to the
+  # merged mainline SHA.
+  pylxpweb: aafc4e3
+last-verified: 2026-08-11
 ---
 
 # Register ground truth
 
-> **Audited result: 31 of 335 counted current register claims are proven: 27 `firmware-proven` + 4 `hardware-toggle-proven` = 31; 27 + 4 + 169 `portal-correlated` + 135 `lineage-inferred` = 335.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
+> **Audited result: 31 of 336 counted current register claims are proven: 27 `firmware-proven` + 4 `hardware-toggle-proven` = 31; 27 + 4 + 1 `app-write-path-proven` + 169 `portal-correlated` + 135 `lineage-inferred` = 336.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
@@ -45,12 +50,13 @@ The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.m
 |---|---:|:---:|
 | `firmware-proven` | 27 | yes |
 | `hardware-toggle-proven` | 4 | yes |
+| `app-write-path-proven` | 1 | no |
 | `portal-correlated` | 169 | no |
 | `lineage-inferred` | 135 | no |
 | `inferred` | 0 | no |
 | `verified-against-code` | 0 | no |
 | `asserted-unverified` | 0 | no; candidate rows are excluded |
-| **Current total** | **335** | **31 proven (9.3%)** |
+| **Current total** | **336** | **31 proven (9.2%)** |
 
 The `Claim count` column is the machine-checkable contribution. One separately named semantic is one claim; a U32 low/high pair is one; family-specific meanings are separate; a compound packed-word contract is one claim unless its bits are separately exposed as independent semantics. Structural-only, candidate, unknown, and `asserted-unverified` rows contribute zero. Refuted historic labels are outside the counted ledger. The markers around the ledger allow an `awk -F'|'` sum of column 7 to reproduce every subtotal.
 
@@ -258,7 +264,8 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H179 b9 | Battery charge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md) describes the 2026-02-18 toggle, but the durable raw before/after and restoration record is incomplete. |
 | H179 b10 | Battery discharge control: 0 SOC, 1 voltage | tested scope | `portal-correlated` | current | 1 | Same durable audit and evidence boundary as b9. |
 | H179 b11 | AC coupling function; **LOCAL writability unresolved** | lineage-wide | `lineage-inferred` | current; live write risk unresolved | 1 | Requires a named/raw lockstep toggle. Shipped-path fact (`verified-against-code`): `EG4ACCoupleSwitch._async_set_enabled` routes LOCAL/HYBRID through `_execute_local_with_fallback`; its class contract says a wrong-target write “would still ACK, which no readback can catch.” Code anchors: [`EG4ACCoupleSwitch` wrong-bit ACK contract](../../custom_components/eg4_web_monitor/switch.py#L789) and [`_async_set_enabled`](../../custom_components/eg4_web_monitor/switch.py#L958). Safety conclusion (`inferred`): **do not treat this as a safe local write**; it is a live, un-discharged risk tracked by [issue #558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558) and [contradiction C7](../60-history/open-contradictions.md#c7--register-161-writability-read-only-on-flexboss-versus-a-shipped-off-grid-write-entity). |
-| H179 b12-b15 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. |
+| H179 b12-b14 | Functions unknown | all | `asserted-unverified` | unresolved | 0 | [`register audit` H179 map](../../docs/audits/2026-08-02-register-race-performance-audit.md); no accepted semantics. Bit 13 is where `FUNC_SMART_LOAD_ENABLE` is *suspected* but unpinned — Smart Load stays cloud-only. |
+| H179 b15 | Grid Always On / `FUNC_ON_GRID_ALWAYS_ON` | family-wide (app resolver has no per-model branch; SNA-US 12K / deviceTypeCode 54 membership corroborated by pylxpweb `docs/inverters/SNA12KUS_52XXXXXX68.json` register_blocks) | `app-write-path-proven` | current; **not** `hardware-toggle-proven`; #476 wrong-bit ACK caveat | 1 | EG4 mobile app `Local12KSetFragment.getBitByFunction` name→bit resolver places `FUNC_ON_GRID_ALWAYS_ON` at H179 b15 (`_179Functions` membership; investigation recorded on [#559](https://github.com/joyfulhouse/eg4_web_monitor/issues/559) / [pylxpweb PR #270](https://github.com/joyfulhouse/pylxpweb/pull/270)). Decode validated 4-for-4 against independently confirmed anchors, each `portal-correlated` or better: b3 Export PV Only (`hardware-toggle-proven`, #135), b7 Grid Peak Shaving (`portal-correlated`), b9/b10 battery charge/discharge control (`portal-correlated`, #48). This is exactly the `app-write-path-proven` evidence class — an official client's write-path binding, anchor-validated — not inverter-firmware disassembly and not a live raw before/after toggle, so it sits below the #476 gold standard. Wrong-bit writes ACK, and readback can only confirm the intended bit's round-trip, never detect a wrong-bit landing; the family-wide register-179 contract test and the local-write version gate are the mitigations (annotation-ladder rung 2: reads, gated writes). Do **not** upgrade to `firmware-proven` or `hardware-toggle-proven` without meeting those grades' minima. |
 
 ### H233 safe bit map
 

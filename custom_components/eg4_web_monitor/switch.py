@@ -37,6 +37,7 @@ from .const import (
     PARAM_FUNC_FORCED_DISCHG_EN,
     PARAM_FUNC_GREEN_EN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
+    PARAM_FUNC_ON_GRID_ALWAYS_ON,
     PARAM_FUNC_PV_SELL_TO_GRID_EN,
     PARAM_FUNC_RUN_WITHOUT_GRID,
     QUICK_CHARGE_DURATION_DEFAULT,
@@ -1264,6 +1265,10 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     # function-control API with FUNC_BAT_SHARED — the exact call the
     # website makes (reporter-verified).
     "FUNC_BAT_SHARED": PARAM_FUNC_BAT_SHARED,
+    # Register 179, bit 15 (GH #559) — Grid Always On. App-write-path-proven
+    # (smali); not hardware-toggle-proven. Requires pylxpweb bit-15 mapping
+    # (PR #270); older installs via _local_params_can_carry().
+    "FUNC_ON_GRID_ALWAYS_ON": PARAM_FUNC_ON_GRID_ALWAYS_ON,
 }
 
 
@@ -1518,13 +1523,13 @@ class EG4WorkingModeSwitch(EG4BaseSwitch):
             )
         elif self.coordinator.has_http_api():
             # Cloud-only with NEITHER a local parameter mapping NOR dedicated
-            # pylxpweb enable/disable methods (FUNC_ON_GRID_ALWAYS_ON, GH
-            # #484): drive the generic function-control API — the exact call
-            # the vendor portal makes for FUNC_ bits. Without this branch such
-            # a mode would fall through to the raise below and every write
-            # would fail, so a mode may omit both mappings only because this
-            # route exists. Seeding is a no-op on pure cloud (the helper
-            # guards on has_local_transport).
+            # pylxpweb enable/disable methods: drive the generic
+            # function-control API — the exact call the vendor portal makes
+            # for FUNC_ bits. Without this branch such a mode would fall
+            # through to the raise below and every write would fail, so a
+            # mode may omit both mappings only because this route exists.
+            # Seeding is a no-op on pure cloud (the helper guards on
+            # has_local_transport).
             await self._execute_cloud_function_action(
                 action_name=action_name,
                 parameter=param,
