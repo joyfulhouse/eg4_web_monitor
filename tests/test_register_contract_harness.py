@@ -1499,7 +1499,11 @@ def _resolve_param_in_pylxpweb(name: str) -> list[tuple[str, int, int | None]]:
 # tolerated ONLY on the exact b10 floor signature — installed version at or
 # below 0.9.39b10 AND the b10 FUNC_179_BIT15 placeholder still sitting at
 # reg-179 index 15 (the capability sentinel; PR #270 does not bump the
-# version, so the version compare alone cannot distinguish the two installs).
+# version, so the version compare alone cannot distinguish the two installs)
+# AND the installed distribution being the ORIGINAL untagged PyPI artifact
+# (no wheel Build tag, no direct-URL install — see
+# _installed_pylxpweb_is_original_untagged_artifact for the build-tag /
+# 14-day release-mutability vector this closes, #559 round 5).
 # Any install that fails that signature must carry the (179, 15) pin or the
 # harness goes red, loudly.  Like the b6 precedent, the release-cut pin bump
 # makes this tolerance dead code — DROP the sentinel and the branches on it
@@ -1508,11 +1512,38 @@ _ON_GRID_ALWAYS_ON_PINNED = bool(
     _resolve_param_in_pylxpweb(PARAM_FUNC_ON_GRID_ALWAYS_ON)
 )
 _REG179_KEYS = REGISTER_TO_PARAM_KEYS.get(179, [])
+
+
+def _installed_pylxpweb_is_original_untagged_artifact() -> bool:
+    """Whether the installed pylxpweb is the original, untagged b10 artifact.
+
+    Third tolerance conjunct (#559 round 5): PyPI's 14-day release-mutability
+    window permits ADDING files to an existing release — e.g. a build-tagged
+    wheel ``pylxpweb-0.9.39b10-1-py3-none-any.whl`` with divergent content —
+    and pip prefers the higher build tag on ``>=0.9.39b10``.  Such a wheel
+    could carry the FUNC_179_BIT15 placeholder (satisfying the layout
+    sentinel) while otherwise diverging, or drop the pin, with CI staying
+    green.  So the tolerance additionally requires the installed distribution
+    to be the original artifact: a wheel install (WHEEL metadata present)
+    with NO ``Build:`` tag and NO ``direct_url.json`` (an editable or
+    local/URL install is not the PyPI artifact; the dev editable install is
+    pin-bearing, so it never needs the tolerance and takes the strict path).
+    """
+    dist = importlib.metadata.distribution("pylxpweb")
+    wheel_meta = dist.read_text("WHEEL") or ""
+    if not wheel_meta:
+        return False
+    if any(line.startswith("Build:") for line in wheel_meta.splitlines()):
+        return False
+    return not dist.read_text("direct_url.json")
+
+
 _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON = (
     not _ON_GRID_ALWAYS_ON_PINNED
     and Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
     and len(_REG179_KEYS) > 15
     and _REG179_KEYS[15] == "FUNC_179_BIT15"
+    and _installed_pylxpweb_is_original_untagged_artifact()
 )
 
 

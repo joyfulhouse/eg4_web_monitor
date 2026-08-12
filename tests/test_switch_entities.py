@@ -4287,7 +4287,10 @@ class TestGridAlwaysOnGating:
         The unpinned answer is VERSION-KEYED (#559 round 3): a missing pin
         is acceptable only on the exact b10 floor signature (version at or
         below 0.9.39b10 AND the FUNC_179_BIT15 placeholder still at reg-179
-        index 15). On any other install a False probe means a pin-dropping
+        index 15 AND the original untagged PyPI wheel artifact — no wheel
+        Build tag, no direct-URL install; #559 round 5, the 14-day
+        release-mutability build-tag vector). On any other install a False
+        probe means a pin-dropping
         pylxpweb regression, and this test fails instead of tracking it.
         The release-cut pin bump makes the tolerance dead code — drop it
         then, requiring True unconditionally (b6 precedent).
@@ -4314,15 +4317,34 @@ class TestGridAlwaysOnGating:
         expected = switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
         if not expected:
             reg179 = REGISTER_TO_PARAM_KEYS.get(179, [])
+            # Original-artifact conjunct (#559 round 5): PyPI's 14-day
+            # release-mutability window allows ADDING a build-tagged wheel
+            # (e.g. 0.9.39b10-1) to the existing release, and pip prefers
+            # the higher build tag — such a wheel could carry the
+            # placeholder while otherwise diverging. Tolerate only the
+            # original untagged wheel install (no WHEEL Build tag, no
+            # direct_url.json). Mirrors the harness sentinel.
+            dist = importlib.metadata.distribution("pylxpweb")
+            wheel_meta = dist.read_text("WHEEL") or ""
+            original_artifact = (
+                bool(wheel_meta)
+                and not any(
+                    line.startswith("Build:") for line in wheel_meta.splitlines()
+                )
+                and not dist.read_text("direct_url.json")
+            )
             b10_floor_signature = (
                 Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
                 and len(reg179) > 15
                 and reg179[15] == "FUNC_179_BIT15"
+                and original_artifact
             )
             assert b10_floor_signature, (
                 "installed pylxpweb does not carry the reg-179 bit-15 pin "
-                "and is NOT the b10 floor — a pin-dropping regression would "
-                "silently remove the Grid Always On switch in pure LOCAL"
+                "and is NOT the original untagged b10 floor artifact — a "
+                "pin-dropping regression (or a mutated build-tagged b10 "
+                "re-release) would silently remove the Grid Always On "
+                "switch in pure LOCAL"
             )
         assert ("FUNC_ON_GRID_ALWAYS_ON" in params) == expected
 
