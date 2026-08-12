@@ -190,6 +190,7 @@ async def async_write_with_cloud_fallback(
     local_write: Callable[[], Awaitable[Any]],
     cloud_write: Callable[[], Awaitable[Any]] | None = None,
     local_values: dict[str, Any] | None = None,
+    local_write_blocked_reason: str | None = None,
 ) -> None:
     """Attempt a local register write, falling back to the cloud API.
 
@@ -210,6 +211,15 @@ async def async_write_with_cloud_fallback(
       to the cloud instead of waiting out a doomed Modbus timeout. Reads keep
       probing the link each poll cycle, so recovery re-enables local writes.
     - No local transport: cloud path, or the standard no-transport error.
+    - ``local_write_blocked_reason`` set: the local path is never attempted,
+      regardless of transport state — the write lands via the cloud (with the
+      usual ``local_values`` cache seed) or raises the given reason. This is
+      the cloud-only route for parameters whose local register write is
+      hardware-unverified on the target family (#558): a wrong-but-writable
+      register is firmware-ACKed and reads back the written value, so no
+      post-write readback can detect a wrong name→register mapping (#476) —
+      not attempting the write is the only safe policy until it is
+      hardware-confirmed.
 
     Args:
         coordinator: The data update coordinator (transport + cloud access).
@@ -219,6 +229,10 @@ async def async_write_with_cloud_fallback(
         cloud_write: Coroutine factory performing the equivalent cloud write,
             or None when the action has no cloud path (raw-register-only
             controls) — local errors then propagate unchanged.
+        local_write_blocked_reason: When not None, the local write path is
+            disabled and this string becomes the ``HomeAssistantError`` raised
+            if no cloud path exists (actionable, caller-crafted — it should
+            say WHY the local route is unsafe and what the user can do).
         local_values: The written parameters in the LOCAL-RAW representation
             the attached-transport cache uses. When the write lands via the
             cloud path while a local transport is attached, these are merged
@@ -234,7 +248,16 @@ async def async_write_with_cloud_fallback(
         HomeAssistantError: If all available write paths fail, or none exist.
     """
     local_attached = coordinator.has_local_transport(serial)
-    if local_attached:
+    if local_write_blocked_reason is not None:
+        if not (cloud_write is not None and coordinator.has_http_api()):
+            raise HomeAssistantError(local_write_blocked_reason)
+        _LOGGER.debug(
+            "Local write path disabled for %s on device %s; using the cloud API: %s",
+            action_name,
+            serial,
+            local_write_blocked_reason,
+        )
+    elif local_attached:
         cloud_available = cloud_write is not None and coordinator.has_http_api()
         if cloud_available and coordinator.is_transport_link_down(serial):
             _LOGGER.warning(

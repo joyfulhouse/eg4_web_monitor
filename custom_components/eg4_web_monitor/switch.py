@@ -484,8 +484,42 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         every toggle before falling back to the cloud. Go straight to the
         cloud start/stop endpoints when a cloud client is configured; other
         families keep the local-first behavior (register 233 works there).
+
+        On a pure-LOCAL off-grid install there is NO working route at all
+        (H233 rejected, no cloud client), so the switch is unavailable and
+        toggles raise — see ``available`` and ``_async_set_quick_charge``
+        (#558).
         """
         return is_offgrid_family(self._device_data) and self.coordinator.has_http_api()
+
+    def _offgrid_without_cloud(self) -> bool:
+        """True when this device has no working quick-charge route (#558).
+
+        EG4_OFFGRID firmware rejects the only local mechanism pylxpweb has —
+        the H233 activation write (ILLEGAL DATA ADDRESS, #296) — and without
+        a cloud client there is no fallback: every toggle would burn a doomed
+        Modbus write plus a warning and then fail. Family gate
+        (``is_offgrid_family``), never model substrings; fails open, so an
+        unidentified family keeps the switch.
+        """
+        return is_offgrid_family(self._device_data) and not (
+            self.coordinator.has_http_api()
+        )
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when no write route exists (pure-LOCAL off-grid, #558).
+
+        The off-grid family's quick charge is cloud-endpoint-only (#296);
+        with no cloud client configured the switch cannot work, and showing
+        it available would invite toggles whose only possible outcome is a
+        firmware-rejected H233 write. Unavailable is the honest state —
+        same pattern as the cloud-store switches whose state source is
+        absent.
+        """
+        if self._offgrid_without_cloud():
+            return False
+        return super().available
 
     async def _cloud_enable_quick_charge(self, minute: int | None = None) -> bool:
         """Start quick charge via the cloud endpoint (offgrid family, #296)."""
@@ -618,6 +652,18 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         write confirms either state (see ``is_on``); a failed action clears
         any prior hold and re-raises.
         """
+        # Defense in depth behind the ``available`` gate (#558): HA service
+        # calls can still target an unavailable entity, and pylxpweb's
+        # local-first enable would fire the firmware-rejected H233 write.
+        if self._offgrid_without_cloud():
+            raise HomeAssistantError(
+                f"Cannot control quick charge on {self._serial}: this "
+                "inverter family rejects the local quick-charge register "
+                "write (#296) and no cloud connection is configured — add "
+                "cloud credentials to this integration entry to use it "
+                "(issue #558)"
+            )
+
         enable_method: str | Callable[..., Awaitable[bool]] = "enable_quick_charge"
         disable_method: str | Callable[..., Awaitable[bool]] = "disable_quick_charge"
         if self._prefers_cloud_control():

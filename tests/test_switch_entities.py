@@ -679,9 +679,13 @@ class TestQuickChargeSwitchOffgridCloudFirst:
         inverter.disable_quick_charge.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_offgrid_without_cloud_uses_inverter_method(self):
-        """Offgrid LOCAL-only: no cloud to prefer — the inverter method runs
-        (and fails honestly if the firmware rejects it)."""
+    async def test_offgrid_without_cloud_raises_and_is_unavailable(self):
+        """Offgrid LOCAL-only (#558): there is NO working route — the H233
+        activation write is firmware-rejected (ILLEGAL DATA ADDRESS, #296)
+        and no cloud fallback exists — so the switch is unavailable and a
+        forced toggle raises instead of firing pylxpweb's doomed local-first
+        enable. (Pre-#558 this test asserted the doomed write ran.) The full
+        routing matrix lives in tests/test_offgrid_write_routing.py."""
         coordinator = _mock_coordinator(
             has_http=False,
             has_local=True,
@@ -691,10 +695,13 @@ class TestQuickChargeSwitchOffgridCloudFirst:
         )
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
-        await switch.async_turn_on()
+
+        assert switch.available is False
+        with pytest.raises(HomeAssistantError, match="no cloud connection"):
+            await switch.async_turn_on()
 
         inverter = coordinator.get_inverter_object("1234567890")
-        inverter.enable_quick_charge.assert_called_once_with(minute=60)
+        inverter.enable_quick_charge.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_non_offgrid_keeps_local_first_method(self):
