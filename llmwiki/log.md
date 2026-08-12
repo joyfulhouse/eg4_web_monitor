@@ -313,3 +313,20 @@ Release cut for v3.5.1-beta.11 (pylxpweb 0.9.39b11 on PyPI). Two operations:
    `coordinator_mappings.py`/`coordinator_mixins.py` changed (the #560 merge),
    shifting `_perform_dst_sync` 4563 → 4559 — re-numbered; every other cited
    line re-checked unchanged.
+
+## [2026-08-12] lint | registers.md eg4 pin also moved to e146d91 (tribunal blocker)
+
+The release-cut entry above re-pinned `registers.md` for pylxpweb only; its
+`verified-against.eg4_web_monitor` stayed `9f6d6e2` — pre-#562, where Grid
+Always On is cloud-only, contradicting the page's own H179 b15 row. Re-pinned
+to `e146d91` and re-checked every eg4 line citation on the page: drifted
+anchors re-numbered (`switch.py` L280→282, L477→478, L605→606, L789→799,
+L958→959, L1196→1197; `device_types.py` L48→55, tightened from the comment to
+the constant), and `number.py` L697/L815, `utils.py` L165/L185,
+`base_entity.py` L1543 confirmed unchanged. Claim text of the affected rows
+(H110 b14 append-before-gate, H179 b11 ACK contract and routing,
+H233 `_prefers_cloud_control` boundary) re-read against the files at
+`e146d91`. Stale pre-promotion grade comments in code/tests were also
+corrected in the same commit (comment-only): `const/modbus.py`,
+`const/working_modes.py`, `switch.py` `_WORKING_MODE_PARAMETERS`, and the
+contract harness's `_CONTROL_REGISTER_CONTRACT` entry.

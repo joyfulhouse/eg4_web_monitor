@@ -205,12 +205,14 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
     #     is therefore the enclosing is_supported_control_model() only,
     #     exactly as GH #471's AC Couple switch reasoned. NEVER family-gate
     #     (#490).
-    #   - Reg-179 bit 15 pinned 2026-08-11 (GH #559): app-write-path-proven
-    #     via EG4 mobile Local12KSetFragment.getBitByFunction (smali);
-    #     4-for-4 against confirmed anchors bits 3/7/9/10. Not
-    #     hardware-toggle-proven — keep readback-verify; _local_params_can_carry()
-    #     is the version guard for pylxpweb builds that still carry the
-    #     FUNC_179_BIT15 placeholder.
+    #   - Reg-179 bit 15 pinned (GH #559): hardware-toggle-proven 2026-08-12
+    #     on FlexBOSS21 52842P0581 — portal toggle flipped local raw 0x1048
+    #     -> 0x9048 (XOR exactly 0x8000), clean restore verified cloud and
+    #     local. (Originally app-write-path-proven 2026-08-11 via the EG4
+    #     mobile app's name->bit resolver, 4-for-4 against anchors bits
+    #     3/7/9/10.) _local_params_can_carry() remains the version guard for
+    #     installed pylxpweb builds that still carry the FUNC_179_BIT15
+    #     placeholder (pre-0.9.39b11 installs).
     # No dedicated pylxpweb enable/disable methods: local path is the named
     # reg-179 bit write; cloud path uses the generic function-control API.
     # Disabled by default like Share Battery: only meaningful once the smart
