@@ -27,7 +27,12 @@ jobs:
       - name: Validate Python syntax
         run: |
           # Compile the whole tree: compileall exits 0 on a nonexistent file
-          # argument, so an explicit file list can silently skip files (#549).
+          # OR directory argument ("Can't list", success), so an explicit file
+          # list can silently skip files (#549) — and the tree path itself
+          # needs the test -d guard against the same failure class one level
+          # up (rename/typo). Under bash -e both guards fail the step
+          # directly, so no exit-code check is needed.
+          test -d custom_components/eg4_web_monitor
           python -m compileall -q custom_components/eg4_web_monitor
           echo "✅ All Python files have valid syntax"
 
