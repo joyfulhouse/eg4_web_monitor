@@ -420,6 +420,97 @@ class TestProperties:
         entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
         assert entity.update_percentage is None
 
+    def test_update_percentage_none_while_install_lock_held(self):
+        """HA-initiated chain: percentage is indeterminate while lock held (#512).
+
+        Component-local values (including a completed component's 100) are not
+        chain progress, so None keeps HA on an indeterminate spinner.
+        """
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": True,
+                        "update_percentage": 100,
+                    },
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        entity._install_lock = MagicMock()
+        entity._install_lock.locked.return_value = True
+        assert entity.update_percentage is None
+
+    def test_update_percentage_none_for_external_synthetic_zero(self):
+        """External active install: synthetic 0% seed maps to None (#512)."""
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": True,
+                        "update_percentage": 0,
+                    },
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        assert entity.update_percentage is None
+
+    def test_update_percentage_none_for_external_stale_terminal_100(self):
+        """External active install: stale terminal 100% maps to None (#512)."""
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": True,
+                        "update_percentage": 100,
+                    },
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        assert entity.update_percentage is None
+
+    def test_update_percentage_passes_external_intermediate(self):
+        """External active install: values strictly between 0 and 100 pass (#512)."""
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": True,
+                        "update_percentage": 50,
+                    },
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        assert entity.update_percentage == 50
+
+    def test_update_percentage_idle_terminal_100_unchanged(self):
+        """When the row is idle, a terminal 100% is not remapped (#512)."""
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": False,
+                        "update_percentage": 100,
+                    },
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        assert entity.update_percentage == 100
+
     def test_available_true(self):
         """Entity is available when coordinator succeeds and serial is in data."""
         coordinator = _mock_coordinator(
