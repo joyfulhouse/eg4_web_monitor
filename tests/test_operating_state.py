@@ -338,19 +338,15 @@ class TestOffGridBinarySensor:
         entity = EG4OffGridBinarySensor(coordinator, serial, {"model": "FlexBOSS21"})
         assert entity.is_on is expected
 
-    def test_unique_id_and_entity_id(self):
-        """IDs follow the integration's serial/model conventions."""
+    def test_unique_id_and_translation_key(self):
+        """Stable unique_id and translation_key; HA owns entity_id (#550)."""
         serial = "1234567890"
         coordinator = _coordinator_with_status(serial, 0x00)
         entity = EG4OffGridBinarySensor(coordinator, serial, {"model": "FlexBOSS21"})
         assert entity.unique_id == f"{serial}_off_grid"
-        # _attr_entity_id is the integration's set value (HA assigns the real
-        # entity_id at platform-add time), matching the convention used by
-        # other EG4 platforms' tests.
-        assert entity._attr_entity_id == (
-            f"binary_sensor.eg4_flexboss21_{serial}_off_grid"
-        )
         assert entity.translation_key == "off_grid"
+        # Dead attribute must not be set — HA Entity has no such binding.
+        assert not hasattr(entity, "_attr_entity_id")
 
     def test_unavailable_when_device_missing(self):
         """available is False when the device is absent from coordinator data."""

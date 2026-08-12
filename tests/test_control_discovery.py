@@ -317,8 +317,8 @@ def test_time_unique_id_is_independent_of_model_discovery() -> None:
     assert unknown == known == f"{SERIAL}_ac_charge_start_time_1"
 
 
-def test_parallel_group_suggested_ids_include_group_identity() -> None:
-    """Parallel groups never compete for the same suggested entity ID."""
+def test_parallel_group_unique_ids_include_group_identity() -> None:
+    """Parallel groups never compete for the same registry unique_id (#550)."""
     coordinator = MagicMock()
     coordinator.last_update_success = True
     coordinator.get_device_info.return_value = None
@@ -336,9 +336,12 @@ def test_parallel_group_suggested_ids_include_group_identity() -> None:
         coordinator, "parallel_group_b", "pv_total_power", "parallel_group"
     )
 
-    assert group_a._attr_entity_id == "sensor.eg4_parallel_group_a_pv_total_power"
-    assert group_b._attr_entity_id == "sensor.eg4_parallel_group_b_pv_total_power"
-    assert group_a._attr_entity_id != group_b._attr_entity_id
+    assert group_a.unique_id == "parallel_group_a_pv_total_power"
+    assert group_b.unique_id == "parallel_group_b_pv_total_power"
+    assert group_a.unique_id != group_b.unique_id
+    # Dead attribute must not be set — HA Entity has no such binding.
+    assert not hasattr(group_a, "_attr_entity_id")
+    assert not hasattr(group_b, "_attr_entity_id")
 
 
 @pytest.mark.asyncio

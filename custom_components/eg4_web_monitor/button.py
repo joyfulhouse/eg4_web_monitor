@@ -24,7 +24,6 @@ from .coordinator import (
     listener_changed_device_items,
 )
 from .utils import (
-    generate_entity_id,
     generate_unique_id,
 )
 
@@ -184,10 +183,10 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
         self._device_data = device_data
         self._model = model
 
-        # Create unique identifiers
+        # Create unique identifiers (HA derives entity_id from names; #550)
         device_type = device_data.get("type", "unknown")
         if device_type == "parallel_group":
-            # Special handling for parallel group entity IDs
+            # Special handling for parallel group unique IDs
             if "Parallel Group" in model and len(model) > len("Parallel Group"):
                 # Extract letter from "Parallel Group A" -> "parallel_group_a"
                 group_letter = model.replace("Parallel Group", "").strip().lower()
@@ -195,15 +194,9 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
             else:
                 # Fallback for just "Parallel Group" -> "parallel_group_refresh_data"
                 entity_id_suffix = "parallel_group_refresh_data"
-            self._attr_entity_id = f"button.{entity_id_suffix}"
-            # Use the same suffix for unique_id to ensure new entity registration
             self._attr_unique_id = entity_id_suffix
         else:
-            # Normal device entity ID generation using consolidated utilities
             self._attr_unique_id = generate_unique_id(serial, "refresh_data")
-            self._attr_entity_id = generate_entity_id(
-                "button", model, serial, "refresh_data"
-            )
 
         # Set device attributes
         self._attr_has_entity_name = True
@@ -317,9 +310,6 @@ class EG4BatteryRefreshButton(EG4BatteryEntity, ButtonEntity):
 
         # Create unique identifiers - match battery device pattern
         self._attr_unique_id = f"{parent_serial}_{battery_key}_refresh_data"
-        self._attr_entity_id = (
-            f"button.battery_{parent_serial}_{battery_key}_refresh_data"
-        )
 
         # Set device attributes
         self._attr_has_entity_name = True
@@ -393,7 +383,6 @@ class EG4StationRefreshButton(EG4StationEntity, ButtonEntity):
 
         # Create unique identifiers
         self._attr_unique_id = f"station_{coordinator.plant_id}_refresh_data"
-        self._attr_entity_id = f"button.station_{coordinator.plant_id}_refresh_data"
 
         # Set device attributes
         self._attr_has_entity_name = True

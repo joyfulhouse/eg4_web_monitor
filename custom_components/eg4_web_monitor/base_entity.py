@@ -32,7 +32,6 @@ from .const import (
     DIAGNOSTIC_BATTERY_SENSOR_KEYS,
     DIAGNOSTIC_DEVICE_SENSOR_KEYS,
     DOMAIN,
-    ENTITY_PREFIX,
     MANUFACTURER,
     SENSOR_TYPES,
 )
@@ -43,8 +42,6 @@ from .coordinator import (
 )
 from .utils import (
     async_write_with_cloud_fallback,
-    clean_model_name,
-    generate_entity_id,
     generate_unique_id,
 )
 
@@ -463,24 +460,6 @@ class EG4BaseSensor(EG4DeviceEntity):
         if not sensor_config.get("translation_key"):
             self._attr_name = sensor_config.get("name", sensor_key)
 
-        # Generate entity_id based on device type
-        model = _get_model_from_coordinator(coordinator, serial)
-        self._setup_entity_id(model, device_type)
-
-    def _setup_entity_id(self, model: str, device_type: str) -> None:
-        """Set up entity_id based on device type."""
-        if device_type == "gridboss":
-            self._attr_entity_id = (
-                f"sensor.{ENTITY_PREFIX}_gridboss_{self._serial}_{self._sensor_key}"
-            )
-        elif device_type == "parallel_group":
-            self._attr_entity_id = (
-                f"sensor.{ENTITY_PREFIX}_{self._serial}_{self._sensor_key}"
-            )
-        else:
-            model_clean = clean_model_name(model, use_underscores=True)
-            self._attr_entity_id = f"sensor.{ENTITY_PREFIX}_{model_clean}_{self._serial}_{self._sensor_key}"
-
     def _get_raw_value(self) -> Any:
         """Get raw sensor value from coordinator data.
 
@@ -571,12 +550,6 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         if not sensor_config.get("translation_key"):
             self._attr_name = sensor_config.get("name", sensor_key)
 
-        # Generate entity_id
-        model = _get_model_from_coordinator(coordinator, serial)
-        clean_battery_id = battery_key.replace("_", "").lower()
-        model_clean = clean_model_name(model, use_underscores=True)
-        self._attr_entity_id = f"sensor.{ENTITY_PREFIX}_{model_clean}_{serial}_battery_{clean_battery_id}_{sensor_key}"
-
     def _get_raw_value(self) -> Any:
         """Get raw sensor value from battery data."""
         if not self.coordinator.data or "devices" not in self.coordinator.data:
@@ -665,13 +638,6 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         self._attr_has_entity_name = True
         if not sensor_config.get("translation_key"):
             self._attr_name = sensor_config.get("name", sensor_key)
-
-        # Generate entity_id
-        model = _get_model_from_coordinator(coordinator, serial)
-        model_clean = clean_model_name(model, use_underscores=True)
-        self._attr_entity_id = (
-            f"sensor.{ENTITY_PREFIX}_{model_clean}_{serial}_battery_bank_{sensor_key}"
-        )
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -1304,9 +1270,6 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
             self._attr_name = name
         self._attr_icon = icon
         self._attr_unique_id = generate_unique_id(serial, entity_key)
-        self._attr_entity_id = generate_entity_id(
-            "switch", self._model, serial, entity_key
-        )
 
         if entity_category is not None:
             self._attr_entity_category = entity_category

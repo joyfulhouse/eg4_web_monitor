@@ -22,7 +22,6 @@ from .base_entity import EG4BaseSelect, _get_model_from_coordinator
 from .utils import (
     async_write_with_cloud_fallback,
     create_device_info,
-    generate_entity_id,
     generate_unique_id,
     is_supported_control_model,
 )
@@ -178,9 +177,6 @@ class EG4OperatingModeSelect(EG4BaseSelect):
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "operating_mode")
-        self._attr_entity_id = generate_entity_id(
-            "select", self._model, serial, "operating_mode"
-        )
 
         # Set device attributes
         # Modern entity naming - let Home Assistant combine device name + entity name
@@ -313,9 +309,6 @@ class EG4PVInputModeSelect(EG4BaseSelect):
 
         # Create unique identifiers using consolidated utilities
         self._attr_unique_id = generate_unique_id(serial, "pv_input_mode")
-        self._attr_entity_id = generate_entity_id(
-            "select", self._model, serial, "pv_input_mode"
-        )
 
         # Set device attributes
         self._attr_has_entity_name = True
@@ -434,9 +427,6 @@ class EG4SmartPortModeSelect(EG4BaseSelect):
         self._model = _get_model(coordinator, serial, default="GridBOSS")
 
         self._attr_unique_id = generate_unique_id(serial, f"smart_port{port}_mode")
-        self._attr_entity_id = generate_entity_id(
-            "select", self._model, serial, f"smart_port_{port}_mode"
-        )
 
         self._attr_has_entity_name = True
         self._attr_name = f"Smart Port {port} Mode"
@@ -573,9 +563,6 @@ class EG4BatteryControlModeSelect(EG4BaseSelect):
         self._model = _get_model(coordinator, serial)
 
         self._attr_unique_id = generate_unique_id(serial, self._id_suffix)
-        self._attr_entity_id = generate_entity_id(
-            "select", self._model, serial, self._id_suffix
-        )
 
         self._attr_has_entity_name = True
         self._attr_name = self._control_name

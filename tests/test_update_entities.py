@@ -8,7 +8,6 @@ from homeassistant.components.update import UpdateEntityFeature
 from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.eg4_web_monitor.const import ENTITY_PREFIX
 from custom_components.eg4_web_monitor.update import (
     async_setup_entry,
     EG4FirmwareUpdateEntity,
@@ -173,32 +172,32 @@ class TestEntityInit:
         entity = EG4FirmwareUpdateEntity(coordinator, "1234567890")
         assert entity._attr_unique_id == "1234567890_firmware_update"
 
-    def test_entity_id_inverter(self):
-        """Inverter entity ID: update.{PREFIX}_{model_clean}_{serial}_firmware."""
+    def test_no_inert_entity_id_attr_inverter(self):
+        """Inverter firmware entity does not set the inert entity-id attr (#550)."""
         coordinator = _mock_coordinator(
             devices={"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
         )
         entity = EG4FirmwareUpdateEntity(coordinator, "1234567890")
-        expected = f"update.{ENTITY_PREFIX}_flexboss21_1234567890_firmware"
-        assert entity._attr_entity_id == expected
+        assert entity._attr_unique_id == "1234567890_firmware_update"
+        assert not hasattr(entity, "_attr_entity_id")
 
-    def test_entity_id_inverter_with_spaces_and_hyphens(self):
-        """Model with spaces/hyphens normalises to underscores, lowercase."""
+    def test_unique_id_stable_across_model_name_noise(self):
+        """Model spaces/hyphens do not affect unique_id (HA owns entity_id)."""
         coordinator = _mock_coordinator(
             devices={"9999999999": {"type": "inverter", "model": "18kPV Hybrid-Pro"}}
         )
         entity = EG4FirmwareUpdateEntity(coordinator, "9999999999")
-        expected = f"update.{ENTITY_PREFIX}_18kpv_hybrid_pro_9999999999_firmware"
-        assert entity._attr_entity_id == expected
+        assert entity._attr_unique_id == "9999999999_firmware_update"
+        assert not hasattr(entity, "_attr_entity_id")
 
-    def test_entity_id_gridboss(self):
-        """GridBOSS entity ID: update.{PREFIX}_gridboss_{serial}_firmware."""
+    def test_no_inert_entity_id_attr_gridboss(self):
+        """GridBOSS firmware entity does not set the inert entity-id attr (#550)."""
         coordinator = _mock_coordinator(
             devices={"GB0001": {"type": "gridboss", "model": "GridBOSS"}}
         )
         entity = EG4FirmwareUpdateEntity(coordinator, "GB0001")
-        expected = f"update.{ENTITY_PREFIX}_gridboss_GB0001_firmware"
-        assert entity._attr_entity_id == expected
+        assert entity._attr_unique_id == "GB0001_firmware_update"
+        assert not hasattr(entity, "_attr_entity_id")
 
     def test_name_is_firmware(self):
         """Name attribute should always be 'Firmware'."""

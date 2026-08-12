@@ -15,7 +15,6 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ENTITY_PREFIX
 from .coordinator import EG4DataUpdateCoordinator, device_listener_context
 
 _LOGGER = logging.getLogger(__name__)
@@ -69,23 +68,9 @@ class EG4FirmwareUpdateEntity(
         super().__init__(coordinator, context=device_listener_context(serial))
         self._serial = serial
 
-        # Get device data for naming
-        device_data: dict[str, Any] = {}
-        if coordinator.data and "devices" in coordinator.data:
-            device_data = coordinator.data["devices"].get(serial, {})
-        model = device_data.get("model", "Unknown")
-        device_type = device_data.get("type", "device")
-
-        # Set unique ID and entity ID
+        # Unique ID only — HA derives entity_id from slugified names
+        # (the former inert entity-id attribute assignment is gone; issue #550).
         self._attr_unique_id = f"{serial}_firmware_update"
-
-        if device_type == "gridboss":
-            self._attr_entity_id = f"update.{ENTITY_PREFIX}_gridboss_{serial}_firmware"
-        else:
-            model_clean = model.replace(" ", "_").replace("-", "_").lower()
-            self._attr_entity_id = (
-                f"update.{ENTITY_PREFIX}_{model_clean}_{serial}_firmware"
-            )
 
         # Entity naming
         self._attr_name = "Firmware"
