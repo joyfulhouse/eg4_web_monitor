@@ -1467,9 +1467,6 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         )
         await self._write_parameter(
             value,
-            # Cloud-only on EG4_OFFGRID (#558): local reg 160 writes are
-            # hardware-unverified on the family; EG4_HYBRID keeps the
-            # verified local-first route. See the class docstring.
             local_write_blocked_reason=self._offgrid_cloud_only_reason(
                 160, "AC charge start battery SOC"
             ),
@@ -1562,9 +1559,6 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         )
         await self._write_parameter(
             value,
-            # Cloud-only on EG4_OFFGRID (#558): local reg 161 writes are
-            # hardware-unverified on the family and readback can't catch a
-            # wrong mapping. See the class docstring.
             local_write_blocked_reason=self._offgrid_cloud_only_reason(
                 161, "AC charge end battery SOC"
             ),

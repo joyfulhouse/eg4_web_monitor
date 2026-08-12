@@ -248,8 +248,9 @@ async def async_write_with_cloud_fallback(
         HomeAssistantError: If all available write paths fail, or none exist.
     """
     local_attached = coordinator.has_local_transport(serial)
+    cloud_available = cloud_write is not None and coordinator.has_http_api()
     if local_write_blocked_reason is not None:
-        if not (cloud_write is not None and coordinator.has_http_api()):
+        if not cloud_available:
             raise HomeAssistantError(local_write_blocked_reason)
         _LOGGER.debug(
             "Local write path disabled for %s on device %s; using the cloud API: %s",
@@ -258,7 +259,6 @@ async def async_write_with_cloud_fallback(
             local_write_blocked_reason,
         )
     elif local_attached:
-        cloud_available = cloud_write is not None and coordinator.has_http_api()
         if cloud_available and coordinator.is_transport_link_down(serial):
             _LOGGER.warning(
                 "Local transport link is down for device %s; writing %s via "
@@ -279,7 +279,7 @@ async def async_write_with_cloud_fallback(
                     action_name,
                     serial,
                 )
-    if cloud_write is not None and coordinator.has_http_api():
+    if cloud_available and cloud_write is not None:
         await cloud_write()
         if local_attached and local_values:
             # Cloud fallback with an attached local transport: seed the

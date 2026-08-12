@@ -502,8 +502,8 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         (``is_offgrid_family``), never model substrings; fails open, so an
         unidentified family keeps the switch.
         """
-        return is_offgrid_family(self._device_data) and not (
-            self.coordinator.has_http_api()
+        return (
+            is_offgrid_family(self._device_data) and not self.coordinator.has_http_api()
         )
 
     @property
