@@ -67,12 +67,7 @@ class EG4FirmwareUpdateEntity(
         """Initialize the update entity."""
         super().__init__(coordinator, context=device_listener_context(serial))
         self._serial = serial
-
-        # Unique ID only — HA derives entity_id from slugified names
-        # (the former inert entity-id attribute assignment is gone; issue #550).
         self._attr_unique_id = f"{serial}_firmware_update"
-
-        # Entity naming
         self._attr_name = "Firmware"
 
         # Serializes installs: HA deliberately skips its internal busy flag

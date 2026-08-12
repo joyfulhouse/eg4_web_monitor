@@ -318,7 +318,7 @@ def test_time_unique_id_is_independent_of_model_discovery() -> None:
 
 
 def test_parallel_group_unique_ids_include_group_identity() -> None:
-    """Parallel groups never compete for the same registry unique_id (#550)."""
+    """Parallel groups never compete for the same registry unique_id."""
     coordinator = MagicMock()
     coordinator.last_update_success = True
     coordinator.get_device_info.return_value = None
@@ -339,7 +339,6 @@ def test_parallel_group_unique_ids_include_group_identity() -> None:
     assert group_a.unique_id == "parallel_group_a_pv_total_power"
     assert group_b.unique_id == "parallel_group_b_pv_total_power"
     assert group_a.unique_id != group_b.unique_id
-    # Dead attribute must not be set — HA Entity has no such binding.
     assert not hasattr(group_a, "_attr_entity_id")
     assert not hasattr(group_b, "_attr_entity_id")
 

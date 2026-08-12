@@ -175,7 +175,7 @@ class EG4OperatingModeSelect(EG4BaseSelect):
         # Get device model using shared utility
         self._model = _get_model(coordinator, serial)
 
-        # Create unique identifiers using consolidated utilities
+        # Unique ID
         self._attr_unique_id = generate_unique_id(serial, "operating_mode")
 
         # Set device attributes
@@ -307,7 +307,7 @@ class EG4PVInputModeSelect(EG4BaseSelect):
         # Get device model using shared utility
         self._model = _get_model(coordinator, serial)
 
-        # Create unique identifiers using consolidated utilities
+        # Unique ID
         self._attr_unique_id = generate_unique_id(serial, "pv_input_mode")
 
         # Set device attributes

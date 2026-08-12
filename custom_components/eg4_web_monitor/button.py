@@ -180,21 +180,16 @@ class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
         """Initialize the refresh button."""
         super().__init__(coordinator, serial)
 
-        self._device_data = device_data
         self._model = model
 
-        # Create unique identifiers (HA derives entity_id from names; #550)
         device_type = device_data.get("type", "unknown")
         if device_type == "parallel_group":
-            # Special handling for parallel group unique IDs
             if "Parallel Group" in model and len(model) > len("Parallel Group"):
-                # Extract letter from "Parallel Group A" -> "parallel_group_a"
+                # "Parallel Group A" -> parallel_group_a_refresh_data
                 group_letter = model.replace("Parallel Group", "").strip().lower()
-                entity_id_suffix = f"parallel_group_{group_letter}_refresh_data"
+                self._attr_unique_id = f"parallel_group_{group_letter}_refresh_data"
             else:
-                # Fallback for just "Parallel Group" -> "parallel_group_refresh_data"
-                entity_id_suffix = "parallel_group_refresh_data"
-            self._attr_unique_id = entity_id_suffix
+                self._attr_unique_id = "parallel_group_refresh_data"
         else:
             self._attr_unique_id = generate_unique_id(serial, "refresh_data")
 

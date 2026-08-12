@@ -1217,7 +1217,7 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
     - Optimistic state management for UI responsiveness
     - Device information lookup
     - Availability checking
-    - Standard entity ID and unique ID generation
+    - Standard unique ID generation
 
     Attributes:
         coordinator: The data update coordinator managing device data.
@@ -1241,7 +1241,7 @@ class EG4BaseSwitch(EG4OptimisticEntity, SwitchEntity):
         Args:
             coordinator: The data update coordinator.
             serial: The device serial number.
-            entity_key: Unique key for this entity (used in entity_id and unique_id).
+            entity_key: Unique key for this entity (used in unique_id).
             name: Display name for the entity. Ignored when ``translation_key``
                 is provided — a set ``_attr_name`` overrides the translated
                 name in HA (issue #262 gotcha).
