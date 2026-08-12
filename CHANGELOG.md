@@ -5,11 +5,15 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.5.1-beta.11] - 2026-08-12
+
+Requires **[pylxpweb>=0.9.39b11](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.39b11)** (pin raised): the library release carries the `FUNC_ON_GRID_ALWAYS_ON` → holding register 179 bit 15 mapping that the Grid Always On fix below writes through on the local path.
 
 ### Fixed
 
-- **Constant-zero temperature blanking requires positive radiator warmth** ([#560](https://github.com/joyfulhouse/eg4_web_monitor/issues/560), PR [#561](https://github.com/joyfulhouse/eg4_web_monitor/pull/561)): blank `internal_temperature` / `battery_temperature` / `bt_temperature` at exact 0 only when at least one radiator reads STRICTLY `> 0` °C. Radiators `<= 0` (including negatives) and absent radiators protect the reading. This also **narrows the cloud path vs #490** (previously unconditional `tinner: 0` blanking); known #490/#76 reporter payloads had live radiators and remain fixed. The #560 reporter's diagnostics showed radiators at 58/61 °C with targets stuck at 0. Accepted residual: an all-zero boot/placeholder frame publishes zeros until radiators warm (indistinguishable from genuine cold — no family/freshness heuristic).
+- **Grid Always On now available in LOCAL and HYBRID modes** ([#559](https://github.com/joyfulhouse/eg4_web_monitor/issues/559), PR [#562](https://github.com/joyfulhouse/eg4_web_monitor/pull/562)): the Grid Always On working-mode switch, previously cloud-only, is created and writes locally via the named `FUNC_ON_GRID_ALWAYS_ON` parameter (holding register 179 bit 15) when the installed pylxpweb carries the mapping — which the raised pin guarantees. The bit is **hardware-proven** (2026-08-12, FlexBOSS21): a portal toggle flipped the local raw register read 0x1048 → 0x9048, a single-bit change of exactly 0x8000, with a clean restore verified through both cloud and local reads. The per-family register-179 contract test guards the pin against silent regression; the interim version-tolerance machinery for the pre-pin pylxpweb floor has been removed now that the pin has advanced.
+
+- **Constant-zero temperature blanking requires positive radiator warmth** ([#560](https://github.com/joyfulhouse/eg4_web_monitor/issues/560), PR [#561](https://github.com/joyfulhouse/eg4_web_monitor/pull/561)): blank `internal_temperature` / `battery_temperature` / `bt_temperature` at exact 0 only when at least one radiator reads STRICTLY `> 0` °C — and now on the LOCAL/HYBRID transport paths too, not just cloud. Radiators `<= 0` (including negatives) and absent radiators protect the reading. This also **narrows the cloud path vs #490** (previously unconditional `tinner: 0` blanking); known #490/#76 reporter payloads had live radiators and remain fixed. The #560 reporter's diagnostics showed radiators at 58/61 °C with targets stuck at 0. Accepted residual: an all-zero boot/placeholder frame publishes zeros until radiators warm (indistinguishable from genuine cold — no family/freshness heuristic).
 
 ## [3.5.1-beta.10] - 2026-08-08
 

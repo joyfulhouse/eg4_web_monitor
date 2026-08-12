@@ -47,18 +47,13 @@ Companion files:
 from __future__ import annotations
 
 import dataclasses
-import hashlib
-import importlib.metadata
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
-from pathlib import Path
 from typing import Any
 
 import pytest
-from packaging.version import Version
 
-import pylxpweb.constants.registers as pylxpweb_registers_module
 from pylxpweb.constants.registers import (
     MULTI_BIT_FIELDS,
     REGISTER_TO_PARAM_KEYS,
@@ -1486,90 +1481,6 @@ def _resolve_param_in_pylxpweb(name: str) -> list[tuple[str, int, int | None]]:
     return resolutions
 
 
-# Grid Always On (#559) is pinned to reg 179 bit 15 by pylxpweb PR #270,
-# which is UNRELEASED: the manifest floor 0.9.39b10 still ships the
-# FUNC_179_BIT15 placeholder, so the name resolves in NEITHER pylxpweb table
-# there.  Until the release-cut pin bump, this suite must be green against
-# both the pinned editable install and the b10 floor (the b6-pin tolerance
-# pattern — see test_switch_entities.py's
-# test_all_wired_working_mode_parameters_resolve_or_are_the_b6_pin).  The
-# checks below therefore tolerate the name's ABSENCE from an unpinned
-# install; a present-but-wrong (address, bit) still fails everywhere, which
-# is the wrong-bit-ACK failure class this harness exists to catch.
-#
-# The tolerance is VERSION-KEYED (#559 round 3): an unconditional one would
-# also swallow a FUTURE pylxpweb regression that drops the pin, keeping CI
-# green while the switch silently vanished in pure LOCAL.  Absence is
-# tolerated ONLY on the exact b10 floor signature — installed version at or
-# below 0.9.39b10 AND the b10 FUNC_179_BIT15 placeholder still sitting at
-# reg-179 index 15 (the capability sentinel; PR #270 does not bump the
-# version, so the version compare alone cannot distinguish the two installs)
-# AND the installed register map being BYTE-IDENTICAL to the published PyPI
-# 0.9.39b10 artifact (content hash — see
-# _installed_registers_module_is_pristine_b10, #559 round 6).
-# Any install that fails that signature must carry the (179, 15) pin or the
-# harness goes red, loudly.  Like the b6 precedent, the release-cut pin bump
-# makes this tolerance dead code — DROP the sentinel and the branches on it
-# then, leaving the unconditional (179, 15) requirement.
-_ON_GRID_ALWAYS_ON_PINNED = bool(
-    _resolve_param_in_pylxpweb(PARAM_FUNC_ON_GRID_ALWAYS_ON)
-)
-_REG179_KEYS = REGISTER_TO_PARAM_KEYS.get(179, [])
-
-
-# sha256 of pylxpweb/constants/registers.py inside the PUBLISHED PyPI
-# 0.9.39b10 wheel (pylxpweb-0.9.39b10-py3-none-any.whl, itself verified
-# against PyPI's published wheel digest before extracting). Reproduce with:
-#   uvx pip download pylxpweb==0.9.39b10 --no-deps -d . && python -c \
-#     "import hashlib,zipfile;print(hashlib.sha256(zipfile.ZipFile('pylxpweb-0.9.39b10-py3-none-any.whl').read('pylxpweb/constants/registers.py')).hexdigest())"
-_B10_REGISTERS_SHA256 = (
-    "a771ebb0fa86a6c75e7ae2c76e54252b9147729450bf8f3569dbe1eb25078281"
-)
-
-
-def _installed_registers_module_is_pristine_b10() -> bool:
-    """Whether the installed register map is byte-identical to real b10.
-
-    Third tolerance conjunct (#559 round 6, replacing round 5's installer-
-    metadata heuristic). PyPI's 14-day release-mutability window permits
-    ADDING files to the existing 0.9.39b10 release, and two divergent-
-    artifact vectors were empirically proven to defeat any metadata probe:
-    a hand-crafted build-tagged wheel (``0.9.39b10-1``) whose FILENAME tag
-    governs installer preference but is unrecoverable from installed
-    metadata (no WHEEL ``Build:`` line required), and a platform wheel
-    (``cp313-manylinux``) that outranks ``py3-none-any`` on compatibility
-    tag with no build tag and no direct_url at all. The heuristic is
-    unfixable in principle; content is not: if the installed
-    ``pylxpweb/constants/registers.py`` — the load-bearing file every
-    conjunct here reads — is byte-identical to the published b10 artifact,
-    the tolerance's premise (placeholder present, pin absent, floor
-    install) holds BY CONSTRUCTION regardless of which filename or wheel
-    delivered it. Any divergent map — build-tagged, platform-tagged,
-    hand-crafted — hashes differently and fails strict/loud. Unreadable or
-    missing file → NOT tolerated. The pin-bearing dev editable install
-    hashes differently too, but it never reaches the tolerance (strict
-    path). Mirrored by the gate test in test_switch_entities.py, which
-    imports this helper.
-    """
-    module_file = getattr(pylxpweb_registers_module, "__file__", None)
-    if not module_file:
-        return False
-    try:
-        digest = hashlib.sha256(Path(module_file).read_bytes()).hexdigest()
-    except OSError:
-        return False
-    return digest == _B10_REGISTERS_SHA256
-
-
-_TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON = (
-    not _ON_GRID_ALWAYS_ON_PINNED
-    and Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
-    and len(_REG179_KEYS) > 15
-    and _REG179_KEYS[15] == "FUNC_179_BIT15"
-    and _installed_registers_module_is_pristine_b10()
-)
-
-
 def test_control_params_resolve_to_documented_registers() -> None:
     """Every control parameter name maps to its documented (address, bit) in
     pylxpweb, and pylxpweb's own tables agree with each other."""
@@ -1577,13 +1488,6 @@ def test_control_params_resolve_to_documented_registers() -> None:
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         resolutions = _resolve_param_in_pylxpweb(name)
         if not resolutions:
-            if (
-                name == PARAM_FUNC_ON_GRID_ALWAYS_ON
-                and _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON
-            ):
-                # Version-keyed b10 tolerance (see the sentinel above); any
-                # other unpinned install falls through and fails loudly.
-                continue
             offenders.append(
                 f"{name}: unknown to BOTH pylxpweb tables (canonical holding "
                 f"map and REGISTER_TO_PARAM_KEYS) — writes would fail"
@@ -1677,14 +1581,6 @@ def test_register_179_contract_holds_for_every_family(family: str | None) -> Non
     checked: list[str] = []
     for name, (expected_addr, expected_bit) in _CONTROL_REGISTER_CONTRACT.items():
         if expected_addr != 179:
-            continue
-        if (
-            name == PARAM_FUNC_ON_GRID_ALWAYS_ON
-            and _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON
-        ):
-            # Version-keyed b10 tolerance (see the sentinel above): only the
-            # exact b10 floor, which knows just the FUNC_179_BIT15
-            # placeholder, is excused; a pin-dropping regression fails.
             continue
         checked.append(name)
         assert name in keys, f"{family}: {name} absent from register 179 — writes fail"

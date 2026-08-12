@@ -4168,29 +4168,24 @@ class TestGridAlwaysOnGating:
     params on every device probed (18kPV, FlexBOSS21, GridBOSS — read-only
     probe 2026-07-27), and the reporter's screenshot shows the control live
     and enabled on a 12000XP, so it is NOT family-gated. Reg-179 bit 15 is
-    pinned (app-write-path-proven, pylxpweb PR #270): once the installed
-    pylxpweb carries the mapping, LOCAL and HYBRID create the switch too.
+    pinned (hardware-proven 2026-08-12, pylxpweb PR #270 / >=0.9.39b11):
+    LOCAL and HYBRID create the switch too.
     """
 
-    def test_local_map_carry_probe_tracks_installed_pylxpweb(self):
-        """The probe's answer equals what the INSTALLED pylxpweb map says.
+    def test_local_map_carry_probe_sees_the_installed_bit15_pin(self):
+        """The setup probe answers True against the installed pylxpweb.
 
-        True once the reg-179 bit-15 pin lands (pylxpweb PR #270); False
-        against 0.9.39b10's FUNC_179_BIT15 placeholder, where the setup
-        probe keeps the switch cloud-only — the version guard.  Green on
-        both sides of the pin (the b6-pin tolerance pattern), because the
-        pin ships in an UNRELEASED pylxpweb while the manifest floor stays
-        b10 until the release-cut pin bump.
+        The manifest floor (>=0.9.39b11) carries the reg-179 bit-15 pin
+        (pylxpweb PR #270), so the probe must find FUNC_ON_GRID_ALWAYS_ON at
+        reg-179 index 15 unconditionally — a False here is a pin-dropping
+        pylxpweb regression that would silently remove the switch in LOCAL.
         """
         from pylxpweb.constants.registers import REGISTER_TO_PARAM_KEYS
 
-        expected = any(
-            "FUNC_ON_GRID_ALWAYS_ON" in names
-            for names in REGISTER_TO_PARAM_KEYS.values()
-        )
-        assert (
-            switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON") == expected
-        )
+        assert switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
+        reg179 = REGISTER_TO_PARAM_KEYS.get(179, [])
+        assert len(reg179) > 15
+        assert reg179[15] == "FUNC_ON_GRID_ALWAYS_ON"
 
     @pytest.mark.asyncio
     async def test_cloud_mode_creates_grid_always_on(self, hass):
@@ -4246,18 +4241,12 @@ class TestGridAlwaysOnGating:
         ],
         ids=["local_only", "hybrid_transport"],
     )
-    async def test_local_raw_creates_grid_always_on_when_pinned(
-        self, hass, has_http, local_only, monkeypatch
-    ):
+    async def test_local_raw_creates_grid_always_on(self, hass, has_http, local_only):
         """Pinned bit 15: LOCAL and HYBRID create the switch (GH #559).
 
-        The pin is simulated (probe -> True, like the Export PV Only
-        "when_pinned" tests) so this stays green on the b10 manifest floor,
-        where the real probe answers False until the release-cut pin bump.
+        Exercises the real setup probe against the installed pylxpweb, whose
+        register map carries the reg-179 bit-15 pin (>=0.9.39b11).
         """
-        monkeypatch.setattr(
-            switch_module, "_local_params_can_carry", lambda param: True
-        )
         coordinator = _mock_coordinator(
             model="FlexBOSS21",
             has_http=has_http,
@@ -4279,28 +4268,15 @@ class TestGridAlwaysOnGating:
 
     @pytest.mark.asyncio
     async def test_local_raw_gate_tracks_installed_pylxpweb(self, hass):
-        """Reality check (no probe patching): the HYBRID setup gate's answer
-        for Grid Always On must equal what the INSTALLED pylxpweb register
-        map says — green on both sides of the bit-15 pin, and exercises the
-        real probe end to end (mirrors the Export PV Only b6 check).
+        """Reality check (no probe patching): the HYBRID setup gate creates
+        Grid Always On off the INSTALLED pylxpweb register map, exercising
+        the real probe end to end (mirrors the Export PV Only b6 check).
 
-        The unpinned answer is VERSION-KEYED (#559 round 3): a missing pin
-        is acceptable only on the exact b10 floor signature (version at or
-        below 0.9.39b10 AND the FUNC_179_BIT15 placeholder still at reg-179
-        index 15 AND the installed register map byte-identical to the
-        published PyPI b10 artifact — content hash, #559 round 6; installer
-        metadata heuristics were proven defeatable by a filename-only build
-        tag and by a platform-tag wheel, neither recoverable from installed
-        metadata). On any other install a False probe means a pin-dropping
-        pylxpweb regression, and this test fails instead of tracking it.
-        The release-cut pin bump makes the tolerance dead code — drop it
-        then, requiring True unconditionally (b6 precedent).
+        The manifest floor (>=0.9.39b11) carries the reg-179 bit-15 pin, so
+        both the probe and the created-entity set must reflect it
+        unconditionally — a False probe here is a pin-dropping pylxpweb
+        regression, which would silently remove the switch in pure LOCAL.
         """
-        import importlib.metadata
-
-        from packaging.version import Version
-        from pylxpweb.constants.registers import REGISTER_TO_PARAM_KEYS
-
         coordinator = _mock_coordinator(
             model="FlexBOSS21", has_http=True, has_local=True
         )
@@ -4315,32 +4291,8 @@ class TestGridAlwaysOnGating:
             for e in entities
             if isinstance(e, EG4WorkingModeSwitch)
         }
-        expected = switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
-        if not expected:
-            reg179 = REGISTER_TO_PARAM_KEYS.get(179, [])
-            # Pristine-content conjunct (#559 round 6): tolerate the missing
-            # pin only when the installed register map is byte-identical to
-            # the published PyPI b10 artifact. Shared with (imported from)
-            # the harness sentinel — see that helper's docstring for the two
-            # proven installer-metadata holes this replaces.
-            from tests.test_register_contract_harness import (
-                _installed_registers_module_is_pristine_b10,
-            )
-
-            b10_floor_signature = (
-                Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
-                and len(reg179) > 15
-                and reg179[15] == "FUNC_179_BIT15"
-                and _installed_registers_module_is_pristine_b10()
-            )
-            assert b10_floor_signature, (
-                "installed pylxpweb does not carry the reg-179 bit-15 pin "
-                "and is NOT the pristine published b10 floor artifact — a "
-                "pin-dropping regression (or a divergent b10 re-release, "
-                "build- or platform-tagged) would silently remove the Grid "
-                "Always On switch in pure LOCAL"
-            )
-        assert ("FUNC_ON_GRID_ALWAYS_ON" in params) == expected
+        assert switch_module._local_params_can_carry("FUNC_ON_GRID_ALWAYS_ON")
+        assert "FUNC_ON_GRID_ALWAYS_ON" in params
 
     @pytest.mark.asyncio
     async def test_hybrid_transport_skips_when_unpinned(self, hass, monkeypatch):
@@ -4509,20 +4461,14 @@ class TestGridAlwaysOnSwitchBehavior:
         ids=["local", "hybrid"],
     )
     @pytest.mark.asyncio
-    async def test_local_raw_write_uses_named_reg179_bit15(
-        self, turn_on, has_http, monkeypatch
-    ):
+    async def test_local_raw_write_uses_named_reg179_bit15(self, turn_on, has_http):
         """LOCAL/HYBRID write FUNC_ON_GRID_ALWAYS_ON by name (reg 179 bit 15).
 
-        The pin is simulated (probe -> True): the execution-time version
-        guard in ``_execute_working_mode`` degrades to the cloud route on
-        the b10 manifest floor, so the named local write only exists on a
-        pinned pylxpweb — this test pins THAT route, tolerantly of which
-        pylxpweb is installed (b6-pin pattern).
+        Exercises the real execution-time probe in ``_execute_working_mode``
+        against the installed pylxpweb, which carries the pin
+        (>=0.9.39b11) — the named local write route must be taken, never the
+        cloud degrade.
         """
-        monkeypatch.setattr(
-            switch_module, "_local_params_can_carry", lambda param: True
-        )
         coordinator = _mock_coordinator(has_http=has_http, has_local=True)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
@@ -4559,9 +4505,6 @@ class TestGridAlwaysOnSwitchBehavior:
         through ``_execute_named_parameter_action``, or (b) that helper's
         post-write refresh phase stops running a full coordinator refresh.
         """
-        monkeypatch.setattr(
-            switch_module, "_local_params_can_carry", lambda param: True
-        )
         coordinator = _mock_coordinator(has_http=has_http, has_local=True)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
@@ -4618,19 +4561,15 @@ class TestGridAlwaysOnSwitchBehavior:
         assert switch._optimistic_state is None
 
     @pytest.mark.asyncio
-    async def test_no_transport_raises(self, monkeypatch):
+    async def test_no_transport_raises(self):
         """Neither cloud nor a usable local path -> explicit error.
 
         With the local named mapping wired (GH #559), the no-transport case
         goes through ``_execute_local_with_fallback`` and raises its
         transport-missing error rather than the older cloud-only fallthrough.
-        The pin is simulated (probe -> True) so that route — not b10's
-        degraded cloud-only fallthrough with its different error text — is
-        the one under test regardless of the installed pylxpweb.
+        The installed pylxpweb (>=0.9.39b11) carries the pin, so the real
+        probe selects that route.
         """
-        monkeypatch.setattr(
-            switch_module, "_local_params_can_carry", lambda param: True
-        )
         coordinator = _mock_coordinator(has_http=False, has_local=False)
         switch = _make_grid_always_on_switch(coordinator)
         _prep(switch)
