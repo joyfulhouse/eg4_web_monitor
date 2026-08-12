@@ -301,24 +301,40 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 
 | Reg | Canonical Name | Scale | Unit | HA Sensor Key |
 |-----|----------------|-------|------|---------------|
-| 64 | `internal_temperature` | 1 | C | `internal_temperature` (genuine on this path; see the CLOUD caveat below) |
+| 64 | `internal_temperature` | 1 | C | `internal_temperature` (constant-0 on some hardware; see the caveat below) |
 | 65 | `radiator_temperature_1` | 1 | C | `radiator1_temperature` |
 | 66 | `radiator_temperature_2` | 1 | C | `radiator2_temperature` |
-| 67 | `battery_temperature` | 1 | C | `battery_temperature` |
-| 108 | `temperature_t1` | ÷10 | C | `bt_temperature` |
+| 67 | `battery_temperature` | 1 | C | `battery_temperature` (same caveat) |
+| 108 | `temperature_t1` | ÷10 | C | `bt_temperature` (same caveat) |
 
 > **Note:** `bt_temperature` (reg 108) is Modbus-only (not available via Cloud API).
 > Available in LOCAL and HYBRID modes (overlaid via `_TRANSPORT_OVERLAY`).
 
-> **CLOUD caveat — Internal Temperature reads a constant 0 on some
-> hardware (#490).** The cloud `getInverterRuntime` payload relays
-> `tinner: 0` permanently on some units while `tradiator1`/`tradiator2`
-> read live (the #490 reporter's 12000XP and the #76 raw payload from a
-> second 12000XP). `tinner` is a REQUIRED pydantic field in pylxpweb, so
-> the 0 is literally on the wire — there is no sentinel to translate. A
-> **cloud-sourced** `internal_temperature` of exactly 0 is therefore
-> published as `None` (HA “unknown”) instead of a wrong constant, via
-> `blank_cloud_zero_internal_temperature` in `coordinator_mappings.py`.
+> **Constant-zero temperatures on some hardware (#490, generalized for
+> #560).** Some units serve a permanent 0 in a temperature channel while
+> the radiator temperatures read live: the cloud `getInverterRuntime`
+> payload relays `tinner: 0` (the #490 reporter's 12000XP and the #76 raw
+> payload from a second 12000XP), and a HYBRID-mode 12000XP serves the
+> same constant 0 in LOCAL input regs 64 (internal), 67 (battery) and 108
+> (BT) while radiator1/2 read 58/61 °C and the BMS cell temps read a
+> healthy 30/32 °C (#560 — reporter diagnostics confirm those live
+> radiators). `tinner` is a REQUIRED pydantic field in pylxpweb and the
+> register 0 is genuinely what the DSP serves — there is no sentinel to
+> translate on either path. An exact 0 in `internal_temperature`,
+> `battery_temperature` or `bt_temperature` is therefore published as
+> `None` (HA “unknown”) instead of a wrong constant, via
+> `blank_constant_zero_temperatures` in `coordinator_mappings.py` — on
+> every path (CLOUD, HYBRID, LOCAL), gated only by the value plus
+> **positive warmth** radiator corroboration: blank only when at least
+> one radiator reading is STRICTLY `> 0` °C. Radiators `<= 0`
+> (cold-consistent, including negatives) and absent/`None` radiators
+> PROTECT the reading (publish the 0) — there is no evidence it is bogus.
+>
+> **CLOUD-path narrowing vs #490:** earlier #490 blanked cloud `tinner: 0`
+> unconditionally (including when radiators were absent). The warmth gate
+> now applies on the cloud path too. Known #490/#76 reporter payloads
+> carried live radiators (`tradiator1`/`tradiator2` at 46/54 and similar),
+> so those cases remain fixed.
 >
 > **This is NOT a family difference — do not turn it into one.** The
 > defect splits *within* deviceTypeCode 54: a **12000XP** reports the
@@ -329,18 +345,13 @@ Mapping chain: Register → `_canonical_reader.read_scaled()` → `InverterRunti
 > (#259/#307), so a family gate would suppress a sensor that
 > demonstrably works. Only the observed VALUE is treated.
 >
-> **Scope is the SOURCE, not the mode.** pylxpweb's
-> `Inverter.inverter_temperature` is
-> `_raw_int("internal_temperature", "tinner")`: it returns the transport
-> register whenever transport runtime exists and falls back to cloud
-> `tinner` only when it does not. The treatment is gated on
-> `transport_runtime is not None`, so LOCAL is untouched and HYBRID
-> cycles that fell back to the cloud are correctly treated. There is no
-> evidence against register 64 on any family.
->
-> **Trade-off:** 0 °C is a physically legitimate reading, so a unit
-> genuinely at 0 on a cloud connection now reads unknown — the same
-> caveat #348 raised for `tBat`. Bounded, and reversible.
+> **Accepted residuals:** an all-zero boot/placeholder frame (targets 0,
+> radiators 0) is physically indistinguishable from a genuinely cold unit
+> and publishes the zeros until radiators warm — no family/freshness
+> heuristic. A unit genuinely at 0 °C whose radiators nonetheless read
+> `> 0` reads unknown. Radiators oscillating across the `> 0` freeze
+> point (0↔1) can flap the blanking decision (cosmetic). Bounded, and
+> reversible.
 
 ### Read-Only Operational Diagnostics
 

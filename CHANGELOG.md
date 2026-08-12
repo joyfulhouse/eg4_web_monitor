@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Constant-zero temperature blanking requires positive radiator warmth** ([#560](https://github.com/joyfulhouse/eg4_web_monitor/issues/560), PR [#561](https://github.com/joyfulhouse/eg4_web_monitor/pull/561)): blank `internal_temperature` / `battery_temperature` / `bt_temperature` at exact 0 only when at least one radiator reads STRICTLY `> 0` °C. Radiators `<= 0` (including negatives) and absent radiators protect the reading. This also **narrows the cloud path vs #490** (previously unconditional `tinner: 0` blanking); known #490/#76 reporter payloads had live radiators and remain fixed. The #560 reporter's diagnostics showed radiators at 58/61 °C with targets stuck at 0. Accepted residual: an all-zero boot/placeholder frame publishes zeros until radiators warm (indistinguishable from genuine cold — no family/freshness heuristic).
+
 ## [3.5.1-beta.10] - 2026-08-08
 
 Requires **[pylxpweb>=0.9.39b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.39b10)** (pin raised): the library half of this fix stops the off-grid generator registers from being decoded at all, so `InverterRuntimeData`/`InverterEnergyData` no longer carry the 1 Hz counter or the status bitfields that the LOCAL and HYBRID paths read directly. The integration change below removes the entities; the library change removes the underlying values.
