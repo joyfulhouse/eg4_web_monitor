@@ -47,14 +47,18 @@ Companion files:
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import importlib.metadata
 import re
 from collections import Counter
 from collections.abc import Callable, Iterable
+from pathlib import Path
 from typing import Any
 
 import pytest
 from packaging.version import Version
+
+import pylxpweb.constants.registers as pylxpweb_registers_module
 from pylxpweb.constants.registers import (
     MULTI_BIT_FIELDS,
     REGISTER_TO_PARAM_KEYS,
@@ -1500,10 +1504,9 @@ def _resolve_param_in_pylxpweb(name: str) -> list[tuple[str, int, int | None]]:
 # below 0.9.39b10 AND the b10 FUNC_179_BIT15 placeholder still sitting at
 # reg-179 index 15 (the capability sentinel; PR #270 does not bump the
 # version, so the version compare alone cannot distinguish the two installs)
-# AND the installed distribution being the ORIGINAL untagged PyPI artifact
-# (no wheel Build tag, no direct-URL install — see
-# _installed_pylxpweb_is_original_untagged_artifact for the build-tag /
-# 14-day release-mutability vector this closes, #559 round 5).
+# AND the installed register map being BYTE-IDENTICAL to the published PyPI
+# 0.9.39b10 artifact (content hash — see
+# _installed_registers_module_is_pristine_b10, #559 round 6).
 # Any install that fails that signature must carry the (179, 15) pin or the
 # harness goes red, loudly.  Like the b6 precedent, the release-cut pin bump
 # makes this tolerance dead code — DROP the sentinel and the branches on it
@@ -1514,28 +1517,48 @@ _ON_GRID_ALWAYS_ON_PINNED = bool(
 _REG179_KEYS = REGISTER_TO_PARAM_KEYS.get(179, [])
 
 
-def _installed_pylxpweb_is_original_untagged_artifact() -> bool:
-    """Whether the installed pylxpweb is the original, untagged b10 artifact.
+# sha256 of pylxpweb/constants/registers.py inside the PUBLISHED PyPI
+# 0.9.39b10 wheel (pylxpweb-0.9.39b10-py3-none-any.whl, itself verified
+# against PyPI's published wheel digest before extracting). Reproduce with:
+#   uvx pip download pylxpweb==0.9.39b10 --no-deps -d . && python -c \
+#     "import hashlib,zipfile;print(hashlib.sha256(zipfile.ZipFile('pylxpweb-0.9.39b10-py3-none-any.whl').read('pylxpweb/constants/registers.py')).hexdigest())"
+_B10_REGISTERS_SHA256 = (
+    "a771ebb0fa86a6c75e7ae2c76e54252b9147729450bf8f3569dbe1eb25078281"
+)
 
-    Third tolerance conjunct (#559 round 5): PyPI's 14-day release-mutability
-    window permits ADDING files to an existing release — e.g. a build-tagged
-    wheel ``pylxpweb-0.9.39b10-1-py3-none-any.whl`` with divergent content —
-    and pip prefers the higher build tag on ``>=0.9.39b10``.  Such a wheel
-    could carry the FUNC_179_BIT15 placeholder (satisfying the layout
-    sentinel) while otherwise diverging, or drop the pin, with CI staying
-    green.  So the tolerance additionally requires the installed distribution
-    to be the original artifact: a wheel install (WHEEL metadata present)
-    with NO ``Build:`` tag and NO ``direct_url.json`` (an editable or
-    local/URL install is not the PyPI artifact; the dev editable install is
-    pin-bearing, so it never needs the tolerance and takes the strict path).
+
+def _installed_registers_module_is_pristine_b10() -> bool:
+    """Whether the installed register map is byte-identical to real b10.
+
+    Third tolerance conjunct (#559 round 6, replacing round 5's installer-
+    metadata heuristic). PyPI's 14-day release-mutability window permits
+    ADDING files to the existing 0.9.39b10 release, and two divergent-
+    artifact vectors were empirically proven to defeat any metadata probe:
+    a hand-crafted build-tagged wheel (``0.9.39b10-1``) whose FILENAME tag
+    governs installer preference but is unrecoverable from installed
+    metadata (no WHEEL ``Build:`` line required), and a platform wheel
+    (``cp313-manylinux``) that outranks ``py3-none-any`` on compatibility
+    tag with no build tag and no direct_url at all. The heuristic is
+    unfixable in principle; content is not: if the installed
+    ``pylxpweb/constants/registers.py`` — the load-bearing file every
+    conjunct here reads — is byte-identical to the published b10 artifact,
+    the tolerance's premise (placeholder present, pin absent, floor
+    install) holds BY CONSTRUCTION regardless of which filename or wheel
+    delivered it. Any divergent map — build-tagged, platform-tagged,
+    hand-crafted — hashes differently and fails strict/loud. Unreadable or
+    missing file → NOT tolerated. The pin-bearing dev editable install
+    hashes differently too, but it never reaches the tolerance (strict
+    path). Mirrored by the gate test in test_switch_entities.py, which
+    imports this helper.
     """
-    dist = importlib.metadata.distribution("pylxpweb")
-    wheel_meta = dist.read_text("WHEEL") or ""
-    if not wheel_meta:
+    module_file = getattr(pylxpweb_registers_module, "__file__", None)
+    if not module_file:
         return False
-    if any(line.startswith("Build:") for line in wheel_meta.splitlines()):
+    try:
+        digest = hashlib.sha256(Path(module_file).read_bytes()).hexdigest()
+    except OSError:
         return False
-    return not dist.read_text("direct_url.json")
+    return digest == _B10_REGISTERS_SHA256
 
 
 _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON = (
@@ -1543,7 +1566,7 @@ _TOLERATE_UNPINNED_ON_GRID_ALWAYS_ON = (
     and Version(importlib.metadata.version("pylxpweb")) <= Version("0.9.39b10")
     and len(_REG179_KEYS) > 15
     and _REG179_KEYS[15] == "FUNC_179_BIT15"
-    and _installed_pylxpweb_is_original_untagged_artifact()
+    and _installed_registers_module_is_pristine_b10()
 )
 
 
