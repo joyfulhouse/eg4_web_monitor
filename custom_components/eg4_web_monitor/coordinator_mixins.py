@@ -66,10 +66,10 @@ from .coordinator_mappings import (
     _supports_three_phase_context,
     _write_charge_rate,
     alias_common_voltage_sensors,
+    blank_constant_zero_temperatures,
     blank_lost_inverter_measurements,
     build_battery_bank_sensors,
     compute_bank_charge_rate,
-    blank_cloud_zero_internal_temperature,
     drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
 )
@@ -2649,16 +2649,6 @@ class DeviceProcessingMixin(_MixinBase):
             inverter.transport_runtime is not None,
         )
 
-        # The cloud relays a constant `tinner: 0` on some hardware while the
-        # radiator temps read live, so a cloud-sourced internal_temperature of
-        # exactly 0 is published as unknown rather than a wrong constant
-        # (#490).  Value-scoped, NOT family-scoped: a 6000XP reports live
-        # Tinner while a 12000XP reports 0, and both are EG4_OFFGRID.
-        blank_cloud_zero_internal_temperature(
-            processed["sensors"],
-            inverter.transport_runtime is not None,
-        )
-
         # Load Energy (Eload, regs 171/172) — the inverter-served load.  This is
         # a SEPARATE meter from whole-home `consumption` (overridden below).
         # energy_today_usage/energy_lifetime_usage return the transport register
@@ -2735,6 +2725,12 @@ class DeviceProcessingMixin(_MixinBase):
             # is unreliable.
             if (val := getattr(inverter, "total_load_power", None)) is not None:
                 processed["sensors"]["total_load_power"] = val
+
+        # Blank constant-zero temperature channels corroborated as bogus by
+        # live radiator temps (#490/#560 — rationale and evidence in the
+        # function's docstring).  Runs AFTER the transport overlay above so
+        # an overlaid bt_temperature (reg 108) is treated too.
+        blank_constant_zero_temperatures(processed["sensors"])
 
         # Carry the last-known fault/warning code forward across a HYBRID local
         # link-down (#261).  These codes are transport-exclusive (the cloud
