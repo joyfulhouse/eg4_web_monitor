@@ -393,6 +393,133 @@ class TestProperties:
         entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
         assert entity.update_percentage is None
 
+    def test_update_percentage_none_while_install_lock_held(self):
+        """HA-initiated chain: percentage is indeterminate while lock held (#512).
+
+        Uses an intermediate active percentage (50) so this assertion only
+        passes via the lock branch — not the external active 0/100 rule.
+        """
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": True,
+                        "update_percentage": 50,
+                    },
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        entity._install_lock = MagicMock()
+        entity._install_lock.locked.return_value = True
+        assert entity.update_percentage is None
+
+    @pytest.mark.parametrize(
+        ("in_progress", "pct", "expected"),
+        [
+            pytest.param(
+                True,
+                0,
+                None,
+                id="external_active_synthetic_zero",
+            ),
+            pytest.param(
+                True,
+                100,
+                None,
+                id="external_active_100",
+            ),
+            pytest.param(
+                True,
+                50,
+                50,
+                id="external_active_intermediate",
+            ),
+            pytest.param(
+                False,
+                100,
+                100,
+                id="idle_100_unchanged",
+            ),
+            pytest.param(
+                False,
+                0,
+                0,
+                id="idle_0_unchanged",
+            ),
+        ],
+    )
+    def test_update_percentage_external_state(
+        self, in_progress: bool, pct: int, expected: int | None
+    ):
+        """External (lock free) percentage mapping for active vs idle rows (#512).
+
+        pylxpweb selects one matching remoteUpdate/info row and parses its
+        updateRate without chain aggregation (verified-against-code: pylxpweb
+        ab87902, FirmwareUpdateMixin.get_firmware_update_progress). Whether
+        that row is one firmware component vs overall chain progress is
+        asserted-unverified (#353/#512).
+
+        Active 0 is the pylxpweb post-start seed (verified-against-code:
+        pylxpweb v0.9.39b11 / ab87902, FirmwareUpdateMixin.start_firmware_update).
+        Active 100 was observed on a 6000XP (asserted-unverified: #353/#512).
+        """
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": in_progress,
+                        "update_percentage": pct,
+                    },
+                }
+            }
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        assert entity.update_percentage == expected
+
+    def test_stale_active_100_survives_refresh_failures_characterization(self):
+        """CHARACTERIZATION: stale active-100 row + refresh failures (#512 wedge).
+
+        Sequence: cached firmware_update_info stays in_progress=True at 100%,
+        then last_update_success flips False (persistent refresh failures)
+        without replacing the device row.
+
+        Pre-#512 rendering: update_percentage=100 (Installing 100%).
+        Post-#512 rendering: update_percentage=None (indeterminate).
+        in_progress remains True either way — Home Assistant rejects new
+        installs from that busy flag. The wedge WHEN is coordinator
+        carry-forward of the firmware_update_info row across failed refreshes
+        (pre-existing; in_progress property unchanged by this PR).
+        Freshness-bounded clearing of stale active rows is a follow-up,
+        out of #512 scope.
+        """
+        coordinator = _mock_coordinator(
+            devices={
+                "SN1": {
+                    "type": "inverter",
+                    "model": "X",
+                    "firmware_update_info": {
+                        "in_progress": True,
+                        "update_percentage": 100,
+                    },
+                }
+            },
+            last_update_success=True,
+        )
+        entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
+        assert entity.in_progress is True
+        assert entity.update_percentage is None
+
+        # Repeated refresh failures: availability drops, cached row unchanged.
+        coordinator.last_update_success = False
+        assert entity.available is False
+        assert entity.in_progress is True
+        assert entity.update_percentage is None
+
     def test_available_true(self):
         """Entity is available when coordinator succeeds and serial is in data."""
         coordinator = _mock_coordinator(

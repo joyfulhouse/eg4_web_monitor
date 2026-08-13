@@ -330,3 +330,53 @@ H233 `_prefers_cloud_control` boundary) re-read against the files at
 corrected in the same commit (comment-only): `const/modbus.py`,
 `const/working_modes.py`, `switch.py` `_WORKING_MODE_PARAMETERS`, and the
 contract harness's `_CONTROL_REGISTER_CONTRACT` entry.
+
+## [2026-08-12] lint | generate_entity_id citation after #571 deletion
+
+`10-integration/entities-identity-availability.md` §4.1 still cited
+`utils.generate_entity_id` (`utils.py:649-674`) as `verified-against-code` after
+PR #571 removed that helper (and its sole feeder `clean_model_name`) as dead code
+left from the #550/#566 `_attr_entity_id` cleanup. Reworded to past tense
+(removed in #571), re-pinned `verified-against.eg4_web_monitor` `9f6d6e2` →
+`7641b96`, refreshed `last-verified` to 2026-08-12, and re-numbered the live
+`generate_unique_id` cite (`utils.py:677-693` → `:675-691`). Grep across
+`llmwiki/` found no other references; left
+`docs/claude/DEVICE_OBJECTS_REFACTOR_PLAN.md` alone (historical).
+
+## [2026-08-12] lint | entities-identity pin e42ed86 — §4 past-tense + page-wide re-cite
+
+Tribunal round 1 on #571: bumping the page pin to a PR-branch SHA (`7641b96`)
+falsified §4's present-tense "17 `_attr_entity_id` assignments" claim (grep is
+0 since #566) and left in-body `verified-against-code` pins at `9f6d6e2` that
+the front matter no longer carried. Re-pinned `verified-against.eg4_web_monitor`
+to main-reachable `e42ed86` (`origin/main` at this correction). Rewrote §4 to
+past tense for the #566 removals; stated `generate_entity_id` /
+`clean_model_name` as **orphans still defined at `e42ed86`**, with deletion
+verified at the PR #571 head and landing as the #571 squash. Re-grepped the
+whole page and re-numbered drifted cites (inheritance graph, availability
+table + 21→22 `def available` frame including `EG4QuickChargeSwitch`, §2.4
+overrides, §3 pipeline, §5 unique_id / `generate_unique_id` `:722-738`, §6
+DeviceInfo, §7 enabled_default). Rule paid: a pin move is never a local edit.
+
+## [2026-08-12] lint | §2.4 QuickCharge row + ≤10% guard + update.py:54
+
+Tribunal round 2 on #571 (codex MEDIUM/LOW, kimi LOW). (1) §2.4's completeness
+claim omitted `EG4QuickChargeSwitch` while the §2 frame already counted it as
+contract-changing — added the row at `switch.py:525` (`_offgrid_without_cloud`
+gate) and reconciled the frame's "§2.4 plus …" hedge so the table alone owns
+the 8 contract-changers. (2) `_guard_total_increasing` suppresses dips
+`new_val >= 0.9 * last` including exactly 10% — reworded "smaller than 10%" to
+"≤10%" with the boundary test cite. (3) Inheritance-tree `EG4FirmwareUpdateEntity`
+anchor `update.py:55` → `:54` (class keyword at pin `e42ed86`).
+
+## [2026-08-13] ingest | Physical WLAN dongle dump and Ethernet local-listener omission
+
+Dumped an attached ESP32-D0WD-V3 WLAN dongle read-only and decompiled its sole
+factory application (`V1.1`, app SHA-256 `bf557329…ae1cc18`). Filed the result in
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the plaintext port-8000
+server and `C1`–`C4` response dispatcher are intact, but only Wi-Fi startup calls the
+server initializer; Ethernet creates `eth_task` and returns. Compared it with official
+`WL_LINK_V1_2`, which repeats the omission while changing the server to TLS-PSK, and
+recorded the existing one-jump local-listener patch as untested on hardware. Issue
+`eg4-x00j` preserves the evidence record. The full flash was not committed because NVS
+may contain network credentials.

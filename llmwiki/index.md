@@ -80,7 +80,7 @@ defect.
 |---|---|---|
 | [`registers.md`](40-hardware/registers.md) | **The register keeper.** Per-row evidence grades for every inverter and GridBOSS register. Authoritative for any register question | Inverter and GridBOSS register ground truth |
 | [`gridboss.md`](40-hardware/gridboss.md) | GridBOSS specifics, including the smart-port mode register | GridBOSS POWER_HUB UART map |
-| [`firmware-re.md`](40-hardware/firmware-re.md) | Firmware acquisition and decoding methodology, and why the committed RE artefacts are invalid | Acquisition, decoding and register-RE methodology |
+| [`firmware-re.md`](40-hardware/firmware-re.md) | Firmware acquisition/decoding methodology, invalid-artifact boundaries, and ESP32 WLAN local-listener analysis | Acquisition, decoding and register-RE methodology; ESP32 WLAN listener behaviour and patch lineage |
 | [`probing-playbook.md`](40-hardware/probing-playbook.md) | The safe procedure for dumping and verifying registers on live hardware. **Runbook — read before touching a device** | Safe register dumping and live verification |
 | [`open-questions.md`](40-hardware/open-questions.md) | What evidence would resolve each open hardware question | Evidence needed to resolve open hardware and firmware questions |
 
