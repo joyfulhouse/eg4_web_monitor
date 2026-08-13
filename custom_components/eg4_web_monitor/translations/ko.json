@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "오프그리드"
+      },
+      "ac_charge_schedule_active": {
+        "name": "AC 충전 일정 활성"
+      },
+      "ac_first_schedule_active": {
+        "name": "AC 퍼스트 일정 활성"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "데이터 새로 고침"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "AC 충전 일정 지우기"
+      },
+      "clear_ac_first_schedule": {
+        "name": "AC 퍼스트 일정 지우기"
       }
     },
     "select": {
@@ -1082,6 +1094,18 @@
     },
     "device_not_found": {
       "message": "장치 {serial}을(를) 이 플랜트에서 찾을 수 없습니다."
+    },
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "{serial}의 AC 충전 일정을 지우지 못했습니다: {param} 쓰기에 실패했습니다({error})."
+    },
+    "clear_schedule_write_failed_ac_first": {
+      "message": "{serial}의 AC 퍼스트 일정을 지우지 못했습니다: {param} 쓰기에 실패했습니다({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "{serial}의 AC 충전 일정을 지우지 못했습니다: {param} 쓰기가 확인되지 않았습니다."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "{serial}의 AC 퍼스트 일정을 지우지 못했습니다: {param} 쓰기가 확인되지 않았습니다."
     }
   },
   "issues": {
@@ -1132,6 +1156,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "AC 충전 스위치가 {model} {serial}에서 제거됨",
+      "description": "**AC 충전 모드** 스위치가 **{serial}**({model})에서 제거되었습니다.\n\nEG4 오프그리드 인버터(SNA 제품군)에서 AC 충전은 일정으로 정의되는 작동 모드입니다. EG4 포털은 AC 충전 시간대만 제공하고 마스터 on/off 토글은 없으며, 스위치를 꺼도 설정된 일정은 그대로 유지되었습니다(#563). 오프그리드 빌드의 펌웨어 분석이 그 이유를 보여줍니다. 스위치의 기반이 되는 기능 비트(홀딩 레지스터 21, 비트 7)는 저장되고 읽을 수 있지만 충전 로직에서 전혀 사용되지 않으므로, 이 제품군에서 스위치는 아무것도 시작하거나 멈출 수 없었습니다.\n\n대신 사용할 항목: **AC 충전 시작/종료 시간** 엔터티(기본 비활성화 — 엔터티 레지스트리에서 활성화)로 일정을 편집하고, 새 **AC 충전 일정 활성** 바이너리 센서로 시간대가 설정되어 있는지 확인하세요. 모든 시간대를 한 번에 00:00–00:00으로 재설정하려면 새 **AC 충전 일정 지우기** 버튼을 누르세요. 단, 이 버튼은 클라우드 액세스(HTTP 또는 하이브리드 연결 모드)가 필요하며 로컬 전용 연결에서는 생성되지 않습니다. 클라우드 액세스가 없으면 시간 엔터티로 모든 시간대의 시작 및 종료 시간을 00:00으로 설정하여 일정을 지우세요. 이 제품군에서는 **AC 퍼스트**에도 동일한 엔터티가 있습니다.\n\n제거된 스위치를 참조하던 자동화나 대시보드를 업데이트하세요. 근거는 GitHub 이슈 #563을 참조하세요."
     }
   }
 }

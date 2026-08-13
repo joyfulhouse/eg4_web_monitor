@@ -289,6 +289,42 @@ HYBRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
     }
 )
 
+# Control (switch) unique-ID keys excluded on EG4_OFFGRID — the switch-domain
+# counterpart of the sensor sets above, consumed by the family-excluded
+# registry cleanup in __init__.py.
+#
+# "ac_charge" (FUNC_AC_CHARGE, reg 21 bit 7, GH #563): on the SNA platform AC
+# Charge is a schedule-defined working mode — the portal exposes time windows
+# and no master toggle, and the off-grid firmware RE session graded H21 b7
+# firmware-proven-inert (stored and readback-visible, never consumed by the
+# ARM→DSP mapper or charge logic), so the switch was a provable no-op. The
+# suppression itself lives in FAMILY_UNSUPPORTED_CONTROL_PARAMS (utils.py);
+# this set drives the one-shot registry purge + Repairs notice for users who
+# already had the switch registered.
+#
+# BOTH unique-ID shapes the switch ever shipped must be purged (git history,
+# switch.py / custom_components/eg4_web_monitor/switch.py):
+# - "{serial}_func_ac_charge" — introduced in 28abca1 (2025-09-19, "feat:
+#   Implement comprehensive EG4 operating modes control"; first release
+#   v1.4.0) as f"{serial_number}_{param.lower()}". The shape survived the
+#   #33 HACS restructure (e07179d) and the EG4BaseSwitch refactor (d7f02db),
+#   which passed entity_key=mode_config["param"].lower(). Shipped in every
+#   release from v1.4.0 up to (not including) v3.1.8.
+# - "{serial}_ac_charge" — introduced in beddd24 (2026-01-20, "fix: AC Couple
+#   power sensors always show 0 (#87)"; first release v3.1.8), which switched
+#   entity_key to the func_-stripped param_clean. Current shape.
+# No model-prefixed switch unique_id ever shipped (the model prefix was
+# entity_id-only; contrast number/time, whose pre-stable identities could
+# carry one — #219/#222), and no "entity_key" override was ever set on the
+# ac_charge_mode WORKING_MODES entry, so "ac_charge_mode" itself was never a
+# unique-ID suffix.
+OFFGRID_EXCLUDED_SWITCHES: frozenset[str] = frozenset(
+    {
+        "ac_charge",
+        "func_ac_charge",  # pre-v3.1.8 shape — see the history note above
+    }
+)
+
 # Sensors related to Volt-Watt curve (EG4_HYBRID, LXP only)
 VOLT_WATT_SENSORS: frozenset[str] = frozenset(
     {

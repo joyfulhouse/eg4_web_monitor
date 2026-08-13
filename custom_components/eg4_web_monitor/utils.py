@@ -121,11 +121,14 @@ CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
 
 
 # Per-family control capability map (GH #289): FUNC_ parameters whose
-# controls a family's firmware/cloud REJECTS ON WRITE. Entities for these
+# controls a family's firmware/cloud REJECTS ON WRITE — or provably cannot
+# honor (GH #563: firmware-proven-inert on the family). Entities for these
 # are not created — offering a switch the firmware refuses to honor is an
 # optimistic lie.
 #
-# Inclusion bar (Opus review on PR #307): a live rejected-write report.
+# Inclusion bar (Opus review on PR #307): a live rejected-write report, or
+# an equally direct firmware-level proof that the backing bit is inert on
+# the family.
 # Portal absence alone is NOT sufficient — the EG4_OFFGRID bucket (device
 # type code 54) spans SNA12K-US, 12000XP v1/v2 AND 6000XP, no
 # device_type_code isolates XP v2, and the FUNC_ bits are register-decoded
@@ -141,6 +144,20 @@ CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
 # schedule). The SNA12K-US reference dump (pylxpweb
 # docs/inverters/SNA12KUS_52XXXXXX68.md) shows the bit present but
 # DISABLED, consistent with the function being unused family-wide.
+#
+# EG4_OFFGRID / FUNC_AC_CHARGE (reg 21 bit 7, GH #563): on this family the
+# portal models AC Charge as a SCHEDULE-DEFINED working mode — the SNA
+# working-mode page offers AC Charge time windows and no master enable
+# toggle, and the #563 reporter's captures show the schedule running with
+# the bit stored False. The bit's "AC Charge enable" semantics are
+# lineage-inferred lineage-wide with no off-grid override (pylxpweb
+# registers.py), and the off-grid firmware RE session
+# (``fw-verify-offgrid-writes``, codex session 8fc0480f63c548be90d7382d9bdcb7ee)
+# graded H21 b7 on the off-grid build firmware-proven-inert: stored and
+# readback-visible, but never consumed by the ARM→DSP parameter mapper or
+# the charge logic — so the switch is a provable no-op on this family, not
+# merely an unproven one. The reporter observed exactly that: toggling it
+# off left the 23:05–06:55 schedule running.
 #
 # Deliberately NOT listed (fail-open on ambiguity, same adjudication style
 # as the Forced Discharge gating in PR #220):
@@ -158,6 +175,7 @@ FAMILY_UNSUPPORTED_CONTROL_PARAMS: dict[str, frozenset[str]] = {
     INVERTER_FAMILY_EG4_OFFGRID: frozenset(
         {
             "FUNC_BATTERY_BACKUP_CTRL",  # Battery Backup Mode (reg 233 bit 1)
+            "FUNC_AC_CHARGE",  # AC Charge Mode (reg 21 bit 7), GH #563
         }
     ),
 }

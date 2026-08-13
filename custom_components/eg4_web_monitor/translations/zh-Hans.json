@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "离网"
+      },
+      "ac_charge_schedule_active": {
+        "name": "交流充电计划已启用"
+      },
+      "ac_first_schedule_active": {
+        "name": "交流优先计划已启用"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "刷新数据"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "清除交流充电计划"
+      },
+      "clear_ac_first_schedule": {
+        "name": "清除交流优先计划"
       }
     },
     "select": {
@@ -1082,6 +1094,18 @@
     },
     "device_not_found": {
       "message": "在此电站中未找到设备 {serial}。"
+    },
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "无法清除 {serial} 的交流充电计划:{param} 写入失败({error})。"
+    },
+    "clear_schedule_write_failed_ac_first": {
+      "message": "无法清除 {serial} 的交流优先计划:{param} 写入失败({error})。"
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "无法清除 {serial} 的交流充电计划:{param} 写入未得到确认。"
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "无法清除 {serial} 的交流优先计划:{param} 写入未得到确认。"
     }
   },
   "issues": {
@@ -1132,6 +1156,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "交流充电开关已从 {model} {serial} 移除",
+      "description": "**交流充电模式**开关已从 **{serial}**（{model}）移除。\n\n在 EG4 离网逆变器（SNA 系列）上，交流充电是一种由计划定义的工作模式：EG4 门户提供交流充电时间窗口，但没有总开关，而且关闭该开关后已配置的计划仍然原样保留（#563）。对离网版本固件的分析说明了原因：该开关背后的功能位（保持寄存器 21，位 7）会被存储且可读取，但充电逻辑从不使用它——因此在该系列产品上，此开关无法启动或停止任何功能。\n\n替代方案：使用**交流充电开始/结束时间**实体（默认禁用——请在实体注册表中启用）编辑计划；通过新的**交流充电计划已启用**二进制传感器查看是否配置了时间窗口。如需一步将所有窗口重置为 00:00–00:00，请按下新的**清除交流充电计划**按钮——注意此按钮需要云端访问（HTTP 或混合连接模式），在纯本地连接下不会创建；若无法访问云端，可改用时间实体将每个窗口的开始和结束时间设置为 00:00 来清除计划。该系列产品的**交流优先**也有同样的实体。\n\n请更新引用了已移除开关的自动化或仪表盘。相关证据请参阅 GitHub 上的 issue #563。"
     }
   }
 }

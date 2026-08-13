@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Off-Grid"
+      },
+      "ac_charge_schedule_active": {
+        "name": "AC Charge Schedule Active"
+      },
+      "ac_first_schedule_active": {
+        "name": "AC First Schedule Active"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Refresh Data"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "Clear AC Charge Schedule"
+      },
+      "clear_ac_first_schedule": {
+        "name": "Clear AC First Schedule"
       }
     },
     "select": {
@@ -1082,6 +1094,18 @@
     },
     "device_not_found": {
       "message": "Device {serial} was not found in this plant."
+    },
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "Failed to clear the AC Charge schedule for {serial}: the {param} write failed ({error})."
+    },
+    "clear_schedule_write_failed_ac_first": {
+      "message": "Failed to clear the AC First schedule for {serial}: the {param} write failed ({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "Failed to clear the AC Charge schedule for {serial}: the {param} write was not acknowledged."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "Failed to clear the AC First schedule for {serial}: the {param} write was not acknowledged."
     }
   },
   "issues": {
@@ -1132,6 +1156,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "AC Charge switch removed from {model} {serial}",
+      "description": "The **AC Charge Mode** switch has been removed from **{serial}** ({model}).\n\nOn EG4 off-grid inverters (SNA family), AC Charge is a schedule-defined working mode: EG4's portal offers AC Charge time windows and no master on/off toggle, and turning the switch off left the configured schedule untouched (#563). Firmware analysis of the off-grid build shows why: the switch's backing function bit (holding register 21, bit 7) is stored and readable but never used by the charge logic, so the switch could not start or stop anything on this family.\n\nWhat to use instead: edit the schedule with the **AC Charge Start/End Time** entities (disabled by default — enable them in the entity registry), and watch the new **AC Charge Schedule Active** binary sensor to see whether any window is configured. To reset every window to 00:00–00:00 in one step, press the new **Clear AC Charge Schedule** button — note that this button requires cloud access (HTTP or Hybrid connection mode) and is not created on local-only connections; without cloud access, clear the schedule by setting every window's start and end times to 00:00 with the time entities instead. The same entities exist for **AC First** on this family.\n\nUpdate any automation or dashboard that referenced the removed switch. See issue #563 on GitHub for the evidence."
     }
   }
 }

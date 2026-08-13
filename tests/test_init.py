@@ -1040,6 +1040,23 @@ class TestSmartPortCleanupOnReboot:
             assert await async_setup_entry(hass, entry)
         return mock_coordinator
 
+    @staticmethod
+    def _smart_port_deferred(coordinator):
+        """Return the deferred smart-port cleanup listener, if registered.
+
+        async_setup_entry also registers the family-resolution recleanup
+        listener (#563), so these tests must select the smart-port callback
+        by identity rather than by call count.
+        """
+        matches = [
+            call.args[0]
+            for call in coordinator.async_add_listener.call_args_list
+            if getattr(call.args[0], "__name__", "")
+            == "_async_deferred_smart_port_cleanup"
+        ]
+        assert len(matches) <= 1
+        return matches[0] if matches else None
+
     async def test_static_first_refresh_preserves_registry_entries(
         self, hass: HomeAssistant, mock_config_entry
     ):
@@ -1058,8 +1075,9 @@ class TestSmartPortCleanupOnReboot:
             # Same registry entry ID => automations pinned to it stay valid
             assert current.id == entry.id
 
-        # Cleanup deferred: exactly one coordinator listener registered
-        coordinator.async_add_listener.assert_called_once()
+        # Cleanup deferred: the smart-port listener was registered (alongside
+        # the family-resolution recleanup listener, #563)
+        assert self._smart_port_deferred(coordinator) is not None
 
     async def test_deferred_cleanup_preserves_active_and_removes_stale(
         self, hass: HomeAssistant, mock_config_entry
@@ -1071,7 +1089,7 @@ class TestSmartPortCleanupOnReboot:
         coordinator = await self._setup_with_data(
             hass, mock_config_entry, self._static_data()
         )
-        deferred_cleanup = coordinator.async_add_listener.call_args[0][0]
+        deferred_cleanup = self._smart_port_deferred(coordinator)
         unsub = coordinator.async_add_listener.return_value
 
         # First real poll lands: port 1 active, port 2 unused (the filter
@@ -1102,7 +1120,7 @@ class TestSmartPortCleanupOnReboot:
         coordinator = await self._setup_with_data(
             hass, mock_config_entry, self._static_data()
         )
-        deferred_cleanup = coordinator.async_add_listener.call_args[0][0]
+        deferred_cleanup = self._smart_port_deferred(coordinator)
         unsub = coordinator.async_add_listener.return_value
 
         # Coordinator updates but the GridBOSS data is still the static shape
@@ -1133,8 +1151,9 @@ class TestSmartPortCleanupOnReboot:
         assert registry.async_get(seeded[self.PLAIN_KEY].entity_id) is not None
         assert registry.async_get(seeded[self.STALE_KEY].entity_id) is None
 
-        # No pending GridBOSS serials => no deferred-cleanup listener
-        coordinator.async_add_listener.assert_not_called()
+        # No pending GridBOSS serials => no deferred smart-port listener (the
+        # family-resolution recleanup listener, #563, is always registered)
+        assert self._smart_port_deferred(coordinator) is None
 
     async def test_suspect_status_skip_defers_cleanup(
         self, hass: HomeAssistant, mock_config_entry
@@ -1164,7 +1183,7 @@ class TestSmartPortCleanupOnReboot:
             current = registry.async_get(entry.entity_id)
             assert current is not None, f"{key} removed on suspect-status data"
             assert current.id == entry.id
-        coordinator.async_add_listener.assert_called_once()
+        assert self._smart_port_deferred(coordinator) is not None
 
     async def test_cached_fallback_cycle_defers_cleanup(
         self, hass: HomeAssistant, mock_config_entry
@@ -1193,7 +1212,7 @@ class TestSmartPortCleanupOnReboot:
             current = registry.async_get(entry.entity_id)
             assert current is not None, f"{key} removed on cached-fallback data"
             assert current.id == entry.id
-        coordinator.async_add_listener.assert_called_once()
+        assert self._smart_port_deferred(coordinator) is not None
 
 
 class TestAsyncUnloadEntry:

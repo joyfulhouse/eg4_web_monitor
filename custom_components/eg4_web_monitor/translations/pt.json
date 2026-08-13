@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Fora da Rede"
+      },
+      "ac_charge_schedule_active": {
+        "name": "Programação de carga AC ativa"
+      },
+      "ac_first_schedule_active": {
+        "name": "Programação de AC First ativa"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Atualizar Dados"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "Limpar programação de carga AC"
+      },
+      "clear_ac_first_schedule": {
+        "name": "Limpar programação de AC First"
       }
     },
     "select": {
@@ -1082,6 +1094,18 @@
     },
     "device_not_found": {
       "message": "O dispositivo {serial} não foi encontrado nesta planta."
+    },
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "Falha ao limpar a programação de carga AC de {serial}: a escrita de {param} falhou ({error})."
+    },
+    "clear_schedule_write_failed_ac_first": {
+      "message": "Falha ao limpar a programação de AC First de {serial}: a escrita de {param} falhou ({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "Falha ao limpar a programação de carga AC de {serial}: a escrita de {param} não foi confirmada."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "Falha ao limpar a programação de AC First de {serial}: a escrita de {param} não foi confirmada."
     }
   },
   "issues": {
@@ -1132,6 +1156,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "Interruptor de carga AC removido de {model} {serial}",
+      "description": "O interruptor **Modo de carga AC** foi removido de **{serial}** ({model}).\n\nNos inversores EG4 off-grid (família SNA), a carga AC é um modo de funcionamento definido por programação: o portal da EG4 oferece janelas horárias de carga AC e nenhum interruptor principal, e desligar o interruptor deixava a programação configurada intacta (#563). A análise de firmware da versão off-grid mostra porquê: o bit de função subjacente (registo de retenção 21, bit 7) é armazenado e legível, mas nunca é utilizado pela lógica de carga — o interruptor não conseguia iniciar nem parar nada nesta família.\n\nO que usar em alternativa: edite a programação com as entidades **Hora de início/fim de carga AC** (desativadas por predefinição — ative-as no registo de entidades) e observe o novo sensor binário **Programação de carga AC ativa** para ver se alguma janela está configurada. Para repôr todas as janelas para 00:00–00:00 num só passo, prima o novo botão **Limpar programação de carga AC** — note que este botão requer acesso à nuvem (modo de ligação HTTP ou híbrido) e não é criado em ligações apenas locais; sem acesso à nuvem, limpe a programação definindo as horas de início e fim de todas as janelas para 00:00 com as entidades de hora. As mesmas entidades existem para **AC First** nesta família.\n\nAtualize qualquer automação ou painel que referenciasse o interruptor removido. Consulte a evidência no issue #563 no GitHub."
     }
   }
 }

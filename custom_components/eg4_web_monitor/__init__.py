@@ -1,6 +1,7 @@
 """EG4 Web Monitor integration for Home Assistant."""
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 import logging
 from typing import Any, TypeAlias
@@ -47,6 +48,7 @@ from .const import (
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
     OFFGRID_EXCLUDED_SENSORS,
+    OFFGRID_EXCLUDED_SWITCHES,
 )
 from .coordinator import (
     PV_STRING_LIFETIME_STORAGE_KEY,
@@ -878,19 +880,76 @@ def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bo
     return middle in _DEVICE_UID_DATA_TYPE_SEGMENTS
 
 
-def _async_cleanup_family_excluded_sensor_entities(
+def _is_device_control_uid(unique_id: str, serial: str, keys: Iterable[str]) -> bool:
+    """Whether ``unique_id`` is *this device's own* control for one of ``keys``.
+
+    Matches EXACTLY the identity shapes that ever shipped for the control:
+    ``{serial}_{key}`` (case-insensitive) for each key in ``keys``, where the
+    key set is expected to carry every historical suffix (for the AC Charge
+    switch: ``ac_charge`` since beddd24/v3.1.8 and ``func_ac_charge`` from
+    28abca1/v1.4.0 — the full history comment lives on
+    ``OFFGRID_EXCLUDED_SWITCHES`` in const/device_types.py).
+
+    Unlike ``flag_offgrid_control_suppression`` this deliberately does NOT
+    suffix-match ``{anything}_{serial}_{key}``: that rule exists for
+    number/time entities whose pre-stable identities could carry a model
+    prefix (#219/#222), but git history shows no model-prefixed SWITCH
+    unique_id ever shipped (the model prefix was entity_id-only), so the
+    looser rule could only ever delete an entity this integration did not
+    create.
+    """
+    uid = unique_id.lower()
+    serial_prefix = f"{serial.lower()}_"
+    return any(uid == f"{serial_prefix}{key}" for key in keys)
+
+
+def _resolved_family_signature(
+    coordinator: EG4DataUpdateCoordinator,
+) -> tuple[tuple[str, str], ...]:
+    """Return the (serial, family) set that drives the family-excluded purge.
+
+    Tracks ONLY what ``_async_cleanup_family_excluded_entities`` reads, so a
+    runtime/energy value change never triggers a registry sweep: which
+    inverters exist and how their family resolved (``UNKNOWN`` included —
+    an UNKNOWN -> EG4_OFFGRID transition is exactly the late-resolution case
+    the deferred rerun exists for).
+    """
+    devices = coordinator.data.get("devices", {}) if coordinator.data else {}
+    return tuple(
+        sorted(
+            (
+                str(serial),
+                str((device_data.get("features") or {}).get("inverter_family") or ""),
+            )
+            for serial, device_data in devices.items()
+            if device_data.get("type") == "inverter"
+        )
+    )
+
+
+def _async_cleanup_family_excluded_entities(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
     coordinator: EG4DataUpdateCoordinator,
 ) -> None:
-    """Purge sensors excluded for a positively resolved inverter family."""
+    """Purge entities excluded for a positively resolved inverter family.
+
+    Sensors match through the device-namespace allowlist
+    (``_is_device_namespace_uid``) so battery/bank siblings with the same key
+    survive; controls (switches) match the control-identity shape through
+    ``_is_device_control_uid``. Both are gated on the family being positively
+    RESOLVED — ``UNKNOWN`` is excluded, because pylxpweb emits it when a
+    parameter fetch fails, and one transient read failure must not delete a
+    genuine entity irreversibly.
+    """
     devices = coordinator.data.get("devices", {}) if coordinator.data else {}
     entity_registry = er.async_get(hass)
     entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
 
-    for family, excluded_sensors, issue_key, log_message in (
+    for family, domain, excluded_keys, issue_key, log_message in (
         (
             INVERTER_FAMILY_EG4_OFFGRID,
+            "sensor",
             OFFGRID_EXCLUDED_SENSORS,
             "offgrid_generator_sensors_removed",
             "Removed EG4_OFFGRID generator sensor with no real backing "
@@ -898,9 +957,17 @@ def _async_cleanup_family_excluded_sensor_entities(
         ),
         (
             INVERTER_FAMILY_EG4_HYBRID,
+            "sensor",
             HYBRID_EXCLUDED_SENSORS,
             "hybrid_eps_apparent_power_sensors_removed",
             "Removed mislabelled EG4_HYBRID EPS apparent-power sensor (#548): %s",
+        ),
+        (
+            INVERTER_FAMILY_EG4_OFFGRID,
+            "switch",
+            OFFGRID_EXCLUDED_SWITCHES,
+            "offgrid_ac_charge_switch_removed",
+            "Removed schedule-defined EG4_OFFGRID AC Charge switch (#563): %s",
         ),
     ):
         family_models = {
@@ -911,17 +978,31 @@ def _async_cleanup_family_excluded_sensor_entities(
         }
         removed_serials: set[str] = set()
         for entity in entities:
-            serial = entity.unique_id.partition("_")[0]
-            if (
-                entity.domain == "sensor"
-                and serial in family_models
-                and any(
-                    _is_device_namespace_uid(entity.unique_id, serial, key)
-                    for key in excluded_sensors
+            if entity.domain != domain:
+                continue
+            if domain == "sensor":
+                serial = entity.unique_id.partition("_")[0]
+                matched_serial = (
+                    serial
+                    if serial in family_models
+                    and any(
+                        _is_device_namespace_uid(entity.unique_id, serial, key)
+                        for key in excluded_keys
+                    )
+                    else None
                 )
-            ):
+            else:
+                matched_serial = next(
+                    (
+                        s
+                        for s in family_models
+                        if _is_device_control_uid(entity.unique_id, s, excluded_keys)
+                    ),
+                    None,
+                )
+            if matched_serial is not None:
                 entity_registry.async_remove(entity.entity_id)
-                removed_serials.add(serial)
+                removed_serials.add(matched_serial)
                 _LOGGER.info(log_message, entity.entity_id)
 
         for serial in removed_serials:
@@ -1308,8 +1389,37 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # "_battery_discharge_power" (#197) on resolved non-offgrid hardware.
     _async_cleanup_deprecated_battery_discharge_power_entities(hass, entry, coordinator)
 
-    # Conditional cleanup for sensors excluded on a resolved inverter family.
-    _async_cleanup_family_excluded_sensor_entities(hass, entry, coordinator)
+    # Conditional cleanup for entities excluded on a resolved inverter family
+    # (#544 off-grid generator sensors, #548 hybrid EPS apparent-power sensors,
+    # #563 off-grid AC Charge switch).
+    _async_cleanup_family_excluded_entities(hass, entry, coordinator)
+
+    # The family can stay UNKNOWN at first refresh (a failed parameter fetch)
+    # and resolve only on a LATER poll — after this one-shot cleanup ran and
+    # after the fail-open switch rediscovery already created the entity the
+    # resolved family excludes. Rerun the exact-shape purge whenever the
+    # resolved-family set changes so the orphaned entity is deleted (and its
+    # Repairs issue raised) without a reload. Registered BEFORE platform
+    # forwarding so the purge lands in the same dispatch as — and ahead of —
+    # the switch platform's own rediscovery listener. The cleanup is
+    # idempotent (removal of an absent registry entry is a no-op and the
+    # Repairs issue IDs are stable), so re-running on every family flip is
+    # safe; the signature gate keeps that rare.
+    _family_cleanup_signature = _resolved_family_signature(coordinator)
+
+    @callback
+    def _async_reclean_on_family_resolution() -> None:
+        """Rerun the family-excluded purge when a device's family changes."""
+        nonlocal _family_cleanup_signature
+        signature = _resolved_family_signature(coordinator)
+        if signature == _family_cleanup_signature:
+            return
+        _family_cleanup_signature = signature
+        _async_cleanup_family_excluded_entities(hass, entry, coordinator)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_reclean_on_family_resolution)
+    )
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities

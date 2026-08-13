@@ -35,6 +35,8 @@ hour/minute values (or Peak Shaving's LSP params).
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Iterable, Iterator
+from contextlib import AsyncExitStack, asynccontextmanager
 import logging
 from datetime import time
 from typing import TYPE_CHECKING, Any
@@ -77,6 +79,199 @@ MAX_PARALLEL_UPDATES = 3
 # are unaffected.
 _SUPPORTS_WRITE_TIME = hasattr(ControlEndpoints, "write_time_parameter")
 _logged_missing_write_time = False
+
+
+def _schedule_window_suffix(spec: ScheduleTimeSpec, window: int) -> str:
+    """Return the cloud parameter suffix for a schedule window.
+
+    Classic families leave window 1 unsuffixed and suffix windows 2/3
+    ``_1``/``_2``; the writeTime families number ALL windows ``_1..._N``
+    (portal holdParam convention, live register probes). Single source for
+    the scheme, shared by ``schedule_boundary_params`` and the writeTime
+    composite param in ``EG4ScheduleTimeEntity``.
+    """
+    if spec.bare_first_window:
+        return "" if window == 1 else f"_{window - 1}"
+    return f"_{window}"
+
+
+def schedule_boundary_params(
+    spec: ScheduleTimeSpec, window: int, *, is_end: bool
+) -> tuple[int, str, str]:
+    """Return ``(register, cloud hour param, cloud minute param)`` for a boundary.
+
+    Single source for the packed-register arithmetic and cloud param naming
+    (window suffix scheme, Peak Shaving's interleaved LSP reads) shared by the
+    schedule time entities, the schedule-state binary sensors and the
+    clear-schedule buttons (#563).
+
+    Args:
+        spec: The schedule type's declarative table entry.
+        window: User-facing window number (1-N).
+        is_end: False for the window start boundary, True for the end.
+
+    Returns:
+        The holding register address, the cloud hour parameter name and the
+        cloud minute parameter name for the boundary.
+    """
+    register = spec.base_register + (window - 1) * 2 + (1 if is_end else 0)
+
+    # Peak Shaving reports its schedule under the interleaved
+    # LSP_HOLD_DIS_CHG_POWER_TIME_{n} params rather than the
+    # {prefix}_{START|END}_{HOUR|MINUTE} convention.
+    if spec.read_lsp_base is not None:
+        lsp_base = spec.read_lsp_base + (window - 1) * 4 + (2 if is_end else 0)
+        return (
+            register,
+            f"LSP_HOLD_DIS_CHG_POWER_TIME_{lsp_base}",
+            f"LSP_HOLD_DIS_CHG_POWER_TIME_{lsp_base + 1}",
+        )
+
+    boundary = "END" if is_end else "START"
+    suffix = _schedule_window_suffix(spec, window)
+    return (
+        register,
+        f"{spec.cloud_prefix}_{boundary}_HOUR{suffix}",
+        f"{spec.cloud_prefix}_{boundary}_MINUTE{suffix}",
+    )
+
+
+def decode_schedule_boundary(
+    spec: ScheduleTimeSpec,
+    window: int,
+    *,
+    is_end: bool,
+    params: dict[str, Any],
+    local_raw: bool,
+) -> time | None:
+    """Decode one schedule boundary from a parameter cache.
+
+    A local-raw cache surfaces the raw packed register under the spec's
+    ``local_param_keys`` alias chains; a cloud cache holds the separated
+    hour/minute params. Returns None when no alias carries a value or the
+    value is not a plausible time — callers must treat None as "unknown",
+    never as "no schedule".
+
+    Args:
+        spec: The schedule type's declarative table entry.
+        window: User-facing window number (1-N).
+        is_end: False for the window start boundary, True for the end.
+        params: The device's parameter cache.
+        local_raw: True when the cache holds raw register values.
+    """
+    register, hour_param, minute_param = schedule_boundary_params(
+        spec, window, is_end=is_end
+    )
+    try:
+        if local_raw:
+            for key in spec.local_param_keys[register]:
+                raw = params.get(key)
+                if raw is None or isinstance(raw, bool):
+                    # A bool means a bit-field style decode — never a packed
+                    # time; keep trying the fallback keys.
+                    continue
+                hour, minute = unpack_time(int(raw))
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    return time(hour=hour, minute=minute)
+                # Present but not a plausible packed time (corrupt read).
+                return None
+            return None
+        hour_raw = params.get(hour_param)
+        minute_raw = params.get(minute_param)
+        if hour_raw is None or minute_raw is None:
+            return None
+        hour = int(hour_raw)
+        minute = int(minute_raw)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return time(hour=hour, minute=minute)
+        return None
+    except (TypeError, ValueError):
+        return None
+
+
+def decode_schedule_window(
+    spec: ScheduleTimeSpec,
+    window: int,
+    params: dict[str, Any],
+    *,
+    local_raw: bool,
+) -> tuple[time, time] | None:
+    """Decode one window's ``(start, end)`` from a parameter cache.
+
+    Returns None when EITHER boundary is undecodable — a half-known window
+    is unknown, not "clear".
+
+    Args:
+        spec: The schedule type's declarative table entry.
+        window: User-facing window number (1-N).
+        params: The device's parameter cache.
+        local_raw: True when the cache holds raw register values.
+    """
+    start = decode_schedule_boundary(
+        spec, window, is_end=False, params=params, local_raw=local_raw
+    )
+    if start is None:
+        return None
+    end = decode_schedule_boundary(
+        spec, window, is_end=True, params=params, local_raw=local_raw
+    )
+    if end is None:
+        return None
+    return start, end
+
+
+# The two schedule-defined working modes of the SNA (EG4_OFFGRID)
+# working-mode portal page (#563) — AC Charge and AC First. Keys into
+# SCHEDULE_TIME_TYPES; single source for the schedule-state binary sensors
+# and the clear-schedule buttons.
+_OFFGRID_SCHEDULE_DEFINED_KEYS: tuple[str, ...] = ("ac_charge", "ac_first")
+
+
+def offgrid_schedule_devices(
+    coordinator: EG4DataUpdateCoordinator,
+) -> Iterator[tuple[str, ScheduleTimeSpec]]:
+    """Yield ``(serial, spec)`` for each schedule-defined off-grid working mode.
+
+    Gated on a POSITIVELY resolved EG4_OFFGRID family (fails closed on
+    UNKNOWN/missing, like the time platform's ``offgrid`` gate): the
+    schedule-state entities exist because the family has no AC Charge enable
+    toggle, so creating them on grid-tied hardware — where the real switch
+    exists — would be noise. Shared by the binary_sensor and button
+    platforms so the family gate and the schedule-key set have one home;
+    write-capable entities additionally gate on a cloud client at their own
+    platform (the read-only sensors must not).
+    """
+    specs = {spec.key: spec for spec in SCHEDULE_TIME_TYPES}
+    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
+        if device_data.get("type") != "inverter":
+            continue
+        if not is_offgrid_family(device_data):
+            continue
+        for key in _OFFGRID_SCHEDULE_DEFINED_KEYS:
+            yield serial, specs[key]
+
+
+@asynccontextmanager
+async def schedule_register_locks(
+    coordinator: EG4DataUpdateCoordinator,
+    serial: str,
+    registers: Iterable[int],
+) -> AsyncIterator[None]:
+    """Hold the ``schedule:{register}`` transaction lock of every given register.
+
+    Locks are acquired in REGISTER ORDER and released together. A
+    single-boundary time write holds exactly one of them, so the
+    schedule-wide clear (which passes every window register of the schedule)
+    cannot deadlock against a concurrent time write. Single source for the
+    lock-key convention shared by the schedule time entities and the
+    clear-schedule buttons (#563).
+    """
+    async with AsyncExitStack() as stack:
+        for register in sorted(set(registers)):
+            await stack.enter_async_context(
+                coordinator.control_transaction_lock(serial, f"schedule:{register}")
+            )
+        yield
 
 
 def _schedule_supported(spec: ScheduleTimeSpec, device_data: dict[str, Any]) -> bool:
@@ -225,36 +420,17 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         # All schedule time entities are opt-in (registry-disabled by default).
         self._attr_entity_registry_enabled_default = False
 
-        # Packed schedule register: two registers per window (start, end)
-        # from the schedule's base register.
-        self._register = spec.base_register + (window - 1) * 2 + (1 if is_end else 0)
-
-        # Cloud window suffix. Classic families leave window 1 unsuffixed and
-        # suffix windows 2/3 ``_1``/``_2``; the writeTime families number ALL
-        # windows ``_1..._N`` (portal holdParam convention, live register
-        # probes).
-        if spec.bare_first_window:
-            suffix = "" if window == 1 else f"_{window - 1}"
-        else:
-            suffix = f"_{window}"
-
-        # Cloud read param names. Peak Shaving reports its schedule under the
-        # interleaved LSP_HOLD_DIS_CHG_POWER_TIME_{n} params rather than the
-        # {prefix}_{START|END}_{HOUR|MINUTE} convention.
-        if spec.read_lsp_base is not None:
-            lsp_base = spec.read_lsp_base + (window - 1) * 4 + (2 if is_end else 0)
-            self._cloud_hour_param = f"LSP_HOLD_DIS_CHG_POWER_TIME_{lsp_base}"
-            self._cloud_minute_param = f"LSP_HOLD_DIS_CHG_POWER_TIME_{lsp_base + 1}"
-        else:
-            self._cloud_hour_param = (
-                f"{spec.cloud_prefix}_{boundary.upper()}_HOUR{suffix}"
-            )
-            self._cloud_minute_param = (
-                f"{spec.cloud_prefix}_{boundary.upper()}_MINUTE{suffix}"
-            )
+        # Packed schedule register plus the cloud hour/minute read params —
+        # register arithmetic and naming live in the module-level helper
+        # shared with the schedule-state sensors and clear buttons (#563).
+        self._register, self._cloud_hour_param, self._cloud_minute_param = (
+            schedule_boundary_params(spec, window, is_end=is_end)
+        )
 
         # Composite writeTime param (writeTime families only): the portal's
-        # atomic hour+minute boundary write target.
+        # atomic hour+minute boundary write target. The window suffix scheme
+        # is shared with schedule_boundary_params via _schedule_window_suffix.
+        suffix = _schedule_window_suffix(spec, window)
         self._cloud_time_param = f"{spec.cloud_prefix}_{boundary.upper()}_TIME{suffix}"
 
     # ── Value read ──────────────────────────────────────────────────
@@ -269,45 +445,18 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         """
         return self.coordinator.params_are_local_raw(self.serial)
 
-    def _decode_packed(self, params: dict[str, Any]) -> time | None:
-        """Decode the packed register value from a local parameter cache."""
-        for key in self._spec.local_param_keys[self._register]:
-            raw = params.get(key)
-            if raw is None or isinstance(raw, bool):
-                # A bool means a bit-field style decode — never a packed
-                # time; keep trying the fallback keys.
-                continue
-            packed = int(raw)
-            hour, minute = unpack_time(packed)
-            if 0 <= hour <= 23 and 0 <= minute <= 59:
-                return time(hour=hour, minute=minute)
-            # Present but not a plausible packed time (corrupt read).
-            return None
-        return None
-
-    def _decode_cloud(self, params: dict[str, Any]) -> time | None:
-        """Decode the separated hour/minute cloud parameters."""
-        hour_raw = params.get(self._cloud_hour_param)
-        minute_raw = params.get(self._cloud_minute_param)
-        if hour_raw is None or minute_raw is None:
-            return None
-        hour = int(hour_raw)
-        minute = int(minute_raw)
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return time(hour=hour, minute=minute)
-        return None
-
     def _decode_from_cache(self) -> time | None:
         """Decode the boundary from the parameter cache (ignoring optimistic)."""
         params = self._parameter_data
         if not params:
             return None
-        try:
-            if self._params_are_local_raw():
-                return self._decode_packed(params)
-            return self._decode_cloud(params)
-        except (TypeError, ValueError):
-            return None
+        return decode_schedule_boundary(
+            self._spec,
+            self._window,
+            is_end=self._is_end,
+            params=params,
+            local_raw=self._params_are_local_raw(),
+        )
 
     @property
     def native_value(self) -> time | None:
@@ -348,8 +497,8 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         data arrives or the retention TTL expires (#379,
         :class:`EG4OptimisticEntity`).
         """
-        async with self.coordinator.control_transaction_lock(
-            self.serial, f"schedule:{self._register}"
+        async with schedule_register_locks(
+            self.coordinator, self.serial, (self._register,)
         ):
             await self._async_set_value_locked(value)
 

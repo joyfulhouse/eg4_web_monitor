@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Poza siecią"
+      },
+      "ac_charge_schedule_active": {
+        "name": "Harmonogram ładowania AC aktywny"
+      },
+      "ac_first_schedule_active": {
+        "name": "Harmonogram AC First aktywny"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Odswiez dane"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "Wyczyść harmonogram ładowania AC"
+      },
+      "clear_ac_first_schedule": {
+        "name": "Wyczyść harmonogram AC First"
       }
     },
     "select": {
@@ -1082,6 +1094,18 @@
     },
     "device_not_found": {
       "message": "Urządzenie {serial} nie zostało znalezione w tej instalacji."
+    },
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "Nie udało się wyczyścić harmonogramu ładowania AC dla {serial}: zapis {param} nie powiódł się ({error})."
+    },
+    "clear_schedule_write_failed_ac_first": {
+      "message": "Nie udało się wyczyścić harmonogramu AC First dla {serial}: zapis {param} nie powiódł się ({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "Nie udało się wyczyścić harmonogramu ładowania AC dla {serial}: zapis {param} nie został potwierdzony."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "Nie udało się wyczyścić harmonogramu AC First dla {serial}: zapis {param} nie został potwierdzony."
     }
   },
   "issues": {
@@ -1132,6 +1156,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "Przełącznik ładowania AC usunięty z {model} {serial}",
+      "description": "Przełącznik **Tryb ładowania AC** został usunięty z **{serial}** ({model}).\n\nW falownikach EG4 off-grid (rodzina SNA) ładowanie AC jest trybem pracy definiowanym harmonogramem: portal EG4 oferuje okna czasowe ładowania AC i nie ma głównego przełącznika, a wyłączenie przełącznika pozostawiało skonfigurowany harmonogram nienaruszony (#563). Analiza firmware'u wersji off-grid pokazuje dlaczego: leżący u podstaw bit funkcji (rejestr podtrzymujący 21, bit 7) jest zapisywany i czytelny, ale nigdy nie jest używany przez logikę ładowania — przełącznik nie mógł niczego uruchomić ani zatrzymać w tej rodzinie.\n\nZamiast tego: edytuj harmonogram za pomocą encji **Czas rozpoczęcia/zakończenia ładowania AC** (domyślnie wyłączone — włącz je w rejestrze encji) i obserwuj nowy czujnik binarny **Harmonogram ładowania AC aktywny**, aby sprawdzić, czy skonfigurowano jakieś okno. Aby zresetować wszystkie okna do 00:00–00:00 jednym krokiem, naciśnij nowy przycisk **Wyczyść harmonogram ładowania AC** — pamiętaj, że ten przycisk wymaga dostępu do chmury (tryb połączenia HTTP lub hybrydowy) i nie jest tworzony przy połączeniach wyłącznie lokalnych; bez dostępu do chmury wyczyść harmonogram, ustawiając za pomocą encji czasu czas rozpoczęcia i zakończenia każdego okna na 00:00. Te same encje istnieją dla **AC First** w tej rodzinie.\n\nZaktualizuj automatyzacje lub pulpity odwołujące się do usuniętego przełącznika. Dowody znajdują się w zgłoszeniu #563 na GitHubie."
     }
   }
 }

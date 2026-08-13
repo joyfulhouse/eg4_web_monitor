@@ -4,6 +4,11 @@ Provides an "Off-Grid" binary sensor that is ON whenever the inverter's
 operating-mode code (status_code / INPUT reg 0 / cloud ``status``) is an
 off-grid state. This gives automations a single boolean to detect islanded
 operation instead of matching individual ``operating_state`` slugs (issue #262).
+
+Also provides the schedule-state binary sensors (issue #563): on the
+EG4_OFFGRID family the portal models AC Charge / AC First as schedule-defined
+working modes with no master enable toggle, so "is any window of the schedule
+configured" is the only honest state signal the integration can publish.
 """
 
 from __future__ import annotations
@@ -12,13 +17,22 @@ import logging
 from typing import Any
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import EG4ConfigEntry
 from .base_entity import EG4DeviceEntity, device_present_and_healthy
-from .const import DEVICE_TYPE_INVERTER, is_off_grid
-from .coordinator import EG4DataUpdateCoordinator
+from .const import (
+    DEVICE_TYPE_INVERTER,
+    ScheduleTimeSpec,
+    is_off_grid,
+)
+from .coordinator import (
+    DISCOVERY_LISTENER_CONTEXT,
+    EG4DataUpdateCoordinator,
+)
+from .time import decode_schedule_window, offgrid_schedule_devices
+from .utils import is_offgrid_family
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,22 +48,85 @@ async def async_setup_entry(
     """Set up EG4 Web Monitor binary sensor entities."""
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
+    # A first refresh without data must NOT skip setup: the discovery
+    # listener below is the only path by which later-arriving (or
+    # late-resolved) off-grid inverters gain their schedule-state sensors
+    # without a reload. Entity creation simply degrades to an empty list.
     if not coordinator.data or "devices" not in coordinator.data:
-        _LOGGER.warning("No device data available for binary sensor setup")
-        return
+        _LOGGER.warning(
+            "No device data available for binary sensor setup yet; the "
+            "schedule-state discovery listener stays armed"
+        )
 
     entities: list[BinarySensorEntity] = []
-    for serial, device_data in coordinator.data["devices"].items():
+    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
         # Off-grid state comes from the inverter operating-mode register;
         # GridBOSS / batteries do not have it.
         if device_data.get("type") == DEVICE_TYPE_INVERTER:
             entities.append(EG4OffGridBinarySensor(coordinator, serial, device_data))
+
+    # Schedule-state sensors (#563) for inverters whose family is already
+    # positively resolved as EG4_OFFGRID at setup.
+    schedule_sensors, known_schedule_sensors = _new_schedule_state_sensors(
+        coordinator, set()
+    )
+    entities.extend(schedule_sensors)
 
     if entities:
         _LOGGER.info("Setup complete: %d binary sensor entities created", len(entities))
         async_add_entities(entities)
     else:
         _LOGGER.debug("No binary sensor entities created - no compatible devices")
+
+    # The inverter family can resolve to EG4_OFFGRID only on a later refresh
+    # (UNKNOWN while the parameter fetch fails), so re-check on each update —
+    # the same late-registration pattern as the button platform's batteries.
+    @callback
+    def _async_discover_schedule_sensors() -> None:
+        """Add schedule-state sensors for newly resolved off-grid inverters."""
+        new_entities, _ = _new_schedule_state_sensors(
+            coordinator, known_schedule_sensors
+        )
+        if new_entities:
+            _LOGGER.info(
+                "Late schedule-state sensor registration: adding %d entities",
+                len(new_entities),
+            )
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(
+            _async_discover_schedule_sensors, DISCOVERY_LISTENER_CONTEXT
+        )
+    )
+
+
+def _new_schedule_state_sensors(
+    coordinator: EG4DataUpdateCoordinator,
+    known: set[tuple[str, str]],
+) -> tuple[list[EG4ScheduleActiveBinarySensor], set[tuple[str, str]]]:
+    """Build schedule-state sensors for off-grid inverters not in ``known``.
+
+    The device iteration and family gate live in
+    ``time.offgrid_schedule_devices`` (shared with the clear-schedule
+    buttons): gated on a POSITIVELY resolved EG4_OFFGRID family, failing
+    closed on UNKNOWN/missing.
+
+    Args:
+        coordinator: The data update coordinator.
+        known: ``(serial, schedule key)`` pairs already registered; updated
+            in place with every pair this call returns.
+
+    Returns:
+        The newly built entities and the updated known set.
+    """
+    entities: list[EG4ScheduleActiveBinarySensor] = []
+    for serial, spec in offgrid_schedule_devices(coordinator):
+        if (serial, spec.key) in known:
+            continue
+        known.add((serial, spec.key))
+        entities.append(EG4ScheduleActiveBinarySensor(coordinator, serial, spec))
+    return entities, known
 
 
 class EG4OffGridBinarySensor(EG4DeviceEntity, BinarySensorEntity):
@@ -97,3 +174,86 @@ class EG4OffGridBinarySensor(EG4DeviceEntity, BinarySensorEntity):
         when the device is gone or errored.
         """
         return device_present_and_healthy(self.coordinator, self._serial)
+
+
+class EG4ScheduleActiveBinarySensor(EG4DeviceEntity, BinarySensorEntity):
+    """Whether any window of an off-grid schedule is configured (#563).
+
+    On the EG4_OFFGRID family AC Charge / AC First are schedule-defined
+    working modes: the inverter charges from the grid (or passes AC through)
+    whenever the clock is inside a configured window, and there is no master
+    enable toggle for the integration to mirror. This sensor is named as
+    SCHEDULE state on purpose — "configured" never means "charging right
+    now"; it answers the question the removed AC Charge switch could not
+    answer honestly.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        spec: ScheduleTimeSpec,
+    ) -> None:
+        """Initialize the schedule-state binary sensor.
+
+        Args:
+            coordinator: The data update coordinator.
+            serial: Inverter serial number.
+            spec: The schedule type's declarative table entry.
+        """
+        super().__init__(coordinator, serial)
+        self._spec = spec
+        # Name comes from the translation key
+        # (entity.binary_sensor.{key}_schedule_active.name) so it localizes.
+        self._attr_translation_key = f"{spec.key}_schedule_active"
+        self._attr_unique_id = f"{serial}_{spec.key}_schedule_active"
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True when at least one window has a non-zero duration.
+
+        A window whose start equals its end spans zero minutes and cannot
+        run, so the structural ``start != end`` test is the configuration
+        signal. The portal convention that an all-00:00 window DISABLES the
+        schedule (#277/#295 live reports) remains asserted-unverified and is
+        deliberately NOT load-bearing here. Returns None when any boundary is
+        undecodable — the schedule state is then unknown, never assumed clear.
+        """
+        if not self.coordinator.data:
+            return None
+        params = self.coordinator.data.get("parameters", {}).get(self._serial, {})
+        if not params:
+            return None
+        local_raw = self.coordinator.params_are_local_raw(self._serial)
+        configured = False
+        for window in range(1, self._spec.windows + 1):
+            decoded = decode_schedule_window(
+                self._spec, window, params, local_raw=local_raw
+            )
+            if decoded is None:
+                return None
+            start, end = decoded
+            if start != end:
+                configured = True
+        return configured
+
+    @property
+    def available(self) -> bool:
+        """Available only while the device is healthy AND still off-grid.
+
+        Discovery is add-only: a device whose family re-resolves away from
+        EG4_OFFGRID (e.g. an initial misclassification corrected by a later
+        parameter fetch) keeps the entity registered, but it must go
+        unavailable rather than stay actionable — the schedule-defined
+        working modes this sensor mirrors do not exist on other families.
+        Recovers automatically if the family resolves back to EG4_OFFGRID.
+        """
+        if not device_present_and_healthy(self.coordinator, self._serial):
+            return False
+        device_data = (
+            (self.coordinator.data or {}).get("devices", {}).get(self._serial, {})
+        )
+        return is_offgrid_family(device_data)
