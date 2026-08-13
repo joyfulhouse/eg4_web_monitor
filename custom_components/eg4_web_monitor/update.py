@@ -192,19 +192,20 @@ class EG4FirmwareUpdateEntity(
     def update_percentage(self) -> int | None:
         """Return firmware update progress percentage (0-100), or None.
 
-        Component-local percentages are not chain progress: an HA-initiated
-        multi-step install holds ``_install_lock`` across every component, and
-        each component resets its own 0–100 scale, so a numeric value would
-        misrepresent overall progress (issue #512). Return None while the lock
-        is held so Home Assistant shows an indeterminate spinner.
+        The API exposes a current-row percentage, not overall chain progress.
+        An HA-initiated multi-step install holds ``_install_lock`` for the
+        whole chain, so publishing that row percentage would misrepresent
+        overall progress (issue #512). Return None while the lock is held so
+        Home Assistant shows an indeterminate spinner.
 
         For externally initiated updates (lock not held), intermediate values
         still surface, but 0 and 100 map to None while the device row still
-        claims an active installation — 0 is a synthetic seed on accepted
-        start, and 100 is a stale terminal value that would otherwise render
-        as Installing (100%).
+        claims an active installation — pylxpweb seeds 0 after a successful
+        start (verified-against-code: pylxpweb v0.9.39b11,
+        ``FirmwareUpdateMixin.start_firmware_update``), and an active 100%
+        was observed on a 6000XP (asserted-unverified: issues #353/#512).
         """
-        # HA-initiated chain: never publish component-local percentages.
+        # HA-initiated chain: never publish current-row percentages as chain progress.
         if self._install_lock.locked():
             return None
 
@@ -220,7 +221,7 @@ class EG4FirmwareUpdateEntity(
             return None
 
         pct = int(percentage)
-        # External install still active: suppress synthetic 0 / stale 100.
+        # External install still active: suppress endpoint values 0 / 100.
         if bool(update_info.get("in_progress", False)) and pct in (0, 100):
             return None
         return pct
