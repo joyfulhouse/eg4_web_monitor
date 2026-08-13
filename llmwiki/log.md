@@ -390,3 +390,14 @@ the previously downloaded official `WL_LINK_V1_2.bin` (SHA-256 `325e12b0…fec0f
 not the local-listener-patched artifact. Issue `eg4-gzol` preserves the hardware and
 comparison record. The full 8 MiB flash remains uncommitted because its NVS may contain
 network credentials.
+
+## [2026-08-13] ingest | V1.2 Ethernet-listener patch flashed and read back
+
+Reviewed the local-listener patch as a two-byte functional jump change plus regenerated
+ESP checksum/hash, then wrote it only to the second dongle's factory application partition.
+The pre-write readback matched official `V1.2`; esptool's write verification passed; and an
+independent post-write readback matched patched SHA-256 `ab67fc31…922551` byte-for-byte.
+Recorded the result and its boundary in
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the adapter could not reset the
+unit out of the ROM stub, so boot and port-8000 behavior remain unproven pending a physical
+power cycle and live probe. Issue `eg4-vr06` preserves the operation record.

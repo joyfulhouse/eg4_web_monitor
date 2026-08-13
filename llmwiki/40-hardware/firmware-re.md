@@ -10,7 +10,8 @@ sources:
   - docs/reference/firmware/re/00_SUMMARY.md
   - issue eg4-x00j
   - issue eg4-gzol
-verified-against: d83f223
+  - issue eg4-vr06
+verified-against: ae9f033
 last-verified: 2026-08-13
 ---
 
@@ -153,7 +154,7 @@ the downloaded `V1.2` artifact and shipped hardware:
 | The second unit is an ESP32-D0WD-V3 revision 3.1 with 8 MiB flash. | `esptool` ROM identification and flash ID in `eg4-gzol`; full-flash SHA-256 `c280cbc43e3f6c6c16306f5410a5a9c641312d2cdade745a9eeae74b453a579f`. | `asserted-unverified` (issue `eg4-gzol`; the raw hardware transcript is summarized there but not committed) |
 | Its only application is factory `V1.2`, built 2025-10-22; both 2 MiB OTA slots are erased. | Partition table: factory `0x40000`, OTA0 `0x240000`, OTA1 `0x440000`; both OTA regions contain only `0xff`. The extracted 947,680-byte factory app has SHA-256 `325e12b0b9b4a51fc050fb5e17ab79a97d6bd3ff7301628ecd15e9e74d2fec0f`. | `firmware-proven` (WLAN factory `V1.2`; issue `eg4-gzol`) |
 | The shipped factory app is byte-identical to the previously downloaded official `WL_LINK_V1_2.bin`. | Full-file `cmp` equality and the same SHA-256 `325e12b0…fec0f`. | `firmware-proven` (WLAN factory/downloaded `V1.2`; issue `eg4-gzol`) |
-| The physical unit does **not** contain the local-listener patch. | Its app equals official `WL_LINK_V1_2.bin` and differs from `WL_LINK_V1_2_eth_local_listen.bin`, SHA-256 `ab67fc3114298606830e79b3b0c6a9acb803aac11498c51b90b999e38a392255`. | `firmware-proven` (WLAN factory `V1.2`; issue `eg4-gzol`) |
+| As captured from the factory, the physical unit did **not** contain the local-listener patch. | Its original app equalled official `WL_LINK_V1_2.bin` and differed from `WL_LINK_V1_2_eth_local_listen.bin`, SHA-256 `ab67fc3114298606830e79b3b0c6a9acb803aac11498c51b90b999e38a392255`. The later physical write is recorded below. | `firmware-proven` (original WLAN factory `V1.2` capture; issue `eg4-gzol`) |
 
 Because the factory application and downloaded image are identical, the following
 decompilation findings apply directly to the second physical unit; this is binary
@@ -164,7 +165,13 @@ identity, not a transfer of conclusions between merely similar builds.
 | Official `WL_LINK_V1_2.bin`, SHA-256 `325e12b0b9b4a51fc050fb5e17ab79a97d6bd3ff7301628ecd15e9e74d2fec0f`, retains a port-8000 server but moves it to TLS-PSK. | Valid config at DROM `0x3f41a644`; local initializer `FUN_400dbf88`; TLS/server strings and PSK setup in that call path. | `firmware-proven` (WLAN `V1.2`; issue `eg4-x00j`) |
 | Official `V1.2` repeats the Ethernet omission. | Selector `FUN_400dae90`; Wi-Fi `FUN_400ded0c` reaches `FUN_400dbf88`, while Ethernet `FUN_400dacb0` creates `eth_task` and returns. | `firmware-proven` (WLAN `V1.2`; issue `eg4-x00j`) |
 | `WL_LINK_V1_2_eth_local_listen.bin`, SHA-256 `ab67fc3114298606830e79b3b0c6a9acb803aac11498c51b90b999e38a392255`, changes the jump at `0x400dae74` from the Ethernet return to the existing Wi-Fi epilogue at `0x400df0a7`, which calls `FUN_400dbf88`. Its ESP checksum and appended image hash validate. | Byte-level comparison and Xtensa disassembly recorded in `eg4-x00j`. | `asserted-unverified` (issue `eg4-x00j`; locally produced artifact, not vendor firmware) |
+| That patched image was written to the second physical unit's factory partition at `0x40000`, without rewriting NVS, the partition table, or either OTA slot. The independent 947,680-byte readback is byte-identical to the patch. | Pre-write readback matched official `V1.2` SHA-256 `325e12b0…fec0f`; `esptool` verified the write hash; post-write readback matched patched SHA-256 `ab67fc31…922551`; eFuse summary showed secure boot and flash encryption disabled. | `asserted-unverified` (physical write/readback transcript summarized in issue `eg4-vr06`; the grade legend has no flash-storage grade) |
 | The patched `V1.2` should start the existing TLS-PSK port-8000 server after `eth_task` starts. | Direct consequence of the changed control-flow edge and the decompiled target epilogue. It has not been booted or probed on hardware. | `inferred` from the preceding firmware control flow; falsify by booting it and capturing the port/listener result |
+
+The adapter's RTS line did not reboot this unit after the verified write, so it remained in
+the ROM flasher stub. A physical power cycle without BOOT/IO0 asserted is required before
+the runtime claim can be tested. Exact flash readback proves storage only; it does not
+prove that the image boots or that TCP port 8000 listens.
 
 Do not substitute `E_V2_12_local_8000.bin` on this hardware. That image targets ESP32-C3;
 the attached WLAN unit and both `WL_LINK_V1_2` artifacts target classic ESP32. The similar
