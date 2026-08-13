@@ -342,3 +342,18 @@ left from the #550/#566 `_attr_entity_id` cleanup. Reworded to past tense
 `generate_unique_id` cite (`utils.py:677-693` → `:675-691`). Grep across
 `llmwiki/` found no other references; left
 `docs/claude/DEVICE_OBJECTS_REFACTOR_PLAN.md` alone (historical).
+
+## [2026-08-12] lint | entities-identity pin e42ed86 — §4 past-tense + page-wide re-cite
+
+Tribunal round 1 on #571: bumping the page pin to a PR-branch SHA (`7641b96`)
+falsified §4's present-tense "17 `_attr_entity_id` assignments" claim (grep is
+0 since #566) and left in-body `verified-against-code` pins at `9f6d6e2` that
+the front matter no longer carried. Re-pinned `verified-against.eg4_web_monitor`
+to main-reachable `e42ed86` (`origin/main` at this correction). Rewrote §4 to
+past tense for the #566 removals; stated `generate_entity_id` /
+`clean_model_name` as **orphans still defined at `e42ed86`**, with deletion
+verified at the PR #571 head and landing as the #571 squash. Re-grepped the
+whole page and re-numbered drifted cites (inheritance graph, availability
+table + 21→22 `def available` frame including `EG4QuickChargeSwitch`, §2.4
+overrides, §3 pipeline, §5 unique_id / `generate_unique_id` `:722-738`, §6
+DeviceInfo, §7 enabled_default). Rule paid: a pin move is never a local edit.
