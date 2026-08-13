@@ -2219,7 +2219,7 @@ class TestOffgridGridTiedNumberSuppression:
 
         serial = "1234567890"
         registry = er.async_get(hass)
-        # 6000XP → clean model "6000xp" (clean_model_name with underscores).
+        # 6000XP → slug "6000xp" in unique_id / entity object id.
         registry.async_get_or_create(
             "number", DOMAIN, f"6000xp_{serial}_forced_discharge_power"
         )
