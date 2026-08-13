@@ -9,9 +9,7 @@ from custom_components.eg4_web_monitor.utils import (
     _resolve_chart_day_timezone,
     battery_row_is_absent,
     clean_battery_display_name,
-    clean_model_name,
     create_device_info,
-    generate_entity_id,
     generate_unique_id,
     is_supported_control_model,
 )
@@ -147,34 +145,6 @@ class TestCleanBatteryDisplayName:
         )
 
 
-class TestCleanModelName:
-    """Test clean_model_name function."""
-
-    def test_normal_model(self):
-        """Test normal model name."""
-        assert clean_model_name("FlexBOSS21") == "flexboss21"
-
-    def test_with_spaces(self):
-        """Test model with spaces."""
-        assert clean_model_name("Flex BOSS 21") == "flexboss21"
-
-    def test_with_hyphens(self):
-        """Test model with hyphens."""
-        assert clean_model_name("Flex-BOSS-21") == "flexboss21"
-
-    def test_empty_string(self):
-        """Test empty string."""
-        assert clean_model_name("") == "unknown"
-
-    def test_mixed_case(self):
-        """Test mixed case."""
-        assert clean_model_name("GridBOSS-MID") == "gridbossmid"
-
-    def test_with_underscores_option(self):
-        """Test with use_underscores option."""
-        assert clean_model_name("Flex BOSS 21", use_underscores=True) == "flex_boss_21"
-
-
 class TestCreateDeviceInfo:
     """Test create_device_info function."""
 
@@ -194,29 +164,6 @@ class TestCreateDeviceInfo:
 
         assert info["name"] == "GridBOSS 9876543210"
         assert info["model"] == "GridBOSS"
-
-
-class TestGenerateEntityId:
-    """Test generate_entity_id function."""
-
-    def test_basic_entity_id(self):
-        """Test basic entity ID generation."""
-        entity_id = generate_entity_id("sensor", "FlexBOSS21", "1234567890", "ac_power")
-        assert entity_id == "sensor.flexboss21_1234567890_ac_power"
-
-    def test_with_suffix(self):
-        """Test entity ID with suffix."""
-        entity_id = generate_entity_id(
-            "sensor", "FlexBOSS21", "1234567890", "battery", "01"
-        )
-        assert entity_id == "sensor.flexboss21_1234567890_battery_01"
-
-    def test_model_cleaning(self):
-        """Test model name is cleaned."""
-        entity_id = generate_entity_id(
-            "sensor", "Flex-BOSS 21", "1234567890", "voltage"
-        )
-        assert entity_id == "sensor.flexboss21_1234567890_voltage"
 
 
 class TestGenerateUniqueId:

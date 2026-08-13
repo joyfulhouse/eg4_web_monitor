@@ -34,7 +34,16 @@ def _mock_coordinator(*, parameters: dict[str, Any]) -> MagicMock:
     """Build a coordinator exposing voltage-mode configuration and readings."""
     coordinator = MagicMock()
     coordinator.data = {
-        "devices": {SERIAL: {"type": "inverter", "model": "FlexBOSS21"}},
+        "devices": {
+            SERIAL: {
+                "type": "inverter",
+                "model": "FlexBOSS21",
+                # Positively resolved non-off-grid family: the #558
+                # protected-register gate fails closed on missing/UNKNOWN,
+                # and this scaffold's writes exercise the local route.
+                "features": {"inverter_family": "EG4_HYBRID"},
+            }
+        },
         "device_info": {SERIAL: {"deviceTypeText4APP": "FlexBOSS21"}},
         "parameters": {SERIAL: parameters},
     }
@@ -374,6 +383,10 @@ async def test_voltage_number_write_dispatch(
         register=register,
         label=name,
         cloud_write=None,
+        # The scaffold's family is positively resolved as EG4_HYBRID, so the
+        # #558 cloud-only gate stays disarmed (see
+        # tests/test_offgrid_write_routing.py for the armed cases).
+        local_write_blocked_reason=None,
     )
 
 

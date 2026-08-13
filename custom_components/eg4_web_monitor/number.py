@@ -144,6 +144,7 @@ from .utils import (
     flag_offgrid_control_suppression,
     is_hybrid_family,
     is_offgrid_family,
+    is_positively_non_offgrid_family,
     is_supported_control_model,
     supports_grid_sellback,
 )
@@ -266,6 +267,71 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             side,
             regime,
             self.serial,
+        )
+
+    @property
+    def _device_data(self) -> dict[str, Any]:
+        """Device data dictionary for this entity's inverter (empty when absent)."""
+        data = self.coordinator.data or {}
+        devices = data.get("devices") or {}
+        device: dict[str, Any] = devices.get(self.serial) or {}
+        return device
+
+    def _offgrid_cloud_only_reason(self, register: int, label: str) -> str | None:
+        """Cloud-only routing reason for hardware-unverified off-grid writes.
+
+        Returns None — permitting the local write — ONLY when this entity's
+        device is positively resolved as a non-off-grid family (family gate,
+        never model substrings). EG4_OFFGRID, a missing family, and UNKNOWN
+        all return a reason: the gate FAILS CLOSED, because an unidentified
+        unit might be an off-grid inverter and the protected registers'
+        local writes are exactly the evidence-ungraded class where the safe
+        route must win (tribunal round 1 on #558).
+
+        Passed to ``_write_parameter`` / ``_write_voltage_register`` the
+        reason disables the local write path: local Modbus writes to the
+        protected registers — AC-charge SOC window 160/161 (all #331 write
+        evidence is the cloud holdParam path), AC-charge voltage window
+        158/159 (H158's only write evidence is a cloud-path delta-test,
+        target family unrecorded; H159 has NO write evidence recorded at
+        all), and AC charge power 66 (no write evidence is recorded for
+        H66; its llmwiki ``portal-correlated`` grade rests on read/scaling
+        evidence only) — are
+        hardware-UNVERIFIED on the off-grid family, and a post-write
+        readback is structurally incapable of catching a wrong
+        name→register mapping there, because a wrong-but-writable register
+        is firmware-ACKed and reads back exactly the value written (#476,
+        #558). Matching the #471/#472 precedent for unpinned writes, the
+        write routes through the cloud until a local write is
+        hardware-confirmed; on a pure-LOCAL install the returned reason is
+        raised instead of silently writing an unverified register.
+
+        HOW THE PROTECTED SET {66, 158, 159, 160, 161} WAS DERIVED — and
+        its blind spot. Derivation: a register is protected when the
+        llmwiki ledger (``llmwiki/40-hardware/registers.md``) records NO
+        local off-grid delta-test for it — its write evidence is
+        cloud-path only (the #331 holdParam trail, the 158 cloud
+        delta-test) or absent altogether (H66 and H159: H159's ledger row
+        states the durable record lacks an equivalent write tuple, and
+        both ``portal-correlated`` grades rest on read/scaling evidence
+        only).
+        Blind spot: only the AC-charge window (SOC 160/161, voltage
+        158/159) and AC charge power (66) have been audited against that
+        criterion; other off-grid-writable registers — e.g. PV charge
+        power (reg 74), battery charge/discharge current — have NOT yet
+        been swept and may share the same evidence gap. The full evidence
+        sweep is tracked in issue #570
+        (https://github.com/joyfulhouse/eg4_web_monitor/issues/570); do
+        not treat this set as complete until that sweep closes.
+        """
+        if is_positively_non_offgrid_family(self._device_data):
+            return None
+        return (
+            f"Cannot set {label}: local Modbus writes to register {register} "
+            "are not hardware-verified on this inverter family (or the "
+            "family could not be positively identified), so this control "
+            "writes through the EG4 cloud API only (issue #558) — add cloud "
+            "credentials to this integration entry to use it"
         )
 
     # ── Value read helpers ──────────────────────────────────────────
@@ -445,6 +511,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         cloud_kwargs: dict[str, Any] | None = None,
         cloud_write: Callable[[], Awaitable[Any]] | None = None,
         label: str,
+        local_write_blocked_reason: str | None = None,
     ) -> None:
         """Write parameter via local transport or cloud API with optimistic context.
 
@@ -454,6 +521,12 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         ``_execute_local_with_fallback``. ``cloud_write`` overrides the
         default inverter-method cloud path for entities whose verified cloud
         route is a direct named-parameter write.
+
+        ``local_write_blocked_reason`` routes the write CLOUD-ONLY: the local
+        path is never attempted (see
+        :func:`~.utils.async_write_with_cloud_fallback`), and without a cloud
+        client the given reason is raised as a ``HomeAssistantError`` instead
+        of an unverified local register write (#558).
         """
         _LOGGER.info("Setting %s for %s", label, self.serial)
         self._warn_if_ineffective()
@@ -485,6 +558,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 cloud_write=cloud_write
                 or (_cloud_via_method if cloud_method else None),
                 local_values={local_param: write_val},
+                local_write_blocked_reason=local_write_blocked_reason,
             )
             write.refresh_ok = await self._refresh_related_entities()
 
@@ -496,6 +570,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         register: int,
         label: str,
         cloud_write: Callable[[], Awaitable[None]] | None = None,
+        local_write_blocked_reason: str | None = None,
     ) -> None:
         """Write a decivolt voltage register (local by name, cloud by raw register).
 
@@ -505,6 +580,11 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         In HYBRID mode a failed local write falls back to the cloud path.
         ``cloud_write`` overrides the raw-register cloud path for parameters
         whose verified cloud route differs (e.g. named volts writes).
+
+        ``local_write_blocked_reason`` routes the write CLOUD-ONLY, exactly as
+        on :meth:`_write_parameter` — the local path is never attempted, and
+        without a cloud client the given reason is raised instead of an
+        unverified local register write (#558).
         """
         raw_value = int(round(value * 10))
         _LOGGER.info("Setting %s for %s to %.1f V", label, self.serial, value)
@@ -532,6 +612,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
                 local_write=_local_write,
                 cloud_write=cloud_write or _cloud_write_raw_register,
                 local_values={param_name: raw_value},
+                local_write_blocked_reason=local_write_blocked_reason,
             )
             write.refresh_ok = await self._refresh_related_entities()
 
@@ -1045,7 +1126,15 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
 
 
 class ACChargePowerNumber(EG4BaseNumberEntity):
-    """Number entity for AC Charge Power control (stored as 100W units)."""
+    """Number entity for AC Charge Power control (stored as 100W units).
+
+    WRITE ROUTING (#558 tribunal round 1): reg 66 is a protected register —
+    no local write evidence is recorded for H66 (its llmwiki
+    ``portal-correlated`` grade rests on read/scaling evidence only), so on
+    EG4_OFFGRID and unresolved/UNKNOWN families the write is CLOUD-ONLY
+    (pure-LOCAL raises a clear error). Positively resolved non-off-grid
+    families keep the local-first route. Local READS stay on everywhere.
+    """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
         """Initialize the number entity."""
@@ -1100,6 +1189,9 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
             cloud_method="set_ac_charge_power",
             cloud_kwargs={"power_kw": value},
             label=f"AC charge power to {value:.1f} kW",
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                66, "AC charge power"
+            ),
         )
 
 
@@ -1362,8 +1454,10 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
     this entity replaces it on EG4_OFFGRID.
 
     On EG4_HYBRID the register is equally live and MORE dangerous for being
-    invisible: FlexBOSS21 hardware evidence (fw FAAB-2727, local dongle
-    Modbus, read+write verified) shows reg 160 initiates AC charging
+    invisible: a FlexBOSS21 exercise recorded in CHANGELOG.md (fw
+    FAAB-2727, local dongle Modbus, read+write — not yet ingested/graded
+    in the register ledger, which keeps H160 ``portal-correlated`` pending
+    the #570 evidence sweep) showed reg 160 initiating AC charging
     whenever battery SOC is below it, regardless of the reg-120
     ACChargeType selector and of the AC-charge time windows — charges start
     out-of-window at SOC < value, and no window charge starts at
@@ -1378,6 +1472,18 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
     at 90% (pylxpweb's register definition and hybrid setter bound); reads
     keep the tolerant 0-100 window so an out-of-spec register value still
     displays rather than blanking.
+
+    WRITE ROUTING (#558): on EG4_OFFGRID the write is CLOUD-ONLY — local
+    reg 160 writes are hardware-unverified there (all #331 write evidence
+    is the cloud holdParam path) and no readback can prove a wrong
+    name→register mapping didn't land elsewhere (#476), so the local path
+    is not attempted; a pure-LOCAL off-grid install gets a clear error
+    instead. On EG4_HYBRID the write keeps the normal local-first route
+    per shipped behavior: a FlexBOSS21 (fw FAAB-2727) read+write exercise
+    is recorded in CHANGELOG.md but not yet ingested/graded in the
+    register ledger, which still grades H160 ``portal-correlated`` (see
+    #570 for the evidence sweep). Local READS stay on for both families —
+    reads are harmless and reg 160 reads are verified.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1415,6 +1521,9 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         )
         await self._write_parameter(
             value,
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                160, "AC charge start battery SOC"
+            ),
             local_param=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
             # The named-param cloud writer is BOTH the cloud-mode path and
             # the HYBRID local-failure fallback — the portal's own
@@ -1452,14 +1561,21 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
 
     Whole percent, SCALE_NONE on both paths; reg 161 is in pylxpweb's
     transport name map from 0.9.36b28, so this entity mirrors the Start
-    entity exactly (named reads/writes on every path).
+    entity exactly (named reads on every path).
 
-    NOTE (PR #332 review): LOCAL Modbus writes to reg 161 are
-    hardware-UNVERIFIED on the off-grid family — all #331 write evidence is
-    the cloud holdParam path. A silently-ignored local write is covered by
-    the named write path's post-write parameter readback plus the HYBRID
-    cloud fallback, but flag this if a LOCAL-only off-grid report ever
-    shows the value not sticking.
+    WRITE ROUTING (#558, superseding the PR #332 review note): LOCAL
+    Modbus writes to reg 161 are hardware-UNVERIFIED on the off-grid
+    family — all #331 write evidence is the cloud holdParam path — and a
+    post-write readback CANNOT discharge that risk: a wrong-but-writable
+    register is firmware-ACKed and reads back exactly the value written
+    (#476), so the readback reports success on precisely the failure it
+    was cited against. The write is therefore CLOUD-ONLY on this entity
+    (created for EG4_OFFGRID only), matching the #471/#472 precedent for
+    unpinned writes; a pure-LOCAL install gets a clear error instead of an
+    unverified local write. Local READS stay on — reads are harmless and
+    verified. Revisit if a local reg 161 write is ever hardware-confirmed
+    on off-grid hardware (named vendor action, raw register read before
+    and after, restoration).
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1497,6 +1613,9 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         )
         await self._write_parameter(
             value,
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                161, "AC charge end battery SOC"
+            ),
             local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
             # The named-param cloud writer is BOTH the cloud-mode path and
             # the HYBRID local-failure fallback — the portal's own
@@ -2770,6 +2889,13 @@ class VoltageNumberSpec:
     # PV start class's integer state, e.g. "140" not "140.0", for
     # exact-string automation conditions). Independent of display precision.
     read_as_float: bool = True
+    # Local writes to this register are hardware-UNVERIFIED on EG4_OFFGRID:
+    # the write routes CLOUD-ONLY there (#558, the #471/#472 pattern) and a
+    # pure-LOCAL off-grid install gets a clear error instead — a readback
+    # cannot catch a wrong name→register mapping (#476), so not attempting
+    # the write is the only safe policy until hardware-confirmed. Other
+    # families keep the local-first route.
+    offgrid_local_write_unverified: bool = False
 
 
 VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
@@ -2820,6 +2946,10 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         control_key="ac_charge_start_voltage",
         icon="mdi:battery-charging-low",
         related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
+        # Reg 158's only write evidence is a cloud-path delta-test
+        # (`portal-correlated`, family unrecorded) — no local off-grid
+        # write proof exists, so EG4_OFFGRID routes cloud-only (#558).
+        offgrid_local_write_unverified=True,
     ),
     VoltageNumberSpec(
         key="ac_charge_end_voltage",
@@ -2836,6 +2966,10 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         control_key="ac_charge_end_voltage",
         icon="mdi:battery-charging-high",
         related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
+        # Reg 159 mirrors 158's routing, but unlike 158 no write evidence
+        # is recorded for H159 at all — its grade rests on read/scaling
+        # evidence only (#558).
+        offgrid_local_write_unverified=True,
     ),
     VoltageNumberSpec(
         # MPPT activation floor (register 22). Lowering it (e.g. to 140 V)
@@ -2964,4 +3098,9 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
             register=spec.register,
             label=spec.name,
             cloud_write=cloud_write,
+            local_write_blocked_reason=(
+                self._offgrid_cloud_only_reason(spec.register, spec.message_label)
+                if spec.offgrid_local_write_unverified
+                else None
+            ),
         )

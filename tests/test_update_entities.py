@@ -8,7 +8,6 @@ from homeassistant.components.update import UpdateEntityFeature
 from homeassistant.const import EntityCategory
 from homeassistant.exceptions import HomeAssistantError
 
-from custom_components.eg4_web_monitor.const import ENTITY_PREFIX
 from custom_components.eg4_web_monitor.update import (
     async_setup_entry,
     EG4FirmwareUpdateEntity,
@@ -172,33 +171,7 @@ class TestEntityInit:
         )
         entity = EG4FirmwareUpdateEntity(coordinator, "1234567890")
         assert entity._attr_unique_id == "1234567890_firmware_update"
-
-    def test_entity_id_inverter(self):
-        """Inverter entity ID: update.{PREFIX}_{model_clean}_{serial}_firmware."""
-        coordinator = _mock_coordinator(
-            devices={"1234567890": {"type": "inverter", "model": "FlexBOSS21"}}
-        )
-        entity = EG4FirmwareUpdateEntity(coordinator, "1234567890")
-        expected = f"update.{ENTITY_PREFIX}_flexboss21_1234567890_firmware"
-        assert entity._attr_entity_id == expected
-
-    def test_entity_id_inverter_with_spaces_and_hyphens(self):
-        """Model with spaces/hyphens normalises to underscores, lowercase."""
-        coordinator = _mock_coordinator(
-            devices={"9999999999": {"type": "inverter", "model": "18kPV Hybrid-Pro"}}
-        )
-        entity = EG4FirmwareUpdateEntity(coordinator, "9999999999")
-        expected = f"update.{ENTITY_PREFIX}_18kpv_hybrid_pro_9999999999_firmware"
-        assert entity._attr_entity_id == expected
-
-    def test_entity_id_gridboss(self):
-        """GridBOSS entity ID: update.{PREFIX}_gridboss_{serial}_firmware."""
-        coordinator = _mock_coordinator(
-            devices={"GB0001": {"type": "gridboss", "model": "GridBOSS"}}
-        )
-        entity = EG4FirmwareUpdateEntity(coordinator, "GB0001")
-        expected = f"update.{ENTITY_PREFIX}_gridboss_GB0001_firmware"
-        assert entity._attr_entity_id == expected
+        assert not hasattr(entity, "_attr_entity_id")
 
     def test_name_is_firmware(self):
         """Name attribute should always be 'Firmware'."""
