@@ -330,3 +330,15 @@ H233 `_prefers_cloud_control` boundary) re-read against the files at
 corrected in the same commit (comment-only): `const/modbus.py`,
 `const/working_modes.py`, `switch.py` `_WORKING_MODE_PARAMETERS`, and the
 contract harness's `_CONTROL_REGISTER_CONTRACT` entry.
+
+## [2026-08-12] lint | generate_entity_id citation after #571 deletion
+
+`10-integration/entities-identity-availability.md` §4.1 still cited
+`utils.generate_entity_id` (`utils.py:649-674`) as `verified-against-code` after
+PR #571 removed that helper (and its sole feeder `clean_model_name`) as dead code
+left from the #550/#566 `_attr_entity_id` cleanup. Reworded to past tense
+(removed in #571), re-pinned `verified-against.eg4_web_monitor` `9f6d6e2` →
+`7641b96`, refreshed `last-verified` to 2026-08-12, and re-numbered the live
+`generate_unique_id` cite (`utils.py:677-693` → `:675-691`). Grep across
+`llmwiki/` found no other references; left
+`docs/claude/DEVICE_OBJECTS_REFACTOR_PLAN.md` alone (historical).

@@ -18,9 +18,9 @@ sources:
   - memory/queue-cleanup-2026-07-26.md
   - eg4_web_monitor issues #550, #253, #256, #261, #479
 verified-against:
-  eg4_web_monitor: 9f6d6e2
+  eg4_web_monitor: 7641b96
   homeassistant: 2025.11.2
-last-verified: 2026-08-09
+last-verified: 2026-08-12
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -28,7 +28,7 @@ see-also:
 
 # Entities: inheritance, identity, availability
 
-Line numbers are pinned per source by the `verified-against:` mapping above — `9f6d6e2` for
+Line numbers are pinned per source by the `verified-against:` mapping above — `7641b96` for
 `eg4_web_monitor`, package version `2025.11.2` for `homeassistant`. Each citation names its source
 where it is not this repo. Symbol names are the durable anchor.
 
@@ -244,8 +244,10 @@ this working tree, so an unpinned grep is not reproducible evidence.
 | **All 17 are inert.** Nothing in Home Assistant reads that name | `verified-against-code` — the package-wide zero above |
 | Tracked as issue **#550** | `asserted-unverified` — an issue title and its open/closed state are tracker metadata, not code; they can change without any code changing. Cited as provenance, not as a verified fact |
 
-`utils.generate_entity_id` (`utils.py:649-674`) likewise only feeds these dead attributes
-(`verified-against-code`).
+`utils.generate_entity_id` (and its sole feeder `clean_model_name`) likewise only fed those
+dead attributes; both helpers were removed in #571 after the assignments themselves were
+deleted in #566 (`verified-against-code` — `rg generate_entity_id custom_components/eg4_web_monitor/`
+returns empty at pin `7641b96`).
 
 #### Why they are inert — it is the prefix, not the concept
 
@@ -330,7 +332,7 @@ these strings are real and stable.
 | Select | `generate_unique_id(serial, "operating_mode")` (etc.) | `select.py:180` |
 | Number / time (via `EG4OptimisticEntity`) | `generate_unique_id(self._retention_serial.lower(), entity_key)` | `base_entity.py:814-816` |
 
-All rows: `verified-against-code`. `utils.generate_unique_id` (`utils.py:677-693`) is literally
+All rows: `verified-against-code`. `utils.generate_unique_id` (`utils.py:675-691`) is literally
 `f"{serial}_{entity_type}"` plus an optional `_{suffix}`.
 
 > ⚠️ **Case divergence.** `_stable_control_unique_id` lowercases the serial; switch and select
