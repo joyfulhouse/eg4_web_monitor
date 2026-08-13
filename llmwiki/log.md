@@ -357,3 +357,14 @@ whole page and re-numbered drifted cites (inheritance graph, availability
 table + 21→22 `def available` frame including `EG4QuickChargeSwitch`, §2.4
 overrides, §3 pipeline, §5 unique_id / `generate_unique_id` `:722-738`, §6
 DeviceInfo, §7 enabled_default). Rule paid: a pin move is never a local edit.
+
+## [2026-08-12] lint | §2.4 QuickCharge row + ≤10% guard + update.py:54
+
+Tribunal round 2 on #571 (codex MEDIUM/LOW, kimi LOW). (1) §2.4's completeness
+claim omitted `EG4QuickChargeSwitch` while the §2 frame already counted it as
+contract-changing — added the row at `switch.py:525` (`_offgrid_without_cloud`
+gate) and reconciled the frame's "§2.4 plus …" hedge so the table alone owns
+the 8 contract-changers. (2) `_guard_total_increasing` suppresses dips
+`new_val >= 0.9 * last` including exactly 10% — reworded "smaller than 10%" to
+"≤10%" with the boundary test cite. (3) Inheritance-tree `EG4FirmwareUpdateEntity`
+anchor `update.py:55` → `:54` (class keyword at pin `e42ed86`).

@@ -63,7 +63,7 @@ CoordinatorEntity
 │   │   └── EG4ScheduleTimeEntity              time.py:185
 │   ├── EG4BaseSelect(+SelectEntity)           base_entity.py:1150  → concrete selects
 │   └── EG4BaseSwitch(+SwitchEntity)           base_entity.py:1212  → concrete switches
-├── EG4FirmwareUpdateEntity                    update.py:55
+├── EG4FirmwareUpdateEntity                    update.py:54
 └── EG4DSTSwitch                               switch.py:1611   (direct CoordinatorEntity)
 ```
 
@@ -109,7 +109,7 @@ Every row: `verified-against-code`.
 > |---|---|---|
 > | Listed above as `available` definitions | 8 | `base_entity.py` ×6 (`:99`, `:159`, `:210`, `:496`, `:584`, `:658`), `binary_sensor.py:90`, `update.py:184` |
 > | Control base classes that only delegate | 3 | `EG4BaseNumber` (`base_entity.py:1042`), `EG4BaseTime` (`:1128`), `EG4BaseSwitch` (`:1315`) — each `return self._control_device_available()` |
-> | Platform subclasses | 11 | **8 change the contract** (§2.4 plus `EG4QuickChargeSwitch` at `switch.py:525`); 3 only delegate — `EG4OperatingModeSelect` (`select.py:234`), `EG4PVInputModeSelect` (`:338`), `EG4BatteryControlModeSelect` (`:594`) |
+> | Platform subclasses | 11 | **8 change the contract** (§2.4); 3 only delegate — `EG4OperatingModeSelect` (`select.py:234`), `EG4PVInputModeSelect` (`:338`), `EG4BatteryControlModeSelect` (`:594`) |
 >
 > 8 + 3 + 11 = 22. Per file: `base_entity.py` 9, `select.py` 4, `switch.py` 4, `number.py` 2,
 > `binary_sensor.py` / `update.py` / `time.py` 1 each.
@@ -193,6 +193,7 @@ the contract rather than simply delegating to the base:
 | Class | Site | What it adds |
 |---|---|---|
 | `EG4ScheduleTimeEntity` | `time.py:320` | `super().available and self.native_value is not None` — **key-presence semantics for a control**, the shape §2.1 attributes to `EG4BatteryBankEntity` |
+| `EG4QuickChargeSwitch` | `switch.py:525` | Unavailable when `_offgrid_without_cloud()` — off-grid (or not positively identified as non-offgrid) with no cloud client, so a toggle would only hit an H233 write that is firmware-rejected or of unproven effect (#558 / #296) |
 | `EG4CloudStoreSwitch` | `switch.py:755` | Unavailable while the cloud-store state is absent — first fetch pending, an older pylxpweb lacking the getter, or a family that genuinely lacks the feature |
 | `EG4WorkingModeSwitch` | `switch.py:1387` | Modes flagged `requires_known_state` go **unavailable** while their state key is absent, instead of publishing a fake OFF (#497) |
 | `ACCoupleSOCNumberBase` | `number.py:1766` | Unavailable on an absent value, same known-state rationale |
@@ -201,7 +202,9 @@ the contract rather than simply delegating to the base:
 | `EG4DSTSwitch` | `switch.py:1663` | Its own coordinator-health check; it descends from `CoordinatorEntity` directly, not from the base classes in §2 |
 
 Whole table: `verified-against-code` at `e42ed86`. The remaining overrides delegate to
-`_control_device_available()` or `super().available` and do not change the contract.
+`_control_device_available()` or `super().available` and do not change the contract. The set
+above is derived — not hand-listed — by the rule in the next paragraph (8 contract-changers +
+3 pure delegates among the 11 platform `available` definitions in the §2 frame).
 
 **Derivation, so this does not need hand-maintaining:** `grep -rn 'def available'` over
 `custom_components/eg4_web_monitor/`, then for each hit read whether the body delegates to a base
@@ -212,8 +215,8 @@ in this table.
 
 | Stage | Behavior | Evidence |
 |---|---|---|
-| `native_value` runs `_guard_total_increasing()` | Pins downward dips **smaller than 10 %** for `total_increasing` sensors to the prior high-water mark; larger drops pass through as genuine resets | `verified-against-code` — `base_entity.py:309-343`, threshold `_RESET_DETECTION_THRESHOLD = 0.9` at `:306` |
-| Why 10 % | Matches HA recorder's own reset threshold; smaller dips trigger a "state is not strictly increasing" warning and are virtually always cloud rounding noise | `verified-against-code` — comment at `base_entity.py:298-305` |
+| `native_value` runs `_guard_total_increasing()` | Pins downward dips of **10 % or smaller** (≤10 %) for `total_increasing` sensors to the prior high-water mark; larger drops pass through as genuine resets | `verified-against-code` — `base_entity.py:334-342` (`new_val >= _RESET_DETECTION_THRESHOLD * last_reported`), threshold `_RESET_DETECTION_THRESHOLD = 0.9` at `:306`; boundary covered by `tests/test_base_entity.py` (`test_drop_exactly_at_10pct_is_suppressed`) |
+| Why 10 % | Matches HA recorder's own reset threshold; dips at or below that boundary trigger a "state is not strictly increasing" warning and are virtually always cloud rounding noise | `verified-against-code` — comment at `base_entity.py:298-305` |
 | Non-numeric / `None` / non-`total_increasing` | Returned untouched, cache not updated | `verified-against-code` — `base_entity.py:320-333` |
 | `_apply_sensor_config()` | Applies unit / device_class / state_class / icon / options / `translation_key` / precision / entity_category / `enabled_default` from `SENSOR_TYPES` | `verified-against-code` — `base_entity.py:345-408` |
 
