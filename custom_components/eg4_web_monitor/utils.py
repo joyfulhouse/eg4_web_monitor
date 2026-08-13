@@ -24,6 +24,7 @@ from .const import (
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_LXP,
+    INVERTER_FAMILY_UNKNOWN,
     MANUFACTURER,
     MODEL_NAME_FAMILY_FALLBACK,
     SUPPORTED_INVERTER_MODELS,
@@ -190,6 +191,7 @@ async def async_write_with_cloud_fallback(
     local_write: Callable[[], Awaitable[Any]],
     cloud_write: Callable[[], Awaitable[Any]] | None = None,
     local_values: dict[str, Any] | None = None,
+    local_write_blocked_reason: str | None = None,
 ) -> None:
     """Attempt a local register write, falling back to the cloud API.
 
@@ -210,6 +212,15 @@ async def async_write_with_cloud_fallback(
       to the cloud instead of waiting out a doomed Modbus timeout. Reads keep
       probing the link each poll cycle, so recovery re-enables local writes.
     - No local transport: cloud path, or the standard no-transport error.
+    - ``local_write_blocked_reason`` set: the local path is never attempted,
+      regardless of transport state — the write lands via the cloud (with the
+      usual ``local_values`` cache seed) or raises the given reason. This is
+      the cloud-only route for parameters whose local register write is
+      hardware-unverified on the target family (#558): a wrong-but-writable
+      register is firmware-ACKed and reads back the written value, so no
+      post-write readback can detect a wrong name→register mapping (#476) —
+      not attempting the write is the only safe policy until it is
+      hardware-confirmed.
 
     Args:
         coordinator: The data update coordinator (transport + cloud access).
@@ -219,6 +230,10 @@ async def async_write_with_cloud_fallback(
         cloud_write: Coroutine factory performing the equivalent cloud write,
             or None when the action has no cloud path (raw-register-only
             controls) — local errors then propagate unchanged.
+        local_write_blocked_reason: When not None, the local write path is
+            disabled and this string becomes the ``HomeAssistantError`` raised
+            if no cloud path exists (actionable, caller-crafted — it should
+            say WHY the local route is unsafe and what the user can do).
         local_values: The written parameters in the LOCAL-RAW representation
             the attached-transport cache uses. When the write lands via the
             cloud path while a local transport is attached, these are merged
@@ -234,8 +249,17 @@ async def async_write_with_cloud_fallback(
         HomeAssistantError: If all available write paths fail, or none exist.
     """
     local_attached = coordinator.has_local_transport(serial)
-    if local_attached:
-        cloud_available = cloud_write is not None and coordinator.has_http_api()
+    cloud_available = cloud_write is not None and coordinator.has_http_api()
+    if local_write_blocked_reason is not None:
+        if not cloud_available:
+            raise HomeAssistantError(local_write_blocked_reason)
+        _LOGGER.debug(
+            "Local write path disabled for %s on device %s; using the cloud API: %s",
+            action_name,
+            serial,
+            local_write_blocked_reason,
+        )
+    elif local_attached:
         if cloud_available and coordinator.is_transport_link_down(serial):
             _LOGGER.warning(
                 "Local transport link is down for device %s; writing %s via "
@@ -256,7 +280,7 @@ async def async_write_with_cloud_fallback(
                     action_name,
                     serial,
                 )
-    if cloud_write is not None and coordinator.has_http_api():
+    if cloud_available and cloud_write is not None:
         await cloud_write()
         if local_attached and local_values:
             # Cloud fallback with an attached local transport: seed the
@@ -346,6 +370,27 @@ def is_offgrid_family(device_data: dict[str, Any]) -> bool:
     """
     features = device_data.get("features") or {}
     return bool(features.get("inverter_family") == INVERTER_FAMILY_EG4_OFFGRID)
+
+
+def is_positively_non_offgrid_family(device_data: dict[str, Any]) -> bool:
+    """True only when the family is positively resolved as NOT EG4_OFFGRID.
+
+    Fails CLOSED: missing features, an empty value, or UNKNOWN all return
+    False. This is the write-routing polarity for the #558 protected
+    registers — hardware-unverified local writes are permitted only on a
+    unit positively identified as a family where the write is safe; an
+    unidentified unit might BE an off-grid inverter, so it degrades to the
+    cloud-only route (#476 precedent). Contrast :func:`is_offgrid_family`,
+    which fails OPEN and gates entity CREATION/suppression — removing
+    entities needs positive identification, refusing an unverified write
+    needs the opposite.
+    """
+    features = device_data.get("features") or {}
+    family = str(features.get("inverter_family") or "")
+    return bool(family) and family not in (
+        INVERTER_FAMILY_UNKNOWN,
+        INVERTER_FAMILY_EG4_OFFGRID,
+    )
 
 
 def is_hybrid_family(device_data: dict[str, Any]) -> bool:

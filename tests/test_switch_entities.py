@@ -636,10 +636,13 @@ _OFFGRID_FEATURES = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID
 class TestQuickChargeSwitchOffgridCloudFirst:
     """EG4_OFFGRID (12000XP/6000XP) drives quick charge via the cloud (#296).
 
-    The XP firmware rejects holding register 233 (ILLEGAL DATA ADDRESS), so
-    pylxpweb's local-first enable/disable burns a doomed Modbus write on every
-    toggle before falling back to the cloud. The switch goes straight to the
-    cloud start/stop endpoints for that family when a cloud client exists.
+    The family has no proven local H233 route (firmware verification on PR
+    #569: CEAA/12000XP lineage rejects the write, ILLEGAL DATA ADDRESS;
+    CCAA/6000XP lineage implements the address but no bit-0 quick-charge
+    consumer was found), so pylxpweb's local-first enable/disable burns a
+    doomed-or-unproven Modbus write on every toggle before falling back to
+    the cloud. The switch goes straight to the cloud start/stop endpoints
+    for that family when a cloud client exists.
     """
 
     @pytest.mark.asyncio
@@ -679,9 +682,15 @@ class TestQuickChargeSwitchOffgridCloudFirst:
         inverter.disable_quick_charge.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_offgrid_without_cloud_uses_inverter_method(self):
-        """Offgrid LOCAL-only: no cloud to prefer — the inverter method runs
-        (and fails honestly if the firmware rejects it)."""
+    async def test_offgrid_without_cloud_raises_and_is_unavailable(self):
+        """Offgrid LOCAL-only (#558): there is NO working route — the H233
+        activation write is firmware-rejected on CEAA (ILLEGAL DATA
+        ADDRESS, #296) and of unproven effect on CCAA (firmware
+        verification on PR #569) — with no cloud fallback the switch is
+        unavailable and a
+        forced toggle raises instead of firing pylxpweb's doomed local-first
+        enable. (Pre-#558 this test asserted the doomed write ran.) The full
+        routing matrix lives in tests/test_offgrid_write_routing.py."""
         coordinator = _mock_coordinator(
             has_http=False,
             has_local=True,
@@ -691,10 +700,13 @@ class TestQuickChargeSwitchOffgridCloudFirst:
         )
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
-        await switch.async_turn_on()
+
+        assert switch.available is False
+        with pytest.raises(HomeAssistantError, match="no cloud connection"):
+            await switch.async_turn_on()
 
         inverter = coordinator.get_inverter_object("1234567890")
-        inverter.enable_quick_charge.assert_called_once_with(minute=60)
+        inverter.enable_quick_charge.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_non_offgrid_keeps_local_first_method(self):

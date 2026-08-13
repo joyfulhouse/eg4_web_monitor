@@ -1018,6 +1018,11 @@ class TestACChargePowerWrite:
     async def test_write_local_converts_kw_to_100w(self):
         """Local transport converts kW to 100W units for register."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 66 (#558) so the 100W-unit conversion is observable locally.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ACChargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -2469,14 +2474,22 @@ class TestOffgridACChargeSOCWindow:
     async def test_start_soc_write_cap_boundary(self):
         """The Start WRITE cap is exactly 90: 90 is accepted, 91 rejected —
         pinning the pylxpweb reg-160 bound independently of the shared
-        coerce-int parametrization (PR #488 fix-round item 3)."""
+        coerce-int parametrization (PR #488 fix-round item 3). The accepted
+        write lands via the cloud holdParam path: reg 160 is cloud-only on
+        EG4_OFFGRID (#558)."""
         coordinator = self._offgrid_coordinator(has_local=True)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(parameters={})
+        )
         entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
         await entity.async_set_native_value(90)  # boundary: accepted
-        coordinator.write_named_parameter.assert_awaited_once_with(
-            "HOLD_AC_CHARGE_START_BATTERY_SOC", 90, serial="1234567890"
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_AC_CHARGE_START_BATTERY_SOC", "90"
         )
         with pytest.raises(HomeAssistantError, match="between 0-90"):
             await entity.async_set_native_value(91)
@@ -2491,34 +2504,54 @@ class TestOffgridACChargeSOCWindow:
             ACChargeEndBatterySOCNumber(coordinator, "1234567890").native_value is None
         )
 
-    # ── Writes (named local + named cloud holdParam, both registers) ──
+    # ── Writes (cloud-only named holdParam on EG4_OFFGRID, #558) ──────
+    # Local writes to regs 160/161 are hardware-unverified on the off-grid
+    # family, so both entities route CLOUD-ONLY there; the full routing
+    # matrix (hybrid keeps local-first, pure-LOCAL raises) lives in
+    # tests/test_offgrid_write_routing.py.
 
     @pytest.mark.asyncio
-    async def test_start_soc_local_write_uses_named_param(self):
+    async def test_start_soc_local_transport_write_routes_cloud(self):
+        """#558: an attached local transport does NOT make reg 160 write
+        locally on EG4_OFFGRID — the cloud holdParam path is the only route."""
         coordinator = self._offgrid_coordinator(has_local=True)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(parameters={})
+        )
         entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
         await entity.async_set_native_value(85)
 
-        coordinator.write_named_parameter.assert_awaited_once_with(
-            "HOLD_AC_CHARGE_START_BATTERY_SOC", 85, serial="1234567890"
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_AC_CHARGE_START_BATTERY_SOC", "85"
         )
 
     @pytest.mark.asyncio
-    async def test_end_soc_local_write_uses_named_param(self):
-        """Reg 161 is in the transport name map (pylxpweb >= 0.9.36b28) —
-        the End entity mirrors Start's named write path exactly."""
+    async def test_end_soc_local_transport_write_routes_cloud(self):
+        """#558: reg 161 mirrors Start — cloud-only on EG4_OFFGRID even with
+        a local transport attached; no local named or raw write fires."""
         coordinator = self._offgrid_coordinator(has_local=True)
+        coordinator.client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=True)
+        )
+        coordinator.client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(parameters={})
+        )
         entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
         await entity.async_set_native_value(95)
 
-        coordinator.write_named_parameter.assert_awaited_once_with(
-            "HOLD_AC_CHARGE_END_BATTERY_SOC", 95, serial="1234567890"
-        )
+        coordinator.write_named_parameter.assert_not_awaited()
         coordinator.write_raw_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_AC_CHARGE_END_BATTERY_SOC", "95"
+        )
 
     @pytest.mark.asyncio
     async def test_start_soc_cloud_write_uses_named_holdparam(self):
@@ -2554,9 +2587,11 @@ class TestOffgridACChargeSOCWindow:
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_end_soc_hybrid_local_failure_falls_back_to_cloud(self):
-        """HYBRID: a failed local named write retries via the cloud named
-        write and seeds the named parameter-cache key (#301 pattern)."""
+    async def test_end_soc_offgrid_cloud_write_seeds_named_cache(self):
+        """HYBRID off-grid: the cloud write seeds the named parameter-cache
+        key so the entity converges (#301 pattern). Since #558 the local
+        write is never attempted on EG4_OFFGRID — the erroring local mock
+        below proves it stays unused rather than being fallen back FROM."""
         coordinator = self._offgrid_coordinator(has_local=True, has_http=True)
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("boom")
@@ -2576,6 +2611,7 @@ class TestOffgridACChargeSOCWindow:
             "1234567890",
             {"HOLD_AC_CHARGE_END_BATTERY_SOC": 95},
         )
+        coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_cloud_write_failure_raises(self):
