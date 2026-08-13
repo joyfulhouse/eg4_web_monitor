@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "離網"
+      },
+      "ac_charge_schedule_active": {
+        "name": "交流充電排程已啟用"
+      },
+      "ac_first_schedule_active": {
+        "name": "交流優先排程已啟用"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "重新整理資料"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "清除交流充電排程"
+      },
+      "clear_ac_first_schedule": {
+        "name": "清除交流優先排程"
       }
     },
     "select": {
@@ -1132,6 +1144,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "交流充電開關已從 {model} {serial} 移除",
+      "description": "**交流充電模式**開關已從 **{serial}**（{model}）移除。\n\n在 EG4 離網逆變器（SNA 系列）上，交流充電是一種由排程定義的工作模式：EG4 入口網站提供交流充電時間窗口，但沒有總開關，而且關閉該開關後已設定的排程仍然維持不變（#563）。對離網版本韌體的分析說明了原因：該開關背後的功能位元（保持暫存器 21，位元 7）會被儲存且可讀取，但充電邏輯從不使用它——因此在此系列產品上，此開關無法啟動或停止任何功能。\n\n替代方案：使用**交流充電開始/結束時間**實體（預設停用——請在實體註冊表中啟用）編輯排程；透過新的**交流充電排程已啟用**二元感測器查看是否設定了時間窗口；按下新的**清除交流充電排程**按鈕將所有窗口重設為 00:00–00:00。該系列產品的**交流優先**也有同樣的實體。\n\n請更新參考了已移除開關的自動化或儀表板。相關證據請參閱 GitHub 上的 issue #563。"
     }
   }
 }

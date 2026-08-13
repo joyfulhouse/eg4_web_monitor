@@ -1,5 +1,7 @@
 """Button platform for EG4 Web Monitor integration."""
 
+import asyncio
+from contextlib import AsyncExitStack
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -18,19 +20,31 @@ else:
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BatteryEntity, EG4DeviceEntity, EG4StationEntity
+from .const import (
+    DEVICE_TYPE_INVERTER,
+    SCHEDULE_TIME_TYPES,
+    ScheduleTimeSpec,
+)
 from .coordinator import (
     DISCOVERY_LISTENER_CONTEXT,
     EG4DataUpdateCoordinator,
     listener_changed_device_items,
 )
+from .time import schedule_boundary_params
 from .utils import (
     generate_unique_id,
+    is_offgrid_family,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 2
+
+# Schedule types with a clear-schedule button on the EG4_OFFGRID family
+# (#563): the two schedule-defined working modes of the SNA working-mode
+# portal page. Keys into SCHEDULE_TIME_TYPES.
+_OFFGRID_CLEAR_SCHEDULE_KEYS: tuple[str, ...] = ("ac_charge", "ac_first")
 
 
 async def async_setup_entry(
@@ -87,6 +101,12 @@ async def async_setup_entry(
         phase1_entities.append(
             EG4RefreshButton(coordinator, serial, device_data, model)
         )
+
+    # Clear-schedule buttons (#563) for positively resolved EG4_OFFGRID
+    # inverters when a cloud client exists (the only sanctioned write route
+    # for off-grid schedule normalization — see EG4ClearScheduleButton).
+    clear_buttons, known_clear_buttons = _new_clear_schedule_buttons(coordinator, set())
+    phase1_entities.extend(clear_buttons)
 
     # Create refresh buttons for individual batteries (phase 2)
     for serial, device_data in coordinator.data["devices"].items():
@@ -160,6 +180,61 @@ async def async_setup_entry(
             _async_discover_battery_buttons, DISCOVERY_LISTENER_CONTEXT
         )
     )
+
+    # The inverter family can resolve to EG4_OFFGRID only on a later refresh
+    # (UNKNOWN while the parameter fetch fails) — re-check on each update.
+    @callback
+    def _async_discover_clear_schedule_buttons() -> None:
+        """Add clear-schedule buttons for newly resolved off-grid inverters."""
+        new_entities, _ = _new_clear_schedule_buttons(coordinator, known_clear_buttons)
+        if new_entities:
+            _LOGGER.info(
+                "Late clear-schedule button registration: adding %d entities",
+                len(new_entities),
+            )
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(
+            _async_discover_clear_schedule_buttons, DISCOVERY_LISTENER_CONTEXT
+        )
+    )
+
+
+def _new_clear_schedule_buttons(
+    coordinator: EG4DataUpdateCoordinator,
+    known: set[tuple[str, str]],
+) -> tuple[list["EG4ClearScheduleButton"], set[tuple[str, str]]]:
+    """Build clear-schedule buttons for off-grid inverters not in ``known``.
+
+    Gated on a POSITIVELY resolved EG4_OFFGRID family (fails closed on
+    UNKNOWN/missing) AND on a cloud client: the clear is cloud-routed only —
+    local off-grid schedule writes remain evidence-gated (#558/#570), so a
+    LOCAL-only install gets no button rather than an unsanctioned write path.
+
+    Args:
+        coordinator: The data update coordinator.
+        known: ``(serial, schedule key)`` pairs already registered; updated
+            in place with every pair this call returns.
+
+    Returns:
+        The newly built entities and the updated known set.
+    """
+    if not coordinator.has_http_api():
+        return [], known
+    specs = {spec.key: spec for spec in SCHEDULE_TIME_TYPES}
+    entities: list[EG4ClearScheduleButton] = []
+    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
+        if device_data.get("type") != DEVICE_TYPE_INVERTER:
+            continue
+        if not is_offgrid_family(device_data):
+            continue
+        for key in _OFFGRID_CLEAR_SCHEDULE_KEYS:
+            if (serial, key) in known:
+                continue
+            known.add((serial, key))
+            entities.append(EG4ClearScheduleButton(coordinator, serial, specs[key]))
+    return entities, known
 
 
 class EG4RefreshButton(EG4DeviceEntity, ButtonEntity):
@@ -405,3 +480,147 @@ class EG4StationRefreshButton(EG4StationEntity, ButtonEntity):
                 e,
             )
             raise
+
+
+class EG4ClearScheduleButton(EG4DeviceEntity, ButtonEntity):
+    """Normalize every window of an off-grid schedule to 00:00 → 00:00 (#563).
+
+    On the EG4_OFFGRID family AC Charge / AC First are schedule-defined
+    working modes — the portal has no master enable toggle, so "clear the
+    schedule" is the only way to stop the mode. The 00:00 → 00:00
+    normalization target follows the #277/#295 live reports that an all-zero
+    window disables the schedule; that convention remains
+    asserted-unverified, which is acceptable here because zero-length
+    windows cannot run regardless.
+
+    CLOUD-ROUTED ONLY by construction (the button is not created without a
+    cloud client): local off-grid writes stay evidence-gated per #558/#570,
+    and the classic cloud schedule write is one call per hour/minute field
+    (non-atomic), which the partial-failure path below accounts for.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_icon = "mdi:calendar-remove-outline"
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        spec: ScheduleTimeSpec,
+    ) -> None:
+        """Initialize the clear-schedule button.
+
+        Args:
+            coordinator: The data update coordinator.
+            serial: Inverter serial number.
+            spec: The schedule type's declarative table entry.
+        """
+        super().__init__(coordinator, serial)
+        self._spec = spec
+        # Name comes from the translation key
+        # (entity.button.clear_{key}_schedule.name) so it localizes.
+        self._attr_translation_key = f"clear_{spec.key}_schedule"
+        self._attr_unique_id = f"{serial}_clear_{spec.key}_schedule"
+
+    async def async_press(self) -> None:
+        """Write 00:00 to every window boundary of the schedule via the cloud.
+
+        The whole schedule is written under every window's transaction lock
+        (acquired in register order, so a concurrent single-boundary time
+        write — which holds exactly one of them — cannot deadlock), followed
+        by a parameter re-read so the time entities and the schedule-state
+        binary sensor converge on what the device actually holds.
+
+        The classic cloud schedule write is one call per field (hour and
+        minute separately), so a mid-sequence failure leaves the schedule
+        PARTIALLY cleared: on any failure after at least one acknowledged
+        write the parameters are re-read (best effort) BEFORE the error
+        propagates, and the raised error says the clear may be partial.
+
+        Raises:
+            HomeAssistantError: If a write fails, or no cloud client exists.
+        """
+        writes: list[str] = []
+        for window in range(1, self._spec.windows + 1):
+            for is_end in (False, True):
+                _, hour_param, minute_param = schedule_boundary_params(
+                    self._spec, window, is_end=is_end
+                )
+                writes.extend((hour_param, minute_param))
+
+        registers = sorted(
+            self._spec.base_register + offset
+            for offset in range(self._spec.windows * 2)
+        )
+        async with AsyncExitStack() as stack:
+            for register in registers:
+                await stack.enter_async_context(
+                    self.coordinator.control_transaction_lock(
+                        self._serial, f"schedule:{register}"
+                    )
+                )
+            await self._async_clear_locked(writes)
+
+    async def _async_clear_locked(self, writes: list[str]) -> None:
+        """Execute the clear with all of the schedule's locks held."""
+        _LOGGER.info(
+            "Clearing %s schedule for %s (%d cloud field writes)",
+            self._spec.key,
+            self._serial,
+            len(writes),
+        )
+        client = self.coordinator.require_client()
+        written = 0
+        for param in writes:
+            try:
+                result = await client.api.control.write_parameter(
+                    self._serial, param, "0"
+                )
+            except asyncio.CancelledError:
+                if written:
+                    await self._async_converge_partial_clear(param)
+                raise
+            except Exception as err:
+                if written:
+                    await self._async_converge_partial_clear(param)
+                raise HomeAssistantError(
+                    f"Failed to clear {self._spec.key} schedule for "
+                    f"{self._serial}: {param} write failed ({err})"
+                ) from err
+            if not result.success:
+                if written:
+                    await self._async_converge_partial_clear(param)
+                raise HomeAssistantError(
+                    f"Failed to clear {self._spec.key} schedule for "
+                    f"{self._serial}: {param} write was not acknowledged"
+                )
+            written += 1
+
+        # Final reread: the writes are acknowledged, so a failed refresh must
+        # NOT convert the successful clear into a user-facing error — the
+        # next parameter poll converges the entities instead.
+        if not await self.coordinator.async_refresh_device_parameters(self._serial):
+            _LOGGER.warning(
+                "Post-clear parameter refresh did not complete for %s; the "
+                "%s schedule entities converge on the next poll",
+                self._serial,
+                self._spec.key,
+            )
+
+    async def _async_converge_partial_clear(self, failed_param: str) -> None:
+        """Best-effort re-read after an acknowledged prefix of the clear.
+
+        The device holds a partially cleared schedule; re-reading parameters
+        (its own errors suppressed by the coordinator helper, which returns
+        False on failure) lets the entities show the actual state once the
+        caller's error propagates.
+        """
+        _LOGGER.warning(
+            "Clear of %s schedule for %s partially applied (%s failed); "
+            "re-reading device parameters to reflect the actual state",
+            self._spec.key,
+            self._serial,
+            failed_param,
+        )
+        await self.coordinator.async_refresh_device_parameters(self._serial)

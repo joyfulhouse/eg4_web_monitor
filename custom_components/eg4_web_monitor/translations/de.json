@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Inselbetrieb"
+      },
+      "ac_charge_schedule_active": {
+        "name": "AC-Ladeplan aktiv"
+      },
+      "ac_first_schedule_active": {
+        "name": "AC-First-Zeitplan aktiv"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Daten aktualisieren"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "AC-Ladeplan löschen"
+      },
+      "clear_ac_first_schedule": {
+        "name": "AC-First-Zeitplan löschen"
       }
     },
     "select": {
@@ -1132,6 +1144,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "AC-Ladeschalter von {model} {serial} entfernt",
+      "description": "Der Schalter **AC-Lademodus** wurde von **{serial}** ({model}) entfernt.\n\nBei EG4-Off-Grid-Wechselrichtern (SNA-Familie) ist AC-Laden ein zeitplandefinierter Arbeitsmodus: Das EG4-Portal bietet Zeitfenster für das AC-Laden, aber keinen zentralen Ein/Aus-Schalter, und das Ausschalten des Schalters ließ den konfigurierten Zeitplan unberührt (#563). Die Firmwareanalyse des Off-Grid-Builds zeigt warum: Das zugrunde liegende Funktionsbit (Holding-Register 21, Bit 7) wird gespeichert und ist lesbar, wird aber von der Ladelogik nie verwendet — der Schalter konnte auf dieser Familie nichts starten oder stoppen.\n\nStattdessen: Bearbeiten Sie den Zeitplan mit den Entitäten **AC-Ladestart-/Endzeit** (standardmäßig deaktiviert — in der Entitätsregistrierung aktivieren), beobachten Sie den neuen Binärsensor **AC-Ladeplan aktiv**, um zu sehen, ob ein Fenster konfiguriert ist, und drücken Sie die neue Schaltfläche **AC-Ladeplan löschen**, um jedes Fenster auf 00:00–00:00 zurückzusetzen. Dieselben Entitäten existieren auf dieser Familie auch für **AC First**.\n\nAktualisieren Sie Automatisierungen oder Dashboards, die den entfernten Schalter verwendeten. Die Belege finden Sie in Issue #563 auf GitHub."
     }
   }
 }

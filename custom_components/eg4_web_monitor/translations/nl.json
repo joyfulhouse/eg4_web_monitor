@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Off-grid"
+      },
+      "ac_charge_schedule_active": {
+        "name": "AC-laadschema actief"
+      },
+      "ac_first_schedule_active": {
+        "name": "AC First-schema actief"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Gegevens vernieuwen"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "AC-laadschema wissen"
+      },
+      "clear_ac_first_schedule": {
+        "name": "AC First-schema wissen"
       }
     },
     "select": {
@@ -1132,6 +1144,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "AC-laadschakelaar verwijderd van {model} {serial}",
+      "description": "De schakelaar **AC-laadmodus** is verwijderd van **{serial}** ({model}).\n\nOp EG4 off-grid omvormers (SNA-familie) is AC-laden een schema-gedefinieerde werkmodus: het EG4-portaal biedt AC-laadtijdvensters en geen hoofdschakelaar, en het uitschakelen van de schakelaar liet het geconfigureerde schema ongemoeid (#563). Firmwareanalyse van de off-grid build toont waarom: het onderliggende functiebit (holdingregister 21, bit 7) wordt opgeslagen en is leesbaar, maar wordt nooit gebruikt door de laadlogica — de schakelaar kon op deze familie niets starten of stoppen.\n\nGebruik in plaats daarvan: bewerk het schema met de entiteiten **Start-/eindtijd AC-laden** (standaard uitgeschakeld — schakel ze in via het entiteitenregister), bekijk de nieuwe binaire sensor **AC-laadschema actief** om te zien of er een venster is geconfigureerd, en druk op de nieuwe knop **AC-laadschema wissen** om elk venster terug te zetten naar 00:00–00:00. Dezelfde entiteiten bestaan op deze familie ook voor **AC First**.\n\nWerk automatiseringen of dashboards bij die naar de verwijderde schakelaar verwezen. Zie issue #563 op GitHub voor het bewijs."
     }
   }
 }

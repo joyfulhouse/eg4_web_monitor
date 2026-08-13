@@ -50,6 +50,14 @@ from homeassistant.const import EntityCategory
 # These define switch entities for various inverter operational modes
 
 WORKING_MODES: dict[str, dict[str, Any]] = {
+    # AC Charge Mode (FUNC_AC_CHARGE, reg 21 bit 7). Kept for grid-tied
+    # families; suppressed on EG4_OFFGRID via FAMILY_UNSUPPORTED_CONTROL_PARAMS
+    # (GH #563): the SNA portal models AC Charge as a schedule-defined working
+    # mode (time windows, no master toggle) and the off-grid firmware RE
+    # session graded the backing bit firmware-proven-inert there — stored and
+    # readback-visible but never consumed by the ARM→DSP mapper or charge
+    # logic. The schedule itself stays fully editable through the AC Charge
+    # time entities (SCHEDULE_TIME_TYPES).
     "ac_charge_mode": {
         "name": "AC Charge Mode",
         "param": "FUNC_AC_CHARGE",

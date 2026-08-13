@@ -215,16 +215,19 @@ class TestSupportsEpsBatteryBackup:
 class TestFamilyControlCapabilityMap:
     """is_family_control_supported() — firmware-rejected control gating."""
 
-    def test_offgrid_rejects_battery_backup_ctrl_only(self):
-        """EG4_OFFGRID rejects FUNC_BATTERY_BACKUP_CTRL — and ONLY that.
+    def test_offgrid_rejects_battery_backup_ctrl_and_ac_charge(self):
+        """EG4_OFFGRID rejects exactly FUNC_BATTERY_BACKUP_CTRL and FUNC_AC_CHARGE.
 
-        The map's bar is a live rejected-write report (the 12000XP v2
-        "failed to enable working mode"). FUNC_EPS_EN must NOT be listed:
-        the SNA12K-US reference dump shows it actively enabled on the same
-        family (Opus review on PR #307).
+        Battery Backup enters on a live rejected-write report (the 12000XP
+        v2 "failed to enable working mode"). AC Charge enters on the #563
+        evidence: schedule-defined on the SNA portal and firmware-proven-inert
+        (H21 b7 stored but never consumed by the off-grid build's charge
+        logic). FUNC_EPS_EN must NOT be listed: the SNA12K-US reference dump
+        shows it actively enabled on the same family (Opus review on PR #307).
         """
         device_data = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
         assert not is_family_control_supported(device_data, "FUNC_BATTERY_BACKUP_CTRL")
+        assert not is_family_control_supported(device_data, "FUNC_AC_CHARGE")
         assert is_family_control_supported(device_data, "FUNC_EPS_EN")
 
     def test_offgrid_keeps_unlisted_controls(self):
@@ -233,14 +236,14 @@ class TestFamilyControlCapabilityMap:
         EPS (live-enabled on the SNA reference unit), Off Grid Mode
         (accepted-then-self-reverted) and Charge Last (sticks, possibly
         inert) are deliberately NOT in the map — the #289 adjudication
-        requires a rejected-write report and fails open on ambiguity.
+        requires a rejected-write report (or the #563 firmware-proven-inert
+        equivalent) and fails open on ambiguity.
         """
         device_data = {"features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}}
         for param in (
             "FUNC_EPS_EN",
             "FUNC_GREEN_EN",
             "FUNC_CHARGE_LAST",
-            "FUNC_AC_CHARGE",
         ):
             assert is_family_control_supported(device_data, param), param
 
@@ -3183,20 +3186,21 @@ class TestOffgridBatteryBackupGating:
             if isinstance(e, EG4WorkingModeSwitch)
         }
         assert "FUNC_BATTERY_BACKUP_CTRL" not in params
-        # Exact set: portal-backed AC Charge + PV Charge Priority stay, as
-        # do EPS / Off Grid Mode / Charge Last / Share Battery (fail-open,
-        # no rejection evidence for them; Share Battery is gated like
-        # Charge Last — all control-capable families, #288). AC Couple
-        # (GH #471), Grid Always On (GH #484) and Smart Load (GH #499) are
-        # cloud-gated and family-neutral — present here too, and this is the
-        # family that asked for both smart-load controls (12000XP).
+        # Exact set: Battery Backup Mode (write-rejected, #289) and AC
+        # Charge (schedule-defined on this family, firmware-proven-inert,
+        # #563) are gone. PV Charge Priority stays, as do EPS / Off Grid
+        # Mode / Charge Last / Share Battery (fail-open, no rejection
+        # evidence for them; Share Battery is gated like Charge Last — all
+        # control-capable families, #288). AC Couple (GH #471), Grid Always
+        # On (GH #484) and Smart Load (GH #499) are cloud-gated and
+        # family-neutral — present here too, and this is the family that
+        # asked for both smart-load controls (12000XP).
         assert self._switch_keys(entities) == {
             "quick_charge",
             "ac_couple",
             "battery_backup",
             "off_grid_mode",
             "charge_last",
-            "ac_charge",
             "forced_chg_en",
             "share_battery",
             "grid_always_on",

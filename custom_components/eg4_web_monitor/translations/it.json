@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Fuori Rete"
+      },
+      "ac_charge_schedule_active": {
+        "name": "Programmazione carica AC attiva"
+      },
+      "ac_first_schedule_active": {
+        "name": "Programmazione AC First attiva"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Aggiorna Dati"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "Cancella programmazione carica AC"
+      },
+      "clear_ac_first_schedule": {
+        "name": "Cancella programmazione AC First"
       }
     },
     "select": {
@@ -1132,6 +1144,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "Interruttore di carica AC rimosso da {model} {serial}",
+      "description": "L'interruttore **Modalità di carica AC** è stato rimosso da **{serial}** ({model}).\n\nSugli inverter EG4 off-grid (famiglia SNA), la carica AC è una modalità di funzionamento definita dalla programmazione: il portale EG4 offre finestre orarie di carica AC e nessun interruttore principale, e spegnendo l'interruttore la programmazione configurata restava intatta (#563). L'analisi del firmware della versione off-grid ne spiega il motivo: il bit di funzione sottostante (registro di mantenimento 21, bit 7) viene memorizzato ed è leggibile, ma non viene mai utilizzato dalla logica di carica — l'interruttore non poteva avviare né fermare nulla su questa famiglia.\n\nCosa usare in alternativa: modificate la programmazione con le entità **Ora di inizio/fine carica AC** (disattivate per impostazione predefinita — attivatele nel registro delle entità), osservate il nuovo sensore binario **Programmazione carica AC attiva** per vedere se è configurata una finestra, e premete il nuovo pulsante **Cancella programmazione carica AC** per riportare ogni finestra a 00:00–00:00. Le stesse entità esistono per **AC First** su questa famiglia.\n\nAggiornate qualsiasi automazione o dashboard che facesse riferimento all'interruttore rimosso. Le prove sono disponibili nella issue #563 su GitHub."
     }
   }
 }

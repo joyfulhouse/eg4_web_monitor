@@ -1,6 +1,7 @@
 """EG4 Web Monitor integration for Home Assistant."""
 
 import asyncio
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 import logging
 from typing import Any, TypeAlias
@@ -47,6 +48,7 @@ from .const import (
     MANUFACTURER,
     MIN_HTTP_POLLING_INTERVAL,
     OFFGRID_EXCLUDED_SENSORS,
+    OFFGRID_EXCLUDED_SWITCHES,
 )
 from .coordinator import (
     PV_STRING_LIFETIME_STORAGE_KEY,
@@ -878,19 +880,46 @@ def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bo
     return middle in _DEVICE_UID_DATA_TYPE_SEGMENTS
 
 
-def _async_cleanup_family_excluded_sensor_entities(
+def _is_device_control_uid(unique_id: str, serial: str, keys: Iterable[str]) -> bool:
+    """Whether ``unique_id`` is *this device's own* control for one of ``keys``.
+
+    Control identities are ``{serial}_{key}`` (switch.py/number.py/time.py via
+    ``generate_unique_id`` / ``_stable_control_unique_id``). The match is
+    suffix-based with an ``_`` boundary — the same rule as
+    ``flag_offgrid_control_suppression`` — so a legacy model-prefixed
+    registration (``{model}_{serial}_{key}``) is caught too, while a serial
+    that is the tail of a longer sibling's serial cannot false-positive.
+    """
+    uid = unique_id.lower()
+    return any(
+        uid == f"{serial.lower()}_{key}" or uid.endswith(f"_{serial.lower()}_{key}")
+        for key in keys
+    )
+
+
+def _async_cleanup_family_excluded_entities(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
     coordinator: EG4DataUpdateCoordinator,
 ) -> None:
-    """Purge sensors excluded for a positively resolved inverter family."""
+    """Purge entities excluded for a positively resolved inverter family.
+
+    Sensors match through the device-namespace allowlist
+    (``_is_device_namespace_uid``) so battery/bank siblings with the same key
+    survive; controls (switches) match the control-identity shape through
+    ``_is_device_control_uid``. Both are gated on the family being positively
+    RESOLVED — ``UNKNOWN`` is excluded, because pylxpweb emits it when a
+    parameter fetch fails, and one transient read failure must not delete a
+    genuine entity irreversibly.
+    """
     devices = coordinator.data.get("devices", {}) if coordinator.data else {}
     entity_registry = er.async_get(hass)
     entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
 
-    for family, excluded_sensors, issue_key, log_message in (
+    for family, domain, excluded_keys, issue_key, log_message in (
         (
             INVERTER_FAMILY_EG4_OFFGRID,
+            "sensor",
             OFFGRID_EXCLUDED_SENSORS,
             "offgrid_generator_sensors_removed",
             "Removed EG4_OFFGRID generator sensor with no real backing "
@@ -898,9 +927,17 @@ def _async_cleanup_family_excluded_sensor_entities(
         ),
         (
             INVERTER_FAMILY_EG4_HYBRID,
+            "sensor",
             HYBRID_EXCLUDED_SENSORS,
             "hybrid_eps_apparent_power_sensors_removed",
             "Removed mislabelled EG4_HYBRID EPS apparent-power sensor (#548): %s",
+        ),
+        (
+            INVERTER_FAMILY_EG4_OFFGRID,
+            "switch",
+            OFFGRID_EXCLUDED_SWITCHES,
+            "offgrid_ac_charge_switch_removed",
+            "Removed schedule-defined EG4_OFFGRID AC Charge switch (#563): %s",
         ),
     ):
         family_models = {
@@ -911,17 +948,31 @@ def _async_cleanup_family_excluded_sensor_entities(
         }
         removed_serials: set[str] = set()
         for entity in entities:
-            serial = entity.unique_id.partition("_")[0]
-            if (
-                entity.domain == "sensor"
-                and serial in family_models
-                and any(
-                    _is_device_namespace_uid(entity.unique_id, serial, key)
-                    for key in excluded_sensors
+            if entity.domain != domain:
+                continue
+            if domain == "sensor":
+                serial = entity.unique_id.partition("_")[0]
+                matched_serial = (
+                    serial
+                    if serial in family_models
+                    and any(
+                        _is_device_namespace_uid(entity.unique_id, serial, key)
+                        for key in excluded_keys
+                    )
+                    else None
                 )
-            ):
+            else:
+                matched_serial = next(
+                    (
+                        s
+                        for s in family_models
+                        if _is_device_control_uid(entity.unique_id, s, excluded_keys)
+                    ),
+                    None,
+                )
+            if matched_serial is not None:
                 entity_registry.async_remove(entity.entity_id)
-                removed_serials.add(serial)
+                removed_serials.add(matched_serial)
                 _LOGGER.info(log_message, entity.entity_id)
 
         for serial in removed_serials:
@@ -1308,8 +1359,10 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # "_battery_discharge_power" (#197) on resolved non-offgrid hardware.
     _async_cleanup_deprecated_battery_discharge_power_entities(hass, entry, coordinator)
 
-    # Conditional cleanup for sensors excluded on a resolved inverter family.
-    _async_cleanup_family_excluded_sensor_entities(hass, entry, coordinator)
+    # Conditional cleanup for entities excluded on a resolved inverter family
+    # (#544 off-grid generator sensors, #548 hybrid EPS apparent-power sensors,
+    # #563 off-grid AC Charge switch).
+    _async_cleanup_family_excluded_entities(hass, entry, coordinator)
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities

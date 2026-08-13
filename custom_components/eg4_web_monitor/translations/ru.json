@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Автономно"
+      },
+      "ac_charge_schedule_active": {
+        "name": "Расписание зарядки от сети активно"
+      },
+      "ac_first_schedule_active": {
+        "name": "Расписание AC First активно"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Обновить данные"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "Очистить расписание зарядки от сети"
+      },
+      "clear_ac_first_schedule": {
+        "name": "Очистить расписание AC First"
       }
     },
     "select": {
@@ -1132,6 +1144,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "Переключатель зарядки от сети удалён с {model} {serial}",
+      "description": "Переключатель **Режим зарядки от сети** удалён с **{serial}** ({model}).\n\nНа автономных инверторах EG4 (семейство SNA) зарядка от сети — это режим, задаваемый расписанием: портал EG4 предлагает временные окна зарядки от сети и не имеет главного переключателя, а выключение переключателя не меняло настроенное расписание (#563). Анализ прошивки автономной версии показывает почему: соответствующий бит функции (удерживающий регистр 21, бит 7) сохраняется и читается, но никогда не используется логикой зарядки — переключатель ничего не мог запустить или остановить на этом семействе.\n\nЧто использовать вместо этого: редактируйте расписание сущностями **Время начала/окончания зарядки от сети** (по умолчанию отключены — включите их в реестре сущностей), следите за новым бинарным датчиком **Расписание зарядки от сети активно**, чтобы видеть, настроено ли какое-либо окно, и нажмите новую кнопку **Очистить расписание зарядки от сети**, чтобы сбросить все окна на 00:00–00:00. Те же сущности существуют для **AC First** на этом семействе.\n\nОбновите автоматизации и панели, ссылавшиеся на удалённый переключатель. Обоснование см. в issue #563 на GitHub."
     }
   }
 }

@@ -423,6 +423,12 @@
       },
       "off_grid": {
         "name": "Poza siecią"
+      },
+      "ac_charge_schedule_active": {
+        "name": "Harmonogram ładowania AC aktywny"
+      },
+      "ac_first_schedule_active": {
+        "name": "Harmonogram AC First aktywny"
       }
     },
     "sensor": {
@@ -822,6 +828,12 @@
     "button": {
       "refresh_data": {
         "name": "Odswiez dane"
+      },
+      "clear_ac_charge_schedule": {
+        "name": "Wyczyść harmonogram ładowania AC"
+      },
+      "clear_ac_first_schedule": {
+        "name": "Wyczyść harmonogram AC First"
       }
     },
     "select": {
@@ -1132,6 +1144,10 @@
     "duplicate_cloud_entry": {
       "title": "Duplicate cloud configuration could not be migrated",
       "description": "The config entry **{entry_title}** targets the same EG4 cloud account and plant as **{owner_title}** ({unique_id}). Only one entry per cloud plant is supported, so this duplicate entry no longer loads.\n\nTo resolve: remove **{entry_title}** from Settings → Devices & Services. If it carried local device connections (Modbus/dongle), add them to **{owner_title}** via its Reconfigure flow instead."
+    },
+    "offgrid_ac_charge_switch_removed": {
+      "title": "Przełącznik ładowania AC usunięty z {model} {serial}",
+      "description": "Przełącznik **Tryb ładowania AC** został usunięty z **{serial}** ({model}).\n\nW falownikach EG4 off-grid (rodzina SNA) ładowanie AC jest trybem pracy definiowanym harmonogramem: portal EG4 oferuje okna czasowe ładowania AC i nie ma głównego przełącznika, a wyłączenie przełącznika pozostawiało skonfigurowany harmonogram nienaruszony (#563). Analiza firmware'u wersji off-grid pokazuje dlaczego: leżący u podstaw bit funkcji (rejestr podtrzymujący 21, bit 7) jest zapisywany i czytelny, ale nigdy nie jest używany przez logikę ładowania — przełącznik nie mógł niczego uruchomić ani zatrzymać w tej rodzinie.\n\nZamiast tego: edytuj harmonogram za pomocą encji **Czas rozpoczęcia/zakończenia ładowania AC** (domyślnie wyłączone — włącz je w rejestrze encji), obserwuj nowy czujnik binarny **Harmonogram ładowania AC aktywny**, aby sprawdzić, czy skonfigurowano jakieś okno, i naciśnij nowy przycisk **Wyczyść harmonogram ładowania AC**, aby zresetować wszystkie okna do 00:00–00:00. Te same encje istnieją dla **AC First** w tej rodzinie.\n\nZaktualizuj automatyzacje lub pulpity odwołujące się do usuniętego przełącznika. Dowody znajdują się w zgłoszeniu #563 na GitHubie."
     }
   }
 }

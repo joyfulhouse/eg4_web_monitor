@@ -289,6 +289,24 @@ HYBRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
     }
 )
 
+# Control (switch) unique-ID keys excluded on EG4_OFFGRID — the switch-domain
+# counterpart of the sensor sets above, consumed by the family-excluded
+# registry cleanup in __init__.py.
+#
+# "ac_charge" (FUNC_AC_CHARGE, reg 21 bit 7, GH #563): on the SNA platform AC
+# Charge is a schedule-defined working mode — the portal exposes time windows
+# and no master toggle, and the off-grid firmware RE session graded H21 b7
+# firmware-proven-inert (stored and readback-visible, never consumed by the
+# ARM→DSP mapper or charge logic), so the switch was a provable no-op. The
+# suppression itself lives in FAMILY_UNSUPPORTED_CONTROL_PARAMS (utils.py);
+# this set drives the one-shot registry purge + Repairs notice for users who
+# already had the switch registered.
+OFFGRID_EXCLUDED_SWITCHES: frozenset[str] = frozenset(
+    {
+        "ac_charge",
+    }
+)
+
 # Sensors related to Volt-Watt curve (EG4_HYBRID, LXP only)
 VOLT_WATT_SENSORS: frozenset[str] = frozenset(
     {
