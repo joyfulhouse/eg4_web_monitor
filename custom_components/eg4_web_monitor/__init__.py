@@ -903,6 +903,30 @@ def _is_device_control_uid(unique_id: str, serial: str, keys: Iterable[str]) -> 
     return any(uid == f"{serial_prefix}{key}" for key in keys)
 
 
+def _resolved_family_signature(
+    coordinator: EG4DataUpdateCoordinator,
+) -> tuple[tuple[str, str], ...]:
+    """Return the (serial, family) set that drives the family-excluded purge.
+
+    Tracks ONLY what ``_async_cleanup_family_excluded_entities`` reads, so a
+    runtime/energy value change never triggers a registry sweep: which
+    inverters exist and how their family resolved (``UNKNOWN`` included —
+    an UNKNOWN -> EG4_OFFGRID transition is exactly the late-resolution case
+    the deferred rerun exists for).
+    """
+    devices = coordinator.data.get("devices", {}) if coordinator.data else {}
+    return tuple(
+        sorted(
+            (
+                str(serial),
+                str((device_data.get("features") or {}).get("inverter_family") or ""),
+            )
+            for serial, device_data in devices.items()
+            if device_data.get("type") == "inverter"
+        )
+    )
+
+
 def _async_cleanup_family_excluded_entities(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
@@ -1369,6 +1393,33 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # (#544 off-grid generator sensors, #548 hybrid EPS apparent-power sensors,
     # #563 off-grid AC Charge switch).
     _async_cleanup_family_excluded_entities(hass, entry, coordinator)
+
+    # The family can stay UNKNOWN at first refresh (a failed parameter fetch)
+    # and resolve only on a LATER poll — after this one-shot cleanup ran and
+    # after the fail-open switch rediscovery already created the entity the
+    # resolved family excludes. Rerun the exact-shape purge whenever the
+    # resolved-family set changes so the orphaned entity is deleted (and its
+    # Repairs issue raised) without a reload. Registered BEFORE platform
+    # forwarding so the purge lands in the same dispatch as — and ahead of —
+    # the switch platform's own rediscovery listener. The cleanup is
+    # idempotent (removal of an absent registry entry is a no-op and the
+    # Repairs issue IDs are stable), so re-running on every family flip is
+    # safe; the signature gate keeps that rare.
+    _family_cleanup_signature = _resolved_family_signature(coordinator)
+
+    @callback
+    def _async_reclean_on_family_resolution() -> None:
+        """Rerun the family-excluded purge when a device's family changes."""
+        nonlocal _family_cleanup_signature
+        signature = _resolved_family_signature(coordinator)
+        if signature == _family_cleanup_signature:
+            return
+        _family_cleanup_signature = signature
+        _async_cleanup_family_excluded_entities(hass, entry, coordinator)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_reclean_on_family_resolution)
+    )
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities

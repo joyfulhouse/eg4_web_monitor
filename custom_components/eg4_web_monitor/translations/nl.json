@@ -1095,11 +1095,17 @@
     "device_not_found": {
       "message": "Apparaat {serial} is niet gevonden in deze installatie."
     },
-    "clear_schedule_write_failed": {
-      "message": "Het schema {schedule} voor {serial} kon niet worden gewist: het schrijven van {param} is mislukt ({error})."
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "Het AC-laadschema voor {serial} kon niet worden gewist: het schrijven van {param} is mislukt ({error})."
     },
-    "clear_schedule_write_not_acknowledged": {
-      "message": "Het schema {schedule} voor {serial} kon niet worden gewist: het schrijven van {param} is niet bevestigd."
+    "clear_schedule_write_failed_ac_first": {
+      "message": "Het AC First-schema voor {serial} kon niet worden gewist: het schrijven van {param} is mislukt ({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "Het AC-laadschema voor {serial} kon niet worden gewist: het schrijven van {param} is niet bevestigd."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "Het AC First-schema voor {serial} kon niet worden gewist: het schrijven van {param} is niet bevestigd."
     }
   },
   "issues": {
@@ -1153,7 +1159,7 @@
     },
     "offgrid_ac_charge_switch_removed": {
       "title": "AC-laadschakelaar verwijderd van {model} {serial}",
-      "description": "De schakelaar **AC-laadmodus** is verwijderd van **{serial}** ({model}).\n\nOp EG4 off-grid omvormers (SNA-familie) is AC-laden een schema-gedefinieerde werkmodus: het EG4-portaal biedt AC-laadtijdvensters en geen hoofdschakelaar, en het uitschakelen van de schakelaar liet het geconfigureerde schema ongemoeid (#563). Firmwareanalyse van de off-grid build toont waarom: het onderliggende functiebit (holdingregister 21, bit 7) wordt opgeslagen en is leesbaar, maar wordt nooit gebruikt door de laadlogica — de schakelaar kon op deze familie niets starten of stoppen.\n\nGebruik in plaats daarvan: bewerk het schema met de entiteiten **Start-/eindtijd AC-laden** (standaard uitgeschakeld — schakel ze in via het entiteitenregister), bekijk de nieuwe binaire sensor **AC-laadschema actief** om te zien of er een venster is geconfigureerd, en druk op de nieuwe knop **AC-laadschema wissen** om elk venster terug te zetten naar 00:00–00:00. Dezelfde entiteiten bestaan op deze familie ook voor **AC First**.\n\nWerk automatiseringen of dashboards bij die naar de verwijderde schakelaar verwezen. Zie issue #563 op GitHub voor het bewijs."
+      "description": "De schakelaar **AC-laadmodus** is verwijderd van **{serial}** ({model}).\n\nOp EG4 off-grid omvormers (SNA-familie) is AC-laden een schema-gedefinieerde werkmodus: het EG4-portaal biedt AC-laadtijdvensters en geen hoofdschakelaar, en het uitschakelen van de schakelaar liet het geconfigureerde schema ongemoeid (#563). Firmwareanalyse van de off-grid build toont waarom: het onderliggende functiebit (holdingregister 21, bit 7) wordt opgeslagen en is leesbaar, maar wordt nooit gebruikt door de laadlogica — de schakelaar kon op deze familie niets starten of stoppen.\n\nGebruik in plaats daarvan: bewerk het schema met de entiteiten **Start-/eindtijd AC-laden** (standaard uitgeschakeld — schakel ze in via het entiteitenregister), en bekijk de nieuwe binaire sensor **AC-laadschema actief** om te zien of er een venster is geconfigureerd. Om elk venster in één stap terug te zetten naar 00:00–00:00, drukt u op de nieuwe knop **AC-laadschema wissen** — let op: deze knop vereist cloudtoegang (HTTP- of hybride verbindingsmodus) en wordt niet aangemaakt bij louter lokale verbindingen; zonder cloudtoegang wist u het schema door met de tijdentiteiten de start- en eindtijd van elk venster op 00:00 te zetten. Dezelfde entiteiten bestaan op deze familie ook voor **AC First**.\n\nWerk automatiseringen of dashboards bij die naar de verwijderde schakelaar verwezen. Zie issue #563 op GitHub voor het bewijs."
     }
   }
 }

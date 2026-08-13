@@ -1095,11 +1095,17 @@
     "device_not_found": {
       "message": "Urządzenie {serial} nie zostało znalezione w tej instalacji."
     },
-    "clear_schedule_write_failed": {
-      "message": "Nie udało się wyczyścić harmonogramu {schedule} dla {serial}: zapis {param} nie powiódł się ({error})."
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "Nie udało się wyczyścić harmonogramu ładowania AC dla {serial}: zapis {param} nie powiódł się ({error})."
     },
-    "clear_schedule_write_not_acknowledged": {
-      "message": "Nie udało się wyczyścić harmonogramu {schedule} dla {serial}: zapis {param} nie został potwierdzony."
+    "clear_schedule_write_failed_ac_first": {
+      "message": "Nie udało się wyczyścić harmonogramu AC First dla {serial}: zapis {param} nie powiódł się ({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "Nie udało się wyczyścić harmonogramu ładowania AC dla {serial}: zapis {param} nie został potwierdzony."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "Nie udało się wyczyścić harmonogramu AC First dla {serial}: zapis {param} nie został potwierdzony."
     }
   },
   "issues": {
@@ -1153,7 +1159,7 @@
     },
     "offgrid_ac_charge_switch_removed": {
       "title": "Przełącznik ładowania AC usunięty z {model} {serial}",
-      "description": "Przełącznik **Tryb ładowania AC** został usunięty z **{serial}** ({model}).\n\nW falownikach EG4 off-grid (rodzina SNA) ładowanie AC jest trybem pracy definiowanym harmonogramem: portal EG4 oferuje okna czasowe ładowania AC i nie ma głównego przełącznika, a wyłączenie przełącznika pozostawiało skonfigurowany harmonogram nienaruszony (#563). Analiza firmware'u wersji off-grid pokazuje dlaczego: leżący u podstaw bit funkcji (rejestr podtrzymujący 21, bit 7) jest zapisywany i czytelny, ale nigdy nie jest używany przez logikę ładowania — przełącznik nie mógł niczego uruchomić ani zatrzymać w tej rodzinie.\n\nZamiast tego: edytuj harmonogram za pomocą encji **Czas rozpoczęcia/zakończenia ładowania AC** (domyślnie wyłączone — włącz je w rejestrze encji), obserwuj nowy czujnik binarny **Harmonogram ładowania AC aktywny**, aby sprawdzić, czy skonfigurowano jakieś okno, i naciśnij nowy przycisk **Wyczyść harmonogram ładowania AC**, aby zresetować wszystkie okna do 00:00–00:00. Te same encje istnieją dla **AC First** w tej rodzinie.\n\nZaktualizuj automatyzacje lub pulpity odwołujące się do usuniętego przełącznika. Dowody znajdują się w zgłoszeniu #563 na GitHubie."
+      "description": "Przełącznik **Tryb ładowania AC** został usunięty z **{serial}** ({model}).\n\nW falownikach EG4 off-grid (rodzina SNA) ładowanie AC jest trybem pracy definiowanym harmonogramem: portal EG4 oferuje okna czasowe ładowania AC i nie ma głównego przełącznika, a wyłączenie przełącznika pozostawiało skonfigurowany harmonogram nienaruszony (#563). Analiza firmware'u wersji off-grid pokazuje dlaczego: leżący u podstaw bit funkcji (rejestr podtrzymujący 21, bit 7) jest zapisywany i czytelny, ale nigdy nie jest używany przez logikę ładowania — przełącznik nie mógł niczego uruchomić ani zatrzymać w tej rodzinie.\n\nZamiast tego: edytuj harmonogram za pomocą encji **Czas rozpoczęcia/zakończenia ładowania AC** (domyślnie wyłączone — włącz je w rejestrze encji) i obserwuj nowy czujnik binarny **Harmonogram ładowania AC aktywny**, aby sprawdzić, czy skonfigurowano jakieś okno. Aby zresetować wszystkie okna do 00:00–00:00 jednym krokiem, naciśnij nowy przycisk **Wyczyść harmonogram ładowania AC** — pamiętaj, że ten przycisk wymaga dostępu do chmury (tryb połączenia HTTP lub hybrydowy) i nie jest tworzony przy połączeniach wyłącznie lokalnych; bez dostępu do chmury wyczyść harmonogram, ustawiając za pomocą encji czasu czas rozpoczęcia i zakończenia każdego okna na 00:00. Te same encje istnieją dla **AC First** w tej rodzinie.\n\nZaktualizuj automatyzacje lub pulpity odwołujące się do usuniętego przełącznika. Dowody znajdują się w zgłoszeniu #563 na GitHubie."
     }
   }
 }

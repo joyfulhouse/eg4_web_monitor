@@ -1095,11 +1095,17 @@
     "device_not_found": {
       "message": "Gerät {serial} wurde in dieser Anlage nicht gefunden."
     },
-    "clear_schedule_write_failed": {
-      "message": "Der Zeitplan {schedule} für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} ist fehlgeschlagen ({error})."
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "Der AC-Ladeplan für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} ist fehlgeschlagen ({error})."
     },
-    "clear_schedule_write_not_acknowledged": {
-      "message": "Der Zeitplan {schedule} für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} wurde nicht bestätigt."
+    "clear_schedule_write_failed_ac_first": {
+      "message": "Der AC-First-Zeitplan für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} ist fehlgeschlagen ({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "Der AC-Ladeplan für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} wurde nicht bestätigt."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "Der AC-First-Zeitplan für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} wurde nicht bestätigt."
     }
   },
   "issues": {
@@ -1153,7 +1159,7 @@
     },
     "offgrid_ac_charge_switch_removed": {
       "title": "AC-Ladeschalter von {model} {serial} entfernt",
-      "description": "Der Schalter **AC-Lademodus** wurde von **{serial}** ({model}) entfernt.\n\nBei EG4-Off-Grid-Wechselrichtern (SNA-Familie) ist AC-Laden ein zeitplandefinierter Arbeitsmodus: Das EG4-Portal bietet Zeitfenster für das AC-Laden, aber keinen zentralen Ein/Aus-Schalter, und das Ausschalten des Schalters ließ den konfigurierten Zeitplan unberührt (#563). Die Firmwareanalyse des Off-Grid-Builds zeigt warum: Das zugrunde liegende Funktionsbit (Holding-Register 21, Bit 7) wird gespeichert und ist lesbar, wird aber von der Ladelogik nie verwendet — der Schalter konnte auf dieser Familie nichts starten oder stoppen.\n\nStattdessen: Bearbeiten Sie den Zeitplan mit den Entitäten **AC-Ladestart-/Endzeit** (standardmäßig deaktiviert — in der Entitätsregistrierung aktivieren), beobachten Sie den neuen Binärsensor **AC-Ladeplan aktiv**, um zu sehen, ob ein Fenster konfiguriert ist, und drücken Sie die neue Schaltfläche **AC-Ladeplan löschen**, um jedes Fenster auf 00:00–00:00 zurückzusetzen. Dieselben Entitäten existieren auf dieser Familie auch für **AC First**.\n\nAktualisieren Sie Automatisierungen oder Dashboards, die den entfernten Schalter verwendeten. Die Belege finden Sie in Issue #563 auf GitHub."
+      "description": "Der Schalter **AC-Lademodus** wurde von **{serial}** ({model}) entfernt.\n\nBei EG4-Off-Grid-Wechselrichtern (SNA-Familie) ist AC-Laden ein zeitplandefinierter Arbeitsmodus: Das EG4-Portal bietet Zeitfenster für das AC-Laden, aber keinen zentralen Ein/Aus-Schalter, und das Ausschalten des Schalters ließ den konfigurierten Zeitplan unberührt (#563). Die Firmwareanalyse des Off-Grid-Builds zeigt warum: Das zugrunde liegende Funktionsbit (Holding-Register 21, Bit 7) wird gespeichert und ist lesbar, wird aber von der Ladelogik nie verwendet — der Schalter konnte auf dieser Familie nichts starten oder stoppen.\n\nStattdessen: Bearbeiten Sie den Zeitplan mit den Entitäten **AC-Ladestart-/Endzeit** (standardmäßig deaktiviert — in der Entitätsregistrierung aktivieren), und beobachten Sie den neuen Binärsensor **AC-Ladeplan aktiv**, um zu sehen, ob ein Fenster konfiguriert ist. Um jedes Fenster in einem Schritt auf 00:00–00:00 zurückzusetzen, drücken Sie die neue Schaltfläche **AC-Ladeplan löschen** — beachten Sie, dass diese Schaltfläche Cloud-Zugriff erfordert (HTTP- oder Hybrid-Verbindungsmodus) und bei rein lokalen Verbindungen nicht erstellt wird; ohne Cloud-Zugriff löschen Sie den Zeitplan, indem Sie stattdessen mit den Zeit-Entitäten die Start- und Endzeit jedes Fensters auf 00:00 setzen. Dieselben Entitäten existieren auf dieser Familie auch für **AC First**.\n\nAktualisieren Sie Automatisierungen oder Dashboards, die den entfernten Schalter verwendeten. Die Belege finden Sie in Issue #563 auf GitHub."
     }
   }
 }

@@ -32,6 +32,7 @@ from .coordinator import (
     EG4DataUpdateCoordinator,
 )
 from .time import decode_schedule_window, offgrid_schedule_devices
+from .utils import is_offgrid_family
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,12 +48,18 @@ async def async_setup_entry(
     """Set up EG4 Web Monitor binary sensor entities."""
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
+    # A first refresh without data must NOT skip setup: the discovery
+    # listener below is the only path by which later-arriving (or
+    # late-resolved) off-grid inverters gain their schedule-state sensors
+    # without a reload. Entity creation simply degrades to an empty list.
     if not coordinator.data or "devices" not in coordinator.data:
-        _LOGGER.warning("No device data available for binary sensor setup")
-        return
+        _LOGGER.warning(
+            "No device data available for binary sensor setup yet; the "
+            "schedule-state discovery listener stays armed"
+        )
 
     entities: list[BinarySensorEntity] = []
-    for serial, device_data in coordinator.data["devices"].items():
+    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
         # Off-grid state comes from the inverter operating-mode register;
         # GridBOSS / batteries do not have it.
         if device_data.get("type") == DEVICE_TYPE_INVERTER:
@@ -235,10 +242,18 @@ class EG4ScheduleActiveBinarySensor(EG4DeviceEntity, BinarySensorEntity):
 
     @property
     def available(self) -> bool:
-        """Unavailable only when the device is gone or errored.
+        """Available only while the device is healthy AND still off-grid.
 
-        Mirrors the off-grid binary sensor above: a polled device whose
-        schedule params have not arrived yet is present-but-unknown
-        (``is_on`` None), not unavailable.
+        Discovery is add-only: a device whose family re-resolves away from
+        EG4_OFFGRID (e.g. an initial misclassification corrected by a later
+        parameter fetch) keeps the entity registered, but it must go
+        unavailable rather than stay actionable — the schedule-defined
+        working modes this sensor mirrors do not exist on other families.
+        Recovers automatically if the family resolves back to EG4_OFFGRID.
         """
-        return device_present_and_healthy(self.coordinator, self._serial)
+        if not device_present_and_healthy(self.coordinator, self._serial):
+            return False
+        device_data = (
+            (self.coordinator.data or {}).get("devices", {}).get(self._serial, {})
+        )
+        return is_offgrid_family(device_data)

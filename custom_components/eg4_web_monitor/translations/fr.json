@@ -1095,11 +1095,17 @@
     "device_not_found": {
       "message": "L'appareil {serial} est introuvable dans cette centrale."
     },
-    "clear_schedule_write_failed": {
-      "message": "Impossible d'effacer la programmation {schedule} de {serial} : l'écriture de {param} a échoué ({error})."
+    "clear_schedule_write_failed_ac_charge": {
+      "message": "Impossible d'effacer la programmation de charge AC de {serial} : l'écriture de {param} a échoué ({error})."
     },
-    "clear_schedule_write_not_acknowledged": {
-      "message": "Impossible d'effacer la programmation {schedule} de {serial} : l'écriture de {param} n'a pas été confirmée."
+    "clear_schedule_write_failed_ac_first": {
+      "message": "Impossible d'effacer la programmation AC First de {serial} : l'écriture de {param} a échoué ({error})."
+    },
+    "clear_schedule_write_not_acknowledged_ac_charge": {
+      "message": "Impossible d'effacer la programmation de charge AC de {serial} : l'écriture de {param} n'a pas été confirmée."
+    },
+    "clear_schedule_write_not_acknowledged_ac_first": {
+      "message": "Impossible d'effacer la programmation AC First de {serial} : l'écriture de {param} n'a pas été confirmée."
     }
   },
   "issues": {
@@ -1153,7 +1159,7 @@
     },
     "offgrid_ac_charge_switch_removed": {
       "title": "Interrupteur de charge AC supprimé de {model} {serial}",
-      "description": "L'interrupteur **Mode de charge AC** a été supprimé de **{serial}** ({model}).\n\nSur les onduleurs EG4 off-grid (famille SNA), la charge AC est un mode de fonctionnement défini par programmation : le portail EG4 propose des plages horaires de charge AC et aucun interrupteur principal, et désactiver l'interrupteur laissait la programmation configurée intacte (#563). L'analyse du firmware de la version off-grid explique pourquoi : le bit de fonction sous-jacent (registre de maintien 21, bit 7) est stocké et lisible, mais n'est jamais utilisé par la logique de charge — l'interrupteur ne pouvait rien démarrer ni arrêter sur cette famille.\n\nÀ la place : modifiez la programmation avec les entités **Heure de début/fin de charge AC** (désactivées par défaut — activez-les dans le registre des entités), surveillez le nouveau capteur binaire **Programmation de charge AC active** pour savoir si une plage est configurée, et appuyez sur le nouveau bouton **Effacer la programmation de charge AC** pour ramener chaque plage à 00:00–00:00. Les mêmes entités existent pour **AC First** sur cette famille.\n\nMettez à jour toute automatisation ou tout tableau de bord qui utilisait l'interrupteur supprimé. Voir le ticket #563 sur GitHub pour les preuves."
+      "description": "L'interrupteur **Mode de charge AC** a été supprimé de **{serial}** ({model}).\n\nSur les onduleurs EG4 off-grid (famille SNA), la charge AC est un mode de fonctionnement défini par programmation : le portail EG4 propose des plages horaires de charge AC et aucun interrupteur principal, et désactiver l'interrupteur laissait la programmation configurée intacte (#563). L'analyse du firmware de la version off-grid explique pourquoi : le bit de fonction sous-jacent (registre de maintien 21, bit 7) est stocké et lisible, mais n'est jamais utilisé par la logique de charge — l'interrupteur ne pouvait rien démarrer ni arrêter sur cette famille.\n\nÀ la place : modifiez la programmation avec les entités **Heure de début/fin de charge AC** (désactivées par défaut — activez-les dans le registre des entités), et surveillez le nouveau capteur binaire **Programmation de charge AC active** pour savoir si une plage est configurée. Pour ramener chaque plage à 00:00–00:00 en une seule étape, appuyez sur le nouveau bouton **Effacer la programmation de charge AC** — notez que ce bouton nécessite un accès cloud (mode de connexion HTTP ou Hybride) et n'est pas créé sur les connexions locales uniquement ; sans accès cloud, effacez la programmation en réglant l'heure de début et de fin de chaque plage à 00:00 avec les entités horaires. Les mêmes entités existent pour **AC First** sur cette famille.\n\nMettez à jour toute automatisation ou tout tableau de bord qui utilisait l'interrupteur supprimé. Voir le ticket #563 sur GitHub pour les preuves."
     }
   }
 }

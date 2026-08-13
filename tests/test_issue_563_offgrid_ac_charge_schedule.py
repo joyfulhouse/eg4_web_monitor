@@ -524,9 +524,8 @@ class TestClearScheduleButton:
             await self._button(coordinator).async_press()
         # User-facing press errors are localized, not hardcoded strings.
         assert excinfo.value.translation_domain == DOMAIN
-        assert excinfo.value.translation_key == "clear_schedule_write_failed"
+        assert excinfo.value.translation_key == "clear_schedule_write_failed_ac_charge"
         assert excinfo.value.translation_placeholders == {
-            "schedule": "ac_charge",
             "serial": SERIAL,
             "param": "HOLD_AC_CHARGE_START_HOUR_1",
             "error": "boom",
@@ -548,7 +547,10 @@ class TestClearScheduleButton:
 
         with pytest.raises(HomeAssistantError, match="not acknowledged") as excinfo:
             await self._button(coordinator).async_press()
-        assert excinfo.value.translation_key == "clear_schedule_write_not_acknowledged"
+        assert (
+            excinfo.value.translation_key
+            == "clear_schedule_write_not_acknowledged_ac_charge"
+        )
         coordinator.async_refresh_device_parameters.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -559,3 +561,283 @@ class TestClearScheduleButton:
         coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
         await self._button(coordinator).async_press()
         coordinator.async_refresh_device_parameters.assert_awaited_once_with(SERIAL)
+
+
+def _capture_listeners(coordinator: MagicMock) -> list:
+    """Replace the mock's async_add_listener with a capturing recorder."""
+    listeners: list = []
+    coordinator.async_add_listener = MagicMock(
+        side_effect=lambda cb, *a, **kw: (listeners.append(cb), lambda: None)[1]
+    )
+    return listeners
+
+
+def _resolve_family(coordinator: MagicMock, family: str) -> None:
+    """Re-resolve the test device's family, as a recovered parameter fetch."""
+    coordinator.data["devices"][SERIAL]["features"] = {"inverter_family": family}
+
+
+class TestFamilyReclassificationRecleanup:
+    """A family resolving to EG4_OFFGRID only AFTER setup still gets the
+    exact-shape registry purge and the Repairs notice — no reload required."""
+
+    async def test_late_offgrid_resolution_purges_both_legacy_uids(self, hass) -> None:
+        """UNKNOWN at setup -> EG4_OFFGRID later: purge both shipped shapes."""
+        from custom_components.eg4_web_monitor import async_setup_entry
+
+        entry = _config_entry()
+        entry.add_to_hass(hass)
+        registry = er.async_get(hass)
+
+        offgrid = "1000000002"
+        hybrid = "1000000001"
+        lxp = "1000000005"
+
+        # Both shipped unique-ID shapes on the late-resolving unit, plus
+        # same-key controls on units whose family must never match.
+        seeded = (
+            f"{offgrid}_ac_charge",
+            f"{offgrid}_func_ac_charge",
+            f"{hybrid}_ac_charge",
+            f"{hybrid}_func_ac_charge",
+            f"{lxp}_ac_charge",
+        )
+        for uid in seeded:
+            registry.async_get_or_create("switch", DOMAIN, uid, config_entry=entry)
+
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock()
+        coordinator.data = {
+            "devices": {
+                offgrid: {
+                    "type": "inverter",
+                    "model": "12000XP",
+                    # Unresolved at first refresh (failed parameter fetch) —
+                    # the fail-open path keeps the AC Charge switch.
+                    "features": {"inverter_family": INVERTER_FAMILY_UNKNOWN},
+                },
+                hybrid: {
+                    "type": "inverter",
+                    "model": "FlexBOSS21",
+                    "features": {"inverter_family": INVERTER_FAMILY_EG4_HYBRID},
+                },
+                lxp: {
+                    "type": "inverter",
+                    "features": {"inverter_family": INVERTER_FAMILY_LXP},
+                },
+            }
+        }
+        listeners = _capture_listeners(coordinator)
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.EG4DataUpdateCoordinator",
+                return_value=coordinator,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ),
+        ):
+            assert await async_setup_entry(hass, entry)
+
+        get_eid = registry.async_get_entity_id
+        # UNKNOWN at setup: the one-shot cleanup must not have purged anything.
+        for uid in seeded:
+            assert get_eid("switch", DOMAIN, uid) is not None, uid
+        assert listeners  # the family-resolution recleanup listener was armed
+
+        # The parameter fetch recovers and the family resolves off-grid.
+        coordinator.data["devices"][offgrid]["features"] = {
+            "inverter_family": INVERTER_FAMILY_EG4_OFFGRID
+        }
+        for listener in listeners:
+            listener()
+
+        # Both historical shapes purged for the resolved unit only.
+        assert get_eid("switch", DOMAIN, f"{offgrid}_ac_charge") is None
+        assert get_eid("switch", DOMAIN, f"{offgrid}_func_ac_charge") is None
+        for uid in (
+            f"{hybrid}_ac_charge",
+            f"{hybrid}_func_ac_charge",
+            f"{lxp}_ac_charge",
+        ):
+            assert get_eid("switch", DOMAIN, uid) is not None, uid
+
+        # The Repairs notice fires without a reload — and only for that unit.
+        issue_registry = ir.async_get(hass)
+        assert (
+            issue_registry.async_get_issue(
+                DOMAIN, f"offgrid_ac_charge_switch_removed_{offgrid}"
+            )
+            is not None
+        )
+        for serial in (hybrid, lxp):
+            assert (
+                issue_registry.async_get_issue(
+                    DOMAIN, f"offgrid_ac_charge_switch_removed_{serial}"
+                )
+                is None
+            )
+
+        # A no-change dispatch does not re-run the purge (signature gate):
+        # re-seed one shape, fire again, it must survive while the family
+        # signature is unchanged.
+        registry.async_get_or_create(
+            "switch", DOMAIN, f"{hybrid}_ac_charge_late", config_entry=entry
+        )
+        for listener in listeners:
+            listener()
+        assert get_eid("switch", DOMAIN, f"{hybrid}_ac_charge_late") is not None
+
+
+class TestCapabilityConvergentAvailability:
+    """Availability tracks the CURRENT family (and cloud route), so an
+    add-only rediscovery never leaves a stale entity actionable."""
+
+    def test_schedule_sensor_availability_follows_family_flips(self) -> None:
+        coordinator = _mock_coordinator()  # positively off-grid
+        sensor = EG4ScheduleActiveBinarySensor(coordinator, SERIAL, SPECS["ac_charge"])
+        assert sensor.available is True
+
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_HYBRID)
+        assert sensor.available is False
+
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_OFFGRID)
+        assert sensor.available is True
+
+    def test_clear_button_availability_follows_family_and_cloud(self) -> None:
+        coordinator = _mock_coordinator()  # off-grid + cloud client
+        button = EG4ClearScheduleButton(coordinator, SERIAL, SPECS["ac_charge"])
+        assert button.available is True
+
+        # Cloud route lost: the clear is no longer a sanctioned write.
+        coordinator.has_http_api.return_value = False
+        assert button.available is False
+        coordinator.has_http_api.return_value = True
+
+        # Family re-resolved away from off-grid: not actionable.
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_HYBRID)
+        assert button.available is False
+
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_OFFGRID)
+        assert button.available is True
+
+    @pytest.mark.asyncio
+    async def test_schedule_sensors_deactivate_and_recover_without_duplicates(
+        self, hass
+    ) -> None:
+        """OFFGRID -> HYBRID -> OFFGRID: add-only discovery, availability
+        converges both ways, and the entity set never grows."""
+        coordinator = _mock_coordinator(family=INVERTER_FAMILY_EG4_OFFGRID)
+        listeners = _capture_listeners(coordinator)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        entities = []
+        await async_setup_binary_sensor(hass, entry, lambda e, **kw: entities.extend(e))
+        tracked = [e for e in entities if isinstance(e, EG4ScheduleActiveBinarySensor)]
+        assert len(tracked) == 2
+        assert all(e.available for e in tracked)
+
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_HYBRID)
+        for listener in listeners:
+            listener()
+        tracked = [e for e in entities if isinstance(e, EG4ScheduleActiveBinarySensor)]
+        assert len(tracked) == 2  # deactivated, not removed
+        assert all(not e.available for e in tracked)
+
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_OFFGRID)
+        for listener in listeners:
+            listener()
+        tracked = [e for e in entities if isinstance(e, EG4ScheduleActiveBinarySensor)]
+        assert len(tracked) == 2  # recovered WITHOUT re-adding
+        assert all(e.available for e in tracked)
+
+    @pytest.mark.asyncio
+    async def test_clear_buttons_deactivate_and_recover_without_duplicates(
+        self, hass
+    ) -> None:
+        """Same convergence for the cloud-routed clear-schedule buttons."""
+        coordinator = _mock_coordinator(family=INVERTER_FAMILY_EG4_OFFGRID)
+        listeners = _capture_listeners(coordinator)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        entities = []
+        await async_setup_button(hass, entry, lambda e, **kw: entities.extend(e))
+        tracked = [e for e in entities if isinstance(e, EG4ClearScheduleButton)]
+        assert len(tracked) == 2
+        assert all(e.available for e in tracked)
+
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_HYBRID)
+        for listener in listeners:
+            listener()
+        tracked = [e for e in entities if isinstance(e, EG4ClearScheduleButton)]
+        assert len(tracked) == 2
+        assert all(not e.available for e in tracked)
+
+        _resolve_family(coordinator, INVERTER_FAMILY_EG4_OFFGRID)
+        for listener in listeners:
+            listener()
+        tracked = [e for e in entities if isinstance(e, EG4ClearScheduleButton)]
+        assert len(tracked) == 2
+        assert all(e.available for e in tracked)
+
+
+class TestNoneDataSetupInstallsDiscovery:
+    """A data-less first refresh must still arm the discovery listeners —
+    later-arriving off-grid devices get their entities without a reload."""
+
+    _RESOLVED_OFFGRID_DATA = {
+        "devices": {
+            SERIAL: {
+                "type": "inverter",
+                "model": "12000XP",
+                "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+            }
+        },
+        "parameters": {SERIAL: {}},
+    }
+
+    @pytest.mark.asyncio
+    async def test_schedule_sensors_appear_after_none_data_setup(self, hass) -> None:
+        coordinator = _mock_coordinator(family=None)
+        coordinator.data = None
+        listeners = _capture_listeners(coordinator)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        entities = []
+        await async_setup_binary_sensor(hass, entry, lambda e, **kw: entities.extend(e))
+        assert not entities
+        assert listeners  # armed despite the empty first refresh
+
+        coordinator.data = dict(self._RESOLVED_OFFGRID_DATA)
+        for listener in listeners:
+            listener()
+        sensors = [e for e in entities if isinstance(e, EG4ScheduleActiveBinarySensor)]
+        assert {s._spec.key for s in sensors} == {"ac_charge", "ac_first"}
+
+    @pytest.mark.asyncio
+    async def test_clear_buttons_appear_after_none_data_setup(self, hass) -> None:
+        coordinator = _mock_coordinator(family=None)
+        coordinator.data = None
+        listeners = _capture_listeners(coordinator)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entry.async_on_unload = MagicMock()
+
+        entities = []
+        await async_setup_button(hass, entry, lambda e, **kw: entities.extend(e))
+        assert not entities
+        assert listeners  # armed despite the empty first refresh
+
+        coordinator.data = dict(self._RESOLVED_OFFGRID_DATA)
+        for listener in listeners:
+            listener()
+        buttons = [e for e in entities if isinstance(e, EG4ClearScheduleButton)]
+        assert {b._spec.key for b in buttons} == {"ac_charge", "ac_first"}

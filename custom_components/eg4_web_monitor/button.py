@@ -35,6 +35,7 @@ from .time import (
 )
 from .utils import (
     generate_unique_id,
+    is_offgrid_family,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -64,25 +65,29 @@ async def async_setup_entry(
     # Phase 2 entities: individual batteries that reference battery bank via via_device
     phase2_entities: list[ButtonEntity] = []
 
+    # A first refresh without data must NOT return early: the discovery
+    # listeners at the bottom are the only path by which later-arriving
+    # batteries and late-resolved off-grid inverters gain their buttons
+    # without a reload. Entity creation simply degrades to empty lists.
+    data = coordinator.data or {}
     if not coordinator.data:
-        _LOGGER.warning("No coordinator data available for button setup")
-        return
+        _LOGGER.warning(
+            "No coordinator data available for button setup yet; the "
+            "discovery listeners stay armed"
+        )
 
     # Create station refresh button if station data is available
-    if "station" in coordinator.data:
+    if "station" in data:
         phase1_entities.append(EG4StationRefreshButton(coordinator))
 
-    # Skip device buttons if no device data
-    if "devices" not in coordinator.data:
+    devices = data.get("devices", {})
+    if coordinator.data and "devices" not in data:
         _LOGGER.warning(
             "No device data available for button setup, only creating station buttons"
         )
-        if phase1_entities:
-            async_add_entities(phase1_entities)
-        return
 
     # Create refresh diagnostic buttons for all devices (phase 1)
-    for serial, device_data in coordinator.data["devices"].items():
+    for serial, device_data in devices.items():
         # Get device info for proper naming
         device_type = device_data.get("type", "unknown")
         if device_type == "parallel_group":
@@ -105,7 +110,7 @@ async def async_setup_entry(
     phase1_entities.extend(clear_buttons)
 
     # Create refresh buttons for individual batteries (phase 2)
-    for serial, device_data in coordinator.data["devices"].items():
+    for serial, device_data in devices.items():
         # Check if this device has individual batteries
         if "batteries" in device_data:
             for battery_key in device_data["batteries"]:
@@ -142,7 +147,7 @@ async def async_setup_entry(
     # until reload (eg4-68y review follow-up).
     known_battery_keys: dict[str, set[str]] = {
         serial: set(device_data.get("batteries", {}))
-        for serial, device_data in coordinator.data["devices"].items()
+        for serial, device_data in devices.items()
     }
 
     @callback
@@ -516,6 +521,24 @@ class EG4ClearScheduleButton(EG4DeviceEntity, ButtonEntity):
         self._attr_translation_key = f"clear_{spec.key}_schedule"
         self._attr_unique_id = f"{serial}_clear_{spec.key}_schedule"
 
+    @property
+    def available(self) -> bool:
+        """Available only while the clear remains sanctioned for this device.
+
+        Discovery is add-only: if the family re-resolves away from
+        EG4_OFFGRID, or the cloud client (the only sanctioned write route)
+        goes away, a registered button must go unavailable instead of staying
+        actionable — pressing it on a hybrid/LXP unit or without the cloud
+        route would be exactly the unsanctioned write the creation gate
+        exists to prevent. Recovers automatically when both hold again.
+        """
+        if not super().available or not self.coordinator.has_http_api():
+            return False
+        device_data = (
+            (self.coordinator.data or {}).get("devices", {}).get(self._serial, {})
+        )
+        return is_offgrid_family(device_data)
+
     async def async_press(self) -> None:
         """Write 00:00 to every window boundary of the schedule via the cloud.
 
@@ -572,13 +595,16 @@ class EG4ClearScheduleButton(EG4DeviceEntity, ButtonEntity):
             except Exception as err:
                 if written:
                     await self._async_converge_partial_clear(param)
+                # Per-schedule translation key: exception placeholders are
+                # substituted verbatim (never re-translated), so the schedule
+                # name is baked into each locale's message instead of leaking
+                # the raw slug ("ac_charge") to users.
                 raise HomeAssistantError(
                     f"Failed to clear {self._spec.key} schedule for "
                     f"{self._serial}: {param} write failed ({err})",
                     translation_domain=DOMAIN,
-                    translation_key="clear_schedule_write_failed",
+                    translation_key=f"clear_schedule_write_failed_{self._spec.key}",
                     translation_placeholders={
-                        "schedule": self._spec.key,
                         "serial": self._serial,
                         "param": param,
                         "error": str(err),
@@ -591,9 +617,10 @@ class EG4ClearScheduleButton(EG4DeviceEntity, ButtonEntity):
                     f"Failed to clear {self._spec.key} schedule for "
                     f"{self._serial}: {param} write was not acknowledged",
                     translation_domain=DOMAIN,
-                    translation_key="clear_schedule_write_not_acknowledged",
+                    translation_key=(
+                        f"clear_schedule_write_not_acknowledged_{self._spec.key}"
+                    ),
                     translation_placeholders={
-                        "schedule": self._spec.key,
                         "serial": self._serial,
                         "param": param,
                     },
