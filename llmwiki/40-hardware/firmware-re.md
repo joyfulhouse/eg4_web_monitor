@@ -9,7 +9,8 @@ sources:
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
   - docs/reference/firmware/re/00_SUMMARY.md
   - issue eg4-x00j
-verified-against: ec7dccd
+  - issue eg4-gzol
+verified-against: d83f223
 last-verified: 2026-08-13
 ---
 
@@ -127,7 +128,7 @@ decompilation. The complete 8 MiB flash is intentionally not committed: its NVS 
 may contain network credentials. The hashes below identify the analyzed bytes without
 publishing that state.
 
-### Attached unit: factory `V1.1`
+### First attached unit: factory `V1.1`
 
 | Claim | Evidence | Grade |
 |---|---|---|
@@ -143,6 +144,20 @@ reachable. The absence of a listener on a running Ethernet unit therefore does n
 that local protocol support was removed.
 
 ### Downloaded `WL_LINK_V1_2` and the local-listener patch
+
+A second physical unit, recorded in issue `eg4-gzol`, closes the provenance gap between
+the downloaded `V1.2` artifact and shipped hardware:
+
+| Claim | Evidence | Grade |
+|---|---|---|
+| The second unit is an ESP32-D0WD-V3 revision 3.1 with 8 MiB flash. | `esptool` ROM identification and flash ID in `eg4-gzol`; full-flash SHA-256 `c280cbc43e3f6c6c16306f5410a5a9c641312d2cdade745a9eeae74b453a579f`. | `asserted-unverified` (issue `eg4-gzol`; the raw hardware transcript is summarized there but not committed) |
+| Its only application is factory `V1.2`, built 2025-10-22; both 2 MiB OTA slots are erased. | Partition table: factory `0x40000`, OTA0 `0x240000`, OTA1 `0x440000`; both OTA regions contain only `0xff`. The extracted 947,680-byte factory app has SHA-256 `325e12b0b9b4a51fc050fb5e17ab79a97d6bd3ff7301628ecd15e9e74d2fec0f`. | `firmware-proven` (WLAN factory `V1.2`; issue `eg4-gzol`) |
+| The shipped factory app is byte-identical to the previously downloaded official `WL_LINK_V1_2.bin`. | Full-file `cmp` equality and the same SHA-256 `325e12b0…fec0f`. | `firmware-proven` (WLAN factory/downloaded `V1.2`; issue `eg4-gzol`) |
+| The physical unit does **not** contain the local-listener patch. | Its app equals official `WL_LINK_V1_2.bin` and differs from `WL_LINK_V1_2_eth_local_listen.bin`, SHA-256 `ab67fc3114298606830e79b3b0c6a9acb803aac11498c51b90b999e38a392255`. | `firmware-proven` (WLAN factory `V1.2`; issue `eg4-gzol`) |
+
+Because the factory application and downloaded image are identical, the following
+decompilation findings apply directly to the second physical unit; this is binary
+identity, not a transfer of conclusions between merely similar builds.
 
 | Artifact or claim | Evidence | Grade |
 |---|---|---|

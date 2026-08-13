@@ -380,3 +380,13 @@ server initializer; Ethernet creates `eth_task` and returns. Compared it with of
 recorded the existing one-jump local-listener patch as untested on hardware. Issue
 `eg4-x00j` preserves the evidence record. The full flash was not committed because NVS
 may contain network credentials.
+
+## [2026-08-13] ingest | Second WLAN dongle factory V1.2 identity
+
+Dumped a second ESP32-D0WD-V3 WLAN dongle read-only and added the specimen to
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md). Its sole factory application
+is `V1.2`; both OTA slots are erased. The 947,680-byte application is byte-identical to
+the previously downloaded official `WL_LINK_V1_2.bin` (SHA-256 `325e12b0…fec0f`) and is
+not the local-listener-patched artifact. Issue `eg4-gzol` preserves the hardware and
+comparison record. The full 8 MiB flash remains uncommitted because its NVS may contain
+network credentials.
