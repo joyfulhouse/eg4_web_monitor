@@ -3,8 +3,8 @@ canonical-for:
   - "Catalog of every llmwiki page and the facts it owns"
 sources:
   - llmwiki/*/*.md front matter (canonical-for declarations)
-verified-against: 9f6d6e2
-last-verified: 2026-08-09
+verified-against: 9798ccc
+last-verified: 2026-08-13
 see-also:
   - README.md
   - log.md
@@ -81,6 +81,7 @@ defect.
 | [`registers.md`](40-hardware/registers.md) | **The register keeper.** Per-row evidence grades for every inverter and GridBOSS register. Authoritative for any register question | Inverter and GridBOSS register ground truth |
 | [`gridboss.md`](40-hardware/gridboss.md) | GridBOSS specifics, including the smart-port mode register | GridBOSS POWER_HUB UART map |
 | [`firmware-re.md`](40-hardware/firmware-re.md) | Firmware acquisition/decoding methodology, invalid-artifact boundaries, and ESP32 WLAN local-listener analysis | Acquisition, decoding and register-RE methodology; ESP32 WLAN listener behaviour and patch lineage |
+| [`dongle-emulation.md`](40-hardware/dongle-emulation.md) | Phased contract for replacing a physical WLAN dongle with a Home Assistant-hosted emulator | Dongle-emulation product boundary; single-owner arbitration and snapshots; security, rollout, rollback and success criteria |
 | [`probing-playbook.md`](40-hardware/probing-playbook.md) | The safe procedure for dumping and verifying registers on live hardware. **Runbook — read before touching a device** | Safe register dumping and live verification |
 | [`open-questions.md`](40-hardware/open-questions.md) | What evidence would resolve each open hardware question | Evidence needed to resolve open hardware and firmware questions |
 
@@ -100,7 +101,7 @@ Read this before trusting a confident claim found elsewhere in the repo.
 | Page | What it is | Owns |
 |---|---|---|
 | [`superseded-claims.md`](60-history/superseded-claims.md) | Claims documented with confidence, acted upon, and false — and the mechanism by which each became load-bearing | Superseded claims and their mechanisms |
-| [`open-contradictions.md`](60-history/open-contradictions.md) | C1-C11: places two sources disagree and **no adjudication has been made**. Do not resolve one by writing a page that picks a side | Unresolved contradictions between project sources |
+| [`open-contradictions.md`](60-history/open-contradictions.md) | C1-C12: places project sources or policies differ and **no adjudication has been made**. Do not resolve one by writing a page that picks a side | Unresolved contradictions between project sources |
 | [`bug-postmortems.md`](60-history/bug-postmortems.md) | Symptom, true root cause, fix, and the generalizable lesson for each shipped bug | Postmortem catalogue |
 
 ## Where to start, by task

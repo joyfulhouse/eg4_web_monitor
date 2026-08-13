@@ -411,3 +411,40 @@ read from NVS namespace `device_param`, key `device_sn`, at parameter index 9. I
 separate from both the eFuse MAC and the inverter serial. The application-only listener
 patch therefore preserved it. Issue `eg4-vypa` records the evidence without publishing
 credential-bearing NVS contents; the exact factory provisioning tool remains unknown.
+
+## [2026-08-13] ingest | Home Assistant-hosted dongle-emulation contract
+
+Added [`40-hardware/dongle-emulation.md`](40-hardware/dongle-emulation.md) as the
+canonical phased specification for replacing a physical WLAN dongle with a single-owner
+local bus plus optional protocol emitters. Repository, firmware, capture and homelab
+investigations supported the bus-owner and offline-engine foundation; a two-vendor design
+debate disagreed on whether the first useful surface should be cloud emission or a local
+listener. The contract preserves that dissent by separating the single-owner foundation,
+live cloud participation, controls and port-8000 compatibility into independently gated
+phases. It forbids production identities in repository artifacts and records admission,
+duplicate-identity, TLS, legal/ToS, write-semantics and rollback evidence as live-use
+blockers rather than assumptions. Issue `eg4-asjv` owns the research record.
+
+## [2026-08-13] lint | Dongle-emulation requirements made executable
+
+The first cross-vendor requirements review found that the new dongle-emulation contract
+described exclusive bus ownership as a convention, prohibited the synthetic identities its
+own tests require, left parser/queue/reconnect/baseline/cutover limits unnamed, and kept the
+listener-capacity question outside the contradiction register. Replaced the convention with
+a sole raw-transport registry/factory plus static/runtime bypass tests; added explicit
+internal policy defaults and boundary behavior; scoped the secret ban to production data;
+time-boxed cutover and unknown-write rollback; made performance and capture windows
+reproducible; strengthened the affirmative authorization gate; and added C12 to
+[`60-history/open-contradictions.md`](60-history/open-contradictions.md).
+
+A primary-source recheck then narrowed C12: pylxpweb enforces and documents conservative
+one-client access, while V1.1 firmware is configured for two listener clients. Those may
+coexist, so the entry now separates verified client policy, an unverified hardware-limit
+claim and firmware-proven configuration, and names the two-independent-client experiment
+needed for adjudication.
+
+The convergence review also required a durable sanitized capture summary. Added it and the
+complete live-use unresolved set to issue `eg4-asjv`; removed an issue citation that only
+contained an early single-client hypothesis; and made parser memory, queue policy,
+session-expiry observation, local-only soak and per-field portal parity numerically
+testable.

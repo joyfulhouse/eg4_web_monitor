@@ -1,16 +1,21 @@
 ---
 canonical-for:
-  - "Unresolved contradictions between project sources (C1-C11)"
+  - "Unresolved contradictions between project sources (C1-C12)"
 sources:
   - docs/claude/FINAL_VALIDATION_REPORT.md
   - docs/claude/MODE_COMPARISON_REPORT.md
   - docs/claude/DEVICE_OBJECTS_DESIGN_PRINCIPLES.md
   - docs/audits/2026-08-02-register-race-performance-audit.md
+  - llmwiki/20-pylxpweb/transports.md
+  - llmwiki/40-hardware/firmware-re.md
+  - issue eg4-hpwq
   - memory/consumption-energy-sources.md
   - memory/soc-charge-limit-101-top-balance.md
   - memory/release-3.4.0-beta.18-status.md
-verified-against: 9f6d6e2
-last-verified: 2026-08-08
+verified-against:
+  eg4_web_monitor: 9798ccc
+  pylxpweb: 204b95d
+last-verified: 2026-08-13
 see-also:
   - superseded-claims.md
   - bug-postmortems.md
@@ -18,7 +23,7 @@ see-also:
 
 # Open contradictions
 
-Eleven places where two project sources make incompatible claims and **no adjudication
+Twelve places where two project sources make incompatible claims and **no adjudication
 has been made**. Every entry is published UNRESOLVED, with both sides quoted, pending
 a human decision.
 
@@ -214,6 +219,31 @@ semantics are the intended contract or a defect with dependents.
 **Status: UNRESOLVED.** A direct factual contradiction about whether the off-grid portal
 shows a Forced Discharge widget, from the same author days apart. What a human must
 decide: re-observe the portal on an off-grid unit and record which is true.
+
+---
+
+## C12 — WLAN listener capacity versus conservative client-access policy
+
+> Pylxpweb `src/pylxpweb/transports/dongle.py` at `204b95d` repeatedly documents a
+> one-client assumption and enforces serialized connects/operations. Issue `eg4-hpwq`
+> repeats that position as an operational safety rule.
+
+> `40-hardware/firmware-re.md` records the shipped V1.1 firmware server configuration with
+> a maximum of two local clients.
+
+**Status: UNRESOLVED.** Pylxpweb's locks and disabled concurrent-read capability are
+`verified-against-code` as client policy; the claimed one-socket hardware limit is
+`asserted-unverified` (issue `eg4-hpwq`). The configured maximum of two is
+`firmware-proven` for the V1.1 image, not a live concurrency result and not proof for V1.2.
+These statements are not necessarily incompatible: a listener may accept two sockets while
+requiring conservative single-client request access.
+
+A controlled target-firmware test must use two independent clients and record connection
+acceptance, simultaneous request behavior, response routing, disconnect behavior and exact
+firmware version before the emulator advertises capacity or concurrency.
+
+**Working rule meanwhile:** require exclusive access as a safety policy, do not state a
+universal socket limit, and do not use either number as a sizing or compatibility claim.
 
 ---
 
