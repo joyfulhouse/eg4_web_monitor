@@ -17,9 +17,8 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import EG4ConfigEntry
 from .base_entity import EG4DeviceEntity, device_present_and_healthy
-from .const import DEVICE_TYPE_INVERTER, ENTITY_PREFIX, is_off_grid
+from .const import DEVICE_TYPE_INVERTER, is_off_grid
 from .coordinator import EG4DataUpdateCoordinator
-from .utils import clean_model_name
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -64,18 +63,13 @@ class EG4OffGridBinarySensor(EG4DeviceEntity, BinarySensorEntity):
         self,
         coordinator: EG4DataUpdateCoordinator,
         serial: str,
-        device_data: dict[str, Any],
+        _device_data: dict[str, Any],
     ) -> None:
         """Initialize the off-grid binary sensor."""
         super().__init__(coordinator, serial)
         # Name comes from the translation key (entity.binary_sensor.off_grid.name)
         # so it localizes; setting _attr_name here would override translations.
         self._attr_unique_id = f"{serial}_off_grid"
-        model = device_data.get("model", "Unknown")
-        model_clean = clean_model_name(model, use_underscores=True)
-        self._attr_entity_id = (
-            f"binary_sensor.{ENTITY_PREFIX}_{model_clean}_{serial}_off_grid"
-        )
 
     def _status_code(self) -> int | None:
         """Return the inverter operating-mode code from coordinator data."""
