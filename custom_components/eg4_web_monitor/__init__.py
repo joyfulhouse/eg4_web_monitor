@@ -40,6 +40,8 @@ from .const import (
     DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_SENSOR_UPDATE_INTERVAL_HTTP,
     DOMAIN,
+    HYBRID_EXCLUDED_SENSORS,
+    INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_UNKNOWN,
     MANUFACTURER,
@@ -876,79 +878,65 @@ def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bo
     return middle in _DEVICE_UID_DATA_TYPE_SEGMENTS
 
 
-def _async_cleanup_offgrid_generator_entities(
+def _async_cleanup_family_excluded_sensor_entities(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
     coordinator: EG4DataUpdateCoordinator,
 ) -> None:
-    """Purge the bogus EG4_OFFGRID generator sensors (#544).
-
-    ``generator_power`` / ``generator_energy`` / ``generator_energy_lifetime``
-    are no longer created on EG4_OFFGRID because their backing registers are
-    not measurements on that family (see ``OFFGRID_EXCLUDED_SENSORS``).  Without
-    this purge the existing entities would linger in the registry forever as
-    "unavailable", still showing their last bogus value in history.
-
-    The mirror image of ``_async_cleanup_deprecated_battery_discharge_power_entities``
-    and gated the same way: remove ONLY when the device's family is positively
-    RESOLVED as EG4_OFFGRID.  ``UNKNOWN`` is excluded — pylxpweb emits it when a
-    parameter fetch fails, and treating it as "family known" would let one
-    transient read failure delete a hybrid user's genuine Generator Power
-    entity irreversibly.  Unresolved devices keep their entities; the family
-    resolves on a later refresh.
-
-    Matching is per-serial and exact via ``_is_device_namespace_uid``, so the
-    GridBOSS's own real ``generator_power`` (a different device namespace, fed
-    by dedicated CT registers) is never touched.
-    """
-    offgrid_models: dict[str, str] = {}
-    if coordinator.data and "devices" in coordinator.data:
-        for serial, device_data in coordinator.data["devices"].items():
-            if device_data.get("type") != "inverter":
-                continue
-            family = (device_data.get("features") or {}).get("inverter_family")
-            if family == INVERTER_FAMILY_EG4_OFFGRID:
-                offgrid_models[serial] = str(device_data.get("model") or "Unknown")
-    if not offgrid_models:
-        return
-
+    """Purge sensors excluded for a positively resolved inverter family."""
+    devices = coordinator.data.get("devices", {}) if coordinator.data else {}
     entity_registry = er.async_get(hass)
-    removed_serials: set[str] = set()
-    for entity in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
-        if entity.domain != "sensor":
-            continue
-        serial = entity.unique_id.partition("_")[0]
-        if serial not in offgrid_models:
-            continue
-        if any(
-            _is_device_namespace_uid(entity.unique_id, serial, key)
-            for key in OFFGRID_EXCLUDED_SENSORS
-        ):
-            entity_registry.async_remove(entity.entity_id)
-            removed_serials.add(serial)
-            _LOGGER.info(
-                "Removed EG4_OFFGRID generator sensor with no real backing "
-                "register (#544): %s",
-                entity.entity_id,
-            )
+    entities = er.async_entries_for_config_entry(entity_registry, entry.entry_id)
 
-    # Generator Power is enabled-by-default with state_class measurement, so a
-    # silent removal would break dashboards and automations with no explanation.
-    # This repo's convention for a family-driven prune is to surface it in
-    # Repairs (the unknown_family_fallback precedent in coordinator_local).
-    for serial in removed_serials:
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            f"offgrid_generator_sensors_removed_{serial}",
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="offgrid_generator_sensors_removed",
-            translation_placeholders={
-                "serial": serial,
-                "model": offgrid_models[serial],
-            },
-        )
+    for family, excluded_sensors, issue_key, log_message in (
+        (
+            INVERTER_FAMILY_EG4_OFFGRID,
+            OFFGRID_EXCLUDED_SENSORS,
+            "offgrid_generator_sensors_removed",
+            "Removed EG4_OFFGRID generator sensor with no real backing "
+            "register (#544): %s",
+        ),
+        (
+            INVERTER_FAMILY_EG4_HYBRID,
+            HYBRID_EXCLUDED_SENSORS,
+            "hybrid_eps_apparent_power_sensors_removed",
+            "Removed mislabelled EG4_HYBRID EPS apparent-power sensor (#548): %s",
+        ),
+    ):
+        family_models = {
+            serial: str(device_data.get("model") or "Unknown")
+            for serial, device_data in devices.items()
+            if device_data.get("type") == "inverter"
+            and (device_data.get("features") or {}).get("inverter_family") == family
+        }
+        removed_serials: set[str] = set()
+        for entity in entities:
+            serial = entity.unique_id.partition("_")[0]
+            if (
+                entity.domain == "sensor"
+                and serial in family_models
+                and any(
+                    _is_device_namespace_uid(entity.unique_id, serial, key)
+                    for key in excluded_sensors
+                )
+            ):
+                entity_registry.async_remove(entity.entity_id)
+                removed_serials.add(serial)
+                _LOGGER.info(log_message, entity.entity_id)
+
+        for serial in removed_serials:
+            ir.async_create_issue(
+                hass,
+                DOMAIN,
+                f"{issue_key}_{serial}",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key=issue_key,
+                translation_placeholders={
+                    "serial": serial,
+                    "model": family_models[serial],
+                },
+            )
 
 
 def _async_cleanup_deprecated_battery_discharge_power_entities(
@@ -1320,9 +1308,8 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # "_battery_discharge_power" (#197) on resolved non-offgrid hardware.
     _async_cleanup_deprecated_battery_discharge_power_entities(hass, entry, coordinator)
 
-    # Conditional cleanup: the EG4_OFFGRID generator sensors whose registers are
-    # a 1 Hz counter / status bitfields rather than measurements (#544).
-    _async_cleanup_offgrid_generator_entities(hass, entry, coordinator)
+    # Conditional cleanup for sensors excluded on a resolved inverter family.
+    _async_cleanup_family_excluded_sensor_entities(hass, entry, coordinator)
 
     # One-time cleanup: remove stale smart port entities from previous versions
     # that created entities for all 4 ports. Now only active ports get entities

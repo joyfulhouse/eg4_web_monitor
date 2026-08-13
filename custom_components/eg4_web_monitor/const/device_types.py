@@ -279,6 +279,16 @@ OFFGRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
     }
 )
 
+# Registers 131/132 have different meanings on EG4_HYBRID; they remain genuine
+# per-leg apparent-power measurements on EG4_OFFGRID.  See
+# docs/reference/firmware/HYBRID_EPS_REGISTERS.md.
+HYBRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
+    {
+        "eps_apparent_power_l1",
+        "eps_apparent_power_l2",
+    }
+)
+
 # Sensors related to Volt-Watt curve (EG4_HYBRID, LXP only)
 VOLT_WATT_SENSORS: frozenset[str] = frozenset(
     {
