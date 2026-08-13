@@ -79,3 +79,56 @@ def test_locale_placeholders_match_english(locale_file: Path) -> None:
         if want != got:
             mismatched.append(f"{key}: en={want} vs {got}")
     assert not mismatched, f"{locale_file.stem} placeholder drift: {mismatched[:5]}"
+
+
+# --- #563 M4 semantics gate -------------------------------------------------
+#
+# Key/placeholder parity cannot catch a *semantic* revert of the
+# offgrid_ac_charge_switch_removed Repairs text: the r1 wording (which sent
+# local-only users to a Clear Schedule button they never receive) keeps every
+# key and placeholder intact, so the tests above stayed green under it. These
+# two gates pin the meaning instead, in strings.json and every locale.
+
+_OFFGRID_ISSUE_KEY = "issues.offgrid_ac_charge_switch_removed.description"
+
+
+def _issue_files() -> list[Path]:
+    return [COMPONENT / "strings.json", *_locales()]
+
+
+@pytest.mark.parametrize("locale_file", _issue_files(), ids=lambda p: p.stem)
+def test_offgrid_switch_removed_states_cloud_only_caveat(locale_file: Path) -> None:
+    """The Repairs text must state that the Clear AC Charge Schedule button
+    requires cloud access and is not created on local-only connections.
+
+    "HTTP" is the locale-invariant marker of the connection-mode
+    parenthetical (every shipped translation keeps it verbatim); the English
+    source additionally pins the exact caveat phrasing.
+    """
+    description = _load(locale_file)[_OFFGRID_ISSUE_KEY]
+    assert "HTTP" in description, (
+        f"{locale_file.stem}: cloud-access requirement missing from "
+        "offgrid_ac_charge_switch_removed"
+    )
+    if locale_file.stem in ("strings", "en"):
+        assert "requires cloud access" in description
+        assert "not created on local-only connections" in description
+
+
+@pytest.mark.parametrize("locale_file", _issue_files(), ids=lambda p: p.stem)
+def test_offgrid_switch_removed_gives_time_entity_fallback(locale_file: Path) -> None:
+    """The Repairs text must give local-only users the time-entity fallback:
+    clear the schedule by setting every window's start/end times to 00:00.
+
+    The window-reset pair "00:00–00:00" appears in both the r1 and fixed
+    wordings, so the gate looks for a standalone "00:00" outside that pair —
+    present only when the fallback instruction exists.
+    """
+    description = _load(locale_file)[_OFFGRID_ISSUE_KEY]
+    without_reset_pair = description.replace("00:00–00:00", "")
+    assert "00:00" in without_reset_pair, (
+        f"{locale_file.stem}: time-entity fallback (set every window to "
+        "00:00) missing from offgrid_ac_charge_switch_removed"
+    )
+    if locale_file.stem in ("strings", "en"):
+        assert "with the time entities instead" in description
