@@ -170,15 +170,54 @@ class EG4FirmwareUpdateEntity(
 
     @property
     def update_percentage(self) -> int | None:
-        """Return firmware update progress percentage (0-100)."""
+        """Return firmware update progress percentage (0-100), or None.
+
+        pylxpweb selects one matching ``remoteUpdate/info`` row and parses its
+        ``updateRate`` without chain aggregation (verified-against-code:
+        pylxpweb ab87902, ``FirmwareUpdateMixin.get_firmware_update_progress``).
+        Whether that portal row represents one firmware component rather than
+        overall chain progress is asserted-unverified (issues #353/#512).
+
+        An HA-initiated multi-step install holds ``_install_lock`` for the
+        whole chain, so publishing that row percentage would misrepresent
+        progress when a multi-component update is underway (#512). Return
+        None while the lock is held so Home Assistant shows an indeterminate
+        spinner.
+
+        For externally initiated updates (lock not held), intermediate values
+        still surface, but 0 and 100 map to None while the device row still
+        claims an active installation — pylxpweb seeds 0 after a successful
+        start (verified-against-code: pylxpweb v0.9.39b11 / ab87902,
+        ``FirmwareUpdateMixin.start_firmware_update``), and an active 100%
+        was observed on a 6000XP (asserted-unverified: issues #353/#512).
+
+        Known limitation (pre-existing): a cached ``in_progress=True`` row at
+        0/100 that survives persistent refresh failures keeps this entity
+        busy (``in_progress`` True) and Home Assistant rejects new installs.
+        This PR only changes how that wedged state renders (was Installing
+        100%; now indeterminate). Freshness-bounded clearing of stale active
+        rows is out of scope for #512.
+        """
+        # HA-initiated chain: never publish current-row percentages as chain progress.
+        if self._install_lock.locked():
+            return None
+
         device_data = self._device_data()
         if not device_data:
             return None
         update_info = device_data.get("firmware_update_info")
-        if update_info:
-            percentage = update_info.get("update_percentage")
-            return int(percentage) if percentage is not None else None
-        return None
+        if not update_info:
+            return None
+
+        percentage = update_info.get("update_percentage")
+        if percentage is None:
+            return None
+
+        pct = int(percentage)
+        # External install still active: suppress endpoint values 0 / 100.
+        if bool(update_info.get("in_progress", False)) and pct in (0, 100):
+            return None
+        return pct
 
     @property
     def available(self) -> bool:
