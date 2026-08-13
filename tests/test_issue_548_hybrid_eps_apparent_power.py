@@ -144,12 +144,12 @@ class TestHybridEpsApparentPowerRegistryCleanup:
         mock_config_entry.add_to_hass(hass)
         registry = er.async_get(hass)
 
-        hybrid = "1000000001"
-        offgrid = "1000000002"
-        unknown = "1000000003"
-        missing = "1000000004"
-        lxp = "1000000005"
-        gridboss = "4524850115"
+        hybrid = "SYNTH00117"
+        offgrid = "SYNTH00118"
+        unknown = "SYNTH00119"
+        missing = "SYNTH00120"
+        lxp = "SYNTH00121"
+        gridboss = "SYNTH00109"
 
         for serial in (hybrid, offgrid, unknown, missing, lxp):
             for key in SUPPRESSED:

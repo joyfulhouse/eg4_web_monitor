@@ -5,12 +5,15 @@ Probes ALL holding and input registers (0-999, 5000-5200) on two inverters,
 plus extended ranges (1000-2100) on the 18kPV.
 
 Usage:
-    .venv/bin/python scripts/probe_all_registers.py
+    uv run python scripts/probe_all_registers.py \
+        --primary-host HOST --secondary-host HOST
 """
 
 from __future__ import annotations
 
+import argparse
 import json
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,10 +26,7 @@ from pymodbus.exceptions import ModbusIOException
 # CONFIGURATION
 # =============================================================================
 
-DEVICES: dict[str, dict[str, Any]] = {
-    "18kPV": {"host": "10.100.14.68", "port": 502},
-    "FlexBOSS21": {"host": "10.100.10.184", "port": 502},
-}
+DEVICES: dict[str, dict[str, Any]] = {}
 
 CHUNK_SIZE = 10
 DELAY_BETWEEN_READS = 0.1  # 100ms
@@ -567,7 +567,7 @@ def run_probe() -> ProbeResults:
     # Connect to both devices
     clients: dict[str, ModbusTcpClient] = {}
     for name, cfg in DEVICES.items():
-        print(f"Connecting to {name} at {cfg['host']}:{cfg['port']}...")
+        print(f"Connecting to configured {name} endpoint...")
         client = ModbusTcpClient(cfg["host"], port=cfg["port"], timeout=TIMEOUT)
         if not client.connect():
             results.errors.append(f"Failed to connect to {name}")
@@ -726,7 +726,7 @@ def save_json(results: ProbeResults) -> Path:
     """Save raw results as JSON for future analysis."""
     data: dict[str, Any] = {
         "timestamp": results.timestamp,
-        "devices": {name: cfg for name, cfg in DEVICES.items()},
+        "devices": list(DEVICES),
         "holding_registers": [],
         "input_registers": [],
         "errors": results.errors,
@@ -772,9 +772,7 @@ def generate_markdown(results: ProbeResults) -> Path:
     lines.append("")
     lines.append(f"**Probe date**: {results.timestamp}")
     lines.append("**Firmware**: fAAB-2727 (both devices)")
-    lines.append(
-        "**Devices**: 18kPV (10.100.14.68:502), FlexBOSS21 (10.100.10.184:502)"
-    )
+    lines.append("**Devices**: 18kPV (192.0.2.46:502), FlexBOSS21 (192.0.2.47:502)")
     lines.append("")
 
     # Summary
@@ -964,8 +962,28 @@ def generate_markdown(results: ProbeResults) -> Path:
 # ENTRY POINT
 # =============================================================================
 
+
+def parse_args() -> argparse.Namespace:
+    """Parse explicit runtime endpoint configuration."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--primary-host", required=True)
+    parser.add_argument("--secondary-host", required=True)
+    parser.add_argument("--primary-port", type=int, default=502)
+    parser.add_argument("--secondary-port", type=int, default=502)
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    import sys
+    args = parse_args()
+    DEVICES.update(
+        {
+            "18kPV": {"host": args.primary_host, "port": args.primary_port},
+            "FlexBOSS21": {
+                "host": args.secondary_host,
+                "port": args.secondary_port,
+            },
+        }
+    )
 
     # Force line-buffered stdout for real-time output
     sys.stdout.reconfigure(line_buffering=True)

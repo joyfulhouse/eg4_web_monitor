@@ -1185,7 +1185,7 @@ expects the extended format with embedded serial.
 3. **Autonomous push interval**: Only one input push seen per device in 41.7s
    capture. Second capture (firmware check, ~60s) also showed input pushes.
    Likely ~60-100s between push cycles. Need longer capture to confirm.
-4. **Heartbeat status byte meaning**: DJ43404815 (GridBOSS) = 0x05, BC34000380 = 0x01.
+4. **Heartbeat status byte meaning**: SYNTH00006 (GridBOSS) = 0x05, SYNTH00005 = 0x01.
    What do these values indicate?
 5. **Initial data_period**: No SET_PARAM observed in capture. Need connection
    establishment capture to see initial configuration.

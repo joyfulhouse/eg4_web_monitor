@@ -4,14 +4,14 @@
 # This captures EVERYTHING — no port filter — because firmware OTA may use
 # different ports/servers than the normal cloud protocol (port 4346).
 #
-# Runs tcpdump on the UDM gateway (172.16.0.1) via SSH, since dongles are on
+# Runs tcpdump on a UDM gateway via SSH, since dongles are on
 # a separate VLAN and their traffic is only visible from the gateway.
 #
 # Usage:
-#   ./scripts/capture_firmware_upgrade.sh --ip 10.100.5.225              # capture until Ctrl+C
-#   ./scripts/capture_firmware_upgrade.sh --ip 10.100.5.225 --verify     # verify then exit
-#   ./scripts/capture_firmware_upgrade.sh --ip 10.100.5.225 --duration 600  # auto-stop
-#   ./scripts/capture_firmware_upgrade.sh                                # uses GRIDBOSS_DONGLE_IP from env
+#   ./scripts/capture_firmware_upgrade.sh --gateway-host 192.0.2.10 \
+#       --ip 192.0.2.20
+#   ./scripts/capture_firmware_upgrade.sh --gateway-host 192.0.2.10 \
+#       --ip 192.0.2.20 --verify
 #
 # Workflow:
 #   1. Run with --verify first to confirm everything works
@@ -25,8 +25,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-PYLXPWEB_ENV="/Users/bryanli/Projects/joyfulhouse/python/pylxpweb/.env"
-UDM_HOST="172.16.0.1"
+UDM_HOST=""
 UDM_USER="root"
 
 # --- Parse arguments ---
@@ -38,22 +37,24 @@ while [[ $# -gt 0 ]]; do
         --verify) VERIFY_ONLY=true; shift ;;
         --duration) DURATION="$2"; shift 2 ;;
         --ip) DONGLE_IP="$2"; shift 2 ;;
-        *) echo "Unknown option: $1"; exit 1 ;;
+        --gateway-host) UDM_HOST="$2"; shift 2 ;;
+        --gateway-user) UDM_USER="$2"; shift 2 ;;
+        *) echo "ERROR: Unknown option"; exit 1 ;;
     esac
 done
 
-# --- Resolve dongle IP ---
-if [[ -z "$DONGLE_IP" ]]; then
-    # Fall back to env file
-    if [[ ! -f "$PYLXPWEB_ENV" ]]; then
-        echo "ERROR: No --ip given and $PYLXPWEB_ENV not found"
-        exit 1
-    fi
-    DONGLE_IP=$(grep '^GRIDBOSS_DONGLE_IP=' "$PYLXPWEB_ENV" | cut -d= -f2)
-    if [[ -z "$DONGLE_IP" ]]; then
-        echo "ERROR: No --ip given and GRIDBOSS_DONGLE_IP not set in $PYLXPWEB_ENV"
-        exit 1
-    fi
+# --- Validate runtime configuration ---
+if [[ -z "$DONGLE_IP" || -z "$UDM_HOST" ]]; then
+    echo "ERROR: --ip and --gateway-host are required"
+    exit 1
+fi
+if [[ ! "$DONGLE_IP" =~ ^[0-9.]+$ || ! "$UDM_HOST" =~ ^[A-Za-z0-9._:-]+$ || ! "$UDM_USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    echo "ERROR: Invalid endpoint configuration"
+    exit 1
+fi
+if [[ -n "$DURATION" && ! "$DURATION" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: Duration must be an integer"
+    exit 1
 fi
 
 # --- Output setup ---
@@ -69,8 +70,6 @@ echo "============================================"
 echo "  EG4 Firmware Upgrade Packet Capture"
 echo "============================================"
 echo ""
-echo "  Dongle IP:     $DONGLE_IP"
-echo "  UDM Gateway:   ${UDM_USER}@${UDM_HOST}"
 echo "  Remote pcap:   $REMOTE_PCAP"
 echo "  Local pcap:    $LOCAL_PCAP"
 if [[ -n "$DURATION" ]]; then
@@ -83,7 +82,7 @@ echo ""
 # --- Step 1: Verify SSH connectivity ---
 echo "[1/4] Verifying SSH to UDM..."
 if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${UDM_USER}@${UDM_HOST}" "echo ok" >/dev/null 2>&1; then
-    echo "  FAIL: Cannot SSH to ${UDM_USER}@${UDM_HOST}"
+    echo "  FAIL: Cannot SSH to configured gateway"
     echo "  Ensure SSH key is configured for the UDM."
     exit 1
 fi
@@ -100,20 +99,17 @@ echo "  OK ($TCPDUMP_PATH)"
 
 # --- Step 3: Verify dongle is reachable (traffic exists) ---
 echo "[3/4] Verifying dongle traffic is visible from UDM..."
-echo "  Capturing 5 seconds of traffic from $DONGLE_IP..."
-
-# Capture a small sample to verify we can see the dongle
-SAMPLE_COUNT=$(ssh "${UDM_USER}@${UDM_HOST}" \
-    "timeout 5 tcpdump -i any host $DONGLE_IP -c 50 2>/dev/null | wc -l || echo 0" 2>/dev/null)
+echo "  Capturing 5 seconds of configured dongle traffic..."
 
 # tcpdump prints a summary line even with 0 packets; check actual count
-VERIFY_PACKETS=$(ssh "${UDM_USER}@${UDM_HOST}" \
-    "timeout 5 tcpdump -i any host $DONGLE_IP -c 5 -w /dev/null 2>&1 | grep -oE '[0-9]+ packets? captured' | grep -oE '[0-9]+' || echo 0" 2>/dev/null)
+VERIFY_PACKETS=$(printf '%s\n' "$DONGLE_IP" | ssh "${UDM_USER}@${UDM_HOST}" \
+    'read -r dongle_ip; timeout 5 tcpdump -i any host "$dongle_ip" -c 5 -w /dev/null 2>&1 | grep -oE "[0-9]+ packets? captured" | grep -oE "[0-9]+" || echo 0' \
+    2>/dev/null)
 
 if [[ "$VERIFY_PACKETS" -gt 0 ]]; then
     echo "  OK: Captured $VERIFY_PACKETS packets in 5 seconds"
 else
-    echo "  WARNING: No packets seen from $DONGLE_IP in 5 seconds"
+    echo "  WARNING: No packets seen from configured dongle in 5 seconds"
     echo "  The dongle may be idle. This is OK if it wakes up during firmware upgrade."
     echo "  Continuing anyway..."
 fi
@@ -122,7 +118,9 @@ fi
 echo "[4/4] Checking network interfaces on UDM..."
 INTERFACES=$(ssh "${UDM_USER}@${UDM_HOST}" "ip link show | grep -E '^[0-9]+:' | awk -F': ' '{print \$2}' | head -20")
 echo "  Available interfaces:"
-echo "$INTERFACES" | sed 's/^/    /'
+while IFS= read -r interface; do
+    printf '    %s\n' "$interface"
+done <<< "$INTERFACES"
 
 if $VERIFY_ONLY; then
     echo ""
@@ -140,7 +138,7 @@ echo "============================================"
 echo "  STARTING CAPTURE"
 echo "============================================"
 echo ""
-echo "  Filter: host $DONGLE_IP (ALL ports, ALL protocols)"
+echo "  Filter: configured dongle host (ALL ports, ALL protocols)"
 echo "  Snap length: 65535 (full packets)"
 echo ""
 echo "  >>> Trigger the firmware upgrade now. <<<"
@@ -154,7 +152,9 @@ echo ""
 # -U             : packet-buffered output (flush each packet to disk immediately)
 # host <IP>      : capture ALL traffic to/from dongle (no port filter!)
 # --immediate-mode: reduce kernel buffering latency
-TCPDUMP_CMD="tcpdump -i any -s 0 -U --immediate-mode -w $REMOTE_PCAP host $DONGLE_IP"
+printf -v REMOTE_PCAP_QUOTED '%q' "$REMOTE_PCAP"
+printf -v DONGLE_IP_QUOTED '%q' "$DONGLE_IP"
+TCPDUMP_CMD="tcpdump -i any -s 0 -U --immediate-mode -w $REMOTE_PCAP_QUOTED host $DONGLE_IP_QUOTED"
 
 if [[ -n "$DURATION" ]]; then
     # With timeout: auto-stop after N seconds
@@ -180,17 +180,18 @@ cleanup() {
         echo "  Downloaded: $LOCAL_PCAP ($LOCAL_SIZE bytes)"
 
         # Get packet count
-        PACKET_INFO=$(ssh "${UDM_USER}@${UDM_HOST}" \
-            "tcpdump -r $REMOTE_PCAP -q 2>/dev/null | wc -l || echo unknown" 2>/dev/null)
+        PACKET_INFO=$(printf '%s\n' "$REMOTE_PCAP" | ssh "${UDM_USER}@${UDM_HOST}" \
+            'read -r remote_pcap; tcpdump -r "$remote_pcap" -q 2>/dev/null | wc -l || echo unknown' \
+            2>/dev/null)
         echo "  Packets: $PACKET_INFO"
 
         # Cleanup remote file
-        ssh "${UDM_USER}@${UDM_HOST}" "rm -f $REMOTE_PCAP" 2>/dev/null || true
+        printf '%s\n' "$REMOTE_PCAP" | ssh "${UDM_USER}@${UDM_HOST}" \
+            'read -r remote_pcap; rm -f -- "$remote_pcap"' 2>/dev/null || true
         echo "  Remote file cleaned up."
     else
         echo "  FAIL: Could not download pcap."
-        echo "  File may still be on UDM at: $REMOTE_PCAP"
-        echo "  Manual download: scp ${UDM_USER}@${UDM_HOST}:${REMOTE_PCAP} ."
+        echo "  The remote capture file may require manual recovery."
     fi
 
     echo ""

@@ -331,7 +331,7 @@ class TestCloudHybridPath:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
 
-        inverter = make_real_inverter("1111111111", "12000XP")
+        inverter = make_real_inverter("SYNTH00111", "12000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._runtime = InverterRuntime.model_construct(
@@ -365,7 +365,7 @@ class TestCloudHybridPath:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
 
-        inverter = make_real_inverter("1111111111", "12000XP")
+        inverter = make_real_inverter("SYNTH00111", "12000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         cls = type(inverter)
@@ -403,7 +403,7 @@ class TestCloudHybridPath:
             eps_l2_power=296,
             battery_discharge_power=1415.0,
         )
-        inverter = make_real_inverter("1111111111", "12000XP", runtime=runtime)
+        inverter = make_real_inverter("SYNTH00111", "12000XP", runtime=runtime)
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._transport = make_transport_spec()
@@ -435,7 +435,7 @@ class TestCloudHybridPath:
         # map path actually executes (no has_data short-circuit). The
         # poisoned load_power property is the canary: pylxpweb's load_power
         # is reg-27 grid import (wrong source) and must never be mapped.
-        inverter = make_real_inverter("1111111111", "12000XP")
+        inverter = make_real_inverter("SYNTH00111", "12000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         cls = type(inverter)
@@ -518,7 +518,7 @@ class TestOffgridCloudOutputPowerGate:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
 
-        inverter = make_real_inverter("1111111111", "12000XP")
+        inverter = make_real_inverter("SYNTH00111", "12000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         cls = type(inverter)
@@ -545,7 +545,7 @@ class TestOffgridCloudOutputPowerGate:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
 
-        inverter = make_real_inverter("3333333333", "12000XP")
+        inverter = make_real_inverter("SYNTH00126", "12000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         cls = type(inverter)
@@ -572,7 +572,7 @@ class TestOffgridCloudOutputPowerGate:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
 
-        inverter = make_real_inverter("2222222222", "FlexBOSS21")
+        inverter = make_real_inverter("SYNTH00112", "FlexBOSS21")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         cls = type(inverter)
@@ -600,7 +600,7 @@ class TestOffgridCloudOutputPowerGate:
         coordinator.client = stub_cloud_client()
 
         runtime = InverterRuntimeData(output_power=1324.0)
-        inverter = make_real_inverter("1111111111", "12000XP", runtime=runtime)
+        inverter = make_real_inverter("SYNTH00111", "12000XP", runtime=runtime)
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._transport = make_transport_spec()
@@ -654,7 +654,7 @@ class TestDeprecatedCleanupSuffixes:
             _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES,
         )
 
-        new_uid = "1111111111_runtime_battery_discharge_power"
+        new_uid = "SYNTH00111_runtime_battery_discharge_power"
         assert not any(
             new_uid.endswith(suffix) for suffix in _DEPRECATED_CHARGE_DISCHARGE_SUFFIXES
         )
@@ -669,11 +669,11 @@ class TestDeprecatedCleanupSuffixes:
         assert "_eps_load_power_l1" in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
         assert "_eps_load_power_l2" in _DEPRECATED_DUPLICATE_SENSOR_SUFFIXES
         for surviving_uid in (
-            "1111111111_runtime_eps_load_power",
-            "1111111111_runtime_eps_power_l1",
-            "1111111111_runtime_eps_power_l2",
+            "SYNTH00111_runtime_eps_load_power",
+            "SYNTH00111_runtime_eps_power_l1",
+            "SYNTH00111_runtime_eps_power_l2",
             # GridBOSS per-leg load keys share the ..._load_power_l1 shape.
-            "4524850115_midbox_runtime_load_power_l1",
+            "SYNTH00109_midbox_runtime_load_power_l1",
         ):
             assert not any(
                 surviving_uid.endswith(suffix)
@@ -695,10 +695,10 @@ class TestDeprecatedCleanupSuffixes:
         mock_config_entry.add_to_hass(hass)
         registry = er.async_get(hass)
 
-        uid_l1 = "1111111111_runtime_eps_load_power_l1"
-        uid_l2 = "1111111111_runtime_eps_load_power_l2"
-        uid_total = "1111111111_runtime_eps_load_power"
-        uid_leg = "1111111111_runtime_eps_power_l1"
+        uid_l1 = "SYNTH00111_runtime_eps_load_power_l1"
+        uid_l2 = "SYNTH00111_runtime_eps_load_power_l2"
+        uid_total = "SYNTH00111_runtime_eps_load_power"
+        uid_leg = "SYNTH00111_runtime_eps_power_l1"
         for uid in (uid_l1, uid_l2, uid_total, uid_leg):
             registry.async_get_or_create(
                 "sensor", DOMAIN, uid, config_entry=mock_config_entry
@@ -740,9 +740,9 @@ class TestDeprecatedCleanupSuffixes:
         # purge matcher covers them defensively (see
         # _DEVICE_UID_DATA_TYPE_SEGMENTS in __init__.py), so this test still
         # pins that defensive coverage.
-        uid_offgrid = "1000000001_runtime_battery_discharge_power"
-        uid_hybrid = "1000000002_runtime_battery_discharge_power"
-        uid_unknown = "1000000003_runtime_battery_discharge_power"
+        uid_offgrid = "SYNTH00117_runtime_battery_discharge_power"
+        uid_hybrid = "SYNTH00118_runtime_battery_discharge_power"
+        uid_unknown = "SYNTH00119_runtime_battery_discharge_power"
         for uid in (uid_offgrid, uid_hybrid, uid_unknown):
             registry.async_get_or_create(
                 "sensor", DOMAIN, uid, config_entry=mock_config_entry
@@ -753,15 +753,15 @@ class TestDeprecatedCleanupSuffixes:
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator.data = {
             "devices": {
-                "1000000001": {
+                "SYNTH00117": {
                     "type": "inverter",
                     "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
                 },
-                "1000000002": {
+                "SYNTH00118": {
                     "type": "inverter",
                     "features": {"inverter_family": INVERTER_FAMILY_EG4_HYBRID},
                 },
-                "1000000003": {"type": "inverter", "features": {}},
+                "SYNTH00119": {"type": "inverter", "features": {}},
             }
         }
 
@@ -844,7 +844,7 @@ class TestSmartLoadSensors:
             eps_l2_power=1740,
             battery_discharge_power=3240.0,
         )
-        inverter = make_real_inverter("4233740012", "6000XP", runtime=runtime)
+        inverter = make_real_inverter("SYNTH00127", "6000XP", runtime=runtime)
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._transport = make_transport_spec()
@@ -893,13 +893,13 @@ class TestSmartLoadSensors:
         mock_config_entry.add_to_hass(hass)
         registry = er.async_get(hass)
 
-        uid_inverter = "1000000001_smart_load_power"  # OFFGRID inverter (#222)
-        uid_gb_aggregate = "9000000001_smart_load_power"  # inactive GB aggregate
-        uid_gb_port = "9000000001_smart_load1_power"  # stale per-port entity
+        uid_inverter = "SYNTH00117_smart_load_power"  # OFFGRID inverter (#222)
+        uid_gb_aggregate = "SYNTH00128_smart_load_power"  # inactive GB aggregate
+        uid_gb_port = "SYNTH00128_smart_load1_power"  # stale per-port entity
         # Second GridBOSS with the SAME key active: per-serial tracking must
         # still clean unit A's stale entity (codex r2 LOW: a global active
         # set would let it survive forever) while keeping unit B's.
-        uid_gb2_port = "9000000002_smart_load1_power"  # ACTIVE on unit B
+        uid_gb2_port = "SYNTH00129_smart_load1_power"  # ACTIVE on unit B
         for uid in (uid_inverter, uid_gb_aggregate, uid_gb_port, uid_gb2_port):
             registry.async_get_or_create(
                 "sensor", DOMAIN, uid, config_entry=mock_config_entry
@@ -921,15 +921,15 @@ class TestSmartLoadSensors:
         _all_unused[SMART_PORT_VALIDATED_KEY] = True
         mock_coordinator.data = {
             "devices": {
-                "1000000001": {
+                "SYNTH00117": {
                     "type": "inverter",
                     "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
                     "sensors": {"smart_load_power": 2999},
                 },
                 # GridBOSS A with NO active smart-port keys this cycle
-                "9000000001": {"type": "gridboss", "sensors": dict(_all_unused)},
+                "SYNTH00128": {"type": "gridboss", "sensors": dict(_all_unused)},
                 # GridBOSS B with smart_load1_power ACTIVE
-                "9000000002": {
+                "SYNTH00129": {
                     "type": "gridboss",
                     "sensors": {
                         **_all_unused,
@@ -973,7 +973,7 @@ class TestSmartLoadSensors:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
         runtime = InverterRuntimeData(eps_l1_power=1590, eps_l2_power=1740)
-        inverter = make_real_inverter("4233740012", "6000XP", runtime=runtime)
+        inverter = make_real_inverter("SYNTH00127", "6000XP", runtime=runtime)
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._transport = make_transport_spec()
@@ -1015,7 +1015,7 @@ class TestOffgridLinkDownLoadFallback:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
 
-        inverter = make_real_inverter("4233740012", "6000XP")
+        inverter = make_real_inverter("SYNTH00127", "6000XP")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._features = self._offgrid_features()
@@ -1043,7 +1043,7 @@ class TestOffgridLinkDownLoadFallback:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.client = stub_cloud_client()
 
-        inverter = make_real_inverter("1234567890", "FlexBOSS21")
+        inverter = make_real_inverter("SYNTH00122", "FlexBOSS21")
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._features = InverterFeatures(
@@ -1071,7 +1071,7 @@ class TestOffgridLinkDownLoadFallback:
             battery_discharge_power=500,
             battery_charge_power=0,
         )
-        inverter = make_real_inverter("4233740012", "6000XP", runtime=runtime)
+        inverter = make_real_inverter("SYNTH00127", "6000XP", runtime=runtime)
         inverter.refresh = AsyncMock()
         inverter.detect_features = AsyncMock()
         inverter._features = self._offgrid_features()

@@ -10,10 +10,11 @@ registers. Hypothesis: regs 50-51 are NBU daily energy L1/L2, and regs
 Also probes for generator energy registers (eGenDay, eGenAll from XLS).
 
 Usage:
-    uv run python scripts/probe_gridboss_nbu_regs.py
+    uv run python scripts/probe_gridboss_nbu_regs.py --host HOST \
+        --dongle-serial DONGLE_SERIAL --inverter-serial INVERTER_SERIAL
 
 Requirements:
-    - GridBOSS WiFi dongle must be reachable at 10.100.12.175:8000
+    - GridBOSS WiFi dongle must be reachable from this host
     - No other client connected to the dongle (single-client limitation)
     - HA container should be stopped or in cloud-only mode
 """
@@ -21,6 +22,7 @@ Requirements:
 from __future__ import annotations
 
 import asyncio
+import argparse
 import sys
 from pathlib import Path
 
@@ -31,12 +33,6 @@ sys.path.insert(
 
 from pylxpweb.transports.dongle import DongleTransport
 
-
-# GridBOSS connection details (from HA config)
-GRIDBOSS_HOST = "10.100.12.175"
-GRIDBOSS_PORT = 8000
-DONGLE_SERIAL = "DJ43404815"
-INVERTER_SERIAL = "4524850115"
 
 # Known register ranges for context
 KNOWN_DAILY_ENERGY = {
@@ -86,19 +82,24 @@ def format_energy_32bit(low: int, high: int) -> float:
     return ((high << 16) | low) / 10.0
 
 
-async def probe() -> None:
+async def probe(
+    host: str,
+    port: int,
+    dongle_serial: str,
+    inverter_serial: str,
+) -> None:
     """Read and display unknown GridBOSS registers."""
     transport = DongleTransport(
-        host=GRIDBOSS_HOST,
-        port=GRIDBOSS_PORT,
-        dongle_serial=DONGLE_SERIAL,
-        inverter_serial=INVERTER_SERIAL,
+        host=host,
+        port=port,
+        dongle_serial=dongle_serial,
+        inverter_serial=inverter_serial,
         timeout=10.0,
     )
 
     try:
         await transport.connect()
-        print(f"Connected to GridBOSS {INVERTER_SERIAL} via dongle {DONGLE_SERIAL}")
+        print("Connected to configured GridBOSS endpoint")
         print()
 
         # =====================================================================
@@ -163,8 +164,8 @@ async def probe() -> None:
                     print(f"  Reg {addr:3d}: raw={val:5d}  (÷10 → {energy_16:.1f})")
             if all(v == 0 for v in gap_regs):
                 print("  All zero — no generator energy here")
-        except Exception as e:
-            print(f"  Read error: {e}")
+        except Exception:
+            print("  Read error")
 
         print()
 
@@ -183,8 +184,8 @@ async def probe() -> None:
                     print(f"  Reg {addr:3d}: raw={val:5d}  (÷10 → {val / 10:.1f})")
             if all(v == 0 for v in unk_regs):
                 print("  All zero — no data here")
-        except Exception as e:
-            print(f"  Read error: {e}")
+        except Exception:
+            print("  Read error")
 
         print()
 
@@ -238,12 +239,23 @@ async def probe() -> None:
         else:
             print("  Registers are zero — hypothesis may be wrong.")
 
-    except Exception as e:
-        print(f"Error: {e}")
+    except Exception:
+        print("Probe failed")
         raise
     finally:
         await transport.disconnect()
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse explicit runtime connection configuration."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--host", required=True)
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--dongle-serial", required=True)
+    parser.add_argument("--inverter-serial", required=True)
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    asyncio.run(probe())
+    args = parse_args()
+    asyncio.run(probe(args.host, args.port, args.dongle_serial, args.inverter_serial))
