@@ -652,25 +652,6 @@ def battery_row_is_absent(battery: Any) -> bool:
 # These functions eliminate code duplication across multiple platform files
 
 
-def clean_model_name(model: str, use_underscores: bool = False) -> str:
-    """Clean model name for consistent entity ID generation.
-
-    Args:
-        model: Raw model name from device
-        use_underscores: If True, replace spaces/hyphens with underscores instead of removing them
-
-    Returns:
-        Cleaned model name suitable for entity IDs
-    """
-    if not model:
-        return "unknown"
-
-    cleaned = model.lower()
-    if use_underscores:
-        return cleaned.replace(" ", "_").replace("-", "_")
-    return cleaned.replace(" ", "").replace("-", "")
-
-
 def create_device_info(serial: str, model: str) -> DeviceInfo:
     """Create standardized device info dictionary for Home Assistant entities.
 
@@ -689,34 +670,6 @@ def create_device_info(serial: str, model: str) -> DeviceInfo:
         serial_number=serial,
         sw_version="1.0.0",  # Default version, can be updated from API
     )
-
-
-def generate_entity_id(
-    platform: str,
-    model: str,
-    serial: str,
-    entity_type: str,
-    suffix: str | None = None,
-) -> str:
-    """Generate standardized entity IDs across all platforms.
-
-    Args:
-        platform: Platform name (sensor, switch, button, number)
-        model: Device model name
-        serial: Device serial number
-        entity_type: Type of entity (e.g., "refresh_data", "ac_charge")
-        suffix: Optional suffix for multi-part entities
-
-    Returns:
-        Standardized entity ID
-    """
-    clean_model = clean_model_name(model)
-    base_id = f"{platform}.{clean_model}_{serial}_{entity_type}"
-
-    if suffix:
-        base_id = f"{base_id}_{suffix}"
-
-    return base_id
 
 
 def generate_unique_id(serial: str, entity_type: str, suffix: str | None = None) -> str:
