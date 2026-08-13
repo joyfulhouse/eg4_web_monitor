@@ -43,6 +43,38 @@ def _locales() -> list[Path]:
 
 STRINGS = _load(COMPONENT / "strings.json")
 
+# The locale inventory is pinned, not discovered: every parametrize below is
+# driven by _locales(), so without this gate deleting a locale file shrinks
+# the discovered set and the suite passes vacuously over what remains.
+EXPECTED_LOCALES = {
+    "de",
+    "en",
+    "es",
+    "fr",
+    "it",
+    "ja",
+    "ko",
+    "nl",
+    "pl",
+    "pt",
+    "ru",
+    "zh-Hans",
+    "zh-Hant",
+}
+
+
+def test_locale_inventory_is_exact() -> None:
+    """The translations/ directory must contain exactly the pinned locales.
+
+    Discovered-set parametrization cannot catch a deleted (or unexpectedly
+    added) locale on its own — this is the gate that turns either red.
+    """
+    discovered = {p.stem for p in _locales()}
+    assert discovered == EXPECTED_LOCALES, (
+        f"locale inventory drift: missing={sorted(EXPECTED_LOCALES - discovered)}, "
+        f"unexpected={sorted(discovered - EXPECTED_LOCALES)}"
+    )
+
 
 @pytest.mark.parametrize("locale_file", _locales(), ids=lambda p: p.stem)
 def test_locale_has_every_key(locale_file: Path) -> None:
@@ -122,10 +154,11 @@ def test_offgrid_switch_removed_gives_time_entity_fallback(locale_file: Path) ->
 
     The window-reset pair "00:00–00:00" appears in both the r1 and fixed
     wordings, so the gate looks for a standalone "00:00" outside that pair —
-    present only when the fallback instruction exists.
+    present only when the fallback instruction exists. The pair is stripped
+    with a regex so an en/em/hyphen dash swap cannot make the gate false-pass.
     """
     description = _load(locale_file)[_OFFGRID_ISSUE_KEY]
-    without_reset_pair = description.replace("00:00–00:00", "")
+    without_reset_pair = re.sub(r"00:00[–—-]00:00", "", description)
     assert "00:00" in without_reset_pair, (
         f"{locale_file.stem}: time-entity fallback (set every window to "
         "00:00) missing from offgrid_ac_charge_switch_removed"
