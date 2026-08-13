@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "デバイス {serial} はこのプラントで見つかりませんでした。"
+    },
+    "clear_schedule_write_failed": {
+      "message": "{serial} の {schedule} スケジュールをクリアできませんでした: {param} の書き込みに失敗しました ({error})。"
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "{serial} の {schedule} スケジュールをクリアできませんでした: {param} の書き込みが確認されませんでした。"
     }
   },
   "issues": {

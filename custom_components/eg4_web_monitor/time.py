@@ -35,6 +35,8 @@ hour/minute values (or Peak Shaving's LSP params).
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator, Iterable, Iterator
+from contextlib import AsyncExitStack, asynccontextmanager
 import logging
 from datetime import time
 from typing import TYPE_CHECKING, Any
@@ -79,6 +81,20 @@ _SUPPORTS_WRITE_TIME = hasattr(ControlEndpoints, "write_time_parameter")
 _logged_missing_write_time = False
 
 
+def _schedule_window_suffix(spec: ScheduleTimeSpec, window: int) -> str:
+    """Return the cloud parameter suffix for a schedule window.
+
+    Classic families leave window 1 unsuffixed and suffix windows 2/3
+    ``_1``/``_2``; the writeTime families number ALL windows ``_1..._N``
+    (portal holdParam convention, live register probes). Single source for
+    the scheme, shared by ``schedule_boundary_params`` and the writeTime
+    composite param in ``EG4ScheduleTimeEntity``.
+    """
+    if spec.bare_first_window:
+        return "" if window == 1 else f"_{window - 1}"
+    return f"_{window}"
+
+
 def schedule_boundary_params(
     spec: ScheduleTimeSpec, window: int, *, is_end: bool
 ) -> tuple[int, str, str]:
@@ -100,14 +116,6 @@ def schedule_boundary_params(
     """
     register = spec.base_register + (window - 1) * 2 + (1 if is_end else 0)
 
-    # Cloud window suffix. Classic families leave window 1 unsuffixed and
-    # suffix windows 2/3 ``_1``/``_2``; the writeTime families number ALL
-    # windows ``_1..._N`` (portal holdParam convention, live register probes).
-    if spec.bare_first_window:
-        suffix = "" if window == 1 else f"_{window - 1}"
-    else:
-        suffix = f"_{window}"
-
     # Peak Shaving reports its schedule under the interleaved
     # LSP_HOLD_DIS_CHG_POWER_TIME_{n} params rather than the
     # {prefix}_{START|END}_{HOUR|MINUTE} convention.
@@ -120,6 +128,7 @@ def schedule_boundary_params(
         )
 
     boundary = "END" if is_end else "START"
+    suffix = _schedule_window_suffix(spec, window)
     return (
         register,
         f"{spec.cloud_prefix}_{boundary}_HOUR{suffix}",
@@ -209,6 +218,60 @@ def decode_schedule_window(
     if end is None:
         return None
     return start, end
+
+
+# The two schedule-defined working modes of the SNA (EG4_OFFGRID)
+# working-mode portal page (#563) — AC Charge and AC First. Keys into
+# SCHEDULE_TIME_TYPES; single source for the schedule-state binary sensors
+# and the clear-schedule buttons.
+_OFFGRID_SCHEDULE_DEFINED_KEYS: tuple[str, ...] = ("ac_charge", "ac_first")
+
+
+def offgrid_schedule_devices(
+    coordinator: EG4DataUpdateCoordinator,
+) -> Iterator[tuple[str, ScheduleTimeSpec]]:
+    """Yield ``(serial, spec)`` for each schedule-defined off-grid working mode.
+
+    Gated on a POSITIVELY resolved EG4_OFFGRID family (fails closed on
+    UNKNOWN/missing, like the time platform's ``offgrid`` gate): the
+    schedule-state entities exist because the family has no AC Charge enable
+    toggle, so creating them on grid-tied hardware — where the real switch
+    exists — would be noise. Shared by the binary_sensor and button
+    platforms so the family gate and the schedule-key set have one home;
+    write-capable entities additionally gate on a cloud client at their own
+    platform (the read-only sensors must not).
+    """
+    specs = {spec.key: spec for spec in SCHEDULE_TIME_TYPES}
+    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
+        if device_data.get("type") != "inverter":
+            continue
+        if not is_offgrid_family(device_data):
+            continue
+        for key in _OFFGRID_SCHEDULE_DEFINED_KEYS:
+            yield serial, specs[key]
+
+
+@asynccontextmanager
+async def schedule_register_locks(
+    coordinator: EG4DataUpdateCoordinator,
+    serial: str,
+    registers: Iterable[int],
+) -> AsyncIterator[None]:
+    """Hold the ``schedule:{register}`` transaction lock of every given register.
+
+    Locks are acquired in REGISTER ORDER and released together. A
+    single-boundary time write holds exactly one of them, so the
+    schedule-wide clear (which passes every window register of the schedule)
+    cannot deadlock against a concurrent time write. Single source for the
+    lock-key convention shared by the schedule time entities and the
+    clear-schedule buttons (#563).
+    """
+    async with AsyncExitStack() as stack:
+        for register in sorted(set(registers)):
+            await stack.enter_async_context(
+                coordinator.control_transaction_lock(serial, f"schedule:{register}")
+            )
+        yield
 
 
 def _schedule_supported(spec: ScheduleTimeSpec, device_data: dict[str, Any]) -> bool:
@@ -365,11 +428,9 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         )
 
         # Composite writeTime param (writeTime families only): the portal's
-        # atomic hour+minute boundary write target.
-        if spec.bare_first_window:
-            suffix = "" if window == 1 else f"_{window - 1}"
-        else:
-            suffix = f"_{window}"
+        # atomic hour+minute boundary write target. The window suffix scheme
+        # is shared with schedule_boundary_params via _schedule_window_suffix.
+        suffix = _schedule_window_suffix(spec, window)
         self._cloud_time_param = f"{spec.cloud_prefix}_{boundary.upper()}_TIME{suffix}"
 
     # ── Value read ──────────────────────────────────────────────────
@@ -436,8 +497,8 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
         data arrives or the retention TTL expires (#379,
         :class:`EG4OptimisticEntity`).
         """
-        async with self.coordinator.control_transaction_lock(
-            self.serial, f"schedule:{self._register}"
+        async with schedule_register_locks(
+            self.coordinator, self.serial, (self._register,)
         ):
             await self._async_set_value_locked(value)
 

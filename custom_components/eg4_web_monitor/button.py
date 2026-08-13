@@ -1,7 +1,6 @@
 """Button platform for EG4 Web Monitor integration."""
 
 import asyncio
-from contextlib import AsyncExitStack
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -21,8 +20,7 @@ else:
 from . import EG4ConfigEntry
 from .base_entity import EG4BatteryEntity, EG4DeviceEntity, EG4StationEntity
 from .const import (
-    DEVICE_TYPE_INVERTER,
-    SCHEDULE_TIME_TYPES,
+    DOMAIN,
     ScheduleTimeSpec,
 )
 from .coordinator import (
@@ -30,21 +28,19 @@ from .coordinator import (
     EG4DataUpdateCoordinator,
     listener_changed_device_items,
 )
-from .time import schedule_boundary_params
+from .time import (
+    offgrid_schedule_devices,
+    schedule_boundary_params,
+    schedule_register_locks,
+)
 from .utils import (
     generate_unique_id,
-    is_offgrid_family,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 2
-
-# Schedule types with a clear-schedule button on the EG4_OFFGRID family
-# (#563): the two schedule-defined working modes of the SNA working-mode
-# portal page. Keys into SCHEDULE_TIME_TYPES.
-_OFFGRID_CLEAR_SCHEDULE_KEYS: tuple[str, ...] = ("ac_charge", "ac_first")
 
 
 async def async_setup_entry(
@@ -207,10 +203,13 @@ def _new_clear_schedule_buttons(
 ) -> tuple[list["EG4ClearScheduleButton"], set[tuple[str, str]]]:
     """Build clear-schedule buttons for off-grid inverters not in ``known``.
 
-    Gated on a POSITIVELY resolved EG4_OFFGRID family (fails closed on
-    UNKNOWN/missing) AND on a cloud client: the clear is cloud-routed only —
-    local off-grid schedule writes remain evidence-gated (#558/#570), so a
-    LOCAL-only install gets no button rather than an unsanctioned write path.
+    The device iteration and family gate live in
+    ``time.offgrid_schedule_devices`` (shared with the schedule-state
+    sensors); the button platform ALONE additionally gates on a cloud
+    client: the clear is cloud-routed only — local off-grid schedule writes
+    remain evidence-gated (#558/#570), so a LOCAL-only install gets no
+    button rather than an unsanctioned write path (the read-only sensors
+    must not be cloud-gated).
 
     Args:
         coordinator: The data update coordinator.
@@ -222,18 +221,12 @@ def _new_clear_schedule_buttons(
     """
     if not coordinator.has_http_api():
         return [], known
-    specs = {spec.key: spec for spec in SCHEDULE_TIME_TYPES}
     entities: list[EG4ClearScheduleButton] = []
-    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
-        if device_data.get("type") != DEVICE_TYPE_INVERTER:
+    for serial, spec in offgrid_schedule_devices(coordinator):
+        if (serial, spec.key) in known:
             continue
-        if not is_offgrid_family(device_data):
-            continue
-        for key in _OFFGRID_CLEAR_SCHEDULE_KEYS:
-            if (serial, key) in known:
-                continue
-            known.add((serial, key))
-            entities.append(EG4ClearScheduleButton(coordinator, serial, specs[key]))
+        known.add((serial, spec.key))
+        entities.append(EG4ClearScheduleButton(coordinator, serial, spec))
     return entities, known
 
 
@@ -541,25 +534,20 @@ class EG4ClearScheduleButton(EG4DeviceEntity, ButtonEntity):
         Raises:
             HomeAssistantError: If a write fails, or no cloud client exists.
         """
+        # One pass over schedule_boundary_params yields both the cloud field
+        # writes and the registers to lock — the register arithmetic has a
+        # single source.
         writes: list[str] = []
+        registers: set[int] = set()
         for window in range(1, self._spec.windows + 1):
             for is_end in (False, True):
-                _, hour_param, minute_param = schedule_boundary_params(
+                register, hour_param, minute_param = schedule_boundary_params(
                     self._spec, window, is_end=is_end
                 )
                 writes.extend((hour_param, minute_param))
+                registers.add(register)
 
-        registers = sorted(
-            self._spec.base_register + offset
-            for offset in range(self._spec.windows * 2)
-        )
-        async with AsyncExitStack() as stack:
-            for register in registers:
-                await stack.enter_async_context(
-                    self.coordinator.control_transaction_lock(
-                        self._serial, f"schedule:{register}"
-                    )
-                )
+        async with schedule_register_locks(self.coordinator, self._serial, registers):
             await self._async_clear_locked(writes)
 
     async def _async_clear_locked(self, writes: list[str]) -> None:
@@ -586,14 +574,29 @@ class EG4ClearScheduleButton(EG4DeviceEntity, ButtonEntity):
                     await self._async_converge_partial_clear(param)
                 raise HomeAssistantError(
                     f"Failed to clear {self._spec.key} schedule for "
-                    f"{self._serial}: {param} write failed ({err})"
+                    f"{self._serial}: {param} write failed ({err})",
+                    translation_domain=DOMAIN,
+                    translation_key="clear_schedule_write_failed",
+                    translation_placeholders={
+                        "schedule": self._spec.key,
+                        "serial": self._serial,
+                        "param": param,
+                        "error": str(err),
+                    },
                 ) from err
             if not result.success:
                 if written:
                     await self._async_converge_partial_clear(param)
                 raise HomeAssistantError(
                     f"Failed to clear {self._spec.key} schedule for "
-                    f"{self._serial}: {param} write was not acknowledged"
+                    f"{self._serial}: {param} write was not acknowledged",
+                    translation_domain=DOMAIN,
+                    translation_key="clear_schedule_write_not_acknowledged",
+                    translation_placeholders={
+                        "schedule": self._spec.key,
+                        "serial": self._serial,
+                        "param": param,
+                    },
                 )
             written += 1
 

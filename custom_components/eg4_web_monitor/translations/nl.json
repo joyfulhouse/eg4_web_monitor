@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "Apparaat {serial} is niet gevonden in deze installatie."
+    },
+    "clear_schedule_write_failed": {
+      "message": "Het schema {schedule} voor {serial} kon niet worden gewist: het schrijven van {param} is mislukt ({error})."
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "Het schema {schedule} voor {serial} kon niet worden gewist: het schrijven van {param} is niet bevestigd."
     }
   },
   "issues": {

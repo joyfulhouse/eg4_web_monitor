@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "在此电站中未找到设备 {serial}。"
+    },
+    "clear_schedule_write_failed": {
+      "message": "无法清除 {serial} 的 {schedule} 计划:{param} 写入失败({error})。"
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "无法清除 {serial} 的 {schedule} 计划:{param} 写入未得到确认。"
     }
   },
   "issues": {

@@ -24,7 +24,6 @@ from . import EG4ConfigEntry
 from .base_entity import EG4DeviceEntity, device_present_and_healthy
 from .const import (
     DEVICE_TYPE_INVERTER,
-    SCHEDULE_TIME_TYPES,
     ScheduleTimeSpec,
     is_off_grid,
 )
@@ -32,18 +31,12 @@ from .coordinator import (
     DISCOVERY_LISTENER_CONTEXT,
     EG4DataUpdateCoordinator,
 )
-from .time import decode_schedule_window
-from .utils import is_offgrid_family
+from .time import decode_schedule_window, offgrid_schedule_devices
 
 _LOGGER = logging.getLogger(__name__)
 
 # Silver tier requirement: Specify parallel update count
 MAX_PARALLEL_UPDATES = 2
-
-# Schedule types exposed as state binary sensors on the EG4_OFFGRID family
-# (#563): the two schedule-defined working modes of the SNA working-mode
-# portal page. Keys into SCHEDULE_TIME_TYPES.
-_OFFGRID_SCHEDULE_STATE_KEYS: tuple[str, ...] = ("ac_charge", "ac_first")
 
 
 async def async_setup_entry(
@@ -107,10 +100,10 @@ def _new_schedule_state_sensors(
 ) -> tuple[list[EG4ScheduleActiveBinarySensor], set[tuple[str, str]]]:
     """Build schedule-state sensors for off-grid inverters not in ``known``.
 
-    Gated on a POSITIVELY resolved EG4_OFFGRID family (fails closed on
-    UNKNOWN/missing, like the time platform's ``offgrid`` gate): the sensors
-    exist because the family has no AC Charge enable toggle, so creating them
-    on grid-tied hardware — where the real switch exists — would be noise.
+    The device iteration and family gate live in
+    ``time.offgrid_schedule_devices`` (shared with the clear-schedule
+    buttons): gated on a POSITIVELY resolved EG4_OFFGRID family, failing
+    closed on UNKNOWN/missing.
 
     Args:
         coordinator: The data update coordinator.
@@ -120,20 +113,12 @@ def _new_schedule_state_sensors(
     Returns:
         The newly built entities and the updated known set.
     """
-    specs = {spec.key: spec for spec in SCHEDULE_TIME_TYPES}
     entities: list[EG4ScheduleActiveBinarySensor] = []
-    for serial, device_data in (coordinator.data or {}).get("devices", {}).items():
-        if device_data.get("type") != DEVICE_TYPE_INVERTER:
+    for serial, spec in offgrid_schedule_devices(coordinator):
+        if (serial, spec.key) in known:
             continue
-        if not is_offgrid_family(device_data):
-            continue
-        for key in _OFFGRID_SCHEDULE_STATE_KEYS:
-            if (serial, key) in known:
-                continue
-            known.add((serial, key))
-            entities.append(
-                EG4ScheduleActiveBinarySensor(coordinator, serial, specs[key])
-            )
+        known.add((serial, spec.key))
+        entities.append(EG4ScheduleActiveBinarySensor(coordinator, serial, spec))
     return entities, known
 
 

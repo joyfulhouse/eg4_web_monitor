@@ -3,9 +3,10 @@
 Covers the four halves of the fix:
 - the AC Charge working-mode switch is suppressed on positively resolved
   EG4_OFFGRID inverters (FAMILY_UNSUPPORTED_CONTROL_PARAMS);
-- already-registered ``{serial}_ac_charge`` switch entities are purged from
-  the registry (with a Repairs notice) by the family-excluded cleanup that
-  #548 generalized;
+- already-registered AC Charge switch entities — both shipped unique-ID
+  shapes, ``{serial}_ac_charge`` (v3.1.8+) and ``{serial}_func_ac_charge``
+  (v1.4.0–pre-v3.1.8) — are purged from the registry (with a Repairs
+  notice) by the family-excluded cleanup that #548 generalized;
 - the schedule-state binary sensors report whether any AC Charge / AC First
   window is configured;
 - the clear-schedule buttons normalize every window to 00:00 -> 00:00 via
@@ -221,15 +222,27 @@ class TestACChargeSwitchRegistryCleanup:
                 "switch", DOMAIN, f"{serial}_ac_charge", config_entry=entry
             )
 
-        # Legacy model-prefixed registration of the same control: removed too.
-        legacy_uid = f"12000xp_{offgrid}_ac_charge"
+        # The pre-v3.1.8 unique-ID shape (introduced 28abca1, renamed in
+        # beddd24 — see the history comment on OFFGRID_EXCLUDED_SWITCHES):
+        # shipped for over a year, so it is purged too — but only for the
+        # resolved off-grid unit.
+        legacy_uid = f"{offgrid}_func_ac_charge"
         registry.async_get_or_create("switch", DOMAIN, legacy_uid, config_entry=entry)
+        registry.async_get_or_create(
+            "switch", DOMAIN, f"{hybrid}_func_ac_charge", config_entry=entry
+        )
 
         # Adjacent entities that must survive: the energy sensor with an
         # ac_charge prefix, the flag-only battery-backup suppression (NOT
-        # registry-removed), and a lowercase-serial variant boundary case.
+        # registry-removed), a model-prefixed uid (a shape the switch
+        # platform NEVER shipped — the model prefix was entity_id-only, so
+        # the matcher must not delete what the integration did not create),
+        # and a same-key entity in another domain.
         registry.async_get_or_create(
             "switch", DOMAIN, f"{offgrid}_battery_backup_ctrl", config_entry=entry
+        )
+        registry.async_get_or_create(
+            "switch", DOMAIN, f"12000xp_{offgrid}_ac_charge", config_entry=entry
         )
         registry.async_get_or_create(
             "sensor", DOMAIN, f"{offgrid}_ac_charge_energy", config_entry=entry
@@ -282,7 +295,9 @@ class TestACChargeSwitchRegistryCleanup:
         for serial in (hybrid, unknown, missing, lxp):
             assert get_eid("switch", DOMAIN, f"{serial}_ac_charge") is not None, serial
 
+        assert get_eid("switch", DOMAIN, f"{hybrid}_func_ac_charge") is not None
         assert get_eid("switch", DOMAIN, f"{offgrid}_battery_backup_ctrl") is not None
+        assert get_eid("switch", DOMAIN, f"12000xp_{offgrid}_ac_charge") is not None
         assert get_eid("sensor", DOMAIN, f"{offgrid}_ac_charge_energy") is not None
         assert get_eid("sensor", DOMAIN, f"{offgrid}_ac_charge") is not None
 
@@ -503,8 +518,19 @@ class TestClearScheduleButton:
         ok.success = True
         write.side_effect = [ok, ok, ok, ok, RuntimeError("boom")]
 
-        with pytest.raises(HomeAssistantError, match="HOLD_AC_CHARGE_START_HOUR_1"):
+        with pytest.raises(
+            HomeAssistantError, match="HOLD_AC_CHARGE_START_HOUR_1"
+        ) as excinfo:
             await self._button(coordinator).async_press()
+        # User-facing press errors are localized, not hardcoded strings.
+        assert excinfo.value.translation_domain == DOMAIN
+        assert excinfo.value.translation_key == "clear_schedule_write_failed"
+        assert excinfo.value.translation_placeholders == {
+            "schedule": "ac_charge",
+            "serial": SERIAL,
+            "param": "HOLD_AC_CHARGE_START_HOUR_1",
+            "error": "boom",
+        }
         # The partial-clear convergence reread ran (best effort) after the
         # acknowledged prefix; the final reread did not.
         coordinator.async_refresh_device_parameters.assert_awaited_once_with(SERIAL)
@@ -520,8 +546,9 @@ class TestClearScheduleButton:
         ok.success = False
         write.return_value = ok
 
-        with pytest.raises(HomeAssistantError, match="not acknowledged"):
+        with pytest.raises(HomeAssistantError, match="not acknowledged") as excinfo:
             await self._button(coordinator).async_press()
+        assert excinfo.value.translation_key == "clear_schedule_write_not_acknowledged"
         coordinator.async_refresh_device_parameters.assert_not_awaited()
 
     @pytest.mark.asyncio

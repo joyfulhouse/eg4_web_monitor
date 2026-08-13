@@ -883,18 +883,24 @@ def _is_device_namespace_uid(unique_id: str, serial: str, sensor_key: str) -> bo
 def _is_device_control_uid(unique_id: str, serial: str, keys: Iterable[str]) -> bool:
     """Whether ``unique_id`` is *this device's own* control for one of ``keys``.
 
-    Control identities are ``{serial}_{key}`` (switch.py/number.py/time.py via
-    ``generate_unique_id`` / ``_stable_control_unique_id``). The match is
-    suffix-based with an ``_`` boundary — the same rule as
-    ``flag_offgrid_control_suppression`` — so a legacy model-prefixed
-    registration (``{model}_{serial}_{key}``) is caught too, while a serial
-    that is the tail of a longer sibling's serial cannot false-positive.
+    Matches EXACTLY the identity shapes that ever shipped for the control:
+    ``{serial}_{key}`` (case-insensitive) for each key in ``keys``, where the
+    key set is expected to carry every historical suffix (for the AC Charge
+    switch: ``ac_charge`` since beddd24/v3.1.8 and ``func_ac_charge`` from
+    28abca1/v1.4.0 — the full history comment lives on
+    ``OFFGRID_EXCLUDED_SWITCHES`` in const/device_types.py).
+
+    Unlike ``flag_offgrid_control_suppression`` this deliberately does NOT
+    suffix-match ``{anything}_{serial}_{key}``: that rule exists for
+    number/time entities whose pre-stable identities could carry a model
+    prefix (#219/#222), but git history shows no model-prefixed SWITCH
+    unique_id ever shipped (the model prefix was entity_id-only), so the
+    looser rule could only ever delete an entity this integration did not
+    create.
     """
     uid = unique_id.lower()
-    return any(
-        uid == f"{serial.lower()}_{key}" or uid.endswith(f"_{serial.lower()}_{key}")
-        for key in keys
-    )
+    serial_prefix = f"{serial.lower()}_"
+    return any(uid == f"{serial_prefix}{key}" for key in keys)
 
 
 def _async_cleanup_family_excluded_entities(

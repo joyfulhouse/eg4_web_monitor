@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "O dispositivo {serial} não foi encontrado nesta planta."
+    },
+    "clear_schedule_write_failed": {
+      "message": "Falha ao limpar a programação {schedule} de {serial}: a escrita de {param} falhou ({error})."
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "Falha ao limpar a programação {schedule} de {serial}: a escrita de {param} não foi confirmada."
     }
   },
   "issues": {

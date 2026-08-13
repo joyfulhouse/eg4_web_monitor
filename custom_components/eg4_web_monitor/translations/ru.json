@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "Устройство {serial} не найдено на этой станции."
+    },
+    "clear_schedule_write_failed": {
+      "message": "Не удалось очистить расписание {schedule} для {serial}: запись {param} завершилась ошибкой ({error})."
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "Не удалось очистить расписание {schedule} для {serial}: запись {param} не была подтверждена."
     }
   },
   "issues": {

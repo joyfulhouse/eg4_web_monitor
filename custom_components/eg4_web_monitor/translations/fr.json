@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "L'appareil {serial} est introuvable dans cette centrale."
+    },
+    "clear_schedule_write_failed": {
+      "message": "Impossible d'effacer la programmation {schedule} de {serial} : l'écriture de {param} a échoué ({error})."
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "Impossible d'effacer la programmation {schedule} de {serial} : l'écriture de {param} n'a pas été confirmée."
     }
   },
   "issues": {

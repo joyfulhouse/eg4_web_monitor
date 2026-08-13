@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "Il dispositivo {serial} non è stato trovato in questo impianto."
+    },
+    "clear_schedule_write_failed": {
+      "message": "Impossibile cancellare la programmazione {schedule} per {serial}: la scrittura di {param} non è riuscita ({error})."
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "Impossibile cancellare la programmazione {schedule} per {serial}: la scrittura di {param} non è stata confermata."
     }
   },
   "issues": {

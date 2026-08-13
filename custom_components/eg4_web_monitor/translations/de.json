@@ -1094,6 +1094,12 @@
     },
     "device_not_found": {
       "message": "Gerät {serial} wurde in dieser Anlage nicht gefunden."
+    },
+    "clear_schedule_write_failed": {
+      "message": "Der Zeitplan {schedule} für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} ist fehlgeschlagen ({error})."
+    },
+    "clear_schedule_write_not_acknowledged": {
+      "message": "Der Zeitplan {schedule} für {serial} konnte nicht gelöscht werden: Das Schreiben von {param} wurde nicht bestätigt."
     }
   },
   "issues": {

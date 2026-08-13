@@ -301,9 +301,27 @@ HYBRID_EXCLUDED_SENSORS: frozenset[str] = frozenset(
 # suppression itself lives in FAMILY_UNSUPPORTED_CONTROL_PARAMS (utils.py);
 # this set drives the one-shot registry purge + Repairs notice for users who
 # already had the switch registered.
+#
+# BOTH unique-ID shapes the switch ever shipped must be purged (git history,
+# switch.py / custom_components/eg4_web_monitor/switch.py):
+# - "{serial}_func_ac_charge" — introduced in 28abca1 (2025-09-19, "feat:
+#   Implement comprehensive EG4 operating modes control"; first release
+#   v1.4.0) as f"{serial_number}_{param.lower()}". The shape survived the
+#   #33 HACS restructure (e07179d) and the EG4BaseSwitch refactor (d7f02db),
+#   which passed entity_key=mode_config["param"].lower(). Shipped in every
+#   release from v1.4.0 up to (not including) v3.1.8.
+# - "{serial}_ac_charge" — introduced in beddd24 (2026-01-20, "fix: AC Couple
+#   power sensors always show 0 (#87)"; first release v3.1.8), which switched
+#   entity_key to the func_-stripped param_clean. Current shape.
+# No model-prefixed switch unique_id ever shipped (the model prefix was
+# entity_id-only; contrast number/time, whose pre-stable identities could
+# carry one — #219/#222), and no "entity_key" override was ever set on the
+# ac_charge_mode WORKING_MODES entry, so "ac_charge_mode" itself was never a
+# unique-ID suffix.
 OFFGRID_EXCLUDED_SWITCHES: frozenset[str] = frozenset(
     {
         "ac_charge",
+        "func_ac_charge",  # pre-v3.1.8 shape — see the history note above
     }
 )
 
