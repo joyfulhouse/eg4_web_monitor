@@ -1,13 +1,16 @@
 ---
-canonical-for: firmware-acquisition-decoding-and-register-re-methodology
+canonical-for:
+  - firmware-acquisition-decoding-and-register-re-methodology
+  - ESP32-WLAN-dongle-local-listener-behaviour-and-patch-lineage
 sources:
   - docs/reference/firmware/FIRMWARE_ACQUISITION.md
   - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
   - docs/reference/firmware/re/00_SUMMARY.md
-verified-against: 9f6d6e2
-last-verified: 2026-08-09
+  - issue eg4-x00j
+verified-against: ec7dccd
+last-verified: 2026-08-13
 ---
 
 # Firmware reverse engineering
@@ -116,6 +119,42 @@ Finding a number in an FC04 handler is not enough. The minimum proof chain is:
 The required direction is **producer → conversion → publisher → FC04 response**. Reverse naming from a response slot alone can prove structure but not physical meaning.
 
 This table classifies evidence artifacts only. Which grade those artifacts earn is determined solely by the [evidence-grade legend](../README.md#evidence-grade-legend). Completing a stage does not award a grade, substitute for a legend requirement, or create an exception.
+
+## ESP32 WLAN dongle local listener
+
+Issue `eg4-x00j` is the durable evidence record for the 2026-08-13 physical dump and
+decompilation. The complete 8 MiB flash is intentionally not committed: its NVS partition
+may contain network credentials. The hashes below identify the analyzed bytes without
+publishing that state.
+
+### Attached unit: factory `V1.1`
+
+| Claim | Evidence | Grade |
+|---|---|---|
+| The attached unit is an ESP32-D0WD-V3 revision 3.1 with 8 MiB flash. | `esptool` ROM identification and flash ID in `eg4-x00j`; full-flash SHA-256 `3a47027dc6fc19eaf9987415e59366caf94b69c30a089db40794d32765346fdc`. | `asserted-unverified` (issue `eg4-x00j`; the raw hardware transcript is summarized there but not committed) |
+| The only application is factory `V1.1`, built 2025-07-17; both 2 MiB OTA slots are erased. | Partition table: factory `0x40000`, OTA0 `0x240000`, OTA1 `0x440000`; extracted 922,544-byte app SHA-256 `bf557329002703d3bf73cbe2561a5a33632cfa5c2d9cbeaa922143aa8ae1cc18`. | `firmware-proven` (WLAN factory `V1.1`; issue `eg4-x00j`) |
+| `V1.1` contains a valid plaintext local-server config for TCP port 8000, two clients, name `data server`. | DROM `0x3f417258`; server initializer `FUN_400db958` copies the config, calls create `FUN_400dcf24`, and starts it through `FUN_400dcfa8`. | `firmware-proven` (WLAN factory `V1.1`; issue `eg4-x00j`) |
+| The local handler can return values and accept reads/writes: it dispatches `C1` heartbeat, `C2` data, `C3` get-parameter, and `C4` set-parameter frames. | `FUN_400db764`; the `C3` branch parses the start/end codes and calls `FUN_400de614`, while `C4` parses and calls `FUN_400de7cc`. | `firmware-proven` (WLAN factory `V1.1`; issue `eg4-x00j`) |
+| Ethernet never starts that listener, while Wi-Fi does. | Network selector `FUN_400da978` calls Wi-Fi `FUN_400de0f4` when parameter `0x0f == 1`, otherwise Ethernet `FUN_400da798`. Wi-Fi creates `wifi_task`, calls `FUN_400db958`, then returns. Ethernet creates `eth_task` and returns without a call to `FUN_400db958`. | `firmware-proven` (WLAN factory `V1.1`; issue `eg4-x00j`) |
+
+The important boundary is **implementation versus reachability**: `V1.1` has the complete
+plaintext request/response server, but the Ethernet initialization path does not make it
+reachable. The absence of a listener on a running Ethernet unit therefore does not show
+that local protocol support was removed.
+
+### Downloaded `WL_LINK_V1_2` and the local-listener patch
+
+| Artifact or claim | Evidence | Grade |
+|---|---|---|
+| Official `WL_LINK_V1_2.bin`, SHA-256 `325e12b0b9b4a51fc050fb5e17ab79a97d6bd3ff7301628ecd15e9e74d2fec0f`, retains a port-8000 server but moves it to TLS-PSK. | Valid config at DROM `0x3f41a644`; local initializer `FUN_400dbf88`; TLS/server strings and PSK setup in that call path. | `firmware-proven` (WLAN `V1.2`; issue `eg4-x00j`) |
+| Official `V1.2` repeats the Ethernet omission. | Selector `FUN_400dae90`; Wi-Fi `FUN_400ded0c` reaches `FUN_400dbf88`, while Ethernet `FUN_400dacb0` creates `eth_task` and returns. | `firmware-proven` (WLAN `V1.2`; issue `eg4-x00j`) |
+| `WL_LINK_V1_2_eth_local_listen.bin`, SHA-256 `ab67fc3114298606830e79b3b0c6a9acb803aac11498c51b90b999e38a392255`, changes the jump at `0x400dae74` from the Ethernet return to the existing Wi-Fi epilogue at `0x400df0a7`, which calls `FUN_400dbf88`. Its ESP checksum and appended image hash validate. | Byte-level comparison and Xtensa disassembly recorded in `eg4-x00j`. | `asserted-unverified` (issue `eg4-x00j`; locally produced artifact, not vendor firmware) |
+| The patched `V1.2` should start the existing TLS-PSK port-8000 server after `eth_task` starts. | Direct consequence of the changed control-flow edge and the decompiled target epilogue. It has not been booted or probed on hardware. | `inferred` from the preceding firmware control flow; falsify by booting it and capturing the port/listener result |
+
+Do not substitute `E_V2_12_local_8000.bin` on this hardware. That image targets ESP32-C3;
+the attached WLAN unit and both `WL_LINK_V1_2` artifacts target classic ESP32. The similar
+filenames conceal incompatible instruction sets. `firmware-proven` (each image header and
+chip ID; issue `eg4-x00j`).
 
 ## Known-good artifact boundaries
 

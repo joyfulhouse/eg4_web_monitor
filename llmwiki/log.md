@@ -368,3 +368,15 @@ the 8 contract-changers. (2) `_guard_total_increasing` suppresses dips
 `new_val >= 0.9 * last` including exactly 10% — reworded "smaller than 10%" to
 "≤10%" with the boundary test cite. (3) Inheritance-tree `EG4FirmwareUpdateEntity`
 anchor `update.py:55` → `:54` (class keyword at pin `e42ed86`).
+
+## [2026-08-13] ingest | Physical WLAN dongle dump and Ethernet local-listener omission
+
+Dumped an attached ESP32-D0WD-V3 WLAN dongle read-only and decompiled its sole
+factory application (`V1.1`, app SHA-256 `bf557329…ae1cc18`). Filed the result in
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the plaintext port-8000
+server and `C1`–`C4` response dispatcher are intact, but only Wi-Fi startup calls the
+server initializer; Ethernet creates `eth_task` and returns. Compared it with official
+`WL_LINK_V1_2`, which repeats the omission while changing the server to TLS-PSK, and
+recorded the existing one-jump local-listener patch as untested on hardware. Issue
+`eg4-x00j` preserves the evidence record. The full flash was not committed because NVS
+may contain network credentials.
