@@ -11,7 +11,8 @@ sources:
   - issue eg4-x00j
   - issue eg4-gzol
   - issue eg4-vr06
-verified-against: ae9f033
+  - issue eg4-vypa
+verified-against: bec0190
 last-verified: 2026-08-13
 ---
 
@@ -172,6 +173,20 @@ The adapter's RTS line did not reboot this unit after the verified write, so it 
 the ROM flasher stub. A physical power cycle without BOOT/IO0 asserted is required before
 the runtime claim can be tested. Exact flash readback proves storage only; it does not
 prove that the image boots or that TCP port 8000 listens.
+
+### Dongle serial identity
+
+| Claim | Evidence | Grade |
+|---|---|---|
+| The unit-specific ten-character dongle/datalog serial is configuration data, not a unique value compiled into the application. | The firmware parameter table names NVS namespace `device_param` and string key `device_sn`, assigns it parameter index 9 with an 11-byte buffer, and carries `0000000000` as the default. Runtime initialization reads index 9 before installing the serial in the data-process object; the query path formats it as `SN:%s`. | `firmware-proven` (WLAN `V1.1`/`V1.2`; functions and strings recorded in issues `eg4-x00j` and `eg4-vypa`) |
+| The application-only patch preserved the second unit's configured dongle serial. | Its NVS partition is at `0x9000–0x10fff`; the flash operation wrote only the factory application at `0x40000–0x127fff`. | `asserted-unverified` (physical write transcript and partition boundaries in issue `eg4-vr06`) |
+| The ten-character dongle serial, ESP32 MAC, and inverter serial are separate identities. | The ESP32 MAC comes from eFuse; parameter index 9 supplies the dongle/datalog serial used by its data-process framing; inverter protocol frames carry a separate inverter serial received through the inverter-facing transport. | `firmware-proven` for the firmware identity paths; `asserted-unverified` for any value on a particular unit unless preserved in a cited capture |
+
+The image proves that firmware can read and persist the configured serial, but it does not
+identify which factory tool or production step originally writes a particular unit's
+value. Do not infer the dongle serial from the ESP32 MAC. The complete flash backup may
+contain the configured value in NVS, but NVS is intentionally not published because it
+also carries credentials.
 
 Do not substitute `E_V2_12_local_8000.bin` on this hardware. That image targets ESP32-C3;
 the attached WLAN unit and both `WL_LINK_V1_2` artifacts target classic ESP32. The similar

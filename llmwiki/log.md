@@ -401,3 +401,13 @@ Recorded the result and its boundary in
 [`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the adapter could not reset the
 unit out of the ROM stub, so boot and port-8000 behavior remain unproven pending a physical
 power cycle and live probe. Issue `eg4-vr06` preserves the operation record.
+
+## [2026-08-13] query | WLAN dongle serial-number source
+
+Answered where the dongle gets its serial and filed the durable distinction in
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md). The application contains the
+parameter schema and default `0000000000`, while the unit-specific ten-character value is
+read from NVS namespace `device_param`, key `device_sn`, at parameter index 9. It is
+separate from both the eFuse MAC and the inverter serial. The application-only listener
+patch therefore preserved it. Issue `eg4-vypa` records the evidence without publishing
+credential-bearing NVS contents; the exact factory provisioning tool remains unknown.
