@@ -160,9 +160,9 @@ class TestCreateDeviceInfo:
 
     def test_gridboss_device(self):
         """Test GridBOSS device info creation."""
-        info = create_device_info("SYNTH10005", "GridBOSS")
+        info = create_device_info("9876543210", "GridBOSS")
 
-        assert info["name"] == "GridBOSS SYNTH10005"
+        assert info["name"] == "GridBOSS 9876543210"
         assert info["model"] == "GridBOSS"
 
 

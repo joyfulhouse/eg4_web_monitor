@@ -37,7 +37,7 @@ from custom_components.eg4_web_monitor.device_removal import (
 )
 
 LIVE_INVERTER = "1234567890"
-LIVE_GRIDBOSS = "SYNTH10005"
+LIVE_GRIDBOSS = "9876543210"
 GONE_SERIAL = "1111111111"
 T0 = 1_000_000.0
 

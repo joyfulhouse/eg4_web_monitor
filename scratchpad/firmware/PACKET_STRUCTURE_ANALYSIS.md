@@ -13,7 +13,7 @@
 The dongle is a **transparent bridge** between the inverter (RS485) and the cloud (TCP). There is NO data transformation — raw Modbus RTU response bytes from the inverter are wrapped in 0xA1/0x1A frames and sent verbatim to the cloud.
 
 ```
-Inverter ──RS485 19200 8N1──> Dongle ──TCP──> cloud.example.com:4346
+Inverter ──RS485 19200 8N1──> Dongle ──TCP──> us2.solarcloudsystem.com:4346
 
 RS485 Flow:
   RS485App_MainHandler (state machine, 0x4200ae70)
@@ -450,7 +450,7 @@ heartbeat timer.
 ## 7. Connection Lifecycle
 
 ```
-1. TCP connect to cloud.example.com:4346 (1s timeout)
+1. TCP connect to us2.solarcloudsystem.com:4346 (1s timeout)
 2. On connect (TCPClient_OnConnect, 0x4200a884):
    - Set state to CONNECTED (2)
    - Send heartbeat (19-byte 0xC1 frame + CRC)

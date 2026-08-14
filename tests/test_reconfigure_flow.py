@@ -1720,7 +1720,7 @@ class TestReconfigureLegacyMigration:
             title="EG4 Electronics - Legacy Dongle",
             data={
                 CONF_CONNECTION_TYPE: "dongle",
-                "inverter_serial": "SYNTH10005",
+                "inverter_serial": "9876543210",
                 "inverter_family": "LXP",
                 "dongle_host": "192.168.1.200",
                 "dongle_port": 8000,
@@ -1729,7 +1729,7 @@ class TestReconfigureLegacyMigration:
                 CONF_DST_SYNC: False,
             },
             source=config_entries.SOURCE_USER,
-            unique_id="dongle_SYNTH10005",
+            unique_id="dongle_9876543210",
         )
         entry.add_to_hass(hass)
 
@@ -1744,7 +1744,7 @@ class TestReconfigureLegacyMigration:
         transports = updated_entry.data[CONF_LOCAL_TRANSPORTS]
         assert len(transports) == 1
         assert transports[0]["transport_type"] == "wifi_dongle"
-        assert transports[0]["serial"] == "SYNTH10005"
+        assert transports[0]["serial"] == "9876543210"
         assert transports[0]["dongle_serial"] == "SYNTH10009"
 
 

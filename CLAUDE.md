@@ -161,13 +161,13 @@ otherwise divergent IDs indefinitely. Never assume the generated form is what a
 user has; have them read their own registry.
 
 The *shapes* below match a live registry capture of one maintainer system; the
-**serials are synthetic** (`1234567890` 18kPV, `SYNTH10005` GridBOSS,
+**serials are synthetic** (`1234567890` 18kPV, `9876543210` GridBOSS,
 `1234A56789` FlexBOSS21):
 
 ```
 sensor.18kpv_1234567890_battery_voltage
 sensor.battery_bank_1234567890_battery_bank_max_cell_temperature
-select.grid_boss_synth10005_smart_port_1_mode
+select.grid_boss_9876543210_smart_port_1_mode
 number.flexboss21_1234a56789_battery_charge_current
 sensor.parallel_group_a_ac_power
 ```

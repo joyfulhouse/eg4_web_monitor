@@ -1357,7 +1357,7 @@ class TestAsyncMigrateEntry:
             version=1,
             data={
                 "connection_type": "dongle",
-                "inverter_serial": "SYNTH10005",
+                "inverter_serial": "9876543210",
                 "inverter_family": "LXP",
                 "dongle_host": "192.168.1.200",
                 "dongle_port": 8000,
@@ -1376,7 +1376,7 @@ class TestAsyncMigrateEntry:
 
         transport = entry.data["local_transports"][0]
         assert transport["transport_type"] == "wifi_dongle"
-        assert transport["serial"] == "SYNTH10005"
+        assert transport["serial"] == "9876543210"
         assert transport["host"] == "192.168.1.200"
         assert transport["dongle_serial"] == "DONGLE123"
 

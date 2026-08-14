@@ -45,10 +45,10 @@ gateway. Captures are performed via SSH to the UDM running tcpdump.
 
 ```bash
 # SSH to UDM and start capture (no timeout, no port filter)
-ssh root@192.0.2.19 "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
+ssh root@172.16.0.1 "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
 
 # Download when complete
-scp root@192.0.2.19:/tmp/capture.pcap .
+scp root@172.16.0.1:/tmp/capture.pcap .
 ```
 
 Key flags:
@@ -342,8 +342,8 @@ custom dongle IPs, and optional duration limits.
 | FlexBOSS21 | SYNTH00006 | 192.0.2.16 | 02:00:00:00:00:01 | SYNTH00003 | 3.101.7.137:4346 |
 | GridBOSS | SYNTH00001 | 192.0.2.15 | 02:00:00:00:00:03 | SYNTH00002 | 13.56.41.37:4346 |
 
-The observed MAC vendor assignments identify WIZnet (W7500 chip) and Espressif
-(ESP32) hardware; deployment-specific prefix bytes are intentionally omitted.
+MAC prefixes: `00:30:60` and `00:30:6a` are WIZnet (W7500 chip), while
+`b0:81:84` is Espressif (ESP32).
 
 ## Open Questions
 

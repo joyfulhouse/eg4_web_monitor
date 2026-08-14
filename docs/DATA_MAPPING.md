@@ -737,7 +737,7 @@ per boundary). Cloud param names take the window suffix
 `HOLD_AC_CHARGE_START_HOUR_2` + `HOLD_AC_CHARGE_START_MINUTE_2`.
 
 > **Evidence for the packed layout and cloud naming**: the live cloud
-> register probes (pylxpweb `docs/inverters/FlexBOSS21_SYNTH10004.json` for
+> register probes (pylxpweb `docs/inverters/FlexBOSS21_52XXXXXX78.json` for
 > 68-73, `SNA12KUS_52XXXXXX68.json` blocks 106-111 for 152-157) read each
 > register individually and get **two** named params back per register —
 > the hour *and* the minute — with window 1 unsuffixed and windows 2/3

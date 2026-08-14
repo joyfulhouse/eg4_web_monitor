@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import ipaddress
+import json
 import re
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from pathlib import Path, PurePosixPath
 import pytest
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
+AUDIT_VECTOR_PATH = REPOSITORY_ROOT / ".identifier-audit-vectors.json"
 
 EXCLUDED_PATH_PREFIXES = frozenset(
     {
@@ -64,13 +66,16 @@ INTEGER_TOKEN_PATTERN = re.compile(r"(?<![\w.])[0-9]{8,10}(?![\w.])")
 MAC_PATTERN = re.compile(
     r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])"
 )
-OUI_CONTEXT_PATTERN = re.compile(
-    r"(?i)\boui\b[^\n]{0,40}"
-    r"(?P<oui>(?<![0-9a-f:-])(?:[0-9a-f]{2}[:-]){2}[0-9a-f]{2}(?![0-9a-f:-]))"
-)
 HOSTNAME_PATTERN = re.compile(r"(?i)(?<![\w.-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?![\w.-])")
 PLANT_IDENTIFIER_CONTEXT_PATTERN = re.compile(
     r"(?i)plant[_ ]?id[^\n0-9]{0,20}(?P<identifier>[0-9]+)"
+)
+PLANT_PROSE_CONTEXT_PATTERN = re.compile(
+    r"(?i)\bplant(?![a-z])[^\n0-9]{0,20}(?P<identifier>[0-9]+)"
+)
+PLANT_JSON_OBJECT_PATTERN = re.compile(
+    r'(?is)\{(?=[^{}]{0,500}"(?:plant|station)[^"]*"\s*:)[^{}]{0,500}'
+    r'"id"\s*:\s*(?P<identifier>[0-9]+)'
 )
 DEVICE_SHAPE_PATTERN = re.compile(r"(?i)(?<![a-z0-9])[a-z0-9]{10}(?![a-z0-9])")
 IDENTITY_NAME_TOKENS = frozenset({"host", "ip", "serial", "mac", "dongle", "inverter"})
@@ -88,12 +93,10 @@ AUDITED_PRIVATE_IPV4_DIGESTS = frozenset(
         "7eaec80bc86ebffdd27e3b783714279190b826f0669f8e2bdb59026193c71939",
         "a58ccf7228e2d085851c88e0fbb959a3591245533a4faf103e5902fcf84d9d60",
         "d13975c9b6ed279369067b4753fe0b9d64e94452413001f72d5b3e6c41124309",
-        "f9863b6fa829fa6e80ffce0a30779b91c9affd96c0ee47f303c2c000b84a7b24",
     }
 )
 AUDITED_PRIVATE_IPV4_INTEGER_DIGESTS = frozenset(
     {
-        "089785c9736b8dfaf2c71a8feda02bfc8bd1a6a6eec84d05895857b4e7c253ef",
         "22b54bd6279733e32d8c54598f41024fa0622ccf0aacdb947d61894e461b2695",
         "292f1800c99e23c1eee0ab7c7f20728929b351df559e33e7f2e70a966a5e93d1",
         "4bf1623f0cff64bc89fb8cc7831edaa108d5d5b5568ce66515e598af2a8fe8d9",
@@ -106,12 +109,11 @@ AUDITED_PRIVATE_IPV4_INTEGER_DIGESTS = frozenset(
         "9270bb10e790cf84ed07f6b721651324003db1163c1019469e1b9f4d21e42618",
         "ba38c9ab6106d8850587504bab1829ea6d6edb875eaab536a12bfa6e94873775",
         "c1e4594b035720a6b76823e387a15aff7abf962818871842bd08d8aab7f4a00d",
-        "ca09c812ed3b18ada44fc5ac34ea6cea8a48b6e57e7a9fee4d793463830dc0bb",
     }
 )
-AUDITED_HOST_DIGESTS = frozenset(
-    {"9c0bb928d3359b5a23821f39a1b0f39cd37cce8f45e197ad6cc8c157c7afbb05"}
-)
+# Generic EG4 vendor hosts are intentionally out of scope; only deployment-specific
+# hosts belong in this registry.
+AUDITED_HOST_DIGESTS: frozenset[str] = frozenset()
 AUDITED_PLANT_ID_DIGESTS = frozenset(
     {"7c73b217e40e18dd706368c42dbd04738fb7650d9855610970e1c65177e9679b"}
 )
@@ -136,6 +138,13 @@ AUDITED_LOCATION_DIGESTS = frozenset(
         "f85bba23ed2ac9317a8457f45999dbf1e271ddc5920b8e75d9e56830bff7879e",
     }
 )
+AUDITED_MAC_DIGESTS = frozenset(
+    {
+        "100dc7699927df43b804098539988a6830ef362353bc3c01206dc3ff4324d593",
+        "278645e7b55885f924ba59642a7df6167b9a8409f330cb65ecb1c1a3ab49b4f5",
+        "806e18d1f1a9d7e99501dbe0fb4434f1dea1de6d0d35c53c7a241a6109201bb2",
+    }
+)
 
 
 def _excluded_path(path: str) -> bool:
@@ -153,7 +162,7 @@ def _excluded_path(path: str) -> bool:
 
 
 def _tracked_text_blobs() -> Iterator[tuple[str, str | None, str | None]]:
-    """Read eligible tracked content from the worktree filesystem."""
+    """Read eligible staged content from index blobs."""
     index = subprocess.run(
         ("git", "ls-files", "--stage", "-z"),
         cwd=REPOSITORY_ROOT,
@@ -170,7 +179,7 @@ def _tracked_text_blobs() -> Iterator[tuple[str, str | None, str | None]]:
         try:
             metadata, raw_path = record.split(b"\t", 1)
             path = raw_path.decode("utf-8")
-            mode, _object_id, stage = metadata.decode("ascii").split()
+            mode, object_id, stage = metadata.decode("ascii").split()
         except (UnicodeDecodeError, ValueError):
             yield "<git-index>", None, "malformed-git-index-entry"
             continue
@@ -188,11 +197,16 @@ def _tracked_text_blobs() -> Iterator[tuple[str, str | None, str | None]]:
             yield path, None, category
             continue
 
-        try:
-            raw_content = (REPOSITORY_ROOT / path).read_bytes()
-        except OSError:
-            yield path, None, "worktree-file-read-failed"
+        blob = subprocess.run(
+            ("git", "cat-file", "blob", object_id),
+            cwd=REPOSITORY_ROOT,
+            check=False,
+            capture_output=True,
+        )
+        if blob.returncode:
+            yield path, None, "git-blob-read-failed"
             continue
+        raw_content = blob.stdout
         if b"\0" in raw_content:
             continue
         try:
@@ -220,16 +234,21 @@ def _has_unapproved_integer_ip(content: str) -> bool:
     )
 
 
-def _has_globally_administered_identifier(
-    content: str, pattern: re.Pattern[str], group: str | int = 0
-) -> bool:
+def _has_audited_mac(content: str) -> bool:
     return any(
-        not int(match.group(group)[:2], 16) & 2 for match in pattern.finditer(content)
+        _fingerprint(match.group()) in AUDITED_MAC_DIGESTS
+        for match in MAC_PATTERN.finditer(content)
     )
 
 
 def _fingerprint(candidate: str) -> str:
     return hashlib.sha256(candidate.lower().encode()).hexdigest()
+
+
+def _load_audit_vectors() -> dict[str, list[str]]:
+    if not AUDIT_VECTOR_PATH.exists():
+        pytest.skip("local identifier audit vector is not installed")
+    return json.loads(AUDIT_VECTOR_PATH.read_text())
 
 
 def _has_unapproved_cloud_host(content: str) -> bool:
@@ -242,7 +261,12 @@ def _has_unapproved_cloud_host(content: str) -> bool:
 def _has_unapproved_plant_identifier(content: str) -> bool:
     return any(
         _fingerprint(match.group("identifier")) in AUDITED_PLANT_ID_DIGESTS
-        for match in PLANT_IDENTIFIER_CONTEXT_PATTERN.finditer(content)
+        for pattern in (
+            PLANT_IDENTIFIER_CONTEXT_PATTERN,
+            PLANT_PROSE_CONTEXT_PATTERN,
+            PLANT_JSON_OBJECT_PATTERN,
+        )
+        for match in pattern.finditer(content)
     )
 
 
@@ -373,16 +397,7 @@ def _scan_repository() -> list[tuple[str, str]]:
             ("deployment-cloud-host", _has_unapproved_cloud_host(content)),
             ("deployment-plant-id", _has_unapproved_plant_identifier(content)),
             ("deployment-location", _has_unapproved_location(content)),
-            (
-                "non-synthetic-mac",
-                _has_globally_administered_identifier(content, MAC_PATTERN),
-            ),
-            (
-                "non-synthetic-oui",
-                _has_globally_administered_identifier(
-                    content, OUI_CONTEXT_PATTERN, "oui"
-                ),
-            ),
+            ("deployment-mac", _has_audited_mac(content)),
             (
                 "non-synthetic-device-id",
                 _has_unapproved_device_identifier(path, content),
@@ -417,12 +432,49 @@ def test_audited_values_are_stored_only_as_sha256_digests() -> None:
         AUDITED_PLANT_ID_DIGESTS,
         AUDITED_DEVICE_IDENTIFIER_DIGESTS,
         AUDITED_LOCATION_DIGESTS,
+        AUDITED_MAC_DIGESTS,
     )
-
     assert all(
         re.fullmatch(r"[0-9a-f]{64}", digest)
         for registry in registries
         for digest in registry
+    )
+
+
+def test_committed_digests_match_local_audit_vectors() -> None:
+    vectors = _load_audit_vectors()
+    private_addresses = [
+        ipaddress.IPv4Address(value) for value in vectors["private_ipv4"]
+    ]
+    expected_integer_tokens = {
+        token
+        for address in private_addresses
+        for token in (
+            str(int(address)),
+            str(int.from_bytes(address.packed, "little")),
+        )
+    }
+
+    assert AUDITED_PRIVATE_IPV4_DIGESTS == frozenset(
+        _fingerprint(str(address)) for address in private_addresses
+    )
+    assert AUDITED_PRIVATE_IPV4_INTEGER_DIGESTS == frozenset(
+        _fingerprint(token) for token in expected_integer_tokens
+    )
+    assert AUDITED_HOST_DIGESTS == frozenset(
+        _fingerprint(value) for value in vectors["deployment_hosts"]
+    )
+    assert AUDITED_PLANT_ID_DIGESTS == frozenset(
+        _fingerprint(value) for value in vectors["plant_ids"]
+    )
+    assert AUDITED_DEVICE_IDENTIFIER_DIGESTS == frozenset(
+        _fingerprint(value) for value in vectors["device_identifiers"]
+    )
+    assert AUDITED_LOCATION_DIGESTS == frozenset(
+        _location_fingerprint(value) for value in vectors["locations"]
+    )
+    assert AUDITED_MAC_DIGESTS == frozenset(
+        _fingerprint(value) for value in vectors["full_macs"]
     )
 
 
@@ -433,6 +485,7 @@ def test_private_ip_guard_allows_generic_rfc1918_examples() -> None:
             f"generic fixture: {ipaddress.IPv4Address(167772202)}",
             f"private range base: {ipaddress.IPv4Address(2886729728)}/12",
             f"unrelated private fixture: {ipaddress.IPv4Address(174391041)}",
+            "generic gateway: 172.16.0.1",
         )
     )
 
@@ -482,7 +535,13 @@ def test_cloud_host_guard_detects_audited_identifier(
     assert _has_unapproved_cloud_host(synthetic_host)
 
 
-@pytest.mark.parametrize("label", ("plantId", "targetPlantId", "plant_id"))
+def test_vendor_cloud_hosts_are_intentionally_out_of_scope() -> None:
+    assert not _has_unapproved_cloud_host(
+        "us2.solarcloudsystem.com res.solarcloudsystem.com"
+    )
+
+
+@pytest.mark.parametrize("label", ("plantId", "targetPlantId", "plant_id", "plant"))
 def test_plant_guard_detects_identifier_contexts(
     monkeypatch: pytest.MonkeyPatch, label: str
 ) -> None:
@@ -494,6 +553,30 @@ def test_plant_guard_detects_identifier_contexts(
     )
 
     assert _has_unapproved_plant_identifier(f"{label}={synthetic_plant}")
+
+
+def test_plant_guard_detects_json_id_in_plant_object(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    synthetic_plant = "987654321"
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "AUDITED_PLANT_ID_DIGESTS",
+        frozenset({_fingerprint(synthetic_plant)}),
+    )
+
+    assert _has_unapproved_plant_identifier(
+        f'{{"id": {synthetic_plant}, "plantName": "Synthetic"}}'
+    )
+
+
+def test_plant_guard_detects_original_contexts_from_vector() -> None:
+    plant_id = _load_audit_vectors()["plant_ids"][0]
+
+    assert _has_unapproved_plant_identifier(f"plant {plant_id}")
+    assert _has_unapproved_plant_identifier(
+        f'{{"id": {plant_id}, "stationName": "Synthetic"}}'
+    )
 
 
 @pytest.mark.parametrize(
@@ -525,7 +608,7 @@ def test_serial_guard_detects_audited_tokens_in_original_contexts(
         "latitude=38.76543",
     ),
 )
-def test_location_guard_detects_audited_values_by_digest(
+def test_location_guard_detects_synthetic_values_by_injected_digest(
     monkeypatch: pytest.MonkeyPatch, content: str
 ) -> None:
     candidates = list(_location_candidates(content))
@@ -539,7 +622,15 @@ def test_location_guard_detects_audited_values_by_digest(
     assert _has_unapproved_location(content)
 
 
-def test_tracked_text_reader_uses_unstaged_worktree_content(
+def test_location_guard_detects_original_shapes_from_vector() -> None:
+    vectors = _load_audit_vectors()
+
+    assert all(
+        _has_unapproved_location(shape) for shape in vectors["location_leak_shapes"]
+    )
+
+
+def test_tracked_text_reader_uses_staged_blob_content(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     subprocess.run(("git", "init", "-q"), cwd=tmp_path, check=True)
@@ -553,7 +644,21 @@ def test_tracked_text_reader_uses_unstaged_worktree_content(
         path: content for path, content, error in _tracked_text_blobs() if not error
     }
 
-    assert blobs["tracked.txt"] == "unstaged sensitive content\n"
+    assert blobs["tracked.txt"] == "staged content\n"
+
+
+def test_full_mac_guard_detects_audited_value_but_allows_vendor_oui(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    synthetic_mac = "02:11:22:33:44:55"
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "AUDITED_MAC_DIGESTS",
+        frozenset({_fingerprint(synthetic_mac)}),
+    )
+
+    assert _has_audited_mac(synthetic_mac)
+    assert not _has_audited_mac("Vendor OUIs: 00:30:60, 00:30:6a, b0:81:84")
 
 
 @pytest.mark.parametrize(

@@ -789,7 +789,7 @@ class TestDeviceInfo:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator.data = {
             "devices": {
-                "SYNTH10005": {
+                "9876543210": {
                     "type": "gridboss",
                     "name": "GridBOSS",
                     "model": "GridBOSS MID",
@@ -797,12 +797,12 @@ class TestDeviceInfo:
             }
         }
 
-        device_info = coordinator.get_device_info("SYNTH10005")
+        device_info = coordinator.get_device_info("9876543210")
 
         assert device_info is not None
-        assert device_info["name"] == "GridBOSS MID SYNTH10005"
+        assert device_info["name"] == "GridBOSS MID 9876543210"
         assert device_info["model"] == "GridBOSS MID"
-        assert device_info["serial_number"] == "SYNTH10005"
+        assert device_info["serial_number"] == "9876543210"
 
     async def test_get_device_info_returns_none_for_missing_device(
         self, hass, mock_config_entry
@@ -8759,7 +8759,7 @@ class TestQuickChargeOffgridCloudStatus:
     @staticmethod
     def _offgrid_inverter() -> MagicMock:
         inverter = MagicMock()
-        inverter.serial_number = "SYNTH10005"
+        inverter.serial_number = "SYNTH30005"
         # HYBRID: local transport attached; reg 234 (duration/remaining
         # minutes) reads 45 locally.
         transport = MagicMock()
@@ -8792,7 +8792,7 @@ class TestQuickChargeOffgridCloudStatus:
         await coordinator._fetch_quick_charge_status(inverter, target)
 
         coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
-            "SYNTH10005"
+            "SYNTH30005"
         )
         inverter.get_quick_charge_detail.assert_not_awaited()
         status = target["quick_charge_status"]
@@ -8908,7 +8908,7 @@ class TestQuickChargeOffgridCloudStatus:
             "hasUnclosedQuickChargeTask": True,
             "fetched_at": 1234.5,
         }
-        coordinator.data = {"devices": {"SYNTH10005": {"quick_charge_status": prev}}}
+        coordinator.data = {"devices": {"SYNTH30005": {"quick_charge_status": prev}}}
         inverter = self._offgrid_inverter()
         inverter.get_quick_charge_detail = AsyncMock(side_effect=OSError("bus stalled"))
         target: dict[str, Any] = {"features": {}}
@@ -8941,7 +8941,7 @@ class TestQuickChargeOffgridCloudStatus:
             side_effect=_stalled
         )
         prev = {"hasUnclosedQuickChargeTask": True, "fetched_at": 1234.5}
-        coordinator.data = {"devices": {"SYNTH10005": {"quick_charge_status": prev}}}
+        coordinator.data = {"devices": {"SYNTH30005": {"quick_charge_status": prev}}}
         inverter = self._offgrid_inverter()
         target: dict[str, Any] = {
             "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
@@ -8960,7 +8960,7 @@ class TestQuickChargeOffgridCloudStatus:
         coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
         coordinator.data = {
             "devices": {
-                "SYNTH10005": {
+                "SYNTH30005": {
                     "type": "inverter",
                     "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
                 }
@@ -8968,10 +8968,10 @@ class TestQuickChargeOffgridCloudStatus:
         }
         inverter = self._offgrid_inverter()
         with patch.object(coordinator, "get_inverter_object", return_value=inverter):
-            assert await coordinator.is_quick_charge_active_live("SYNTH10005") is True
+            assert await coordinator.is_quick_charge_active_live("SYNTH30005") is True
         inverter.get_quick_charge_detail.assert_not_awaited()
         coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
-            "SYNTH10005"
+            "SYNTH30005"
         )
 
 

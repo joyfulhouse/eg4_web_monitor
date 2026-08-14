@@ -219,7 +219,7 @@ REG_PTOUSER_START_CHARGE = 117
 #   reg 68/69 = window 1 start/end, 70/71 = window 2, 72/73 = window 3.
 # Each 16-bit register PACKS both fields: hour in the LOW byte, minute in the
 # HIGH byte (pylxpweb pack_time()/unpack_time(); EG4-18KPV-12LV Modbus spec).
-# Live cloud probe evidence (pylxpweb docs/inverters/FlexBOSS21_SYNTH10004.json):
+# Live cloud probe evidence (pylxpweb docs/inverters/FlexBOSS21_52XXXXXX78.json):
 # reading ONE register returns BOTH cloud params — e.g. reg 68 →
 # HOLD_AC_CHARGE_START_HOUR + HOLD_AC_CHARGE_START_MINUTE (window 1,
 # unsuffixed) and reg 72 → HOLD_AC_CHARGE_START_HOUR_2 + ..._MINUTE_2
@@ -342,7 +342,7 @@ def _canonical_time_param_keys(
 
 
 SCHEDULE_TIME_TYPES: tuple[ScheduleTimeSpec, ...] = (
-    # AC Charge (#277): regs 68-73, probe FlexBOSS21_SYNTH10004.json. Keeps
+    # AC Charge (#277): regs 68-73, probe FlexBOSS21_52XXXXXX78.json. Keeps
     # the stale pylxpweb alias chains above — and the shipped unique_ids.
     ScheduleTimeSpec(
         key="ac_charge",
@@ -363,7 +363,7 @@ SCHEDULE_TIME_TYPES: tuple[ScheduleTimeSpec, ...] = (
     # Forced Charge (PV charge priority, #295): regs 76-81 (EG4-18KPV spec,
     # pylxpweb SCHEDULE_CONFIGS). Suppressed on EG4_OFFGRID: the cloud
     # rejects HOLD_FORCED_CHARGE_* writes on a 12000XP v2 (REMOTE_SET_ERROR,
-    # serial SYNTH10005, #295 live report) and the SNA working-mode portal
+    # serial SYNTH30005, #295 live report) and the SNA working-mode portal
     # page contains ZERO HOLD_FORCED_CHARGE params (vs a full Forced
     # Discharge schedule widget) — same evidence standard as the #307
     # Battery Backup gate.

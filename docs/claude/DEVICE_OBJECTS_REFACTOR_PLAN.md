@@ -509,7 +509,7 @@ f"sensor.eg4_{model}_{serial}_battery_{batteryKey}_{sensor_name}"
 
 # GridBOSS sensor
 f"sensor.eg4_gridboss_{serial}_{sensor_name}"
-# Example: sensor.eg4_gridboss_synth10005_grid_power
+# Example: sensor.eg4_gridboss_9876543210_grid_power
 ```
 
 ### Preservation Strategy

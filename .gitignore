@@ -1,5 +1,6 @@
 # Secrets and credentials
 secrets.py
+.identifier-audit-vectors.json
 
 # Claude
 claude/

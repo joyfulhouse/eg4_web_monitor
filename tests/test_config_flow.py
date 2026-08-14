@@ -1151,7 +1151,7 @@ class TestLocalDongleFlow:
 
     async def test_dongle_success(self, hass: HomeAssistant):
         """Test successful dongle device discovery and entry creation."""
-        device = _make_discovered_device(serial="SYNTH10005")
+        device = _make_discovered_device(serial="9876543210")
 
         with patch(
             "custom_components.eg4_web_monitor._config_flow.discover_dongle_device",
@@ -1172,7 +1172,7 @@ class TestLocalDongleFlow:
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
-                    "inverter_serial": "SYNTH10005",
+                    "inverter_serial": "9876543210",
                 },
             )
 
@@ -1200,7 +1200,7 @@ class TestLocalDongleFlow:
             assert result["data"][CONF_CONNECTION_TYPE] == "local"
             transport = result["data"][CONF_LOCAL_TRANSPORTS][0]
             assert transport["transport_type"] == "wifi_dongle"
-            assert transport["serial"] == "SYNTH10005"
+            assert transport["serial"] == "9876543210"
             assert transport["host"] == "192.168.1.150"
             assert transport["port"] == 8000
 
@@ -1222,7 +1222,7 @@ class TestLocalDongleFlow:
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
-                    "inverter_serial": "SYNTH10005",
+                    "inverter_serial": "9876543210",
                 },
             )
 
@@ -1248,7 +1248,7 @@ class TestLocalDongleFlow:
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
-                    "inverter_serial": "SYNTH10005",
+                    "inverter_serial": "9876543210",
                 },
             )
 
@@ -1286,7 +1286,7 @@ class TestLocalDongleFlow:
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
-                    "inverter_serial": "SYNTH10005",
+                    "inverter_serial": "9876543210",
                 },
             )
 
@@ -1316,7 +1316,7 @@ class TestLocalDongleFlow:
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
-                    "inverter_serial": "SYNTH10005",
+                    "inverter_serial": "9876543210",
                 },
             )
 
@@ -1373,7 +1373,7 @@ class TestLocalDongleFlow:
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
-                    "inverter_serial": "SYNTH10005",
+                    "inverter_serial": "9876543210",
                 },
             )
 
@@ -1461,7 +1461,7 @@ class TestLocalDongleFlow:
         """
         from pylxpweb.scanner.types import DeviceType, ScanResult
 
-        device = _make_discovered_device(serial="SYNTH10005")
+        device = _make_discovered_device(serial="9876543210")
 
         result = await _init_and_select_local(hass)
 
@@ -1495,7 +1495,7 @@ class TestLocalDongleFlow:
                     "dongle_host": "192.168.9.145",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
-                    "inverter_serial": "SYNTH10005",
+                    "inverter_serial": "9876543210",
                 },
             )
 

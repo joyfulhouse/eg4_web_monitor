@@ -4,7 +4,7 @@
 
 **Goal:** Implement a virtual WiFi dongle (CloudEmitter) in pylxpweb that forwards register data to the EG4 cloud server over TCP, maintaining cloud monitoring when the physical dongle is replaced.
 
-**Architecture:** CloudEmitter is a standalone asyncio background task that reads cached raw register snapshots (stashed during normal HA polling) and sends them to `cloud.example.com:4346` using the same 0xA1/0x1A binary protocol as the physical dongle. Cloud commands (0xC3/0xC4) trigger fresh register reads/writes.
+**Architecture:** CloudEmitter is a standalone asyncio background task that reads cached raw register snapshots (stashed during normal HA polling) and sends them to `us2.solarcloudsystem.com:4346` using the same 0xA1/0x1A binary protocol as the physical dongle. Cloud commands (0xC3/0xC4) trigger fresh register reads/writes.
 
 **Tech Stack:** Python 3.12+, asyncio (TCP sockets), pylxpweb transports, CRC-16/Modbus
 
@@ -33,7 +33,7 @@ Capture real dongle-to-cloud TCP traffic to validate protocol assumptions from f
 
 ```bash
 # On router or HA host with network visibility to dongle traffic
-sudo tcpdump -i any host cloud.example.com and port 4346 -w scratchpad/firmware/dongle_capture.pcap -v
+sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w scratchpad/firmware/dongle_capture.pcap -v
 # Let it run for 10-15 minutes to capture multiple poll cycles
 ```
 
@@ -274,7 +274,7 @@ from __future__ import annotations
 # pylxpweb/src/pylxpweb/cloud/protocol.py
 """Cloud TCP protocol: frame building, parsing, CRC-16, and constants.
 
-The EG4 cloud ingestion server (cloud.example.com:4346) uses a binary
+The EG4 cloud ingestion server (us2.solarcloudsystem.com:4346) uses a binary
 protocol with 0xA1 0x1A magic prefix. All three dongle transports (Cloud TCP,
 Local TCP, BLE) share this same frame format.
 
@@ -290,7 +290,7 @@ import struct
 from dataclasses import dataclass
 
 # Cloud server defaults
-CLOUD_HOST = "cloud.example.com"
+CLOUD_HOST = "us2.solarcloudsystem.com"
 CLOUD_PORT = 4346
 
 # Frame constants
@@ -974,7 +974,7 @@ class TestCloudEmitterInit:
             dongle_serial=DONGLE_SERIAL,
             transport=mock_transport,
         )
-        assert emitter._host == "cloud.example.com"
+        assert emitter._host == "us2.solarcloudsystem.com"
         assert emitter._port == 4346
 
     def test_custom_host(self, emitter: CloudEmitter) -> None:

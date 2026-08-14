@@ -88,8 +88,8 @@ class TestFormatEntryTitle:
 
     def test_dongle_mode(self):
         """Test title for Dongle mode."""
-        result = format_entry_title("Dongle", "SYNTH10005")
-        assert result == "EG4 Electronics - SYNTH10005"
+        result = format_entry_title("Dongle", "9876543210")
+        assert result == "EG4 Electronics - 9876543210"
 
     def test_hybrid_mode(self):
         """Test title for Hybrid mode."""
@@ -145,8 +145,8 @@ class TestBuildUniqueId:
 
     def test_dongle_mode(self):
         """Test unique ID for Dongle mode."""
-        result = build_unique_id("dongle", serial="SYNTH10005")
-        assert result == "dongle_SYNTH10005"
+        result = build_unique_id("dongle", serial="9876543210")
+        assert result == "dongle_9876543210"
 
     def test_dongle_mode_missing_serial(self):
         """Test Dongle mode raises error without serial."""
@@ -266,7 +266,7 @@ class TestMigrateLegacyEntry:
         """Test migration of legacy dongle entry to unified local format."""
         legacy_data = {
             "connection_type": "dongle",
-            "inverter_serial": "SYNTH10005",
+            "inverter_serial": "9876543210",
             "inverter_family": "LXP",
             "dongle_host": "192.168.1.200",
             "dongle_port": 8000,
@@ -282,7 +282,7 @@ class TestMigrateLegacyEntry:
 
         transport = result["local_transports"][0]
         assert transport["transport_type"] == "wifi_dongle"
-        assert transport["serial"] == "SYNTH10005"
+        assert transport["serial"] == "9876543210"
         assert transport["family"] == "LXP"
         assert transport["host"] == "192.168.1.200"
         assert transport["port"] == 8000

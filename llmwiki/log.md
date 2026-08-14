@@ -486,3 +486,11 @@ matching in prose and entity IDs, camel-case plant fields, location matching, wo
 reads, exact path exclusions and the RFC1918 scan-default boundary. Restored generic
 private-network examples and public vendor ingestion endpoints, and repaired the probe,
 monitor and firmware-capture helper regressions identified by tribunal review.
+
+## [2026-08-14] lint | Vendor infrastructure excluded from deployment audit
+
+Corrected the prior entry's worktree-reader claim: the guard now reads index blobs so it
+audits the exact bytes a commit would contain. Local gitignored vectors prove the committed
+digests against the deployment values without republishing them. Vendor cloud hosts, public
+cloud addresses, MAC OUIs and generic private gateways remain actionable documentation;
+only audited full MACs and deployment-owned identifiers are blocked.

@@ -1853,10 +1853,10 @@ class TestFinishAttachRecovery:
             patch.object(coordinator, "_refresh_device_parameters", side_effect=reload),
         ):
             await coordinator._finish_attach_recovery(
-                [MagicMock()], ["1234567890", "SYNTH10005"]
+                [MagicMock()], ["1234567890", "9876543210"]
             )
 
-        assert calls == ["drain:1", "reload:1234567890", "reload:SYNTH10005"]
+        assert calls == ["drain:1", "reload:1234567890", "reload:9876543210"]
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
@@ -1878,20 +1878,20 @@ class TestFinishAttachRecovery:
         coordinator.data = {
             "parameters": {
                 "1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12},
-                "SYNTH10005": {"HOLD_AC_CHARGE_POWER_CMD": 12},
+                "9876543210": {"HOLD_AC_CHARGE_POWER_CMD": 12},
             }
         }
         with patch.object(
             coordinator, "_refresh_device_parameters", side_effect=reload
         ):
-            await coordinator._finish_attach_recovery([], ["1234567890", "SYNTH10005"])
+            await coordinator._finish_attach_recovery([], ["1234567890", "9876543210"])
 
-        assert reloaded == ["SYNTH10005"]
+        assert reloaded == ["9876543210"]
         # Both serials were pre-blanked; the successful reload repopulated
         # its serial (raw), the failed one stays unknown rather than
         # 10x-wrong.
         assert coordinator.data["parameters"]["1234567890"] == {}
-        assert coordinator.data["parameters"]["SYNTH10005"] == {
+        assert coordinator.data["parameters"]["9876543210"] == {
             "HOLD_AC_CHARGE_POWER_CMD": 25
         }
 
