@@ -1516,15 +1516,12 @@ def test_capture_classifies_ipv6_extension_header_traffic(tmp_path: Path) -> Non
             FailureReason.EMPTY,
         ),
     )
-    observed: list[FailureReason] = []
-    for name, packet, _expected in cases:
+    for name, packet, expected in cases:
         capture_path = tmp_path / f"ipv6-extension-{name}.pcap"
         _write_capture(capture_path, [(1.0, packet)])
         with pytest.raises(CaptureError) as caught:
             process_pcap(capture_path)
-        observed.append(caught.value.reason)
-
-    assert observed == [expected for _name, _packet, expected in cases]
+        assert caught.value.reason is expected
 
 
 def test_capture_rejects_midstream_payload_without_handshake(tmp_path: Path) -> None:
