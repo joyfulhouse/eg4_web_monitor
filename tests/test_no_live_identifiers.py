@@ -60,8 +60,6 @@ EXCLUDED_SUFFIXES = frozenset(
         ".zip",
     }
 )
-TEXT_GIT_MODES = frozenset({"100644", "100755"})
-
 DOTTED_TOKEN_PATTERN = re.compile(r"(?<![\w.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![\w.])")
 MAC_PATTERN = re.compile(
     r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])"
@@ -131,11 +129,8 @@ def _tracked_text_blobs() -> Iterator[tuple[str, str | None, str | None]]:
             continue
         try:
             metadata, raw_path = record.split(b"\t", 1)
-            raw_mode, raw_object_id, raw_stage = metadata.split()
             path = raw_path.decode("utf-8")
-            mode = raw_mode.decode("ascii")
-            object_id = raw_object_id.decode("ascii")
-            stage = raw_stage.decode("ascii")
+            mode, object_id, stage = metadata.decode("ascii").split()
         except (UnicodeDecodeError, ValueError):
             yield "<git-index>", None, "malformed-git-index-entry"
             continue
@@ -145,7 +140,7 @@ def _tracked_text_blobs() -> Iterator[tuple[str, str | None, str | None]]:
             continue
         if _excluded_path(path):
             continue
-        if mode not in TEXT_GIT_MODES:
+        if mode not in ("100644", "100755"):
             category = {
                 "120000": "symlink-git-entry",
                 "160000": "submodule-git-entry",
@@ -184,35 +179,26 @@ def _has_unapproved_dotted_token(path: str, content: str) -> bool:
     return False
 
 
-def _has_unapproved_mac(content: str) -> bool:
+def _has_globally_administered_identifier(
+    content: str, pattern: re.Pattern[str], group: str | int = 0
+) -> bool:
     return any(
-        not int(match.group()[:2], 16) & 2 for match in MAC_PATTERN.finditer(content)
-    )
-
-
-def _has_unapproved_oui(content: str) -> bool:
-    return any(
-        not int(match.group("oui")[:2], 16) & 2
-        for match in OUI_CONTEXT_PATTERN.finditer(content)
+        not int(match.group(group)[:2], 16) & 2 for match in pattern.finditer(content)
     )
 
 
 def _has_unapproved_device_identifier(path: str, content: str) -> bool:
     for line in content.splitlines():
-        if DEVICE_SHAPE_PATTERN.search(line) and not (
-            path in FIRMWARE_PART_NUMBER_PATHS
-            and FIRMWARE_PART_CONTEXT_PATTERN.search(line)
+        if path in FIRMWARE_PART_NUMBER_PATHS and FIRMWARE_PART_CONTEXT_PATTERN.search(
+            line
         ):
+            continue
+        if DEVICE_SHAPE_PATTERN.search(line):
             return True
         for match in AMBIGUOUS_DEVICE_CONTEXT_PATTERN.finditer(line):
             identifier = match.group("identifier")
-            if (
-                any(character.isdigit() for character in identifier)
-                and not APPROVED_AMBIGUOUS_IDENTIFIER.fullmatch(identifier)
-                and not (
-                    path in FIRMWARE_PART_NUMBER_PATHS
-                    and FIRMWARE_PART_CONTEXT_PATTERN.search(line)
-                )
+            if not identifier.isalpha() and not APPROVED_AMBIGUOUS_IDENTIFIER.fullmatch(
+                identifier
             ):
                 return True
     return False
@@ -286,8 +272,16 @@ def _scan_repository() -> list[tuple[str, str]]:
         assert content is not None
         checks = (
             ("private-or-malformed-ipv4", _has_unapproved_dotted_token(path, content)),
-            ("non-synthetic-mac", _has_unapproved_mac(content)),
-            ("non-synthetic-oui", _has_unapproved_oui(content)),
+            (
+                "non-synthetic-mac",
+                _has_globally_administered_identifier(content, MAC_PATTERN),
+            ),
+            (
+                "non-synthetic-oui",
+                _has_globally_administered_identifier(
+                    content, OUI_CONTEXT_PATTERN, "oui"
+                ),
+            ),
             (
                 "non-synthetic-device-id",
                 _has_unapproved_device_identifier(path, content),
