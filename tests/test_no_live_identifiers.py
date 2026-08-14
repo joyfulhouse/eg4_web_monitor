@@ -8,8 +8,7 @@ import ipaddress
 import re
 import subprocess
 from collections.abc import Iterator
-from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).parents[1]
 
@@ -70,21 +69,15 @@ MAC_PATTERN = re.compile(
 OUI_PATTERN = re.compile(
     r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){2}[0-9a-f]{2}(?![0-9a-f:-])"
 )
-OUI_CONTEXT_PATTERN = re.compile(r"(?i)\b(?:mac|oui|ethernet|wi-?fi)\b")
 DEVICE_CONTEXT_PATTERN = re.compile(
     r"(?ix)"
     r"\b(?:18kpv|flexboss21|gridboss|grid_boss|battery_bank)"
     r"(?:[\s_:()\-]|[`'\"])+"
     r"(?P<identifier>[a-z0-9]{10})\b"
 )
-APPROVED_DEVICE_IDENTIFIER = re.compile(r"SYNTH[0-9A-Z]{5}", re.IGNORECASE)
-OBVIOUS_TEST_IDENTIFIER = re.compile(
-    r"(?:SYNTH|TEST|FAKE|MOCK|DEMO)[0-9A-Z]*|1234567890", re.IGNORECASE
-)
-APPROVED_MODEL_IDENTIFIER = re.compile(r"FlexBOSS18", re.IGNORECASE)
-DOCUMENTATION_NETWORKS = tuple(
-    ipaddress.ip_network(network)
-    for network in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24")
+APPROVED_CONTEXT_IDENTIFIER = re.compile(
+    r"(?:SYNTH|TEST|FAKE|MOCK|DEMO)[0-9A-Z]*|1234567890|FlexBOSS18",
+    re.IGNORECASE,
 )
 IDENTITY_WORDS = ("host", "ip", "serial", "mac", "dongle", "inverter")
 
@@ -140,14 +133,6 @@ AUDITED_FINGERPRINTS = {
 }
 
 
-@dataclass(frozen=True, order=True)
-class Finding:
-    """A sanitized repository finding."""
-
-    path: str
-    category: str
-
-
 def _tracked_text_files() -> Iterator[tuple[str, str]]:
     """Yield decoded tracked text without traversing untracked or secret stores."""
     result = subprocess.run(
@@ -159,13 +144,12 @@ def _tracked_text_files() -> Iterator[tuple[str, str]]:
     for raw_path in result.stdout.split(b"\0"):
         if not raw_path:
             continue
-        relative_path = raw_path.decode("utf-8")
-        pure_path = PurePosixPath(relative_path)
+        relative_path = Path(raw_path.decode("utf-8"))
         if (
-            any(part in EXCLUDED_PARTS for part in pure_path.parts)
-            or pure_path.name == ".env"
-            or pure_path.name.startswith(".env.")
-            or pure_path.suffix.lower() in EXCLUDED_SUFFIXES
+            any(part in EXCLUDED_PARTS for part in relative_path.parts)
+            or relative_path.name == ".env"
+            or relative_path.name.startswith(".env.")
+            or relative_path.suffix.lower() in EXCLUDED_SUFFIXES
         ):
             continue
 
@@ -173,7 +157,7 @@ def _tracked_text_files() -> Iterator[tuple[str, str]]:
         if b"\0" in data:
             continue
         try:
-            yield relative_path, data.decode("utf-8")
+            yield relative_path.as_posix(), data.decode("utf-8")
         except UnicodeDecodeError:
             continue
 
@@ -181,54 +165,31 @@ def _tracked_text_files() -> Iterator[tuple[str, str]]:
 def _has_unapproved_dotted_token(content: str) -> bool:
     for match in DOTTED_TOKEN_PATTERN.finditer(content):
         try:
-            address = ipaddress.ip_address(match.group())
+            ipaddress.ip_address(match.group())
         except ValueError:
             return True
-        if address.version != 4:
-            continue
-        if any(address in network for network in DOCUMENTATION_NETWORKS):
-            continue
         if _fingerprint(match.group()) in AUDITED_FINGERPRINTS["private-ipv4"]:
             return True
     return False
 
 
-def _has_unapproved_mac(content: str) -> bool:
-    for match in MAC_PATTERN.finditer(content):
-        first_octet = int(match.group()[:2], 16)
-        if (
-            not first_octet & 0x02
-            and _fingerprint(match.group()) in AUDITED_FINGERPRINTS["mac"]
-        ):
-            return True
-    return False
-
-
-def _has_unapproved_oui(content: str) -> bool:
-    for line in content.splitlines():
-        if not OUI_CONTEXT_PATTERN.search(line):
-            continue
-        for match in OUI_PATTERN.finditer(line):
-            first_octet = int(match.group()[:2], 16)
-            if (
-                not first_octet & 0x02
-                and _fingerprint(match.group()) in AUDITED_FINGERPRINTS["oui"]
-            ):
-                return True
-    return False
+def _contains_audited_value(
+    content: str, pattern: re.Pattern[str], category: str
+) -> bool:
+    fingerprints = AUDITED_FINGERPRINTS[category]
+    return any(
+        _fingerprint(match.group()) in fingerprints
+        for match in pattern.finditer(content)
+    )
 
 
 def _has_unapproved_device_identifier(content: str) -> bool:
     for match in DEVICE_CONTEXT_PATTERN.finditer(content):
         candidate = match.group("identifier")
-        if APPROVED_DEVICE_IDENTIFIER.fullmatch(candidate):
-            continue
-        if APPROVED_MODEL_IDENTIFIER.fullmatch(candidate):
-            continue
         if _fingerprint(candidate) in AUDITED_FINGERPRINTS["device-id"]:
             return True
         if any(character.isdigit() for character in candidate):
-            if not OBVIOUS_TEST_IDENTIFIER.fullmatch(candidate):
+            if not APPROVED_CONTEXT_IDENTIFIER.fullmatch(candidate):
                 return True
     return False
 
@@ -294,22 +255,20 @@ def _has_operational_identity_default(path: str, content: str) -> bool:
     return False
 
 
-def _scan_repository() -> list[Finding]:
-    findings: set[Finding] = set()
+def _scan_repository() -> list[tuple[str, str]]:
+    findings: set[tuple[str, str]] = set()
     for path, content in _tracked_text_files():
         checks = (
             ("private-or-malformed-ipv4", _has_unapproved_dotted_token(content)),
-            ("non-synthetic-mac", _has_unapproved_mac(content)),
-            ("non-synthetic-oui", _has_unapproved_oui(content)),
+            ("non-synthetic-mac", _contains_audited_value(content, MAC_PATTERN, "mac")),
+            ("non-synthetic-oui", _contains_audited_value(content, OUI_PATTERN, "oui")),
             ("non-synthetic-device-id", _has_unapproved_device_identifier(content)),
             (
                 "operational-identity-default",
                 _has_operational_identity_default(path, content),
             ),
         )
-        findings.update(
-            Finding(path, category) for category, failed in checks if failed
-        )
+        findings.update((path, category) for category, failed in checks if failed)
     return sorted(findings)
 
 
@@ -317,5 +276,5 @@ def test_tracked_text_has_no_deployment_identities() -> None:
     """Tracked text must use reserved identities or explicit runtime configuration."""
     findings = _scan_repository()
     if findings:
-        summary = "\n".join(f"{item.path}: {item.category}" for item in findings)
+        summary = "\n".join(f"{path}: {category}" for path, category in findings)
         raise AssertionError(f"tracked identity audit failed:\n{summary}")
