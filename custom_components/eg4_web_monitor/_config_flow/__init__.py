@@ -331,7 +331,7 @@ class EG4ConfigFlow(
         except Exception as err:
             _LOGGER.warning("Failed to detect network adapters: %s", err)
 
-        return "192.0.2.2/24"
+        return "192.168.1.0/24"
 
     async def async_step_network_scan_config(
         self, user_input: dict[str, Any] | None = None
@@ -340,7 +340,7 @@ class EG4ConfigFlow(
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            ip_range = user_input.get("ip_range", "192.0.2.2/24")
+            ip_range = user_input.get("ip_range", "192.168.1.0/24")
             scan_modbus = user_input.get("scan_modbus", True)
             scan_dongle = user_input.get("scan_dongle", True)
 
@@ -401,7 +401,7 @@ class EG4ConfigFlow(
             from pylxpweb.scanner import NetworkScanner, ScanConfig
 
             config = ScanConfig(
-                ip_range=self._scan_ip_range or "192.0.2.2/24",
+                ip_range=self._scan_ip_range or "192.168.1.0/24",
                 ports=self._scan_ports,
                 timeout=self._scan_timeout,
                 concurrency=50,

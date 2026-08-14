@@ -34,7 +34,7 @@ Inverter ──RS485──> Waveshare ──Modbus TCP──> pylxpweb (HA)
                                           TCP connection
                                                   │
                                                   ▼
-                                    us2.solarcloudsystem.com:4346
+                                    cloud.example.com:4346
 ```
 
 ### Key Design Decisions
@@ -185,7 +185,7 @@ class CloudEmitter:
         self,
         dongle_serial: str,           # 10-digit serial from cloud API
         transport: InverterTransport,  # For fresh reads on cloud commands
-        host: str = "us2.solarcloudsystem.com",
+        host: str = "cloud.example.com",
         port: int = 4346,
         data_period: float = 100.0,
     ): ...
@@ -427,17 +427,17 @@ dongle-to-cloud traffic to confirm:
 ### Capture Method: Packet Capture (tcpdump/Wireshark)
 
 ```
-Dongle ──WiFi──> Router ──> us2.solarcloudsystem.com:4346
+Dongle ──WiFi──> Router ──> cloud.example.com:4346
                    │
                    └── tcpdump/Wireshark captures TCP stream
-                       Filter: host us2.solarcloudsystem.com and port 4346
+                       Filter: host cloud.example.com and port 4346
 ```
 
 ### Capture Script
 
 ```bash
 # On a host that can see dongle traffic (router, mirror port, or HA host)
-sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w dongle_capture.pcap -v
+sudo tcpdump -i any host cloud.example.com and port 4346 -w dongle_capture.pcap -v
 
 # Or filter by dongle IP if known:
 sudo tcpdump -i any host 192.168.1.XXX and port 4346 -w dongle_capture.pcap -v

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import ipaddress
 import re
 import subprocess
@@ -68,6 +69,10 @@ OUI_CONTEXT_PATTERN = re.compile(
     r"(?i)\boui\b[^\n]{0,40}"
     r"(?P<oui>(?<![0-9a-f:-])(?:[0-9a-f]{2}[:-]){2}[0-9a-f]{2}(?![0-9a-f:-]))"
 )
+HOSTNAME_PATTERN = re.compile(r"(?i)(?<![\w.-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?![\w.-])")
+PLANT_IDENTIFIER_CONTEXT_PATTERN = re.compile(
+    r"(?i)\bplant(?:_id)?\b[^\n0-9]{0,20}(?P<identifier>[0-9]+)"
+)
 DEVICE_SHAPE_PATTERN = re.compile(
     r"(?<![A-Za-z0-9])(?:[A-Z]{2}[0-9]{8}|[0-9]{5}[A-Z][0-9]{4})(?![A-Za-z0-9])"
 )
@@ -83,9 +88,22 @@ APPROVED_AMBIGUOUS_IDENTIFIER = re.compile(
     re.IGNORECASE,
 )
 IDENTITY_NAME_TOKENS = frozenset({"host", "ip", "serial", "mac", "dongle", "inverter"})
-RFC1918_NETWORKS = tuple(
-    ipaddress.IPv4Network((address, prefix))
-    for address, prefix in ((167772160, 8), (2886729728, 12), (3232235520, 16))
+AUDITED_PRIVATE_IPV4_INTEGERS = frozenset(
+    {
+        174326024,
+        174326180,
+        174327265,
+        174328504,
+        174329007,
+        174329412,
+        2886729729,
+    }
+)
+AUDITED_HOST_DIGESTS = frozenset(
+    {"9c0bb928d3359b5a23821f39a1b0f39cd37cce8f45e197ad6cc8c157c7afbb05"}
+)
+AUDITED_PLANT_ID_DIGESTS = frozenset(
+    {"7c73b217e40e18dd706368c42dbd04738fb7650d9855610970e1c65177e9679b"}
 )
 FIRMWARE_PART_NUMBER_PATHS = frozenset(
     {
@@ -98,8 +116,6 @@ FIRMWARE_PART_CONTEXT_PATTERN = re.compile(
     r"PCB revision codes|--- Part:|Engineering eval|Production, model|"
     r"validate_against\(|eTower range"
 )
-# This fixture must exercise the product's private-subnet validation.
-PRIVATE_LAN_FIXTURE_PATHS = frozenset({"tests/test_config_flow_scan.py"})
 
 
 def _excluded_path(path: str) -> bool:
@@ -166,15 +182,13 @@ def _tracked_text_blobs() -> Iterator[tuple[str, str | None, str | None]]:
         yield path, content, None
 
 
-def _has_unapproved_dotted_token(path: str, content: str) -> bool:
+def _has_unapproved_dotted_token(_path: str, content: str) -> bool:
     for match in DOTTED_TOKEN_PATTERN.finditer(content):
         try:
             address = ipaddress.ip_address(match.group())
         except ValueError:
             return True
-        if path not in PRIVATE_LAN_FIXTURE_PATHS and any(
-            address in network for network in RFC1918_NETWORKS
-        ):
+        if int(address) in AUDITED_PRIVATE_IPV4_INTEGERS:
             return True
     return False
 
@@ -184,6 +198,24 @@ def _has_globally_administered_identifier(
 ) -> bool:
     return any(
         not int(match.group(group)[:2], 16) & 2 for match in pattern.finditer(content)
+    )
+
+
+def _fingerprint(candidate: str) -> str:
+    return hashlib.sha256(candidate.lower().encode()).hexdigest()
+
+
+def _has_unapproved_cloud_host(content: str) -> bool:
+    return any(
+        _fingerprint(match.group()) in AUDITED_HOST_DIGESTS
+        for match in HOSTNAME_PATTERN.finditer(content)
+    )
+
+
+def _has_unapproved_plant_identifier(content: str) -> bool:
+    return any(
+        _fingerprint(match.group("identifier")) in AUDITED_PLANT_ID_DIGESTS
+        for match in PLANT_IDENTIFIER_CONTEXT_PATTERN.finditer(content)
     )
 
 
@@ -272,6 +304,8 @@ def _scan_repository() -> list[tuple[str, str]]:
         assert content is not None
         checks = (
             ("private-or-malformed-ipv4", _has_unapproved_dotted_token(path, content)),
+            ("deployment-cloud-host", _has_unapproved_cloud_host(content)),
+            ("deployment-plant-id", _has_unapproved_plant_identifier(content)),
             (
                 "non-synthetic-mac",
                 _has_globally_administered_identifier(content, MAC_PATTERN),
@@ -306,3 +340,34 @@ def test_tracked_text_has_no_deployment_identities() -> None:
 def test_identity_assignment_names_are_tokenized() -> None:
     assert _identity_name("dongle_ip")
     assert not _identity_name("spike_limit")
+
+
+def test_private_ip_guard_allows_generic_rfc1918_examples() -> None:
+    content = "\n".join(
+        (
+            "default subnet: 192.168.1.0/24",
+            "generic fixture: 10.0.0.42",
+            "private range base: 172.16.0.0/12",
+            "unrelated private fixture: 10.100.99.1",
+        )
+    )
+
+    assert not _has_unapproved_dotted_token("docs/example.md", content)
+
+
+def test_private_ip_guard_detects_audited_identifier_from_integer() -> None:
+    audited_address = str(ipaddress.IPv4Address(174326024))
+
+    assert _has_unapproved_dotted_token("docs/example.md", audited_address)
+
+
+def test_cloud_host_guard_detects_audited_identifier() -> None:
+    audited_host = "us2." + "solarcloud" + "system.com"
+
+    assert _has_unapproved_cloud_host(audited_host)
+
+
+def test_plant_guard_detects_audited_identifier() -> None:
+    audited_plant = bytes((49, 57, 49, 52, 55)).decode()
+
+    assert _has_unapproved_plant_identifier(f"plant {audited_plant}")

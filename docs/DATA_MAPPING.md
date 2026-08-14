@@ -1260,7 +1260,7 @@ therefore LOCAL/HYBRID transport-only. In HYBRID, a local PV1 daily or lifetime
 value suppresses the matching cloud tier for that cycle; local transport is
 authoritative about which strings exist.
 
-Live validation against plant 19147 on 2026-08-01 confirms the fields and scale:
+Live validation against plant 1234567890 on 2026-08-01 confirms the fields and scale:
 
 - 18kPV `SYNTH00004`: lifetime strings `1471.8 + 527.5 + 98.4 = 2097.7`
   kWh, exactly matching `getInverterEnergyInfo.totalYieldingText = "2097.7"`.

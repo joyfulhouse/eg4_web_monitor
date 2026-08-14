@@ -20,7 +20,7 @@ This document describes the EG4 Web Monitor API endpoints for managing plant/sta
 page=1
 rows=20
 searchText=
-targetPlantId=19147
+targetPlantId=1234567890
 sort=createDate
 order=desc
 ```
@@ -31,8 +31,8 @@ order=desc
     "total": 1,
     "rows": [
         {
-            "id": 19147,
-            "plantId": 19147,
+            "id": 1234567890,
+            "plantId": 1234567890,
             "name": "6245 N WILLARD",
             "nominalPower": 19000,
             "country": "United States of America",
@@ -125,7 +125,7 @@ order=desc
 
 **Request Parameters** (from user's curl example):
 ```
-plantId=19147
+plantId=1234567890
 name=6245+N+WILLARD
 longitude=-118.10842
 latitude=34.09724

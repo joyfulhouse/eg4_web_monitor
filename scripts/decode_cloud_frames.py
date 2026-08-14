@@ -2,7 +2,7 @@
 """Decode EG4 cloud protocol frames from a pcap capture.
 
 Reads a pcap file containing TCP traffic between a WiFi dongle and
-us2.solarcloudsystem.com:4346, decodes all 0xA1/0x1A frames, and
+cloud.example.com:4346, decodes all 0xA1/0x1A frames, and
 produces a human-readable analysis.
 
 Usage:
@@ -518,7 +518,7 @@ def main() -> None:
         print(f"Usage: {sys.argv[0]} <pcap_file>")
         print("\nCapture traffic first:")
         print(
-            "  sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w capture.pcap"
+            "  sudo tcpdump -i any host cloud.example.com and port 4346 -w capture.pcap"
         )
         sys.exit(1)
 
