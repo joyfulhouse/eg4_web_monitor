@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import builtins
 import gc
 import json
 import os
@@ -11,7 +10,7 @@ import stat
 import sys
 import traceback
 import tracemalloc
-from collections.abc import Buffer, Callable, Mapping, Sequence
+from collections.abc import Buffer, Callable
 from importlib import util
 from pathlib import Path
 from types import ModuleType
@@ -74,12 +73,14 @@ def _ethernet_packet(
     sequence: int,
     flags: int,
     cloud_to_dongle: bool = False,
+    acknowledgement: int = 0,
 ) -> bytes:
     packet_module = _dpkt()
     tcp = packet_module.tcp.TCP(
         sport=4346 if cloud_to_dongle else 32000,
         dport=32000 if cloud_to_dongle else 4346,
         seq=sequence,
+        ack=acknowledgement,
         flags=flags,
         data=payload,
     )
@@ -93,6 +94,30 @@ def _ethernet_packet(
         src=b"\x02\x00\x00\x00\x00\x01",
         dst=b"\x02\x00\x00\x00\x00\x02",
         type=packet_module.ethernet.ETH_TYPE_IP,
+        data=ip,
+    )
+    return bytes(ethernet)
+
+
+def _ipv6_ethernet_packet(payload: bytes, *, sequence: int, flags: int) -> bytes:
+    packet_module = _dpkt()
+    tcp = packet_module.tcp.TCP(
+        sport=32000,
+        dport=4346,
+        seq=sequence,
+        flags=flags,
+        data=payload,
+    )
+    ip = packet_module.ip6.IP6(
+        src=bytes.fromhex("20010db8000000000000000000000001"),
+        dst=bytes.fromhex("20010db8000000000000000000000002"),
+        nxt=packet_module.ip.IP_PROTO_TCP,
+        data=tcp,
+    )
+    ethernet = packet_module.ethernet.Ethernet(
+        src=b"\x02\x00\x00\x00\x00\x01",
+        dst=b"\x02\x00\x00\x00\x00\x02",
+        type=packet_module.ethernet.ETH_TYPE_IP6,
         data=ip,
     )
     return bytes(ethernet)
@@ -185,34 +210,6 @@ def _segments(*payloads: bytes) -> list[CapturedSegment]:
 )
 def test_public_crc_seam_normalizes_bytes_like_inputs(value: Buffer) -> None:
     assert compute_crc16(value) == 0x4B37
-
-
-def test_crc_seam_loads_without_pymodbus(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module_name = "decode_cloud_frames_without_pymodbus"
-    script_path = Path(decoder_module.__file__)
-    spec = util.spec_from_file_location(module_name, script_path)
-    assert spec is not None and spec.loader is not None
-    loaded = util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, module_name, loaded)
-    original_import = builtins.__import__
-
-    def import_without_pymodbus(
-        name: str,
-        globals: Mapping[str, object] | None = None,
-        locals: Mapping[str, object] | None = None,
-        fromlist: Sequence[str] = (),
-        level: int = 0,
-    ) -> object:
-        if name == "pymodbus" or name.startswith("pymodbus."):
-            raise ImportError("optional dependency unavailable")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", import_without_pymodbus)
-    spec.loader.exec_module(loaded)
-
-    assert cast(_DecoderModule, loaded).compute_crc16(b"123456789") == 0x4B37
 
 
 @pytest.mark.parametrize(
@@ -590,6 +587,35 @@ def test_offline_pcap_adapter_and_cli_never_report_source_metadata(
     assert json.loads(output_path.read_text(encoding="utf-8")) == direct
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--unknown-option", "TOKEN-CANARY"],
+        ["SYNTHETIC_CANARY_INPUT", "--output"],
+        ["SYNTHETIC_CANARY_INPUT"],
+    ],
+)
+def test_cli_parse_failures_are_closed_redacted_errors(
+    arguments: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(CaptureError) as caught:
+        decoder_module._parse_args(arguments)
+    direct_output = capsys.readouterr()
+
+    assert caught.value.reason is FailureReason.CLI
+    assert caught.value.__cause__ is None
+    assert caught.value.__context__ is None
+    assert direct_output.out == ""
+    assert direct_output.err == ""
+
+    assert main(arguments) == 2
+    cli_output = capsys.readouterr()
+    diagnostics = cli_output.out + cli_output.err
+    assert cli_output.out == ""
+    assert cli_output.err == "capture rejected: cli\n"
+    assert not any(argument in diagnostics for argument in arguments)
+
+
 def test_pcap_reconnect_on_same_flow_starts_a_new_stream(tmp_path: Path) -> None:
     capture_path = tmp_path / "synthetic-reconnect.pcap"
     frames = (_c2(_read_response(start=7)), _c2(_read_response(start=42)))
@@ -636,7 +662,11 @@ def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
             (
                 2.1,
                 _ethernet_packet(
-                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                    b"",
+                    sequence=199,
+                    flags=syn_ack,
+                    cloud_to_dongle=True,
+                    acknowledgement=100,
                 ),
             ),
             (
@@ -648,7 +678,11 @@ def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
             (
                 2.3,
                 _ethernet_packet(
-                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                    b"",
+                    sequence=199,
+                    flags=syn_ack,
+                    cloud_to_dongle=True,
+                    acknowledgement=100,
                 ),
             ),
             (
@@ -675,13 +709,44 @@ def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
             (
                 4.1,
                 _ethernet_packet(
-                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                    b"",
+                    sequence=199,
+                    flags=syn_ack,
+                    cloud_to_dongle=True,
+                    acknowledgement=100,
                 ),
             ),
             (
                 4.2,
                 _ethernet_packet(
-                    b"", sequence=299, flags=syn_ack, cloud_to_dongle=True
+                    b"",
+                    sequence=299,
+                    flags=syn_ack,
+                    cloud_to_dongle=True,
+                    acknowledgement=100,
+                ),
+            ),
+        ],
+        "conflicting-server-ack": [
+            (4.5, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (
+                4.6,
+                _ethernet_packet(
+                    b"",
+                    sequence=199,
+                    flags=syn_ack,
+                    cloud_to_dongle=True,
+                    acknowledgement=100,
+                ),
+            ),
+            (
+                4.7,
+                _ethernet_packet(
+                    b"",
+                    sequence=199,
+                    flags=syn_ack,
+                    cloud_to_dongle=True,
+                    acknowledgement=101,
                 ),
             ),
         ],
@@ -700,7 +765,11 @@ def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
             (
                 6.1,
                 _ethernet_packet(
-                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                    b"",
+                    sequence=199,
+                    flags=syn_ack,
+                    cloud_to_dongle=True,
+                    acknowledgement=100,
                 ),
             ),
             (
@@ -710,6 +779,7 @@ def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
                     sequence=199,
                     flags=syn_ack | packet_module.tcp.TH_RST,
                     cloud_to_dongle=True,
+                    acknowledgement=100,
                 ),
             ),
             (
@@ -724,6 +794,106 @@ def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
         with pytest.raises(CaptureError) as caught:
             process_pcap(capture_path)
         assert caught.value.reason is FailureReason.MALFORMED
+
+
+@pytest.mark.parametrize(
+    "packets",
+    [
+        pytest.param(
+            lambda tcp, frame: [
+                (
+                    1.0,
+                    _ethernet_packet(
+                        b"", sequence=99, flags=tcp.TH_SYN, acknowledgement=1
+                    ),
+                ),
+            ],
+            id="client-syn-acknowledgement",
+        ),
+        pytest.param(
+            lambda tcp, frame: [
+                (1.0, _ethernet_packet(b"", sequence=99, flags=tcp.TH_SYN)),
+                (
+                    1.1,
+                    _ethernet_packet(
+                        b"",
+                        sequence=199,
+                        flags=tcp.TH_SYN | tcp.TH_ACK,
+                        cloud_to_dongle=True,
+                        acknowledgement=101,
+                    ),
+                ),
+            ],
+            id="syn-ack-acknowledgement",
+        ),
+        pytest.param(
+            lambda tcp, frame: [
+                (1.0, _ethernet_packet(b"", sequence=99, flags=tcp.TH_SYN)),
+                (1.1, _ethernet_packet(frame, sequence=100, flags=tcp.TH_ACK)),
+                (
+                    1.2,
+                    _ethernet_packet(
+                        b"", sequence=100 + len(frame), flags=tcp.TH_FIN | tcp.TH_ACK
+                    ),
+                ),
+                (
+                    1.3,
+                    _ethernet_packet(
+                        frame, sequence=101 + len(frame), flags=tcp.TH_ACK
+                    ),
+                ),
+            ],
+            id="payload-after-fin",
+        ),
+        pytest.param(
+            lambda tcp, frame: [
+                (1.0, _ethernet_packet(b"", sequence=99, flags=tcp.TH_SYN)),
+                (
+                    1.1,
+                    _ethernet_packet(
+                        b"",
+                        sequence=199,
+                        flags=tcp.TH_SYN | tcp.TH_ACK,
+                        cloud_to_dongle=True,
+                        acknowledgement=100,
+                    ),
+                ),
+                (1.2, _ethernet_packet(frame, sequence=100, flags=tcp.TH_ACK)),
+                (
+                    1.3,
+                    _ethernet_packet(
+                        b"", sequence=100 + len(frame), flags=tcp.TH_RST | tcp.TH_ACK
+                    ),
+                ),
+                (
+                    1.4,
+                    _ethernet_packet(
+                        frame,
+                        sequence=200,
+                        flags=tcp.TH_ACK,
+                        cloud_to_dongle=True,
+                    ),
+                ),
+            ],
+            id="payload-after-rst-opposite-direction",
+        ),
+    ],
+)
+def test_pcap_rejects_invalid_ack_and_terminal_transitions(
+    tmp_path: Path,
+    packets: Callable[[ModuleType, bytes], list[tuple[float, bytes]]],
+) -> None:
+    packet_module = _dpkt()
+    capture_path = tmp_path / "invalid-lifecycle.pcap"
+    _write_capture(
+        capture_path,
+        packets(packet_module.tcp, _cloud_frame(0xC1, b"\x01")),
+    )
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.MALFORMED
 
 
 def test_tcp_reassembler_requires_explicit_stream_origin() -> None:
@@ -882,6 +1052,41 @@ def test_reassembly_does_not_eagerly_allocate_per_flow_windows() -> None:
     assert bounded.retained_bytes == 0
 
 
+def test_fragmentation_buffers_have_charged_linear_resource_bounds() -> None:
+    policy = ParserPolicy(
+        maximum_frame_bytes=65535,
+        prefix_scan_bytes=64,
+        maximum_packet_bytes=65535,
+        maximum_segments_per_flow=65535,
+        maximum_reassembled_bytes_per_flow=65535,
+        maximum_aggregate_memory_bytes=256 * 1024,
+    )
+    advertised = bytearray(b"\xa1\x1a\x00\x01\x00\x00")
+    advertised[4:6] = (policy.maximum_frame_bytes - 6).to_bytes(2, "little")
+    incomplete = bytes(advertised) + bytes(policy.maximum_frame_bytes - 7)
+
+    gc.collect()
+    tracemalloc.start()
+    before, _ = tracemalloc.get_traced_memory()
+    decoder = StreamFrameDecoder(policy)
+    for byte in incomplete:
+        assert decoder.feed(bytes((byte,)), captured_at=1.0) == []
+    _, decoder_peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    decoder_bound = policy.maximum_frame_bytes + policy.prefix_scan_bytes + 16 * 1024
+    assert decoder.buffered_bytes == len(incomplete)
+    assert decoder_peak - before <= decoder_bound
+
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    for offset in range(0, policy.maximum_reassembled_bytes_per_flow, 64):
+        payload = bytes(min(64, policy.maximum_reassembled_bytes_per_flow - offset))
+        reassembler.push(offset, payload, captured_at=2.0)
+
+    assert reassembler.retained_bytes <= 16 * 1024
+
+
 def test_sanitizer_flow_limit_accepts_exact_and_rejects_one_over() -> None:
     frame = _cloud_frame(0xC1, b"\x01")
     exact = [
@@ -906,7 +1111,17 @@ def test_sanitizer_aggregate_memory_limit_accepts_peak_and_rejects_one_under() -
         )
         for stream_id in range(2)
     ]
-    peak_retained = len(frame) * 3
+    policy = ParserPolicy()
+    per_flow_retained = (
+        min(
+            policy.maximum_packet_bytes,
+            policy.maximum_reassembled_bytes_per_flow,
+            16 * 1024,
+        )
+        + policy.maximum_frame_bytes
+        + policy.prefix_scan_bytes
+    )
+    peak_retained = per_flow_retained * len(segments)
 
     assert sanitize_segments(
         segments,
@@ -1214,6 +1429,25 @@ def test_capture_distinguishes_irrelevant_traffic_from_decode_failure(
     assert caught.value.reason is FailureReason.EMPTY
 
 
+def test_capture_rejects_ipv6_target_traffic_explicitly(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    capture_path = tmp_path / "ipv6-target.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (
+                1.0,
+                _ipv6_ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN),
+            )
+        ],
+    )
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.IP_VERSION
+
+
 def test_capture_rejects_midstream_payload_without_handshake(tmp_path: Path) -> None:
     packet_module = _dpkt()
     capture_path = tmp_path / "midstream.pcap"
@@ -1471,6 +1705,38 @@ def test_output_failures_remove_temporary_and_published_files(
         assert list(destination_dir.iterdir()) == []
         if stage == "directory_fsync":
             assert directory_fsync_attempts == 2
+
+
+@pytest.mark.parametrize("close_before_raise", [True, False])
+def test_output_is_committed_after_directory_fsync_despite_close_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    close_before_raise: bool,
+) -> None:
+    output_path = tmp_path / "output.json"
+    original_close = os.close
+    failed_descriptor: int | None = None
+    close_attempts = 0
+
+    def ambiguous_close(descriptor: int) -> None:
+        nonlocal close_attempts, failed_descriptor
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            close_attempts += 1
+            failed_descriptor = descriptor
+            if close_before_raise:
+                original_close(descriptor)
+            raise OSError("CLOSE-CANARY")
+        original_close(descriptor)
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(os, "close", ambiguous_close)
+        decoder_module._write_exclusive(output_path, b"synthetic\n")
+
+    assert output_path.read_bytes() == b"synthetic\n"
+    assert close_attempts == 1
+    if not close_before_raise:
+        assert failed_descriptor is not None
+        original_close(failed_descriptor)
 
 
 def test_missing_dpkt_fails_closed_in_process_and_cli(

@@ -18,8 +18,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib import import_module
 from pathlib import Path
-from types import ModuleType
-from typing import Any, BinaryIO, Final, Protocol, cast
+from typing import Any, BinaryIO, Final, Never, Protocol, cast
 
 
 class _CaptureReader(Protocol):
@@ -51,6 +50,7 @@ class _TCPPacket(Protocol):
     sport: int
     dport: int
     seq: int
+    ack: int
     flags: int
     opts: Buffer
     data: Buffer
@@ -80,6 +80,10 @@ class _IPNamespace(Protocol):
     IP_PROTO_TCP: int
 
 
+class _IP6Namespace(Protocol):
+    IP6: type
+
+
 class _TCPNamespace(Protocol):
     TCP: type
     TH_ACK: int
@@ -94,6 +98,7 @@ class _DPKT(Protocol):
     sll: _SLLNamespace
     sll2: _SLL2Namespace
     ip: _IPNamespace
+    ip6: _IP6Namespace
     tcp: _TCPNamespace
 
 
@@ -102,7 +107,7 @@ def _load_dpkt() -> _DPKT | None:
         module = import_module("dpkt")
     except ImportError:
         return None
-    return cast(_DPKT, cast(ModuleType, module))
+    return cast(_DPKT, module)
 
 
 dpkt = _load_dpkt()
@@ -150,6 +155,7 @@ class FailureReason(StrEnum):
     """Bounded failure categories that never contain captured values."""
 
     CAPACITY = "capacity"
+    CLI = "cli"
     CRC = "crc"
     DEPENDENCY = "dependency"
     EMPTY = "empty"
@@ -158,6 +164,7 @@ class FailureReason(StrEnum):
     INPUT_CHANGED = "input_changed"
     INPUT_KIND = "input_kind"
     INPUT_SIZE = "input_size"
+    IP_VERSION = "ip_version"
     MALFORMED = "malformed"
     OUTPUT = "output"
     OUTPUT_EXISTS = "output_exists"
@@ -220,6 +227,10 @@ class _MemoryBudget:
     limit: int
     retained: int = 0
 
+    @property
+    def available(self) -> int:
+        return self.limit - self.retained
+
     def reserve(self, count: int) -> None:
         if count < 0 or self.retained + count > self.limit:
             raise CaptureError(FailureReason.CAPACITY)
@@ -229,6 +240,86 @@ class _MemoryBudget:
         self.retained -= count
         if self.retained < 0:
             raise CaptureError(FailureReason.MALFORMED)
+
+
+class _ChargedRingBuffer:
+    """Lazy fixed-capacity ring whose whole allocation is budgeted up front."""
+
+    def __init__(self, capacity: int, budget: _MemoryBudget) -> None:
+        self._capacity = capacity
+        self._budget = budget
+        self._data: bytearray | None = None
+        self._head = 0
+        self._size = 0
+
+    def __len__(self) -> int:
+        return self._size
+
+    @property
+    def allocated_bytes(self) -> int:
+        return self._capacity if self._data is not None else 0
+
+    def _ensure_allocated(self) -> bytearray:
+        if self._data is None:
+            self._budget.reserve(self._capacity)
+            try:
+                self._data = bytearray(self._capacity)
+            except MemoryError:
+                self._budget.release(self._capacity)
+                raise CaptureError(FailureReason.CAPACITY) from None
+        return self._data
+
+    def byte_at(self, index: int) -> int:
+        if not 0 <= index < self._size or self._data is None:
+            raise CaptureError(FailureReason.MALFORMED)
+        return self._data[(self._head + index) % self._capacity]
+
+    def append(self, value: Buffer) -> None:
+        view = memoryview(value).cast("B")
+        if len(view) > self._capacity - self._size:
+            raise CaptureError(FailureReason.CAPACITY)
+        if not view:
+            return
+        data = self._ensure_allocated()
+        tail = (self._head + self._size) % self._capacity
+        first = min(len(view), self._capacity - tail)
+        data[tail : tail + first] = view[:first]
+        data[: len(view) - first] = view[first:]
+        self._size += len(view)
+
+    def find(self, value: bytes) -> int:
+        if not value:
+            return 0
+        limit = self._size - len(value) + 1
+        for index in range(max(0, limit)):
+            if all(
+                self.byte_at(index + offset) == byte
+                for offset, byte in enumerate(value)
+            ):
+                return index
+        return -1
+
+    def to_bytes(self, start: int = 0, count: int | None = None) -> bytes:
+        length = self._size - start if count is None else count
+        if start < 0 or length < 0 or start + length > self._size:
+            raise CaptureError(FailureReason.MALFORMED)
+        return bytes(self.byte_at(start + offset) for offset in range(length))
+
+    def discard(self, count: int) -> None:
+        if not 0 <= count <= self._size:
+            raise CaptureError(FailureReason.MALFORMED)
+        if self._capacity:
+            self._head = (self._head + count) % self._capacity
+        self._size -= count
+        if not self._size:
+            self._head = 0
+
+    def release(self) -> None:
+        if self._data is not None:
+            self._data = None
+            self._budget.release(self._capacity)
+        self._head = 0
+        self._size = 0
 
 
 class StreamFrameDecoder:
@@ -241,7 +332,10 @@ class StreamFrameDecoder:
         self._budget = budget or _MemoryBudget(
             self.policy.maximum_aggregate_memory_bytes
         )
-        self._buffer = b""
+        self._buffer = _ChargedRingBuffer(
+            self.policy.maximum_frame_bytes + self.policy.prefix_scan_bytes,
+            self._budget,
+        )
         self._prefix_scanned = 0
         self._started_at: float | None = None
         self._last_captured_at: float | None = None
@@ -281,8 +375,7 @@ class StreamFrameDecoder:
                     raise CaptureError(FailureReason.CAPACITY)
                 continue
             take = min(room, len(normalized) - offset)
-            self._budget.reserve(take)
-            self._buffer += normalized[offset : offset + take]
+            self._buffer.append(normalized[offset : offset + take])
             offset += take
             decoded.extend(self._extract_available(captured_at))
         decoded.extend(self._extract_available(captured_at))
@@ -292,9 +385,10 @@ class StreamFrameDecoder:
         self._validate_timestamp(captured_at)
         self._check_deadline(captured_at)
         self._extract_available(captured_at)
-        if self._buffer or self._prefix_scanned:
+        if len(self._buffer) or self._prefix_scanned:
             self._discard()
             raise CaptureError(FailureReason.TRUNCATED)
+        self._buffer.release()
 
     def _check_deadline(self, captured_at: float) -> None:
         if (
@@ -313,15 +407,17 @@ class StreamFrameDecoder:
 
     def _remove_prefix(self, count: int) -> None:
         if count:
-            self._buffer = self._buffer[count:]
-            self._budget.release(count)
+            self._buffer.discard(count)
 
     def _extract_available(self, captured_at: float) -> list[bytes]:
         frames: list[bytes] = []
-        while self._buffer:
+        while len(self._buffer):
             magic_index = self._buffer.find(FRAME_MAGIC)
             if magic_index < 0:
-                retained = int(self._buffer[-1:] == FRAME_MAGIC[:1])
+                retained = int(
+                    len(self._buffer) > 0
+                    and self._buffer.byte_at(len(self._buffer) - 1) == FRAME_MAGIC[0]
+                )
                 discarded = len(self._buffer) - retained
                 self._prefix_scanned += discarded
                 if self._prefix_scanned > self.policy.prefix_scan_bytes:
@@ -337,7 +433,7 @@ class StreamFrameDecoder:
                 self._remove_prefix(magic_index)
             if len(self._buffer) < 6:
                 break
-            total_size = 6 + int.from_bytes(self._buffer[4:6], "little")
+            total_size = 6 + int.from_bytes(self._buffer.to_bytes(4, 2), "little")
             if total_size > self.policy.maximum_frame_bytes:
                 self._discard()
                 raise CaptureError(FailureReason.OVERSIZE)
@@ -346,15 +442,14 @@ class StreamFrameDecoder:
                 raise CaptureError(FailureReason.MALFORMED)
             if len(self._buffer) < total_size:
                 break
-            frames.append(bytes(self._buffer[:total_size]))
+            frames.append(self._buffer.to_bytes(0, total_size))
             self._remove_prefix(total_size)
             self._prefix_scanned = 0
-            self._started_at = captured_at if self._buffer else None
+            self._started_at = captured_at if len(self._buffer) else None
         return frames
 
     def _discard(self) -> None:
-        self._budget.release(len(self._buffer))
-        self._buffer = b""
+        self._buffer.release()
         self._prefix_scanned = 0
         self._started_at = None
 
@@ -374,7 +469,12 @@ class TCPStreamReassembler:
         self._origin: int | None = None
         self._assembled_bytes = 0
         self._history_start = 0
-        self._history = b""
+        history_capacity = min(
+            self.policy.maximum_packet_bytes,
+            self.policy.maximum_reassembled_bytes_per_flow,
+            16 * 1024,
+        )
+        self._history = _ChargedRingBuffer(history_capacity, self._budget)
         self._pending: dict[int, int] | None = None
         self._segment_count = 0
         self._started_at: float | None = None
@@ -387,7 +487,7 @@ class TCPStreamReassembler:
 
     @property
     def retained_bytes(self) -> int:
-        return len(self._history) + self.pending_bytes
+        return self._history.allocated_bytes + self.pending_bytes
 
     @property
     def segment_count(self) -> int:
@@ -418,6 +518,8 @@ class TCPStreamReassembler:
         normalized = bytes(payload)
         if not normalized:
             return []
+        if len(normalized) > self._budget.available:
+            raise CaptureError(FailureReason.CAPACITY)
         if self._started_at is None:
             self._started_at = captured_at
         elif captured_at - self._started_at > self.policy.overall_frame_deadline:
@@ -437,7 +539,7 @@ class TCPStreamReassembler:
         for index, byte in enumerate(normalized):
             offset = start + index
             if offset < self._assembled_bytes:
-                if self._history[offset - self._history_start] != byte:
+                if self._history.byte_at(offset - self._history_start) != byte:
                     raise CaptureError(FailureReason.MALFORMED)
                 continue
             existing = pending.get(offset) if pending is not None else None
@@ -464,7 +566,6 @@ class TCPStreamReassembler:
                         pending[offset] = byte
                 self._pending = pending
         else:
-            self._budget.reserve(new_bytes)
             while self._assembled_bytes < end:
                 pending_byte = (
                     pending.pop(self._assembled_bytes)
@@ -489,15 +590,17 @@ class TCPStreamReassembler:
         overlap_limit = min(
             self.policy.maximum_packet_bytes,
             self.policy.maximum_reassembled_bytes_per_flow,
+            16 * 1024,
         )
-        combined_history = self._history + bytes(contiguous)
-        expired = len(combined_history) - overlap_limit
+        expired = max(0, len(self._history) + len(contiguous) - overlap_limit)
+        contiguous_history_start = 0
         if expired > 0:
-            self._history = combined_history[expired:]
+            from_history = min(expired, len(self._history))
+            self._history.discard(from_history)
+            if expired > from_history:
+                contiguous_history_start = expired - from_history
             self._history_start += expired
-            self._budget.release(expired)
-        else:
-            self._history = combined_history
+        self._history.append(memoryview(contiguous)[contiguous_history_start:])
         chunks: list[tuple[float, bytes]] = []
         if contiguous:
             assert self._started_at is not None
@@ -521,11 +624,9 @@ class TCPStreamReassembler:
         self._last_captured_at = captured_at
 
     def _clear(self) -> None:
-        retained = len(self._history) + (
-            self.pending_bytes * _PENDING_BYTE_MEMORY_CHARGE
-        )
+        retained = self.pending_bytes * _PENDING_BYTE_MEMORY_CHARGE
         self._pending = None
-        self._history = b""
+        self._history.release()
         self._budget.release(retained)
         self._started_at = None
 
@@ -899,6 +1000,17 @@ def _decode_link_packet(packet: bytes, link_type: int) -> _IPPacket | None:
     data = link_packet.data
     if isinstance(data, module.ip.IP):
         return cast(_IPPacket, data)
+    if isinstance(data, module.ip6.IP6):
+        ip6_packet = cast(_IPPacket, data)
+        transport_data = ip6_packet.data
+        if isinstance(transport_data, module.tcp.TCP):
+            transport = cast(_TCPPacket, transport_data)
+        else:
+            transport = None
+        if transport is not None and (
+            transport.sport == 4346 or transport.dport == 4346
+        ):
+            raise CaptureError(FailureReason.IP_VERSION)
     return None
 
 
@@ -906,10 +1018,13 @@ def _decode_link_packet(packet: bytes, link_type: int) -> _IPPacket | None:
 class _ObservedSession:
     stream_id: int
     client_initial_sequence: int
-    client_handshake: tuple[int, bytes, bytes]
+    client_handshake: tuple[int, int, bytes, bytes]
     server_initial_sequence: int | None = None
-    server_handshake: tuple[int, bytes, bytes] | None = None
+    server_handshake: tuple[int, int, bytes, bytes] | None = None
     application_started: bool = False
+    client_terminal: tuple[int, int, int, bytes, bytes] | None = None
+    server_terminal: tuple[int, int, int, bytes, bytes] | None = None
+    reset_terminal: tuple[bool, int, int, int, bytes, bytes] | None = None
 
 
 def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSegment]:
@@ -975,7 +1090,8 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
             starts_stream = False
             sequence = tcp.seq
             payload = bytes(tcp.data)
-            handshake = (tcp.flags, bytes(tcp.opts), payload)
+            options = bytes(tcp.opts)
+            handshake = (tcp.flags, tcp.ack, options, payload)
             has_terminal_flag = bool(
                 tcp.flags & (module.tcp.TH_FIN | module.tcp.TH_RST)
             )
@@ -984,7 +1100,7 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                     if handshake != session.client_handshake:
                         raise CaptureError(FailureReason.MALFORMED)
                     continue
-                if has_terminal_flag:
+                if tcp.ack or payload or has_terminal_flag:
                     raise CaptureError(FailureReason.MALFORMED)
                 if session is not None and not session.application_started:
                     raise CaptureError(FailureReason.MALFORMED)
@@ -998,7 +1114,11 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                     if handshake != session.server_handshake:
                         raise CaptureError(FailureReason.MALFORMED)
                     continue
-                if has_terminal_flag:
+                if (
+                    tcp.ack != (session.client_initial_sequence + 1) % _SEQUENCE_MODULUS
+                    or payload
+                    or has_terminal_flag
+                ):
                     raise CaptureError(FailureReason.MALFORMED)
                 if session.server_initial_sequence is not None:
                     raise CaptureError(FailureReason.MALFORMED)
@@ -1011,6 +1131,34 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
             ):
                 raise CaptureError(FailureReason.TRUNCATED)
             assert session is not None
+            if syn and not starts_stream:
+                raise CaptureError(FailureReason.MALFORMED)
+            terminal = (sequence, tcp.ack, tcp.flags, options, payload)
+            reset_terminal = (client_side, *terminal)
+            if session.reset_terminal is not None:
+                if reset_terminal == session.reset_terminal:
+                    continue
+                if payload or has_terminal_flag:
+                    raise CaptureError(FailureReason.MALFORMED)
+                continue
+            direction_terminal = (
+                session.client_terminal if client_side else session.server_terminal
+            )
+            if direction_terminal is not None:
+                if terminal == direction_terminal:
+                    continue
+                if payload or has_terminal_flag:
+                    raise CaptureError(FailureReason.MALFORMED)
+                continue
+            if (payload or has_terminal_flag) and not ack:
+                raise CaptureError(FailureReason.MALFORMED)
+            if tcp.flags & module.tcp.TH_RST:
+                session.reset_terminal = reset_terminal
+            elif tcp.flags & module.tcp.TH_FIN:
+                if client_side:
+                    session.client_terminal = terminal
+                else:
+                    session.server_terminal = terminal
             if payload:
                 session.application_started = True
             if starts_stream or payload:
@@ -1038,8 +1186,22 @@ def process_pcap(
     return sanitize_segments(_pcap_segments(capture, active_policy), active_policy)
 
 
+class _ArgumentParseFailure(Exception):
+    pass
+
+
+class _RedactedArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> Never:
+        raise _ArgumentParseFailure
+
+    def exit(self, status: int = 0, message: str | None = None) -> Never:
+        if status:
+            raise _ArgumentParseFailure
+        super().exit(status, message)
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
+    parser = _RedactedArgumentParser(
         description="Create a synthetic fixture from an authorized offline capture."
     )
     parser.add_argument("input", type=Path, help="authorized offline PCAP or PCAPNG")
@@ -1052,7 +1214,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         required=True,
         help="confirm authorization and offline-only handling",
     )
-    return parser.parse_args(argv)
+    try:
+        return parser.parse_args(argv)
+    except _ArgumentParseFailure:
+        pass
+    raise CaptureError(FailureReason.CLI)
 
 
 def _serialize_output(value: object) -> bytes:
@@ -1136,8 +1302,9 @@ def _write_exclusive(path: Path, content: bytes) -> None:
                 raise CaptureError(FailureReason.OUTPUT)
             written += count
         os.fsync(descriptor)
-        os.close(descriptor)
+        closing_descriptor = descriptor
         descriptor = None
+        os.close(closing_descriptor)
         os.link(
             temporary_name,
             path.name,
@@ -1149,8 +1316,10 @@ def _write_exclusive(path: Path, content: bytes) -> None:
         os.unlink(temporary_name, dir_fd=directory_descriptor)
         temporary_name = None
         os.fsync(directory_descriptor)
-        os.close(directory_descriptor)
+        closing_directory_descriptor = directory_descriptor
         directory_descriptor = None
+        with suppress(OSError):
+            os.close(closing_directory_descriptor)
     except FileExistsError:
         failure = FailureReason.OUTPUT_EXISTS
     except CaptureError as error:
@@ -1159,8 +1328,10 @@ def _write_exclusive(path: Path, content: bytes) -> None:
         failure = FailureReason.OUTPUT
 
     if descriptor is not None:
+        closing_descriptor = descriptor
+        descriptor = None
         try:
-            os.close(descriptor)
+            os.close(closing_descriptor)
         except OSError:
             if failure is None:
                 failure = FailureReason.OUTPUT
@@ -1181,8 +1352,10 @@ def _write_exclusive(path: Path, content: bytes) -> None:
             with suppress(OSError):
                 os.fsync(directory_descriptor)
     if directory_descriptor is not None:
+        closing_directory_descriptor = directory_descriptor
+        directory_descriptor = None
         try:
-            os.close(directory_descriptor)
+            os.close(closing_directory_descriptor)
         except OSError:
             if failure is None:
                 failure = FailureReason.OUTPUT
@@ -1191,8 +1364,8 @@ def _write_exclusive(path: Path, content: bytes) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    arguments = _parse_args(argv)
     try:
+        arguments = _parse_args(argv)
         sanitized = process_pcap(arguments.input)
         serialized = _serialize_output(sanitized)
         _write_exclusive(arguments.output, serialized)
