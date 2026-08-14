@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import builtins
+import gc
 import json
 import os
 import socket
+import stat
 import sys
-from collections.abc import Buffer, Callable
+import traceback
+import tracemalloc
+from collections.abc import Buffer, Callable, Mapping, Sequence
 from importlib import util
 from pathlib import Path
 from types import ModuleType
@@ -48,6 +53,8 @@ PROTECTED_CANARIES = {
 class _DecoderModule(Protocol):
     dpkt: ModuleType | None
     CaptureError: type[Exception]
+
+    def compute_crc16(self, data: Buffer) -> int: ...
 
     def process_pcap(self, pcap_path: str | Path) -> dict[str, object]: ...
 
@@ -180,6 +187,34 @@ def test_public_crc_seam_normalizes_bytes_like_inputs(value: Buffer) -> None:
     assert compute_crc16(value) == 0x4B37
 
 
+def test_crc_seam_loads_without_pymodbus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "decode_cloud_frames_without_pymodbus"
+    script_path = Path(decoder_module.__file__)
+    spec = util.spec_from_file_location(module_name, script_path)
+    assert spec is not None and spec.loader is not None
+    loaded = util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, module_name, loaded)
+    original_import = builtins.__import__
+
+    def import_without_pymodbus(
+        name: str,
+        globals: Mapping[str, object] | None = None,
+        locals: Mapping[str, object] | None = None,
+        fromlist: Sequence[str] = (),
+        level: int = 0,
+    ) -> object:
+        if name == "pymodbus" or name.startswith("pymodbus."):
+            raise ImportError("optional dependency unavailable")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", import_without_pymodbus)
+    spec.loader.exec_module(loaded)
+
+    assert cast(_DecoderModule, loaded).compute_crc16(b"123456789") == 0x4B37
+
+
 @pytest.mark.parametrize(
     ("maximum_frame_bytes", "prefix_scan_bytes", "overall_frame_deadline"),
     [(512, 2, 1.0), (4096, 64, 5.0), (65535, 1024, 30.0)],
@@ -209,6 +244,8 @@ def test_parser_policy_accepts_contract_boundaries(
         lambda: ParserPolicy(prefix_scan_bytes=1025),
         lambda: ParserPolicy(overall_frame_deadline=0.9),
         lambda: ParserPolicy(overall_frame_deadline=30.1),
+        lambda: ParserPolicy(overall_frame_deadline=float("nan")),
+        lambda: ParserPolicy(overall_frame_deadline=float("inf")),
         lambda: ParserPolicy(maximum_capture_bytes=0),
         lambda: ParserPolicy(maximum_packet_bytes=0),
         lambda: ParserPolicy(maximum_packets=0),
@@ -353,6 +390,46 @@ def test_stream_decoder_uses_one_non_resetting_deadline() -> None:
         decoder.feed(frame[3:4], captured_at=2.01)
 
     assert caught.value.reason is FailureReason.TIMEOUT
+
+
+def test_capture_timestamps_must_be_finite_and_monotonic() -> None:
+    frame = _cloud_frame(0xC1, b"\x01")
+    invalid_captures = (
+        [CapturedSegment("dongle_to_cloud", 100, value, frame, 0, True)]
+        for value in (float("nan"), float("inf"), float("-inf"))
+    )
+    decreasing = [
+        CapturedSegment("dongle_to_cloud", 100, 2.0, b"", 0, True),
+        CapturedSegment("dongle_to_cloud", 100, 1.0, frame, 0),
+    ]
+
+    for segments in (*invalid_captures, decreasing):
+        with pytest.raises(CaptureError) as caught:
+            sanitize_segments(segments)
+        assert caught.value.reason is FailureReason.MALFORMED
+
+
+def test_reassembly_gap_uses_earliest_fragment_deadline() -> None:
+    frame = _cloud_frame(0xC1, b"\x01")
+    captures = (
+        [
+            CapturedSegment("dongle_to_cloud", 100, 1.0, b"", 0, True),
+            CapturedSegment("dongle_to_cloud", 101, 1.0, frame[1:], 0),
+            CapturedSegment("dongle_to_cloud", 100, 2.01, frame[:1], 0),
+        ],
+        [
+            CapturedSegment("dongle_to_cloud", 100, 1.0, b"", 0, True),
+            CapturedSegment("dongle_to_cloud", 100, 1.0, frame[:3], 0),
+            CapturedSegment("dongle_to_cloud", 104, 1.9, frame[4:], 0),
+            CapturedSegment("dongle_to_cloud", 103, 2.01, frame[3:4], 0),
+        ],
+    )
+
+    for segments in captures:
+        with pytest.raises(CaptureError) as caught:
+            sanitize_segments(segments, ParserPolicy(overall_frame_deadline=1.0))
+
+        assert caught.value.reason is FailureReason.TIMEOUT
 
 
 def test_sanitizer_rejects_bad_crc() -> None:
@@ -539,6 +616,116 @@ def test_pcap_reconnect_on_same_flow_starts_a_new_stream(tmp_path: Path) -> None
     assert [frame["start_register"] for frame in sanitized["frames"]] == [7, 42]
 
 
+def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
+    tmp_path: Path,
+) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    syn = packet_module.tcp.TH_SYN
+    syn_ack = packet_module.tcp.TH_SYN | packet_module.tcp.TH_ACK
+    ack = packet_module.tcp.TH_ACK
+    captures = {
+        "exact-client": [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (1.1, _ethernet_packet(frame[:5], sequence=100, flags=ack)),
+            (1.2, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (1.3, _ethernet_packet(frame[5:], sequence=105, flags=ack)),
+        ],
+        "exact-server": [
+            (2.0, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (
+                2.1,
+                _ethernet_packet(
+                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                ),
+            ),
+            (
+                2.2,
+                _ethernet_packet(
+                    frame[:5], sequence=200, flags=ack, cloud_to_dongle=True
+                ),
+            ),
+            (
+                2.3,
+                _ethernet_packet(
+                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                ),
+            ),
+            (
+                2.4,
+                _ethernet_packet(
+                    frame[5:], sequence=205, flags=ack, cloud_to_dongle=True
+                ),
+            ),
+        ],
+    }
+    for name, packets in captures.items():
+        capture_path = tmp_path / f"{name}.pcap"
+        _write_capture(capture_path, packets)
+        assert process_pcap(capture_path)["frames"]
+
+    conflicting = {
+        "conflicting-client": [
+            (3.0, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (3.1, _ethernet_packet(b"", sequence=199, flags=syn)),
+            (3.2, _ethernet_packet(frame, sequence=200, flags=ack)),
+        ],
+        "conflicting-server": [
+            (4.0, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (
+                4.1,
+                _ethernet_packet(
+                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                ),
+            ),
+            (
+                4.2,
+                _ethernet_packet(
+                    b"", sequence=299, flags=syn_ack, cloud_to_dongle=True
+                ),
+            ),
+        ],
+        "conflicting-client-flags": [
+            (5.0, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (
+                5.1,
+                _ethernet_packet(
+                    b"", sequence=99, flags=syn | packet_module.tcp.TH_FIN
+                ),
+            ),
+            (5.2, _ethernet_packet(frame, sequence=100, flags=ack)),
+        ],
+        "conflicting-server-flags": [
+            (6.0, _ethernet_packet(b"", sequence=99, flags=syn)),
+            (
+                6.1,
+                _ethernet_packet(
+                    b"", sequence=199, flags=syn_ack, cloud_to_dongle=True
+                ),
+            ),
+            (
+                6.2,
+                _ethernet_packet(
+                    b"",
+                    sequence=199,
+                    flags=syn_ack | packet_module.tcp.TH_RST,
+                    cloud_to_dongle=True,
+                ),
+            ),
+            (
+                6.3,
+                _ethernet_packet(frame, sequence=200, flags=ack, cloud_to_dongle=True),
+            ),
+        ],
+    }
+    for name, packets in conflicting.items():
+        capture_path = tmp_path / f"{name}.pcap"
+        _write_capture(capture_path, packets)
+        with pytest.raises(CaptureError) as caught:
+            process_pcap(capture_path)
+        assert caught.value.reason is FailureReason.MALFORMED
+
+
 def test_tcp_reassembler_requires_explicit_stream_origin() -> None:
     reassembler = TCPStreamReassembler()
 
@@ -639,20 +826,26 @@ def test_tcp_reassembler_rejects_every_conflicting_overlap_shape(
 
 def test_reassembly_memory_and_stream_limits_accept_exact_and_reject_one_over() -> None:
     exact_policy = ParserPolicy(
-        maximum_reassembled_bytes_per_flow=4,
-        maximum_aggregate_memory_bytes=4,
+        maximum_packet_bytes=2,
+        maximum_reassembled_bytes_per_flow=5,
+        maximum_aggregate_memory_bytes=5,
     )
     exact = TCPStreamReassembler(exact_policy)
     exact.start(1)
-    assert exact.push(1, b"abcd", captured_at=1.0) == [(1.0, b"abcd")]
-    assert exact.retained_bytes == 4
+    assert exact.push(1, b"abcde", captured_at=1.0) == [(1.0, b"abcde")]
+    assert exact.retained_bytes == 2
 
-    aggregate = TCPStreamReassembler(exact_policy)
+    aggregate_policy = ParserPolicy(
+        maximum_packet_bytes=4,
+        maximum_reassembled_bytes_per_flow=5,
+        maximum_aggregate_memory_bytes=4,
+    )
+    aggregate = TCPStreamReassembler(aggregate_policy)
     aggregate.start(1)
     with pytest.raises(CaptureError) as aggregate_error:
         aggregate.push(1, b"abcde", captured_at=1.0)
     assert aggregate_error.value.reason is FailureReason.CAPACITY
-    assert aggregate.retained_bytes <= exact_policy.maximum_aggregate_memory_bytes
+    assert aggregate.retained_bytes <= aggregate_policy.maximum_aggregate_memory_bytes
 
     stream_policy = ParserPolicy(
         maximum_reassembled_bytes_per_flow=4,
@@ -664,6 +857,29 @@ def test_reassembly_memory_and_stream_limits_accept_exact_and_reject_one_over() 
         stream.push(1, b"abcde", captured_at=1.0)
     assert stream_error.value.reason is FailureReason.CAPACITY
     assert stream.retained_bytes <= stream_policy.maximum_aggregate_memory_bytes
+
+
+def test_reassembly_does_not_eagerly_allocate_per_flow_windows() -> None:
+    policy = ParserPolicy(
+        maximum_pending_bytes_per_flow=1024 * 1024,
+        maximum_aggregate_memory_bytes=64 * 1024,
+    )
+    gc.collect()
+    tracemalloc.start()
+    before, _ = tracemalloc.get_traced_memory()
+    reassemblers = [TCPStreamReassembler(policy) for _ in range(4)]
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+
+    assert all(reassembler.retained_bytes == 0 for reassembler in reassemblers)
+    assert peak - before <= policy.maximum_aggregate_memory_bytes
+
+    bounded = TCPStreamReassembler(policy)
+    bounded.start(0)
+    with pytest.raises(CaptureError) as caught:
+        bounded.push(1, b"x" * 1024, captured_at=1.0)
+    assert caught.value.reason is FailureReason.CAPACITY
+    assert bounded.retained_bytes == 0
 
 
 def test_sanitizer_flow_limit_accepts_exact_and_rejects_one_over() -> None:
@@ -866,6 +1082,95 @@ def test_process_pcap_redacts_read_failures(
     assert str(caught.value) == "capture rejected: input_changed"
 
 
+def test_capture_errors_drop_raw_exception_chains_and_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    packet_module = _dpkt()
+    valid_capture = tmp_path / "valid.pcap"
+    _write_capture(
+        valid_capture,
+        [(1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN))],
+    )
+    caught_errors: list[tuple[CaptureError, str]] = []
+
+    invalid_identity = b"\xffUNICODE!!"
+    with pytest.raises(CaptureError) as unicode_error:
+        sanitize_segments(
+            [
+                CapturedSegment(
+                    "dongle_to_cloud",
+                    100,
+                    1.0,
+                    _cloud_frame(0xC1, b"\x01", identity=invalid_identity),
+                    0,
+                    True,
+                )
+            ]
+        )
+    caught_errors.append((unicode_error.value, "UNICODE!!"))
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            os,
+            "read",
+            lambda descriptor, count: (_ for _ in ()).throw(
+                OSError("FILESYSTEM-CANARY")
+            ),
+        )
+        with pytest.raises(CaptureError) as filesystem_error:
+            process_pcap(valid_capture)
+    caught_errors.append((filesystem_error.value, "FILESYSTEM-CANARY"))
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            decoder_module,
+            "_decode_link_packet",
+            lambda packet, link_type: (_ for _ in ()).throw(
+                ValueError("PACKET-CANARY")
+            ),
+        )
+        with pytest.raises(CaptureError) as packet_error:
+            process_pcap(valid_capture)
+    caught_errors.append((packet_error.value, "PACKET-CANARY"))
+
+    with monkeypatch.context() as scoped:
+        real_close = os.close
+        failed = False
+
+        def failed_close(descriptor: int) -> None:
+            nonlocal failed
+            if not failed:
+                failed = True
+                real_close(descriptor)
+                raise OSError("CLOSE-CANARY")
+            real_close(descriptor)
+
+        scoped.setattr(os, "close", failed_close)
+        with pytest.raises(CaptureError) as close_error:
+            process_pcap(valid_capture)
+    caught_errors.append((close_error.value, "CLOSE-CANARY"))
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(
+            os,
+            "link",
+            lambda source, destination, **kwargs: (_ for _ in ()).throw(
+                OSError("PUBLISH-CANARY")
+            ),
+        )
+        with pytest.raises(CaptureError) as publish_error:
+            decoder_module._write_exclusive(tmp_path / "output.json", b"{}\n")
+    caught_errors.append((publish_error.value, "PUBLISH-CANARY"))
+
+    for error, canary in caught_errors:
+        diagnostics = "".join(traceback.format_exception(error))
+        diagnostics += repr((error, error.args, error.__dict__))
+        assert error.__cause__ is None
+        assert error.__context__ is None
+        assert canary not in diagnostics
+
+
 def test_capture_rejects_unsupported_link_and_malformed_supported_packet(
     tmp_path: Path,
 ) -> None:
@@ -983,61 +1288,14 @@ def test_capture_packet_count_and_size_limits_have_exact_boundaries(
     assert packet_size.value.reason is FailureReason.CAPACITY
 
 
-def test_output_uses_one_exclusive_write_and_removes_short_write(
+def test_output_is_hidden_until_complete_and_handles_partial_writes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
 ) -> None:
     packet_module = _dpkt()
     frame = _cloud_frame(0xC1, b"\x01")
     capture_path = tmp_path / "input.pcap"
     output_path = tmp_path / "output.json"
-    _write_capture(
-        capture_path,
-        [
-            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
-            (
-                1.1,
-                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
-            ),
-        ],
-    )
-    writes = 0
-
-    def short_write(descriptor: int, content: Buffer) -> int:
-        nonlocal writes
-        writes += 1
-        return max(0, len(memoryview(content)) - 1)
-
-    monkeypatch.setattr(os, "write", short_write)
-    assert (
-        main(
-            [
-                str(capture_path),
-                "--output",
-                str(output_path),
-                "--authorized-offline-input",
-            ]
-        )
-        == 2
-    )
-    output = capsys.readouterr()
-
-    assert writes == 1
-    assert not output_path.exists()
-    assert output.out == ""
-    assert output.err == "capture rejected: output\n"
-
-
-def test_output_success_is_one_write_and_existing_target_is_preserved(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    packet_module = _dpkt()
-    capture_path = tmp_path / "input.pcap"
-    output_path = tmp_path / "output.json"
-    frame = _cloud_frame(0xC1, b"\x01")
     _write_capture(
         capture_path,
         [
@@ -1049,14 +1307,83 @@ def test_output_success_is_one_write_and_existing_target_is_preserved(
         ],
     )
     original_write = os.write
-    writes = 0
+    original_fsync = os.fsync
+    target_visible_during_write: list[bool] = []
+    fsync_kinds: list[str] = []
 
-    def counted_write(descriptor: int, content: Buffer) -> int:
-        nonlocal writes
-        writes += 1
-        return original_write(descriptor, content)
+    def short_write(descriptor: int, content: Buffer) -> int:
+        target_visible_during_write.append(output_path.exists())
+        view = memoryview(content)
+        return original_write(descriptor, view[: max(1, len(view) // 2)])
 
-    monkeypatch.setattr(os, "write", counted_write)
+    def tracked_fsync(descriptor: int) -> None:
+        mode = os.fstat(descriptor).st_mode
+        fsync_kinds.append("directory" if stat.S_ISDIR(mode) else "file")
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "write", short_write)
+    monkeypatch.setattr(os, "fsync", tracked_fsync)
+    assert (
+        main(
+            [
+                str(capture_path),
+                "--output",
+                str(output_path),
+                "--authorized-offline-input",
+            ]
+        )
+        == 0
+    )
+
+    assert len(target_visible_during_write) > 1
+    assert not any(target_visible_during_write)
+    assert output_path.exists()
+    assert fsync_kinds == ["file", "directory"]
+
+
+def test_output_publication_is_mode_0600_and_never_replaces_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    packet_module = _dpkt()
+    capture_path = tmp_path / "input.pcap"
+    output_path = tmp_path / "output.json"
+    frame = _cloud_frame(0xC1, b"\x01")
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
+            ),
+        ],
+    )
+    original_link = os.link
+    publications = 0
+    publication_coordinates: list[tuple[str, str, int | None, int | None]] = []
+
+    def counted_link(
+        source: str,
+        destination: str,
+        *,
+        src_dir_fd: int | None = None,
+        dst_dir_fd: int | None = None,
+        follow_symlinks: bool = True,
+    ) -> None:
+        nonlocal publications
+        publications += 1
+        publication_coordinates.append((source, destination, src_dir_fd, dst_dir_fd))
+        original_link(
+            source,
+            destination,
+            src_dir_fd=src_dir_fd,
+            dst_dir_fd=dst_dir_fd,
+            follow_symlinks=follow_symlinks,
+        )
+
+    monkeypatch.setattr(os, "link", counted_link)
     arguments = [
         str(capture_path),
         "--output",
@@ -1064,13 +1391,86 @@ def test_output_success_is_one_write_and_existing_target_is_preserved(
         "--authorized-offline-input",
     ]
     assert main(arguments) == 0
-    assert writes == 1
+    assert publications == 1
+    assert len(publication_coordinates) == 1
+    source, destination, source_directory, destination_directory = (
+        publication_coordinates[0]
+    )
+    assert "/" not in source
+    assert destination == output_path.name
+    assert source_directory is not None
+    assert source_directory == destination_directory
     first_output = output_path.read_bytes()
+    assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
     assert main(arguments) == 2
-    capsys.readouterr()
+    output = capsys.readouterr()
 
     assert output_path.read_bytes() == first_output
     assert set(tmp_path.iterdir()) == {capture_path, output_path}
+    assert output.err == "capture rejected: output_exists\n"
+
+
+def test_output_failures_remove_temporary_and_published_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_fsync = os.fsync
+    original_close = os.close
+
+    for stage in ("write", "file_fsync", "close", "link", "directory_fsync"):
+        destination_dir = tmp_path / stage
+        destination_dir.mkdir()
+        output_path = destination_dir / "output.json"
+        directory_fsync_attempts = 0
+        with monkeypatch.context() as scoped:
+            if stage == "write":
+                scoped.setattr(
+                    os,
+                    "write",
+                    lambda descriptor, content: (_ for _ in ()).throw(
+                        OSError("WRITE-CANARY")
+                    ),
+                )
+            elif stage in ("file_fsync", "directory_fsync"):
+
+                def failed_fsync(descriptor: int, *, expected: str = stage) -> None:
+                    nonlocal directory_fsync_attempts
+                    is_directory = stat.S_ISDIR(os.fstat(descriptor).st_mode)
+                    if is_directory:
+                        directory_fsync_attempts += 1
+                    if is_directory == (expected == "directory_fsync"):
+                        raise OSError("FSYNC-CANARY")
+                    original_fsync(descriptor)
+
+                scoped.setattr(os, "fsync", failed_fsync)
+            elif stage == "close":
+                failed = False
+
+                def failed_close(descriptor: int) -> None:
+                    nonlocal failed
+                    mode = os.fstat(descriptor).st_mode
+                    original_close(descriptor)
+                    if not failed and stat.S_ISREG(mode):
+                        failed = True
+                        raise OSError("CLOSE-CANARY")
+
+                scoped.setattr(os, "close", failed_close)
+            else:
+                scoped.setattr(
+                    os,
+                    "link",
+                    lambda source, destination, **kwargs: (_ for _ in ()).throw(
+                        OSError("LINK-CANARY")
+                    ),
+                )
+
+            with pytest.raises(CaptureError) as caught:
+                decoder_module._write_exclusive(output_path, b"synthetic\n")
+
+        assert caught.value.reason is FailureReason.OUTPUT
+        assert list(destination_dir.iterdir()) == []
+        if stage == "directory_fsync":
+            assert directory_fsync_attempts == 2
 
 
 def test_missing_dpkt_fails_closed_in_process_and_cli(
