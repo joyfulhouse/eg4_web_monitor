@@ -991,11 +991,20 @@ def _decode_link_packet(packet: bytes, link_type: int) -> _IPPacket | None:
     if isinstance(data, module.ip.IP):
         return cast(_IPPacket, data)
     if isinstance(data, module.ip6.IP6):
-        transport_data = cast(_IPPacket, data).data
+        ip_packet = cast(_IPPacket, data)
+        transport_data = ip_packet.data
+        ports: tuple[int, int] | None = None
         if isinstance(transport_data, module.tcp.TCP):
             transport = cast(_TCPPacket, transport_data)
-            if transport.sport == 4346 or transport.dport == 4346:
-                raise CaptureError(FailureReason.IP_VERSION)
+            ports = transport.sport, transport.dport
+        elif ip_packet.p == module.ip.IP_PROTO_TCP and isinstance(
+            transport_data, Buffer
+        ):
+            prefix = memoryview(transport_data)
+            if len(prefix) >= 4:
+                ports = int.from_bytes(prefix[:2]), int.from_bytes(prefix[2:4])
+        if ports is not None and 4346 in ports:
+            raise CaptureError(FailureReason.IP_VERSION)
     return None
 
 

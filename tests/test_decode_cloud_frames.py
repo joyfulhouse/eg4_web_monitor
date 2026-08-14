@@ -28,6 +28,7 @@ from scripts.decode_cloud_frames import (
     TCPStreamReassembler,
     _validate_synthetic_output,
     compute_crc16,
+    find_frames,
     main,
     process_pcap,
     sanitize_segments,
@@ -120,6 +121,33 @@ def _ipv6_ethernet_packet(payload: bytes, *, sequence: int, flags: int) -> bytes
         type=packet_module.ethernet.ETH_TYPE_IP6,
         data=ip,
     )
+    return bytes(ethernet)
+
+
+def _ipv6_extension_ethernet_packet(
+    *,
+    destination_port: int = 4346,
+    extension_count: int = 1,
+    truncate_tcp: bool = False,
+) -> bytes:
+    packet_module = _dpkt()
+    ethernet = packet_module.ethernet.Ethernet(
+        _ipv6_ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)
+    )
+    ip = ethernet.data
+    ip.data.dport = destination_port
+    transport = bytes(ip.data)
+    if truncate_tcp:
+        transport = transport[:4]
+    for index in reversed(range(extension_count)):
+        next_header = (
+            packet_module.ip.IP_PROTO_TCP
+            if index == extension_count - 1
+            else packet_module.ip.IP_PROTO_HOPOPTS
+        )
+        transport = bytes((next_header, 0)) + bytes(6) + transport
+    ip.nxt = packet_module.ip.IP_PROTO_HOPOPTS
+    ip.data = transport
     return bytes(ethernet)
 
 
@@ -284,6 +312,27 @@ def test_stream_decoder_emits_coalesced_frames() -> None:
         heartbeat,
         request,
     ]
+
+
+def test_find_frames_preserves_offsets_and_incomplete_tail() -> None:
+    heartbeat = _cloud_frame(0xC1, b"\x01")
+    request = _c2(_read_request())
+    prefix = b"x"
+    data = prefix + heartbeat + request + heartbeat[:5]
+
+    assert find_frames(data) == [
+        (len(prefix), heartbeat),
+        (len(prefix) + len(heartbeat), request),
+    ]
+
+
+def test_find_frames_preserves_strict_failure_contract() -> None:
+    frame = _cloud_frame(0xC1, b"\x01")
+
+    with pytest.raises(CaptureError) as caught:
+        find_frames(b"x" * 65 + frame)
+
+    assert caught.value.reason is FailureReason.PREFIX
 
 
 def test_tcp_reassembler_deduplicates_and_orders_segments() -> None:
@@ -1446,6 +1495,36 @@ def test_capture_rejects_ipv6_target_traffic_explicitly(tmp_path: Path) -> None:
         process_pcap(capture_path)
 
     assert caught.value.reason is FailureReason.IP_VERSION
+
+
+def test_capture_classifies_ipv6_extension_header_traffic(tmp_path: Path) -> None:
+    cases = (
+        ("target", _ipv6_extension_ethernet_packet(), FailureReason.IP_VERSION),
+        (
+            "raw-target",
+            _ipv6_extension_ethernet_packet(truncate_tcp=True),
+            FailureReason.IP_VERSION,
+        ),
+        (
+            "long-target",
+            _ipv6_extension_ethernet_packet(extension_count=32),
+            FailureReason.IP_VERSION,
+        ),
+        (
+            "non-target",
+            _ipv6_extension_ethernet_packet(destination_port=4347),
+            FailureReason.EMPTY,
+        ),
+    )
+    observed: list[FailureReason] = []
+    for name, packet, _expected in cases:
+        capture_path = tmp_path / f"ipv6-extension-{name}.pcap"
+        _write_capture(capture_path, [(1.0, packet)])
+        with pytest.raises(CaptureError) as caught:
+            process_pcap(capture_path)
+        observed.append(caught.value.reason)
+
+    assert observed == [expected for _name, _packet, expected in cases]
 
 
 def test_capture_rejects_midstream_payload_without_handshake(tmp_path: Path) -> None:
