@@ -564,12 +564,6 @@ def _sanitize_frame(
     }
 
 
-def _new_direction(policy: ParserPolicy, budget: _MemoryBudget) -> _DirectionState:
-    return _DirectionState(
-        TCPStreamReassembler(policy, budget), StreamFrameDecoder(policy, budget)
-    )
-
-
 def sanitize_segments(
     segments: Iterable[CapturedSegment], policy: ParserPolicy | None = None
 ) -> dict[str, Any]:
@@ -592,7 +586,10 @@ def sanitize_segments(
             sessions[segment.stream_id] = session
         state = session.directions.get(segment.direction)
         if state is None:
-            state = _new_direction(active_policy, budget)
+            state = _DirectionState(
+                TCPStreamReassembler(active_policy, budget),
+                StreamFrameDecoder(active_policy, budget),
+            )
             session.directions[segment.direction] = state
         if segment.starts_stream:
             state.reassembler.start(segment.sequence)
@@ -786,7 +783,6 @@ def _decode_link_packet(packet: bytes, link_type: int) -> _IPPacket | None:
 @dataclass(slots=True)
 class _ObservedSession:
     stream_id: int
-    client_started: bool = True
     server_started: bool = False
 
 
@@ -853,8 +849,6 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                 starts_stream = True
                 sequence = (sequence + 1) % _SEQUENCE_MODULUS
             elif session is None:
-                raise CaptureError(FailureReason.TRUNCATED)
-            elif client_side and not session.client_started:
                 raise CaptureError(FailureReason.TRUNCATED)
             elif not client_side and not session.server_started:
                 raise CaptureError(FailureReason.TRUNCATED)
