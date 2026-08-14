@@ -501,3 +501,10 @@ The PR merge check exposed that the operational-default rule treated explicitly 
 `SYNTHETIC_*` and `DOCUMENTATION_*` constants as live defaults. Narrowed that rule to keep
 those safe fixtures while continuing to reject ordinary script identity defaults; the
 digest-backed repository scan remains authoritative for audited deployment values.
+
+## [2026-08-14] lint | Maintainer gateway returned to scrub scope
+
+Corrected the vendor-infrastructure boundary: the deployment's UDM gateway is maintainer
+infrastructure, not a generic example. Removed its shell default and documentation literals,
+restored its dotted and integer digests, and extended the operational-default regression
+check to quoted IP assignments in shell scripts.

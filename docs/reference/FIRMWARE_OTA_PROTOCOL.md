@@ -45,10 +45,10 @@ gateway. Captures are performed via SSH to the UDM running tcpdump.
 
 ```bash
 # SSH to UDM and start capture (no timeout, no port filter)
-ssh root@172.16.0.1 "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
+ssh root@<gateway-ip> "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
 
 # Download when complete
-scp root@172.16.0.1:/tmp/capture.pcap .
+scp root@<gateway-ip>:/tmp/capture.pcap .
 ```
 
 Key flags:

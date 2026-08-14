@@ -66,6 +66,10 @@ INTEGER_TOKEN_PATTERN = re.compile(r"(?<![\w.])[0-9]{8,10}(?![\w.])")
 MAC_PATTERN = re.compile(
     r"(?i)(?<![0-9a-f])(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}(?![0-9a-f])"
 )
+SHELL_ASSIGNMENT_PATTERN = re.compile(
+    r"(?m)^[ \t]*(?:export[ \t]+)?(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+    r"[ \t]*=[ \t]*(?P<value>\"[^\"\n]*\"|'[^'\n]*')[ \t]*(?:#.*)?$"
+)
 HOSTNAME_PATTERN = re.compile(r"(?i)(?<![\w.-])(?:[a-z0-9-]+\.)+[a-z]{2,}(?![\w.-])")
 PLANT_IDENTIFIER_CONTEXT_PATTERN = re.compile(
     r"(?i)plant[_ ]?id[^\n0-9]{0,20}(?P<identifier>[0-9]+)"
@@ -85,6 +89,8 @@ LOCATION_ADDRESS_PATTERN = re.compile(
 LOCATION_COORDINATE_PATTERN = re.compile(
     r"(?<![\w.])(?P<coordinate>-?[0-9]{1,3}\.[0-9]{4,8})(?![\w.])"
 )
+# These digest deny-lists are regression guards for known scrubbed values. A
+# context-based synthetic/example allow-list is a separate enhancement.
 AUDITED_PRIVATE_IPV4_DIGESTS = frozenset(
     {
         "439b4a00083e633e5777ebf9b72d1f17b2863a6e0b4808e08aadfd202ac7064e",
@@ -93,10 +99,12 @@ AUDITED_PRIVATE_IPV4_DIGESTS = frozenset(
         "7eaec80bc86ebffdd27e3b783714279190b826f0669f8e2bdb59026193c71939",
         "a58ccf7228e2d085851c88e0fbb959a3591245533a4faf103e5902fcf84d9d60",
         "d13975c9b6ed279369067b4753fe0b9d64e94452413001f72d5b3e6c41124309",
+        "f9863b6fa829fa6e80ffce0a30779b91c9affd96c0ee47f303c2c000b84a7b24",
     }
 )
 AUDITED_PRIVATE_IPV4_INTEGER_DIGESTS = frozenset(
     {
+        "089785c9736b8dfaf2c71a8feda02bfc8bd1a6a6eec84d05895857b4e7c253ef",
         "22b54bd6279733e32d8c54598f41024fa0622ccf0aacdb947d61894e461b2695",
         "292f1800c99e23c1eee0ab7c7f20728929b351df559e33e7f2e70a966a5e93d1",
         "4bf1623f0cff64bc89fb8cc7831edaa108d5d5b5568ce66515e598af2a8fe8d9",
@@ -109,6 +117,7 @@ AUDITED_PRIVATE_IPV4_INTEGER_DIGESTS = frozenset(
         "9270bb10e790cf84ed07f6b721651324003db1163c1019469e1b9f4d21e42618",
         "ba38c9ab6106d8850587504bab1829ea6d6edb875eaab536a12bfa6e94873775",
         "c1e4594b035720a6b76823e387a15aff7abf962818871842bd08d8aab7f4a00d",
+        "ca09c812ed3b18ada44fc5ac34ea6cea8a48b6e57e7a9fee4d793463830dc0bb",
     }
 )
 # Generic EG4 vendor hosts are intentionally out of scope; only deployment-specific
@@ -316,12 +325,27 @@ def _identity_name(name: str) -> bool:
 
 def _has_operational_identity_default(path: str, content: str) -> bool:
     is_script = path.startswith("scripts/") and path.endswith(".py")
+    is_shell_script = path.startswith("scripts/") and path.endswith(".sh")
     is_config_flow = (
         path.startswith("custom_components/")
         and "/_config_flow/" in path
         and path.endswith(".py")
     )
-    if not is_script and not is_config_flow:
+    if not is_script and not is_shell_script and not is_config_flow:
+        return False
+    if is_shell_script:
+        for match in SHELL_ASSIGNMENT_PATTERN.finditer(content):
+            name = match.group("name")
+            value = match.group("value")[1:-1]
+            if not _identity_name(name) or name.startswith(
+                ("SYNTHETIC_", "DOCUMENTATION_")
+            ):
+                continue
+            try:
+                ipaddress.ip_address(value)
+            except ValueError:
+                continue
+            return True
         return False
     try:
         tree = ast.parse(content)
@@ -486,7 +510,6 @@ def test_private_ip_guard_allows_generic_rfc1918_examples() -> None:
             f"generic fixture: {ipaddress.IPv4Address(167772202)}",
             f"private range base: {ipaddress.IPv4Address(2886729728)}/12",
             f"unrelated private fixture: {ipaddress.IPv4Address(174391041)}",
-            "generic gateway: 172.16.0.1",
         )
     )
 
@@ -504,6 +527,26 @@ def test_private_ip_guard_detects_audited_identifier_by_digest(
     )
 
     assert _has_unapproved_dotted_token("docs/example.md", synthetic_address)
+
+
+def test_private_ip_guard_detects_gateway_from_vector() -> None:
+    gateway = _load_audit_vectors()["private_ipv4"][-1]
+
+    assert _has_unapproved_dotted_token("docs/example.md", gateway)
+
+
+def test_repository_guard_detects_staged_gateway_mutation_from_vector(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gateway = _load_audit_vectors()["private_ipv4"][-1]
+    subprocess.run(("git", "init", "-q"), cwd=tmp_path, check=True)
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "mutation.md").write_text(f"gateway={gateway}\n")
+    subprocess.run(("git", "add", "docs/mutation.md"), cwd=tmp_path, check=True)
+    monkeypatch.setattr(sys.modules[__name__], "REPOSITORY_ROOT", tmp_path)
+
+    assert ("docs/mutation.md", "private-or-malformed-ipv4") in _scan_repository()
 
 
 def test_private_ip_guard_detects_bare_integer_in_both_byte_orders(
@@ -701,3 +744,12 @@ def test_script_identity_defaults_allow_explicit_safe_fixtures() -> None:
     assert _has_operational_identity_default(
         "scripts/example.py", 'DONGLE_SERIAL = "runtime-default"\n'
     )
+
+
+def test_shell_operational_identity_default_detects_gateway_from_vector() -> None:
+    gateway = _load_audit_vectors()["private_ipv4"][-1]
+
+    assert _has_operational_identity_default(
+        "scripts/example.sh", f'UDM_HOST="{gateway}"\n'
+    )
+    assert not _has_operational_identity_default("scripts/example.sh", 'UDM_HOST=""\n')

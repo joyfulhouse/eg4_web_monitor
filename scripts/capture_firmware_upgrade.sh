@@ -4,7 +4,7 @@
 # This captures EVERYTHING — no port filter — because firmware OTA may use
 # different ports/servers than the normal cloud protocol (port 4346).
 #
-# Runs tcpdump on the UDM gateway (172.16.0.1) via SSH, since dongles are on
+# Runs tcpdump on a configured UDM gateway via SSH, since dongles are on
 # a separate VLAN and their traffic is only visible from the gateway.
 #
 # Usage:
@@ -12,7 +12,7 @@
 #
 # Workflow:
 #   1. Run with --verify first to confirm everything works
-#   2. Run with the target flag (and gateway override if needed) to start capture
+#   2. Run with the required gateway and target flags to start capture
 #   3. Trigger firmware upgrade via EG4 app/portal
 #   4. Wait for upgrade to complete
 #   5. Press Ctrl+C to stop capture
@@ -22,7 +22,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-UDM_HOST="172.16.0.1"
+UDM_HOST=""
 UDM_USER="root"
 
 # --- Parse arguments ---
