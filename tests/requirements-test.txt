@@ -5,6 +5,7 @@ pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
 pytest-homeassistant-custom-component>=0.13.206
+dpkt>=1.9.8  # offline-only PCAP sanitizer tests (#576)
 
 # Home Assistant core for testing
 homeassistant>=2025.6.0

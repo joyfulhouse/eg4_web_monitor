@@ -1,536 +1,564 @@
 #!/usr/bin/env python3
-"""Decode EG4 cloud protocol frames from a pcap capture.
+"""Create synthetic protocol fixtures from an authorized offline PCAP.
 
-Reads a pcap file containing TCP traffic between a WiFi dongle and
-us2.solarcloudsystem.com:4346, decodes all 0xA1/0x1A frames, and
-produces a human-readable analysis.
+The tool never opens a socket and never emits captured identities, addresses,
+payloads, timestamps, or register values. TCP segments are reassembled before
+frames are parsed; only then is a minimal synthetic representation produced.
 
 Usage:
-    python scripts/decode_cloud_frames.py scratchpad/firmware/dongle_capture.pcap
+    python scripts/decode_cloud_frames.py INPUT.pcap --output sanitized.json \
+        --authorized-offline-input
 
-Requires: dpkt (pip install dpkt)
-
-The script reconstructs TCP streams and identifies:
-- 0xC1 heartbeat frames (timing, format)
-- 0xC2 data frames (register groups, values)
-- 0xC3 GET_PARAM commands (register ranges)
-- 0xC4 SET_PARAM commands (register writes)
-- Server→dongle responses (any direction)
+The output path must not already exist. Optional PCAP support requires ``dpkt``.
+Core stream, parser, and sanitizer tests do not require that package.
 """
 
 from __future__ import annotations
 
+import argparse
+import json
 import sys
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
+from typing import Any, Final
 
 try:
     import dpkt
-except ImportError:
-    print("ERROR: dpkt is required. Install with: uv pip install dpkt")
-    sys.exit(1)
+except ImportError:  # pragma: no cover - exercised by the CLI environment
+    dpkt = None  # type: ignore[assignment]
 
 
-# Cloud protocol constants
-FRAME_MAGIC = bytes([0xA1, 0x1A])
-FUNC_NAMES = {
-    0xC1: "HEARTBEAT",
-    0xC2: "DATA_TX",
-    0xC3: "GET_PARAM",
-    0xC4: "SET_PARAM",
-}
-MODBUS_FUNC_NAMES = {
-    0x03: "READ_HOLDING",
-    0x04: "READ_INPUT",
-    0x06: "WRITE_SINGLE",
-    0x10: "WRITE_MULTI",
-}
+FRAME_MAGIC: Final = b"\xa1\x1a"
+SYNTHETIC_DONGLE_IDENTITY: Final = "SYNTHDG001"
+SYNTHETIC_INVERTER_IDENTITY: Final = "SYNTHIV001"
+DOCUMENTATION_DONGLE_ADDRESS: Final = "192.0.2.10"
+DOCUMENTATION_CLOUD_ADDRESS: Final = "198.51.100.20"
+SYNTHETIC_REGISTER_WORD: Final = "SYNTHETIC_A55A"
+MAX_SANITIZED_RECORDS: Final = 1024
+
+
+class FailureReason(StrEnum):
+    """Bounded, redacted parser failure classifications."""
+
+    CAPACITY = "capacity"
+    CRC = "crc"
+    FUNCTION = "function"
+    IDENTITY = "identity"
+    MALFORMED = "malformed"
+    OVERSIZE = "oversize"
+    PREFIX = "prefix"
+    RANGE = "range"
+    TIMEOUT = "timeout"
+    TRUNCATED = "truncated"
+
+
+class CaptureError(RuntimeError):
+    """A fail-closed capture error whose message cannot contain capture data."""
+
+    def __init__(self, reason: FailureReason) -> None:
+        self.reason = reason
+        super().__init__(f"capture rejected: {reason.value}")
+
+
+@dataclass(frozen=True, slots=True)
+class ParserPolicy:
+    """Internal parser bounds from the Phase A contract."""
+
+    maximum_frame_bytes: int = 4096
+    prefix_scan_bytes: int = 64
+    overall_frame_deadline: float = 5.0
+
+    def __post_init__(self) -> None:
+        bounds: tuple[tuple[int | float, int | float, int | float], ...] = (
+            (self.maximum_frame_bytes, 512, 65535),
+            (self.prefix_scan_bytes, 2, 1024),
+            (self.overall_frame_deadline, 1.0, 30.0),
+        )
+        if any(
+            value < minimum or value > maximum for value, minimum, maximum in bounds
+        ):
+            raise ValueError("parser policy value outside the internal contract")
+
+    @property
+    def reassembly_capacity(self) -> int:
+        """Bound pending reassembly under the parser memory budget."""
+        return 16 * 1024
+
+
+class StreamFrameDecoder:
+    """Bounded incremental decoder for complete cloud protocol frames."""
+
+    def __init__(self, policy: ParserPolicy | None = None) -> None:
+        self.policy = policy or ParserPolicy()
+        self._buffer = bytearray()
+        self._prefix_scanned = 0
+        self._started_at: float | None = None
+
+    @property
+    def buffered_bytes(self) -> int:
+        """Return retained bytes for resource-bound assertions."""
+        return len(self._buffer)
+
+    def feed(self, data: bytes, *, captured_at: float) -> list[bytes]:
+        """Consume one ordered stream chunk and return every complete frame."""
+        self._check_deadline(captured_at)
+        if data and self._started_at is None:
+            self._started_at = captured_at
+
+        decoded: list[bytes] = []
+        remaining = memoryview(data)
+        storage_limit = self.policy.maximum_frame_bytes + self.policy.prefix_scan_bytes
+
+        while remaining:
+            room = storage_limit - len(self._buffer)
+            if room <= 0:
+                before = len(self._buffer)
+                decoded.extend(self._extract_available(captured_at))
+                if len(self._buffer) >= before:
+                    raise CaptureError(FailureReason.CAPACITY)
+                continue
+
+            take = min(room, len(remaining))
+            self._buffer.extend(remaining[:take])
+            remaining = remaining[take:]
+            decoded.extend(self._extract_available(captured_at))
+
+        decoded.extend(self._extract_available(captured_at))
+        return decoded
+
+    def close(self, *, captured_at: float) -> None:
+        """Finalize at EOF, rejecting any partial prefix, header, or body."""
+        self._check_deadline(captured_at)
+        self._extract_available(captured_at)
+        if self._buffer or self._prefix_scanned:
+            self._discard()
+            raise CaptureError(FailureReason.TRUNCATED)
+
+    def _check_deadline(self, captured_at: float) -> None:
+        if (
+            self._started_at is not None
+            and captured_at - self._started_at > self.policy.overall_frame_deadline
+        ):
+            self._discard()
+            raise CaptureError(FailureReason.TIMEOUT)
+
+    def _extract_available(self, captured_at: float) -> list[bytes]:
+        frames: list[bytes] = []
+        while self._buffer:
+            magic_index = self._buffer.find(FRAME_MAGIC)
+            if magic_index < 0:
+                retained = 1 if self._buffer[-1:] == FRAME_MAGIC[:1] else 0
+                discarded = len(self._buffer) - retained
+                self._prefix_scanned += discarded
+                if self._prefix_scanned > self.policy.prefix_scan_bytes:
+                    self._discard()
+                    raise CaptureError(FailureReason.PREFIX)
+                if discarded:
+                    del self._buffer[:discarded]
+                break
+
+            if magic_index:
+                self._prefix_scanned += magic_index
+                if self._prefix_scanned > self.policy.prefix_scan_bytes:
+                    self._discard()
+                    raise CaptureError(FailureReason.PREFIX)
+                del self._buffer[:magic_index]
+
+            if len(self._buffer) < 6:
+                break
+
+            total_size = 6 + int.from_bytes(self._buffer[4:6], "little")
+            if total_size > self.policy.maximum_frame_bytes:
+                self._discard()
+                raise CaptureError(FailureReason.OVERSIZE)
+            if total_size < 19:
+                self._discard()
+                raise CaptureError(FailureReason.MALFORMED)
+            if len(self._buffer) < total_size:
+                break
+
+            frames.append(bytes(self._buffer[:total_size]))
+            del self._buffer[:total_size]
+            self._prefix_scanned = 0
+            self._started_at = captured_at if self._buffer else None
+
+        return frames
+
+    def _discard(self) -> None:
+        self._buffer.clear()
+        self._prefix_scanned = 0
+        self._started_at = None
+
+
+@dataclass(frozen=True, slots=True)
+class _PendingSegment:
+    captured_at: float
+    payload: bytes
+
+
+class TCPStreamReassembler:
+    """Sequence-aware, duplicate-safe bounded TCP payload reassembler."""
+
+    def __init__(self, policy: ParserPolicy | None = None) -> None:
+        self.policy = policy or ParserPolicy()
+        self._next_sequence: int | None = None
+        self._pending: dict[int, _PendingSegment] = {}
+        self._pending_bytes = 0
+
+    def push(
+        self, sequence: int, payload: bytes, *, captured_at: float
+    ) -> list[tuple[float, bytes]]:
+        """Add a TCP segment and return newly contiguous stream chunks."""
+        if not payload:
+            return []
+        if sequence < 0:
+            raise CaptureError(FailureReason.MALFORMED)
+        if self._next_sequence is None:
+            self._next_sequence = sequence
+
+        assert self._next_sequence is not None
+        segment_end = sequence + len(payload)
+        if segment_end <= self._next_sequence:
+            return []
+        if sequence < self._next_sequence:
+            payload = payload[self._next_sequence - sequence :]
+            sequence = self._next_sequence
+
+        if sequence > self._next_sequence:
+            existing = self._pending.get(sequence)
+            if existing is not None:
+                if existing.payload != payload:
+                    raise CaptureError(FailureReason.MALFORMED)
+                return []
+            if self._pending_bytes + len(payload) > self.policy.reassembly_capacity:
+                raise CaptureError(FailureReason.CAPACITY)
+            self._pending[sequence] = _PendingSegment(captured_at, payload)
+            self._pending_bytes += len(payload)
+            return []
+
+        chunks = [(captured_at, payload)]
+        self._next_sequence += len(payload)
+        chunks.extend(self._drain_pending(available_at=captured_at))
+        return chunks
+
+    def _drain_pending(self, *, available_at: float) -> list[tuple[float, bytes]]:
+        chunks: list[tuple[float, bytes]] = []
+        assert self._next_sequence is not None
+        while self._pending:
+            sequence = min(self._pending)
+            segment = self._pending[sequence]
+            segment_end = sequence + len(segment.payload)
+            if sequence > self._next_sequence:
+                break
+            del self._pending[sequence]
+            self._pending_bytes -= len(segment.payload)
+            if segment_end <= self._next_sequence:
+                continue
+            overlap = self._next_sequence - sequence
+            payload = segment.payload[overlap:]
+            chunks.append((max(available_at, segment.captured_at), payload))
+            self._next_sequence += len(payload)
+        return chunks
+
+    def close(self) -> None:
+        """Reject a stream ending with an unresolved sequence gap."""
+        if self._pending:
+            self._pending.clear()
+            self._pending_bytes = 0
+            raise CaptureError(FailureReason.TRUNCATED)
+
+
+@dataclass(frozen=True, slots=True)
+class CapturedSegment:
+    """One offline TCP payload with only in-memory capture metadata."""
+
+    direction: str
+    sequence: int
+    captured_at: float
+    payload: bytes
+    stream_id: int = 0
+
+
+@dataclass(slots=True)
+class _DirectionState:
+    reassembler: TCPStreamReassembler
+    decoder: StreamFrameDecoder
+    source_identity: bytes | None = None
 
 
 def compute_crc16(data: bytes) -> int:
-    """CRC-16/Modbus."""
+    """Return CRC-16/Modbus for an inner frame."""
     crc = 0xFFFF
     for byte in data:
         crc ^= byte
         for _ in range(8):
-            if crc & 1:
-                crc = (crc >> 1) ^ 0xA001
-            else:
-                crc >>= 1
+            crc = (crc >> 1) ^ 0xA001 if crc & 1 else crc >> 1
     return crc & 0xFFFF
 
 
-@dataclass
-class DecodedFrame:
-    """A decoded cloud protocol frame."""
-
-    timestamp: float
-    direction: str  # "dongle→cloud" or "cloud→dongle"
-    func: int
-    func_name: str
-    serial: str
-    payload: bytes
-    raw_size: int
-    details: str = ""
-
-
-@dataclass
-class StreamState:
-    """TCP stream reassembly state."""
-
-    buffer: bytearray = field(default_factory=bytearray)
-
-
 def find_frames(data: bytes) -> list[tuple[int, bytes]]:
-    """Find all 0xA1 0x1A frames in a byte buffer.
-
-    Returns list of (offset, frame_bytes) tuples.
-    """
-    frames = []
-    i = 0
-    while i < len(data) - 6:
-        if data[i] == 0xA1 and data[i + 1] == 0x1A:
-            # Read frame length
-            frame_len = int.from_bytes(data[i + 4 : i + 6], "little")
-            total = 6 + frame_len
-            if i + total <= len(data):
-                frames.append((i, data[i : i + total]))
-                i += total
-                continue
-        i += 1
-    return frames
+    """Compatibility helper using the same bounded streaming decoder."""
+    decoder = StreamFrameDecoder()
+    frames = decoder.feed(data, captured_at=0.0)
+    result: list[tuple[int, bytes]] = []
+    offset = 0
+    for frame in frames:
+        offset = data.find(frame, offset)
+        result.append((offset, frame))
+        offset += len(frame)
+    return result
 
 
-def decode_frame(
-    frame_bytes: bytes, timestamp: float, direction: str
-) -> DecodedFrame | None:
-    """Decode a single cloud protocol frame.
-
-    Cloud TCP frames do NOT have trailing CRC-16. The frame format is:
-    [A1 1A][ver 2B][frame_len 2B LE][addr][func][serial 10B][payload...]
-    Total size = 6 + frame_length = 18 + payload_len
-    """
-    if len(frame_bytes) < 19:  # Minimum: 18 preamble + 1 payload (heartbeat)
-        return None
-
-    func = frame_bytes[7]
-    serial = frame_bytes[8:18].decode("ascii", errors="replace").rstrip("\x00")
-
-    # No CRC on TCP cloud frames (confirmed via firmware decompilation).
-    # CRC-16/Modbus is only used on RS485 Modbus RTU frames within 0xC2 payloads.
-    payload = frame_bytes[18:]
-
-    details_parts: list[str] = []
-    func_name = FUNC_NAMES.get(func, f"UNKNOWN(0x{func:02X})")
-
-    # Decode payload based on function
-    if func == 0xC1:
-        if payload:
-            details_parts.append(f"status=0x{payload[0]:02X}")
-    elif func == 0xC2 and len(payload) >= 2:
-        # 0xC2 payload structure (from firmware decompilation + pcap validation):
-        # [0:2] = modbus_data_length (uint16 LE)
-        # [2:]  = extended Modbus frame (NOT standard Modbus RTU)
-        #
-        # Extended Modbus format (shared by requests and responses):
-        # [0]=slave_addr [1]=func_code [2:12]=inverter_serial (10 ASCII bytes)
-        # [12:14]=start_register (uint16 LE)
-        #
-        # REQUEST (18 bytes total, modbus_len=18):
-        #   For READ (0x03/0x04): [14:16]=register_count (uint16 LE)
-        #   For WRITE_SINGLE (0x06): [14:16]=value (uint16 BE)
-        #   [16:18]=CRC-16/Modbus
-        #
-        # RESPONSE (variable, modbus_len=271 for full block):
-        #   For READ: [14]=byte_count [15:15+byte_count]=register_data [last 2]=CRC
-        #   For WRITE_SINGLE: [14:16]=value (uint16 BE) [16:18]=CRC (echo of request)
-        #   For EXCEPTION (0x83): [14]=exception_code [15:17]=CRC
-        modbus_len = int.from_bytes(payload[0:2], "little")
-        details_parts.append(f"modbus_len={modbus_len}")
-
-        modbus_data = payload[2:]
-        if len(modbus_data) >= 15:
-            slave = modbus_data[0]
-            modbus_func = modbus_data[1]
-            inv_serial = (
-                modbus_data[2:12].decode("ascii", errors="replace").rstrip("\x00")
-            )
-            start_reg = int.from_bytes(modbus_data[12:14], "little")
-            is_request = modbus_len == 18
-
-            if modbus_func == 0x83:
-                # Exception response: [14]=exception_code
-                exception_code = modbus_data[14]
-                details_parts.append(
-                    f"slave={slave} inv={inv_serial} EXCEPTION"
-                    f" reg={start_reg} code={exception_code}"
-                )
-                # CRC check on exception frame
-                if len(modbus_data) >= 17:
-                    crc_data = modbus_data[:15]
-                    crc_actual = int.from_bytes(modbus_data[15:17], "little")
-                    crc_expected = compute_crc16(crc_data)
-                    details_parts.append(
-                        "CRC OK"
-                        if crc_actual == crc_expected
-                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
-                    )
-
-            elif modbus_func == 0x06:
-                # WRITE_SINGLE: [14:16]=value (little-endian, like all extended Modbus fields)
-                value = int.from_bytes(modbus_data[14:16], "little")
-                details_parts.append(
-                    f"slave={slave} inv={inv_serial} WRITE_SINGLE"
-                    f" reg={start_reg} value={value} (0x{value:04X})"
-                )
-                if len(modbus_data) >= 18:
-                    crc_data = modbus_data[:16]
-                    crc_actual = int.from_bytes(modbus_data[16:18], "little")
-                    crc_expected = compute_crc16(crc_data)
-                    details_parts.append(
-                        "CRC OK"
-                        if crc_actual == crc_expected
-                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
-                    )
-
-            elif is_request and modbus_func in (0x03, 0x04):
-                # READ request: [14:16]=register_count (uint16 LE)
-                reg_count = int.from_bytes(modbus_data[14:16], "little")
-                end_reg = start_reg + reg_count - 1
-                func_name_inner = MODBUS_FUNC_NAMES.get(
-                    modbus_func, f"0x{modbus_func:02X}"
-                )
-                details_parts.append(
-                    f"slave={slave} inv={inv_serial} {func_name_inner}"
-                    f" READ regs {start_reg}-{end_reg} ({reg_count} regs)"
-                )
-                if len(modbus_data) >= 18:
-                    crc_data = modbus_data[:16]
-                    crc_actual = int.from_bytes(modbus_data[16:18], "little")
-                    crc_expected = compute_crc16(crc_data)
-                    details_parts.append(
-                        "CRC OK"
-                        if crc_actual == crc_expected
-                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
-                    )
-
-            else:
-                # READ response: [14]=byte_count [15:]=register_data
-                byte_count = modbus_data[14]
-                data_start = 15
-                data_end = 15 + byte_count
-                reg_count = byte_count // 2
-                end_reg = start_reg + reg_count - 1
-                func_name_inner = MODBUS_FUNC_NAMES.get(
-                    modbus_func, f"0x{modbus_func:02X}"
-                )
-                details_parts.append(
-                    f"slave={slave} inv={inv_serial} {func_name_inner}"
-                    f" regs {start_reg}-{end_reg} ({reg_count} regs)"
-                )
-
-                # Verify Modbus CRC within extended response
-                if len(modbus_data) >= data_end + 2:
-                    crc_data = modbus_data[:data_end]
-                    crc_actual = int.from_bytes(
-                        modbus_data[data_end : data_end + 2], "little"
-                    )
-                    crc_expected = compute_crc16(crc_data)
-                    details_parts.append(
-                        "CRC OK"
-                        if crc_actual == crc_expected
-                        else f"BAD CRC (0x{crc_actual:04X} vs 0x{crc_expected:04X})"
-                    )
-
-                # Extract a few sample register values (little-endian in extended Modbus)
-                if len(modbus_data) >= data_start + 10:
-                    sample_values = []
-                    for j in range(0, min(byte_count, 10), 2):
-                        val = int.from_bytes(
-                            modbus_data[data_start + j : data_start + j + 2], "little"
-                        )
-                        sample_values.append(str(val))
-                    details_parts.append(f"first_regs=[{', '.join(sample_values)}]")
-        elif len(modbus_data) > 0:
-            details_parts.append(f"raw={modbus_data.hex()}")
-    elif func == 0xC3 and len(payload) >= 4:
-        start = int.from_bytes(payload[0:2], "little")
-        end = int.from_bytes(payload[2:4], "little")
-        details_parts.append(f"GET regs {start}-{end} ({end - start + 1} regs)")
-    elif func == 0xC4 and len(payload) >= 4:
-        param_code = int.from_bytes(payload[0:2], "little")
-        data_len = int.from_bytes(payload[2:4], "little")
-        details_parts.append(f"SET param_code={param_code} data_len={data_len}")
-        if len(payload) > 4:
-            hex_data = payload[4:].hex()
-            details_parts.append(f"data={hex_data}")
-
-    return DecodedFrame(
-        timestamp=timestamp,
-        direction=direction,
-        func=func,
-        func_name=func_name,
-        serial=serial,
-        payload=payload,
-        raw_size=len(frame_bytes),
-        details=", ".join(details_parts),
-    )
-
-
-def _decode_modbus_rtu(payload: bytes) -> list[str]:
-    """Decode standard Modbus RTU response (unused — kept for reference).
-
-    Note: EG4 inverters use EXTENDED Modbus (with 10-byte serial), not standard RTU.
-    The main decode_frame() function handles the extended format directly.
-    """
-    parts = []
-    if len(payload) < 3:
-        return ["(truncated Modbus RTU)"]
-
-    slave_addr = payload[0]
-    modbus_func = payload[1]
-    func_name = MODBUS_FUNC_NAMES.get(modbus_func, f"0x{modbus_func:02X}")
-    parts.append(f"slave={slave_addr} func={func_name}")
-
-    if modbus_func in (0x03, 0x04):
-        byte_count = payload[2]
-        reg_count = byte_count // 2
-        parts.append(f"byte_count={byte_count} ({reg_count} regs)")
-
-        # Decode register values (big-endian per Modbus convention)
-        if len(payload) >= 3 + byte_count:
-            values = []
-            for j in range(0, byte_count, 2):
-                val = int.from_bytes(payload[3 + j : 3 + j + 2], "big")
-                values.append(val)
-            # Show first 5 and last 2 values for brevity
-            if len(values) > 7:
-                shown = (
-                    [str(v) for v in values[:5]]
-                    + ["..."]
-                    + [str(v) for v in values[-2:]]
-                )
-            else:
-                shown = [str(v) for v in values]
-            parts.append(f"values=[{', '.join(shown)}]")
-
-        # Verify Modbus CRC
-        if len(payload) >= 3 + byte_count + 2:
-            modbus_data = payload[: 3 + byte_count]
-            modbus_crc = int.from_bytes(
-                payload[3 + byte_count : 3 + byte_count + 2], "little"
-            )
-            expected_crc = compute_crc16(modbus_data)
-            if modbus_crc != expected_crc:
-                parts.append(
-                    f"BAD MODBUS CRC (0x{modbus_crc:04X} vs 0x{expected_crc:04X})"
-                )
-    else:
-        parts.append(f"payload={payload[2:].hex()}")
-
-    return parts
-
-
-def _extract_ip_from_buf(buf: bytes, link_type: int) -> dpkt.ip.IP | None:
-    """Extract IP packet from a raw pcap buffer, handling different link types.
-
-    Link types:
-    - 1 (EN10MB): Standard Ethernet
-    - 113 (LINUX_SLL): Linux cooked capture (tcpdump -i any)
-    - 276 (LINUX_SLL2): Linux cooked capture v2
-    """
+def _validated_identity(raw: bytes) -> bytes:
+    if len(raw) != 10:
+        raise CaptureError(FailureReason.IDENTITY)
     try:
-        if link_type == 1:  # Ethernet
-            eth = dpkt.ethernet.Ethernet(buf)
-            if isinstance(eth.data, dpkt.ip.IP):
-                return eth.data
-        elif link_type == 113:  # Linux cooked capture (SLL)
-            # SLL header: 16 bytes [pkt_type(2) arphrd(2) ll_addr_len(2) ll_addr(8) proto(2)]
-            if len(buf) < 16:
-                return None
-            proto = int.from_bytes(buf[14:16], "big")
-            if proto == 0x0800:  # IPv4
-                return dpkt.ip.IP(buf[16:])
-        elif link_type == 276:  # Linux cooked capture v2 (SLL2)
-            # SLL2 header: 20 bytes [proto(2) reserved(2) iface_idx(4) arphrd(2) pkt_type(1) ll_addr_len(1) ll_addr(8)]
-            if len(buf) < 20:
-                return None
-            proto = int.from_bytes(buf[0:2], "big")
-            if proto == 0x0800:  # IPv4
-                return dpkt.ip.IP(buf[20:])
-        else:
-            # Unknown link type — try Ethernet as fallback
-            eth = dpkt.ethernet.Ethernet(buf)
-            if isinstance(eth.data, dpkt.ip.IP):
-                return eth.data
+        text = raw.decode("ascii")
+    except UnicodeDecodeError as error:
+        raise CaptureError(FailureReason.IDENTITY) from error
+    if not all(character.isalnum() for character in text):
+        raise CaptureError(FailureReason.IDENTITY)
+    return raw
+
+
+def _validate_crc(frame: bytes) -> None:
+    if len(frame) < 3:
+        raise CaptureError(FailureReason.MALFORMED)
+    actual = int.from_bytes(frame[-2:], "little")
+    if actual != compute_crc16(frame[:-2]):
+        raise CaptureError(FailureReason.CRC)
+
+
+def _sanitize_frame(
+    frame: bytes, direction: str, state: _DirectionState
+) -> dict[str, Any]:
+    if len(frame) < 19 or 6 + int.from_bytes(frame[4:6], "little") != len(frame):
+        raise CaptureError(FailureReason.MALFORMED)
+
+    outer_identity = _validated_identity(frame[8:18])
+    if state.source_identity is None:
+        state.source_identity = outer_identity
+    elif state.source_identity != outer_identity:
+        raise CaptureError(FailureReason.IDENTITY)
+
+    function = frame[7]
+    payload = frame[18:]
+    base: dict[str, Any] = {
+        "direction": direction,
+        "identity": SYNTHETIC_DONGLE_IDENTITY,
+    }
+    if function == 0xC1:
+        if not payload:
+            raise CaptureError(FailureReason.MALFORMED)
+        return base | {"function": "heartbeat", "payload": "SYNTHETIC_STATUS"}
+    if function != 0xC2:
+        raise CaptureError(FailureReason.FUNCTION)
+    if len(payload) < 2:
+        raise CaptureError(FailureReason.MALFORMED)
+
+    inner_size = int.from_bytes(payload[:2], "little")
+    inner = payload[2:]
+    if inner_size != len(inner) or len(inner) < 17:
+        raise CaptureError(FailureReason.MALFORMED)
+    inner_function = inner[1]
+    if inner_function not in (0x03, 0x04):
+        raise CaptureError(FailureReason.FUNCTION)
+    if inner[0] != frame[6]:
+        raise CaptureError(FailureReason.IDENTITY)
+    _validated_identity(inner[2:12])
+    start_register = int.from_bytes(inner[12:14], "little")
+
+    if len(inner) == 18:
+        register_count = int.from_bytes(inner[14:16], "little")
+        if register_count < 1 or start_register + register_count > 65536:
+            raise CaptureError(FailureReason.RANGE)
+        _validate_crc(inner)
+        return base | {
+            "function": "data_read_request",
+            "inner_identity": SYNTHETIC_INVERTER_IDENTITY,
+            "inner_function": _inner_function_name(inner_function),
+            "start_register": start_register,
+            "register_count": register_count,
+            "register_words": [],
+        }
+
+    byte_count = inner[14]
+    if byte_count < 2 or byte_count % 2 or len(inner) != 15 + byte_count + 2:
+        raise CaptureError(FailureReason.RANGE)
+    register_count = byte_count // 2
+    if start_register + register_count > 65536:
+        raise CaptureError(FailureReason.RANGE)
+    _validate_crc(inner)
+    return base | {
+        "function": "data_read_response",
+        "inner_identity": SYNTHETIC_INVERTER_IDENTITY,
+        "inner_function": _inner_function_name(inner_function),
+        "start_register": start_register,
+        "register_count": register_count,
+        "register_words": [SYNTHETIC_REGISTER_WORD],
+    }
+
+
+def _inner_function_name(function: int) -> str:
+    return "read_holding" if function == 0x03 else "read_input"
+
+
+def sanitize_segments(
+    segments: Iterable[CapturedSegment], policy: ParserPolicy | None = None
+) -> dict[str, Any]:
+    """Reassemble, parse, and sanitize authorized offline TCP payloads."""
+    active_policy = policy or ParserPolicy()
+    states: dict[tuple[int, str], _DirectionState] = {}
+    records: list[dict[str, Any]] = []
+    record_keys: set[str] = set()
+    last_timestamp: dict[tuple[int, str], float] = {}
+
+    for segment in segments:
+        if segment.direction not in ("dongle_to_cloud", "cloud_to_dongle"):
+            raise CaptureError(FailureReason.MALFORMED)
+        state_key = (segment.stream_id, segment.direction)
+        state = states.setdefault(
+            state_key,
+            _DirectionState(
+                TCPStreamReassembler(active_policy), StreamFrameDecoder(active_policy)
+            ),
+        )
+        last_timestamp[state_key] = segment.captured_at
+        for captured_at, chunk in state.reassembler.push(
+            segment.sequence, segment.payload, captured_at=segment.captured_at
+        ):
+            for frame in state.decoder.feed(chunk, captured_at=captured_at):
+                record = _sanitize_frame(frame, segment.direction, state)
+                record_key = json.dumps(record, sort_keys=True, separators=(",", ":"))
+                if record_key in record_keys:
+                    continue
+                if len(records) >= MAX_SANITIZED_RECORDS:
+                    raise CaptureError(FailureReason.CAPACITY)
+                record_keys.add(record_key)
+                records.append(record)
+
+    for state_key, state in states.items():
+        state.reassembler.close()
+        state.decoder.close(captured_at=last_timestamp[state_key])
+
+    return {
+        "schema_version": 1,
+        "capture": {
+            "source": "authorized_offline_input",
+            "dongle_address": DOCUMENTATION_DONGLE_ADDRESS,
+            "cloud_address": DOCUMENTATION_CLOUD_ADDRESS,
+        },
+        "frames": records,
+    }
+
+
+def _extract_ip_from_buf(buf: bytes, link_type: int) -> Any | None:
+    """Extract IPv4 data from supported offline PCAP link layers."""
+    if dpkt is None:
+        raise RuntimeError("optional PCAP dependency unavailable")
+    try:
+        if link_type == 1:
+            ethernet = dpkt.ethernet.Ethernet(buf)
+            return ethernet.data if isinstance(ethernet.data, dpkt.ip.IP) else None
+        if link_type == 113 and len(buf) >= 16:
+            return dpkt.ip.IP(buf[16:]) if buf[14:16] == b"\x08\x00" else None
+        if link_type == 276 and len(buf) >= 20:
+            return dpkt.ip.IP(buf[20:]) if buf[:2] == b"\x08\x00" else None
     except (dpkt.dpkt.NeedData, dpkt.dpkt.UnpackError):
-        pass
+        return None
     return None
 
 
-def process_pcap(pcap_path: str) -> list[DecodedFrame]:
-    """Process a pcap file and extract all cloud protocol frames."""
-    frames: list[DecodedFrame] = []
-    seen: set[tuple[float, str, int]] = set()  # Dedup (timestamp, direction, size)
-
-    f = open(pcap_path, "rb")  # noqa: SIM115 — kept open for lazy pcap iteration
+def _pcap_segments(pcap_path: Path) -> Iterable[CapturedSegment]:
+    if dpkt is None:
+        raise RuntimeError("optional PCAP dependency unavailable")
     try:
-        try:
-            pcap = dpkt.pcap.Reader(f)
-        except ValueError:
-            f.seek(0)
-            pcap = dpkt.pcapng.Reader(f)
-
-        link_type = pcap.datalink()
-        cloud_port = 4346
-
-        for timestamp, buf in pcap:
-            ip = _extract_ip_from_buf(buf, link_type)
-            if ip is None:
-                continue
-
-            if not isinstance(ip.data, dpkt.tcp.TCP):
-                continue
-            tcp = ip.data
-
-            if not tcp.data:
-                continue
-
-            # Determine direction
-            if tcp.dport == cloud_port:
-                direction = "dongle->cloud"
-            elif tcp.sport == cloud_port:
-                direction = "cloud->dongle"
-            else:
-                continue
-
-            # Dedup: -i any captures each packet twice (ingress + egress).
-            # Use direction + TCP seq + payload length. The NAT changes IP src
-            # between ingress/egress, so we can't use IP addresses.
-            seg_key = (direction, tcp.seq, len(tcp.data))
-            if seg_key in seen:
-                continue
-            seen.add(seg_key)
-
-            # Find frames in TCP payload
-            for _offset, frame_bytes in find_frames(tcp.data):
-                decoded = decode_frame(frame_bytes, timestamp, direction)
-                if decoded:
-                    frames.append(decoded)
-    finally:
-        f.close()
-
-    return frames
-
-
-def print_analysis(frames: list[DecodedFrame]) -> None:
-    """Print a human-readable analysis of decoded frames."""
-    if not frames:
-        print("No frames found in capture.")
-        return
-
-    print(f"\n{'=' * 80}")
-    print("EG4 Cloud Protocol Traffic Analysis")
-    print(f"{'=' * 80}")
-    print(f"Total frames: {len(frames)}")
-
-    # Count by direction and type
-    dongle_frames = [f for f in frames if f.direction == "dongle->cloud"]
-    cloud_frames = [f for f in frames if f.direction == "cloud->dongle"]
-    print(f"Dongle → Cloud: {len(dongle_frames)}")
-    print(f"Cloud → Dongle: {len(cloud_frames)}")
-
-    # Count by function
-    func_counts: dict[str, int] = {}
-    for f in frames:
-        func_counts[f.func_name] = func_counts.get(f.func_name, 0) + 1
-    print("\nFrame types:")
-    for name, count in sorted(func_counts.items()):
-        print(f"  {name}: {count}")
-
-    # Serials seen
-    serials = {f.serial for f in frames}
-    print(f"\nDongle serials: {', '.join(sorted(serials))}")
-
-    # Heartbeat timing
-    heartbeats = [
-        f for f in frames if f.func == 0xC1 and f.direction == "dongle->cloud"
-    ]
-    if len(heartbeats) >= 2:
-        intervals = []
-        for i in range(1, len(heartbeats)):
-            intervals.append(heartbeats[i].timestamp - heartbeats[i - 1].timestamp)
-        avg_interval = sum(intervals) / len(intervals)
-        print("\nHeartbeat timing:")
-        print(f"  Count: {len(heartbeats)}")
-        print(f"  Avg interval: {avg_interval:.1f}s")
-        print(f"  Min interval: {min(intervals):.1f}s")
-        print(f"  Max interval: {max(intervals):.1f}s")
-
-    # Data frame timing
-    data_frames = [
-        f for f in frames if f.func == 0xC2 and f.direction == "dongle->cloud"
-    ]
-    if len(data_frames) >= 2:
-        # Group by poll cycle (frames within 5s of each other = same cycle)
-        cycles: list[list[DecodedFrame]] = []
-        current_cycle: list[DecodedFrame] = [data_frames[0]]
-        for i in range(1, len(data_frames)):
-            if data_frames[i].timestamp - data_frames[i - 1].timestamp < 5.0:
-                current_cycle.append(data_frames[i])
-            else:
-                cycles.append(current_cycle)
-                current_cycle = [data_frames[i]]
-        cycles.append(current_cycle)
-
-        print(f"\nData transmission cycles: {len(cycles)}")
-        print(f"  Frames per cycle: {[len(c) for c in cycles]}")
-        if len(cycles) >= 2:
-            cycle_intervals = []
-            for i in range(1, len(cycles)):
-                cycle_intervals.append(
-                    cycles[i][0].timestamp - cycles[i - 1][0].timestamp
+        with pcap_path.open("rb") as capture_file:
+            try:
+                reader = dpkt.pcap.Reader(capture_file)
+            except ValueError:
+                capture_file.seek(0)
+                reader = dpkt.pcapng.Reader(capture_file)
+            link_type = reader.datalink()
+            stream_ids: dict[tuple[bytes, int, bytes, int], int] = {}
+            next_stream_id = 0
+            for timestamp, packet_buffer in reader:
+                ip_packet = _extract_ip_from_buf(packet_buffer, link_type)
+                if ip_packet is None or not isinstance(ip_packet.data, dpkt.tcp.TCP):
+                    continue
+                tcp = ip_packet.data
+                if tcp.dport == 4346:
+                    direction = "dongle_to_cloud"
+                elif tcp.sport == 4346:
+                    direction = "cloud_to_dongle"
+                else:
+                    continue
+                flow_key = (ip_packet.src, tcp.sport, ip_packet.dst, tcp.dport)
+                if tcp.flags & dpkt.tcp.TH_SYN or flow_key not in stream_ids:
+                    stream_ids[flow_key] = next_stream_id
+                    next_stream_id += 1
+                if not tcp.data:
+                    continue
+                yield CapturedSegment(
+                    direction,
+                    tcp.seq,
+                    float(timestamp),
+                    bytes(tcp.data),
+                    stream_ids[flow_key],
                 )
-            avg_cycle = sum(cycle_intervals) / len(cycle_intervals)
-            print(f"  Avg cycle interval: {avg_cycle:.1f}s")
-
-    # Detailed frame log
-    print(f"\n{'=' * 80}")
-    print("Detailed Frame Log")
-    print(f"{'=' * 80}")
-
-    t0 = frames[0].timestamp if frames else 0
-    for f in frames:
-        ts = f.timestamp - t0
-        dt = datetime.fromtimestamp(f.timestamp, tz=timezone.utc).strftime(
-            "%H:%M:%S.%f"
-        )[:-3]
-        print(
-            f"[{ts:8.3f}s] [{dt}] {f.direction:15s} "
-            f"{f.func_name:12s} serial={f.serial} "
-            f"size={f.raw_size:4d}  {f.details}"
-        )
+    except (OSError, ValueError, dpkt.dpkt.Error) as error:
+        raise CaptureError(FailureReason.MALFORMED) from error
 
 
-def main() -> None:
-    if len(sys.argv) < 2:
-        print(f"Usage: {sys.argv[0]} <pcap_file>")
-        print("\nCapture traffic first:")
-        print(
-            "  sudo tcpdump -i any host us2.solarcloudsystem.com and port 4346 -w capture.pcap"
-        )
-        sys.exit(1)
+def process_pcap(
+    pcap_path: str | Path, policy: ParserPolicy | None = None
+) -> dict[str, Any]:
+    """Sanitize one authorized capture without retaining raw capture data."""
+    return sanitize_segments(_pcap_segments(Path(pcap_path)), policy)
 
-    pcap_path = sys.argv[1]
-    if not Path(pcap_path).exists():
-        print(f"ERROR: File not found: {pcap_path}")
-        sys.exit(1)
 
-    print(f"Reading: {pcap_path}")
-    frames = process_pcap(pcap_path)
-    print_analysis(frames)
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Create a synthetic fixture from an authorized offline capture."
+    )
+    parser.add_argument("input", type=Path, help="authorized offline PCAP or PCAPNG")
+    parser.add_argument(
+        "--output", required=True, type=Path, help="new JSON output path"
+    )
+    parser.add_argument(
+        "--authorized-offline-input",
+        action="store_true",
+        required=True,
+        help="confirm authorization and offline-only handling",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the offline-only sanitizer with redacted status output."""
+    arguments = _parse_args(argv)
+    try:
+        sanitized = process_pcap(arguments.input)
+        with arguments.output.open("x", encoding="utf-8") as output_file:
+            json.dump(sanitized, output_file, indent=2)
+            output_file.write("\n")
+    except FileExistsError:
+        print("capture rejected: output_exists", file=sys.stderr)
+        return 2
+    except (CaptureError, OSError, RuntimeError) as error:
+        if isinstance(error, CaptureError):
+            message = str(error)
+        elif isinstance(error, RuntimeError):
+            message = "capture rejected: dependency"
+        else:
+            message = "capture rejected: input"
+        print(message, file=sys.stderr)
+        return 2
+    print(f"synthetic fixture written: {len(sanitized['frames'])} frame classes")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

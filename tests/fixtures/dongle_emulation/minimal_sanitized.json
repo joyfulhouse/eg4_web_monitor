@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "capture": {
+    "source": "authorized_offline_input",
+    "dongle_address": "192.0.2.10",
+    "cloud_address": "198.51.100.20"
+  },
+  "frames": [
+    {
+      "direction": "dongle_to_cloud",
+      "function": "heartbeat",
+      "identity": "SYNTHDG001",
+      "payload": "SYNTHETIC_STATUS"
+    },
+    {
+      "direction": "dongle_to_cloud",
+      "function": "data_read_response",
+      "identity": "SYNTHDG001",
+      "inner_identity": "SYNTHIV001",
+      "inner_function": "read_input",
+      "start_register": 7,
+      "register_count": 2,
+      "register_words": [
+        "SYNTHETIC_A55A"
+      ]
+    }
+  ]
+}
