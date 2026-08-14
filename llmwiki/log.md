@@ -455,3 +455,24 @@ Replaced deployment-specific identifiers in the affected integration and hardwar
 with stable synthetic identities. The repository guard now derives its text frame from
 Git-tracked files and reports only path and category, so future findings cannot disclose
 the matched value. Issue `eg4-jhto` and draft PR #575 own the remediation record.
+
+## [2026-08-13] ingest | Dongle emulation limited to direct local transports
+
+The owner clarified that emulation is available only when a qualifying direct local
+transport exists: derived `local` and `hybrid` entries may qualify, while cloud-only,
+legacy-unmigrated, empty-local and `wifi_dongle`-only entries do not. Updated
+[`40-hardware/dongle-emulation.md`](40-hardware/dongle-emulation.md) with mechanical
+configuration/setup checks and HYBRID anti-loopback rules covering second polling, cloud
+echo re-ingestion, parsed-value reserialization, duplicate identity and listener feedback.
+
+Port-8000 emulation is now permanently out of scope rather than a deferred phase. C12 remains
+an unresolved fact about physical-dongle listener capacity, but is no longer a product gate
+for this emulator. Planning item 1 and PR #577's offline-sanitizer scope are unchanged.
+
+## [2026-08-14] lint | Identifier guard narrowed to audited deployment values
+
+Corrected PR #575's overbroad private-address rule: generic RFC1918 examples and the
+network-scan fallback are operational fixtures, not deployment identities. The guard now
+matches the audited private addresses by integer encoding and the audited plant/cloud
+identifiers by digest, with mutation checks proving both the false-positive boundary and
+continued detection.

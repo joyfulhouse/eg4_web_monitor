@@ -3,7 +3,7 @@ canonical-for:
   - "Catalog of every llmwiki page and the facts it owns"
 sources:
   - llmwiki/*/*.md front matter (canonical-for declarations)
-verified-against: 9798ccc
+verified-against: 8ccc734
 last-verified: 2026-08-13
 see-also:
   - README.md
@@ -81,7 +81,7 @@ defect.
 | [`registers.md`](40-hardware/registers.md) | **The register keeper.** Per-row evidence grades for every inverter and GridBOSS register. Authoritative for any register question | Inverter and GridBOSS register ground truth |
 | [`gridboss.md`](40-hardware/gridboss.md) | GridBOSS specifics, including the smart-port mode register | GridBOSS POWER_HUB UART map |
 | [`firmware-re.md`](40-hardware/firmware-re.md) | Firmware acquisition/decoding methodology, invalid-artifact boundaries, and ESP32 WLAN local-listener analysis | Acquisition, decoding and register-RE methodology; ESP32 WLAN listener behaviour and patch lineage |
-| [`dongle-emulation.md`](40-hardware/dongle-emulation.md) | Phased contract for replacing a physical WLAN dongle with a Home Assistant-hosted emulator | Dongle-emulation product boundary; single-owner arbitration and snapshots; security, rollout, rollback and success criteria |
+| [`dongle-emulation.md`](40-hardware/dongle-emulation.md) | Local-transport-only phased contract for replacing a physical WLAN dongle; every eligible mode is single-path and HYBRID adds cloud-echo controls; no port-8000 listener | Dongle-emulation product boundary; single-owner arbitration and snapshots; mode eligibility and anti-loopback; security, rollout, rollback and success criteria |
 | [`probing-playbook.md`](40-hardware/probing-playbook.md) | The safe procedure for dumping and verifying registers on live hardware. **Runbook — read before touching a device** | Safe register dumping and live verification |
 | [`open-questions.md`](40-hardware/open-questions.md) | What evidence would resolve each open hardware question | Evidence needed to resolve open hardware and firmware questions |
 
