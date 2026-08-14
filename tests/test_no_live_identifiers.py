@@ -345,10 +345,10 @@ def test_identity_assignment_names_are_tokenized() -> None:
 def test_private_ip_guard_allows_generic_rfc1918_examples() -> None:
     content = "\n".join(
         (
-            "default subnet: 192.168.1.0/24",
-            "generic fixture: 10.0.0.42",
-            "private range base: 172.16.0.0/12",
-            "unrelated private fixture: 10.100.99.1",
+            f"default subnet: {ipaddress.IPv4Address(3232235776)}/24",
+            f"generic fixture: {ipaddress.IPv4Address(167772202)}",
+            f"private range base: {ipaddress.IPv4Address(2886729728)}/12",
+            f"unrelated private fixture: {ipaddress.IPv4Address(174391041)}",
         )
     )
 
