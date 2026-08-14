@@ -13,6 +13,7 @@ import secrets
 import stat
 import sys
 from collections.abc import Buffer, Iterable, Iterator
+from contextlib import suppress
 from dataclasses import dataclass, field
 from enum import StrEnum
 from importlib import import_module
@@ -125,6 +126,14 @@ _ATOMIC_DIR_FD_SUPPORTED: Final = all(
 )
 _DONGLE_ALIAS = re.compile(r"SYNTHDG[0-9]{3}\Z")
 _INVERTER_ALIAS = re.compile(r"SYNTHIV[0-9]{3}\Z")
+
+
+def _is_finite_number(value: object) -> bool:
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+    )
 
 
 def compute_crc16(data: Buffer) -> int:
@@ -251,12 +260,8 @@ class StreamFrameDecoder:
         normalized = bytes(data)
         observation = captured_at if observed_at is None else observed_at
         if (
-            isinstance(captured_at, bool)
-            or not isinstance(captured_at, (int, float))
-            or not math.isfinite(captured_at)
-            or isinstance(observation, bool)
-            or not isinstance(observation, (int, float))
-            or not math.isfinite(observation)
+            not _is_finite_number(captured_at)
+            or not _is_finite_number(observation)
             or captured_at > observation
         ):
             raise CaptureError(FailureReason.MALFORMED)
@@ -300,14 +305,8 @@ class StreamFrameDecoder:
             raise CaptureError(FailureReason.TIMEOUT)
 
     def _validate_timestamp(self, captured_at: float) -> None:
-        if (
-            isinstance(captured_at, bool)
-            or not isinstance(captured_at, (int, float))
-            or not math.isfinite(captured_at)
-            or (
-                self._last_captured_at is not None
-                and captured_at < self._last_captured_at
-            )
+        if not _is_finite_number(captured_at) or (
+            self._last_captured_at is not None and captured_at < self._last_captured_at
         ):
             raise CaptureError(FailureReason.MALFORMED)
         self._last_captured_at = captured_at
@@ -515,14 +514,8 @@ class TCPStreamReassembler:
             raise CaptureError(FailureReason.TRUNCATED)
 
     def _validate_timestamp(self, captured_at: float) -> None:
-        if (
-            isinstance(captured_at, bool)
-            or not isinstance(captured_at, (int, float))
-            or not math.isfinite(captured_at)
-            or (
-                self._last_captured_at is not None
-                and captured_at < self._last_captured_at
-            )
+        if not _is_finite_number(captured_at) or (
+            self._last_captured_at is not None and captured_at < self._last_captured_at
         ):
             raise CaptureError(FailureReason.MALFORMED)
         self._last_captured_at = captured_at
@@ -688,14 +681,8 @@ def sanitize_segments(
     last_timestamp: dict[tuple[int, str], float] = {}
     capture_timestamp: float | None = None
     for segment in segments:
-        if (
-            isinstance(segment.captured_at, bool)
-            or not isinstance(segment.captured_at, (int, float))
-            or not math.isfinite(segment.captured_at)
-            or (
-                capture_timestamp is not None
-                and segment.captured_at < capture_timestamp
-            )
+        if not _is_finite_number(segment.captured_at) or (
+            capture_timestamp is not None and segment.captured_at < capture_timestamp
         ):
             raise CaptureError(FailureReason.MALFORMED)
         capture_timestamp = segment.captured_at
@@ -846,10 +833,8 @@ def _stat_signature(file_stat: os.stat_result) -> tuple[int, int, int, int, int,
 def _read_stable_capture(path: Path, policy: ParserPolicy) -> bytes:
     flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
     descriptor: int | None = None
-    try:
+    with suppress(OSError):
         descriptor = os.open(path, flags)
-    except OSError:
-        pass
     if descriptor is None:
         raise CaptureError(FailureReason.INPUT_KIND)
     failure: FailureReason | None = None
@@ -907,10 +892,8 @@ def _decode_link_packet(packet: bytes, link_type: int) -> _IPPacket | None:
     if factory is None:
         raise CaptureError(FailureReason.UNSUPPORTED_LINK)
     link_packet: _LinkPacket | None = None
-    try:
+    with suppress(Exception):
         link_packet = factory(packet)
-    except Exception:
-        pass
     if link_packet is None:
         raise CaptureError(FailureReason.MALFORMED)
     data = link_packet.data
@@ -1023,9 +1006,9 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                 session.server_handshake = handshake
                 starts_stream = True
                 sequence = (sequence + 1) % _SEQUENCE_MODULUS
-            elif session is None:
-                raise CaptureError(FailureReason.TRUNCATED)
-            elif not client_side and session.server_initial_sequence is None:
+            elif session is None or (
+                not client_side and session.server_initial_sequence is None
+            ):
                 raise CaptureError(FailureReason.TRUNCATED)
             assert session is not None
             if payload:
@@ -1100,6 +1083,21 @@ def _open_temporary(directory_descriptor: int) -> tuple[int, str]:
     raise CaptureError(FailureReason.CAPACITY)
 
 
+def _unlink_if_same(
+    directory_descriptor: int,
+    name: str,
+    identity: tuple[int, int],
+) -> None:
+    with suppress(OSError):
+        current = os.stat(
+            name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if (current.st_dev, current.st_ino) == identity:
+            os.unlink(name, dir_fd=directory_descriptor)
+
+
 def _write_exclusive(path: Path, content: bytes) -> None:
     descriptor: int | None = None
     directory_descriptor: int | None = None
@@ -1172,36 +1170,16 @@ def _write_exclusive(path: Path, content: bytes) -> None:
             and temporary_identity is not None
             and directory_descriptor is not None
         ):
-            try:
-                current = os.stat(
-                    path.name,
-                    dir_fd=directory_descriptor,
-                    follow_symlinks=False,
-                )
-                if (current.st_dev, current.st_ino) == temporary_identity:
-                    os.unlink(path.name, dir_fd=directory_descriptor)
-            except OSError:
-                pass
+            _unlink_if_same(directory_descriptor, path.name, temporary_identity)
         if (
             temporary_name is not None
             and temporary_identity is not None
             and directory_descriptor is not None
         ):
-            try:
-                current = os.stat(
-                    temporary_name,
-                    dir_fd=directory_descriptor,
-                    follow_symlinks=False,
-                )
-                if (current.st_dev, current.st_ino) == temporary_identity:
-                    os.unlink(temporary_name, dir_fd=directory_descriptor)
-            except OSError:
-                pass
+            _unlink_if_same(directory_descriptor, temporary_name, temporary_identity)
         if directory_descriptor is not None:
-            try:
+            with suppress(OSError):
                 os.fsync(directory_descriptor)
-            except OSError:
-                pass
     if directory_descriptor is not None:
         try:
             os.close(directory_descriptor)
