@@ -127,6 +127,11 @@ def _is_finite_number(value: object) -> bool:
     )
 
 
+def _sequence_advances(sequence: int, boundary: int) -> bool:
+    delta = (sequence - boundary) % _SEQUENCE_MODULUS
+    return 0 < delta < _SEQUENCE_HALF
+
+
 def compute_crc16(data: Buffer) -> int:
     """Return the Modbus CRC in the byte order used by captured frames."""
     crc = 0xFFFF
@@ -816,22 +821,48 @@ def _validate_synthetic_output(value: object) -> None:
 
 
 def _read_capture(path: Path, policy: ParserPolicy) -> bytes:
-    file_stat: os.stat_result | None = None
+    path_stat: os.stat_result | None = None
     try:
-        file_stat = path.stat()
+        path_stat = path.lstat()
     except OSError:
         pass
-    if file_stat is None:
+    if path_stat is None or stat.S_ISLNK(path_stat.st_mode):
         raise CaptureError(FailureReason.INPUT_KIND)
-    if not stat.S_ISREG(file_stat.st_mode):
+    descriptor: int | None = None
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
+    try:
+        descriptor = os.open(path, flags)
+    except OSError:
+        pass
+    if descriptor is None:
         raise CaptureError(FailureReason.INPUT_KIND)
-    if file_stat.st_size > policy.maximum_capture_bytes:
-        raise CaptureError(FailureReason.INPUT_SIZE)
+    failure: FailureReason | None = None
     capture: bytes | None = None
     try:
-        capture = path.read_bytes()
+        file_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(file_stat.st_mode):
+            failure = FailureReason.INPUT_KIND
+        elif file_stat.st_size > policy.maximum_capture_bytes:
+            failure = FailureReason.INPUT_SIZE
+        else:
+            chunks: list[bytes] = []
+            remaining = policy.maximum_capture_bytes + 1
+            while remaining:
+                chunk = os.read(descriptor, min(64 * 1024, remaining))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            capture = b"".join(chunks)
     except OSError:
-        pass
+        failure = FailureReason.INPUT_CHANGED
+    try:
+        os.close(descriptor)
+    except OSError:
+        if failure is None:
+            failure = FailureReason.INPUT_CHANGED
+    if failure is not None:
+        raise CaptureError(failure)
     if capture is None:
         raise CaptureError(FailureReason.INPUT_CHANGED)
     if len(capture) > policy.maximum_capture_bytes:
@@ -979,7 +1010,9 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                 else session.server_terminal_sequence
             )
             if terminal_sequence is not None:
-                raise CaptureError(FailureReason.MALFORMED)
+                if payload or _sequence_advances(sequence, terminal_sequence):
+                    raise CaptureError(FailureReason.MALFORMED)
+                continue
             if fin and rst:
                 raise CaptureError(FailureReason.MALFORMED)
             if rst:
@@ -1047,8 +1080,11 @@ def _serialize_output(value: object) -> bytes:
 
 def _write_exclusive(path: Path, content: bytes) -> None:
     failure: FailureReason | None = None
+    created = False
     try:
-        with path.open("xb") as output:
+        output = path.open("xb")
+        created = True
+        with output:
             if output.write(content) != len(content):
                 raise CaptureError(FailureReason.OUTPUT)
     except FileExistsError:
@@ -1058,6 +1094,9 @@ def _write_exclusive(path: Path, content: bytes) -> None:
     except OSError:
         failure = FailureReason.OUTPUT
     if failure is not None:
+        if created:
+            with suppress(OSError):
+                path.unlink()
         raise CaptureError(failure)
 
 

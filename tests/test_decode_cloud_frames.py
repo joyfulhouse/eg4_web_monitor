@@ -726,6 +726,160 @@ def test_pcap_fin_consumes_sequence_and_terminates_direction(tmp_path: Path) -> 
     assert process_pcap(capture_path)["frames"]
 
 
+def test_pcap_accepts_orderly_four_way_close_final_ack(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    client_terminal = 100 + len(frame) + 1
+    capture_path = tmp_path / "orderly-close.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(
+                    b"",
+                    sequence=199,
+                    flags=packet_module.tcp.TH_SYN | packet_module.tcp.TH_ACK,
+                    cloud_to_dongle=True,
+                ),
+            ),
+            (
+                1.2,
+                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
+            ),
+            (
+                1.3,
+                _ethernet_packet(
+                    b"",
+                    sequence=100 + len(frame),
+                    flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_FIN,
+                ),
+            ),
+            (
+                1.4,
+                _ethernet_packet(
+                    b"",
+                    sequence=200,
+                    flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_FIN,
+                    cloud_to_dongle=True,
+                ),
+            ),
+            (
+                1.5,
+                _ethernet_packet(
+                    b"",
+                    sequence=client_terminal,
+                    flags=packet_module.tcp.TH_ACK,
+                ),
+            ),
+        ],
+    )
+
+    assert process_pcap(capture_path)["frames"]
+
+
+@pytest.mark.parametrize("terminal", ["fin", "rst"])
+def test_pcap_accepts_exact_empty_terminal_duplicate(
+    tmp_path: Path, terminal: str
+) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    terminal_sequence = 100 + len(frame)
+    terminal_flag = (
+        packet_module.tcp.TH_FIN if terminal == "fin" else packet_module.tcp.TH_RST
+    )
+    terminal_packet = _ethernet_packet(
+        b"",
+        sequence=terminal_sequence,
+        flags=packet_module.tcp.TH_ACK | terminal_flag,
+    )
+    capture_path = tmp_path / f"duplicate-{terminal}.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
+            ),
+            (1.2, terminal_packet),
+            (1.3, terminal_packet),
+        ],
+    )
+
+    assert process_pcap(capture_path)["frames"]
+
+
+def test_pcap_accepts_nonadvancing_half_close_ack(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    fin_sequence = 100 + len(frame)
+    capture_path = tmp_path / "half-close-ack.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
+            ),
+            (
+                1.2,
+                _ethernet_packet(
+                    b"",
+                    sequence=fin_sequence,
+                    flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_FIN,
+                ),
+            ),
+            (
+                1.3,
+                _ethernet_packet(
+                    b"", sequence=fin_sequence, flags=packet_module.tcp.TH_ACK
+                ),
+            ),
+        ],
+    )
+
+    assert process_pcap(capture_path)["frames"]
+
+
+def test_pcap_rejects_advancing_empty_post_terminal_segment(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    fin_sequence = 100 + len(frame)
+    capture_path = tmp_path / "advancing-empty.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
+            ),
+            (
+                1.2,
+                _ethernet_packet(
+                    b"",
+                    sequence=fin_sequence,
+                    flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_FIN,
+                ),
+            ),
+            (
+                1.3,
+                _ethernet_packet(
+                    b"", sequence=fin_sequence + 2, flags=packet_module.tcp.TH_ACK
+                ),
+            ),
+        ],
+    )
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.MALFORMED
+
+
 @pytest.mark.parametrize(
     ("terminal", "cloud_to_dongle"),
     [("fin", False), ("rst", False), ("fin", True), ("rst", True)],
@@ -1109,6 +1263,48 @@ def test_process_pcap_rejects_non_regular_inputs(
     assert caught.value.reason is FailureReason.INPUT_KIND
 
 
+def test_process_pcap_rejects_symlink_input(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    target = tmp_path / "target.pcap"
+    symlink = tmp_path / "input.pcap"
+    _write_capture(
+        target,
+        [(1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN))],
+    )
+    symlink.symlink_to(target)
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(symlink)
+
+    assert caught.value.reason is FailureReason.INPUT_KIND
+
+
+def test_capture_read_is_bounded_after_descriptor_stat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture_path = tmp_path / "capture"
+    capture_path.write_bytes(b"x")
+    file_stat = capture_path.stat()
+    read_sizes: list[int] = []
+
+    monkeypatch.setattr(os, "open", lambda path, flags: 123)
+    monkeypatch.setattr(os, "fstat", lambda descriptor: file_stat)
+    monkeypatch.setattr(os, "close", lambda descriptor: None)
+
+    def oversized_read(descriptor: int, count: int) -> bytes:
+        read_sizes.append(count)
+        return b"x" * count
+
+    monkeypatch.setattr(os, "read", oversized_read)
+    with pytest.raises(CaptureError) as caught:
+        decoder_module._read_capture(
+            capture_path, ParserPolicy(maximum_capture_bytes=4)
+        )
+
+    assert caught.value.reason is FailureReason.INPUT_SIZE
+    assert read_sizes == [5]
+
+
 def test_capture_size_limit_distinguishes_exact_boundary_and_one_over(
     tmp_path: Path,
 ) -> None:
@@ -1129,10 +1325,10 @@ def test_process_pcap_redacts_read_failures(
     capture_path = tmp_path / "capture"
     capture_path.write_bytes(b"synthetic")
 
-    def failed_read(path: Path) -> bytes:
+    def failed_read(descriptor: int, count: int) -> bytes:
         raise OSError("synthetic read failure")
 
-    monkeypatch.setattr(Path, "read_bytes", failed_read)
+    monkeypatch.setattr(os, "read", failed_read)
     with pytest.raises(CaptureError) as caught:
         process_pcap(capture_path)
 
@@ -1170,12 +1366,15 @@ def test_capture_errors_drop_raw_exception_chains_and_diagnostics(
 
     with monkeypatch.context() as scoped:
         scoped.setattr(
-            Path,
-            "read_bytes",
-            lambda path: (_ for _ in ()).throw(OSError("FILESYSTEM-CANARY")),
+            os,
+            "read",
+            lambda descriptor, count: (_ for _ in ()).throw(
+                OSError("FILESYSTEM-CANARY")
+            ),
         )
         with pytest.raises(CaptureError) as filesystem_error:
             process_pcap(valid_capture)
+    assert filesystem_error.value.reason is FailureReason.INPUT_CHANGED
     caught_errors.append((filesystem_error.value, "FILESYSTEM-CANARY"))
 
     with monkeypatch.context() as scoped:
@@ -1349,6 +1548,46 @@ def test_cli_exclusive_create_allows_shared_directory(
 
     assert output_path.read_bytes() == first_output
     assert output.err == "capture rejected: output_exists\n"
+
+
+@pytest.mark.parametrize("failure_stage", ["partial_write", "flush"])
+def test_exclusive_create_removes_partial_file_on_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_stage: str,
+) -> None:
+    output_path = tmp_path / "output.json"
+    real_open = Path.open
+
+    class FailingOutput:
+        def __init__(self) -> None:
+            self.output = real_open(output_path, "xb")
+
+        def __enter__(self) -> FailingOutput:
+            return self
+
+        def write(self, content: bytes) -> int:
+            if failure_stage == "partial_write":
+                self.output.write(content[:1])
+                return 1
+            return self.output.write(content)
+
+        def __exit__(
+            self,
+            exception_type: object,
+            exception: object,
+            traceback_object: object,
+        ) -> None:
+            self.output.close()
+            if failure_stage == "flush":
+                raise OSError("synthetic flush failure")
+
+    monkeypatch.setattr(Path, "open", lambda path, mode: FailingOutput())
+    with pytest.raises(CaptureError) as caught:
+        decoder_module._write_exclusive(output_path, b"synthetic\n")
+
+    assert caught.value.reason is FailureReason.OUTPUT
+    assert not output_path.exists()
 
 
 def test_missing_dpkt_fails_closed_in_process_and_cli(
