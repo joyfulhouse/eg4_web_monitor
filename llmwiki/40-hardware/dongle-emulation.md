@@ -2,6 +2,7 @@
 canonical-for:
   - "Home Assistant-hosted EG4 dongle-emulation product boundary and phased delivery contract"
   - "Single-owner RS485 arbitration and snapshot requirements for dongle replacement"
+  - "Dongle-emulation mode eligibility, single-path and anti-loopback requirements"
   - "Dongle-emulation security, rollout, rollback and success criteria"
 sources:
   - llmwiki/10-integration/data-flow-by-mode.md
@@ -15,7 +16,7 @@ sources:
   - scripts/decode_cloud_frames.py
   - issue eg4-asjv
 verified-against:
-  eg4_web_monitor: 9798ccc
+  eg4_web_monitor: 8ccc734
   pylxpweb: 204b95d
 last-verified: 2026-08-13
 see-also:
@@ -42,7 +43,7 @@ runtime secrets, not specification data, examples, fixtures, logs or diagnostics
 |---|---|---|---|
 | Current local paths already serialize access for devices sharing a normalized physical endpoint. | `transport_serialization.py` → `physical_endpoint_key`, `EndpointOperationLock`; `coordinator.py` → `_endpoint_operation_lock_for_transport`; `20-pylxpweb/transports.md` owns the transport contract. | `verified-against-code` | Reuse the endpoint-identity seam, but replace shared-lock convention with an owner object that cannot be bypassed. |
 | The existing local acquisition path is configured to poll more frequently than the WLAN-dongle path. | `const/config_keys.py` → `DEFAULT_MODBUS_UPDATE_INTERVAL`, `DEFAULT_DONGLE_UPDATE_INTERVAL`; `10-integration/data-flow-by-mode.md` owns the defaults. | `verified-against-code` | Emission consumes completed local snapshots and schedules no duplicate periodic reads. |
-| The V1.1 WLAN firmware contains a port-8000 local server and dispatches `C1`–`C4`; V1.2 changes the listener security contract to TLS-PSK. | `40-hardware/firmware-re.md` and its cited shipped application images/functions. | `firmware-proven` | A local listener is a separate compatibility phase. V1.1 plaintext behavior does not authorize guessing the V1.2 PSK contract. |
+| The V1.1 WLAN firmware contains a port-8000 local server and dispatches `C1`–`C4`; V1.2 changes the listener security contract to TLS-PSK. | `40-hardware/firmware-re.md` and its cited shipped application images/functions. | `firmware-proven` | This documents physical-dongle behavior only. The software emulator never provides a local listener or port-8000 compatibility surface. |
 | Current pylxpweb local-dongle framing validates outer and inner identity, function, range and CRC, assembles fragmented TCP frames, and never blindly replays an ambiguous write. | `src/pylxpweb/transports/dongle.py` → `_build_packet`, `_receive_frame`, `_parse_response`, `_write_holding_registers` at pylxpweb `204b95d`; `20-pylxpweb/transports.md` owns the transport contract. | `verified-against-code` | The emulator parser and scheduler preserve these invariants on both protocol planes. |
 | Captures held outside version control show cloud heartbeat, telemetry, cloud reads and write traffic on the vendor ingestion connection. | Local capture analysis named by issue `eg4-asjv`; raw captures are intentionally excluded. | `asserted-unverified` | They justify an offline protocol engine, not live admission or full firmware parity. Sanitized, stream-reassembled fixtures are a blocking evidence gate. |
 | The existing capture decoder parses TCP payloads per segment and can expose identity and register content. | `scripts/decode_cloud_frames.py` → `process_pcap`, `find_frames` and output formatting. | `verified-against-code` | It is not a correctness or redaction oracle until stream reassembly and safe output are implemented and tested. |
@@ -51,9 +52,10 @@ runtime secrets, not specification data, examples, fixtures, logs or diagnostics
 ### Open contradictions
 
 Local-listener client capacity is C12 in
-[`60-history/open-contradictions.md`](../60-history/open-contradictions.md). It is not a
-product requirement until captured on the target firmware. The implementation must not
-resolve the contradiction by choosing the convenient value.
+[`60-history/open-contradictions.md`](../60-history/open-contradictions.md). It remains an
+unresolved fact about physical dongles, but is no longer product-blocking because this
+emulator exposes no listener. The implementation must not resolve the contradiction by
+choosing the convenient value.
 
 The cloud-emitter evidence and product sequencing also differ: capture evidence is stronger
 for the cloud wire format, while the cloud admission and account-risk evidence is weaker.
@@ -67,15 +69,15 @@ completion of an earlier phase does not authorize a later one.
 
 | Phase | Included | Excluded |
 |---|---|---|
-| A — single-owner foundation | One bus owner, immutable raw snapshots, offline parsers/builders, sanitized capture replay, observability and cutover runbook | Vendor-cloud connection, local port-8000 server, cloud writes, `C3`/`C4`, OTA |
+| A — single-owner foundation | One bus owner, immutable raw snapshots, offline parsers/builders, sanitized capture replay, observability and cutover runbook | Vendor-cloud connection, cloud writes, `C3`/`C4`, OTA |
 | B — experimental cloud telemetry | Default-off outbound connection, proven endpoint selection, heartbeat, input telemetry, captured read responses, reconnect and egress restriction | Writes, unobserved commands, OTA, generic user-configurable endpoint |
 | C — cloud controls | Exact-family, exact-firmware, evidence-qualified operations through the bus owner; conflict detection and unknown-outcome journal | Derived global write allowlist, automatic retry, semantic success inferred from ACK/readback, OTA |
-| D — local dongle listener | Compatibility server for one explicitly captured firmware contract and authenticated network boundary | Guessed TLS-PSK, universal V1.1/V1.2 compatibility, WAN exposure |
-| E — firmware servicing | Not planned | OTA proxying, firmware download, firmware transformation and device flashing |
+| D — firmware servicing | Not planned | OTA proxying, firmware download, firmware transformation and device flashing |
 
-Phase E stays out of scope until a separate specification proves the end-to-end state
-machine, artifact authenticity, per-family compatibility, rollback and recovery. The
-physical dongle remains the firmware-update fallback.
+Local port-8000 emulation and every other inbound dongle-compatible listener are
+permanently out of scope. Phase D stays out of scope until a separate specification proves
+the end-to-end state machine, artifact authenticity, per-family compatibility, rollback
+and recovery. The physical dongle remains the firmware-update fallback.
 
 ### Capability definition
 
@@ -96,6 +98,31 @@ reconnect/drain work ────┘              └──> immutable snapshot 
                                           │
                                           └──> optional protocol emitters
 ```
+
+### 3.0 Mode eligibility
+
+The emulator is available only when the config entry has a qualifying direct local
+transport. Its derived `connection_type` MUST be `local` or `hybrid`, and
+`local_transports` MUST contain at least one `modbus_tcp` or `modbus_serial` transport that
+covers the bus of every emulated device identity. A `wifi_dongle` transport does not
+qualify: it means a physical dongle is still the local bus master.
+
+Configuration validation MUST reject an attempt to enable the emulator for:
+
+- `http`/cloud-only entries;
+- legacy `modbus` or `dongle` entry formats until migration to the unified format completes;
+- an empty local-transport set, including the current derived-`local` case with neither
+  cloud nor local configuration;
+- any `wifi_dongle` transport whose bus overlaps the bus of an emulated identity, even when
+  the entry also has a qualifying direct transport; uncertain bus equivalence fails closed;
+- any emulated identity whose bus is not covered by a qualifying direct local transport.
+
+Coordinator setup MUST re-check all clauses. A persisted violating entry may load the base
+integration, but the emulator remains disabled and raises a redacted Repairs issue; it
+never starts a partial emitter. Every transport add, remove, reconnect or reconfiguration
+re-evaluates complete bus coverage for every emulated identity. Before any identity becomes
+uncovered—or any overlapping `wifi_dongle` becomes active—the emulator atomically closes
+egress, disables itself and raises the Repairs issue.
 
 ### 3.1 One owner per physical endpoint
 
@@ -152,7 +179,46 @@ before changing it. Proactive telemetry suppresses stale/incomplete blocks. A re
 read queues one fresh read if its captured deadline permits; otherwise the session uses a
 captured error form or closes. It never fabricates data or an unobserved error response.
 
-### 3.3 Parser and connection contract
+### 3.3 Anti-loopback and single-path contract
+
+The snapshot-only, no-listener, single-emitter and operator-interlock clauses in this
+section apply to every eligible `local` and `hybrid` entry. HYBRID also retains its existing
+cloud API path for supplemental data, so its echo-specific clauses separate independent
+observations from data that may have originated from the emulator itself. The following
+boundaries are mechanical:
+
+- The emitter's only data-ingest API is the immutable raw snapshot store. It MUST NOT
+  subscribe to HA entity state, coordinator update fan-out, parsed device models or portal
+  responses to construct telemetry.
+- Emission schedules zero periodic RS485 reads. Reactive reads, when a later phase permits
+  them, enter the same endpoint owner queue as every other operation.
+- The emulator opens no inbound listener and binds no local port.
+- Each outbound emission is associated internally with its snapshot generation and a
+  redacted correlation record; the protocol is not extended with an unobserved on-wire
+  field. The echo manifest is derived from every emitted wire field through its captured
+  portal mapping. CI fails if an emitted field is unclassified; an unknown or incompletely
+  mapped field is conservatively **echo-capable**, never implicitly independent.
+- Echo-capable cloud values are never used as independent parity evidence, freshness
+  arbitration, snapshot input, write confirmation or semantic-success evidence. They may
+  be displayed only under their existing cloud semantics and must retain provenance that
+  prevents relabeling them as local observations.
+- One config entry and one emulated identity may have only one active emitter. An
+  overlapping `wifi_dongle` blocks startup mechanically. Because software cannot yet prove
+  that a detached physical dongle or vendor session is absent, enablement also requires the
+  administrator's cutover acknowledgement and the Gate B session-absence observation. A
+  duplicate response blocks startup only after capture evidence defines its exact meaning;
+  until then, any unexplained admission result aborts startup without being labeled.
+
+Tests MUST prove: emitter-on versus emitter-off causes zero additional periodic bus reads;
+the fake transport observes at most one operation in flight; emitter imports cannot reach
+coordinator/entity/listener modules; no listener socket is created; echo-capable fields are
+excluded from independent parity and control evidence; and unload, loss of local transport
+or loss of complete per-identity bus coverage closes egress without feeding emitted data
+back into a local snapshot. Tests also prove the operator interlock is required and that a
+captured duplicate-session signal is used only when its evidence-qualified predicate is
+present.
+
+### 3.4 Parser and connection contract
 
 Every network parser MUST use one named internal `ParserPolicy`. Initial proposed defaults
 and allowed test ranges are:
@@ -232,7 +298,7 @@ accepted merely because an old design says it is unnecessary.
   service, event or shared transport capability exposes the emulator to other integrations.
 - Cloud emitters in Phases B/C have an allowlisted destination resolved through the proven
   selection mechanism, authenticated encryption with hostname/certificate validation, and
-  no inbound listener. Phase D is an independently gated, isolated-interface exception.
+  no inbound listener under any mode or phase.
 - The revocation runbook covers account credentials, vendor-side device association,
   runtime secret deletion and egress blocking. Target time from leak discovery to local
   egress block is five minutes; vendor-side revocation time is measured during HIL.
@@ -260,8 +326,10 @@ administrator acknowledgement showing:
 - active endpoint alias, freshness state and circuit-breaker status without secrets.
 
 Configuration validation rejects missing secret references, unsupported families,
-unproven endpoint selection, duplicate active emitter instances and a bus owner that can be
-bypassed. There is no free-form cloud host or port in the user interface.
+unproven endpoint selection, duplicate active emitter instances, a bus owner that can be
+bypassed, and every mode/transport violation in §3.0. The same checks run at coordinator
+setup and when local transport availability changes. There is no free-form cloud host or
+port in the user interface, and there is no listener configuration.
 
 ## 7. Observability and resource limits
 
@@ -277,7 +345,7 @@ Acceptance budgets:
 | Concurrent RS485 transactions per endpoint | exactly 0 or 1; never greater than 1 |
 | Additional periodic bus reads caused by emission | 0 |
 | Parser memory | peak incremental allocation per active connection no more than `ParserPolicy.maximum_frame_bytes + prefix_scan_bytes + 16 KiB`; after 1,000 malformed connection cycles, retained growth no more than 64 KiB |
-| Pending queue | no more than `ParserPolicy.pending_operation_capacity`; overload follows the ordered coalesce/reject behavior in §3.3 |
+| Pending queue | no more than `ParserPolicy.pending_operation_capacity`; overload follows the ordered coalesce/reject behavior in §3.4 |
 | Event-loop blocking | 0 blocking socket or file operations in the HA event loop |
 | Secret/identity occurrences in diagnostics and normal logs | 0 |
 
@@ -315,9 +383,12 @@ by no more than 50 MiB, and a 24-hour soak has no sustained memory slope above 1
   observed session-absent timestamp and derives the session-expiry timeout; no disappearance
   within sixty seconds blocks cutover rather than inventing a timeout.
 - Shadow means replay or local comparison only. It never opens a second vendor connection
-  with the production identity.
+  with the production identity. Any live second session or path is active parallel
+  operation, not shadowing, and is prohibited.
 - Generated versus captured frames match after replacing nondeterministic identity/time
   fields. Every allowed divergence is named and tested; “looks sane” is not parity.
+- Echo-capable fields from §3.3 are excluded from parity because they are not independent
+  observations; the comparison manifest records that exclusion explicitly.
 - Unknown frame/function incidence is zero for that complete capture plan. Controls are a
   separate isolated HIL scenario; passive observation does not qualify a write.
 
@@ -336,15 +407,6 @@ All items are blocking:
 7. revocation/rotation and physical restoration drills passed;
 8. no live parallel run using the same identity;
 9. all applicable CI, live-tool checks and review gates green.
-
-### Gate D — local listener
-
-- One passive target-firmware capture proves connection, security negotiation, framing,
-  client capacity, close/error behavior and every supported request.
-- V1.2 TLS-PSK provisioning and rotation are proven without publishing key material.
-- The listener binds only to the intended isolated interface and is unreachable from WAN
-  and unrelated VLANs.
-- Compatibility is advertised by exact captured contract, never as universal dongle parity.
 
 ## 9. Cutover, abort and rollback
 
@@ -392,6 +454,9 @@ drills. Failure keeps the live phase disabled.
 
 Phase A succeeds only when:
 
+- configuration/setup tests independently prove enable, reload, qualifying-transport loss
+  and unload behavior for both derived `local` and `hybrid` entries, plus rejection of every
+  §3.0 ineligible case;
 - one owner is mechanically impossible to bypass in the supported topology;
 - stress/fault tests observe no overlapping bus transaction;
 - existing local polling and controls retain their baseline behavior;
@@ -400,9 +465,20 @@ Phase A succeeds only when:
 - HA start, reload, unload and network loss leave no leaked task/socket;
 - documentation contains no production identity or private deployment-network detail.
 
-Phase B succeeds only when Gate C passes and a continuous 24-hour HIL run has:
+Phase B succeeds only when Gate C passes and both rows of this matrix pass independently:
+
+| Mode | Required configuration and lifecycle proof |
+|---|---|
+| `local` | A qualifying direct local transport covers every emulated identity; runtime secret references provision the emitter without requiring an existing portal client; enable, HA start/reload/unload, local-transport loss/restoration and emitter reconnect all pass. |
+| `hybrid` | The same direct-local coverage and runtime secret rules pass while the existing portal client remains supplemental; every echo-capable field retains provenance and is excluded from independent evidence; enable, HA start/reload/unload, local-transport loss/restoration and emitter reconnect all pass. |
+
+Each row requires its own continuous 24-hour HIL run; one mode's run cannot qualify the
+other. Each run has:
 
 - no duplicate session, unknown command, stale/incomplete emission or secret disclosure;
+- no loopback: zero additional periodic bus reads, no listener socket, no emitted value
+  re-entering a local snapshot, and no echo-capable cloud value counted as independent
+  parity or control evidence;
 - portal values matching complete local snapshots under a committed per-field comparison
   manifest. Each manifest row names the raw source range, canonical scaling owner, display
   resolution and comparison rule: raw words and integer fields are exact; a displayed float
@@ -417,9 +493,6 @@ Phase C additionally requires one controlled test per admitted operation showing
 request, exact bus transaction, transport/storage reconciliation, independent physical or
 portal semantic observation at the grade required by the register keeper, and clean
 restoration. ACK/readback alone fails this criterion.
-
-Phase D succeeds only against its named captured firmware contract and must not broaden
-Phase B/C support implicitly.
 
 ## 11. Required implementation and review routing
 
@@ -451,8 +524,7 @@ The planning agent should create dependent work in this order:
 6. passive/shadow evidence collection and parity report;
 7. legal/admission/security decision gate;
 8. experimental read-only cloud HIL;
-9. evidence-qualified controls, if separately approved;
-10. local-listener capture and compatibility phase, if still needed.
+9. evidence-qualified controls, if separately approved.
 
-Items 7–10 are not implied by completion of items 1–6. The planner must keep each live
+Items 7–9 are not implied by completion of items 1–6. The planner must keep each live
 capability behind its own human-visible decision and rollback gate.

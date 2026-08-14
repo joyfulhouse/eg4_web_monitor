@@ -240,10 +240,13 @@ requiring conservative single-client request access.
 
 A controlled target-firmware test must use two independent clients and record connection
 acceptance, simultaneous request behavior, response routing, disconnect behavior and exact
-firmware version before the emulator advertises capacity or concurrency.
+firmware version before any physical-dongle client advertises capacity or concurrency. The
+Home Assistant-hosted emulator exposes no local listener, so C12 is no longer a product
+gate for that feature; this scope decision does not adjudicate the contradictory evidence.
 
-**Working rule meanwhile:** require exclusive access as a safety policy, do not state a
-universal socket limit, and do not use either number as a sizing or compatibility claim.
+**Working rule meanwhile:** require exclusive access as a physical-dongle safety policy, do
+not state a universal socket limit, and do not use either number as a sizing or compatibility
+claim.
 
 ---
 

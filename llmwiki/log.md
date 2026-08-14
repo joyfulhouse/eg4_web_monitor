@@ -448,3 +448,16 @@ complete live-use unresolved set to issue `eg4-asjv`; removed an issue citation 
 contained an early single-client hypothesis; and made parser memory, queue policy,
 session-expiry observation, local-only soak and per-field portal parity numerically
 testable.
+
+## [2026-08-13] ingest | Dongle emulation limited to direct local transports
+
+The owner clarified that emulation is available only when a qualifying direct local
+transport exists: derived `local` and `hybrid` entries may qualify, while cloud-only,
+legacy-unmigrated, empty-local and `wifi_dongle`-only entries do not. Updated
+[`40-hardware/dongle-emulation.md`](40-hardware/dongle-emulation.md) with mechanical
+configuration/setup checks and HYBRID anti-loopback rules covering second polling, cloud
+echo re-ingestion, parsed-value reserialization, duplicate identity and listener feedback.
+
+Port-8000 emulation is now permanently out of scope rather than a deferred phase. C12 remains
+an unresolved fact about physical-dongle listener capacity, but is no longer a product gate
+for this emulator. Planning item 1 and PR #577's offline-sanitizer scope are unchanged.
