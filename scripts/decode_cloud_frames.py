@@ -21,13 +21,15 @@ import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
+from importlib import import_module
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Final
 
 try:
-    import dpkt
+    dpkt: ModuleType | None = import_module("dpkt")
 except ImportError:  # pragma: no cover - exercised by the CLI environment
-    dpkt = None  # type: ignore[assignment]
+    dpkt = None
 
 
 FRAME_MAGIC: Final = b"\xa1\x1a"
