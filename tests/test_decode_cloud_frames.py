@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+import sys
+from collections.abc import Buffer, Callable
+from importlib import util
 from pathlib import Path
+from types import ModuleType
+from typing import Protocol, cast
 
-import dpkt
 import pytest
 
 import scripts.decode_cloud_frames as decoder_module
@@ -16,6 +22,7 @@ from scripts.decode_cloud_frames import (
     ParserPolicy,
     StreamFrameDecoder,
     TCPStreamReassembler,
+    _validate_synthetic_output,
     compute_crc16,
     main,
     process_pcap,
@@ -25,6 +32,81 @@ from scripts.decode_cloud_frames import (
 
 OUTER_IDENTITY = b"CANARYDG01"
 INNER_IDENTITY = b"CANARYIV01"
+PROTECTED_CANARIES = {
+    "serial_identity": OUTER_IDENTITY.decode(),
+    "device_identity": INNER_IDENTITY.decode(),
+    "pin_check_code": "PIN-CHECK-CANARY",
+    "psk": "PSK-CANARY",
+    "cookie": "COOKIE-CANARY",
+    "token": "TOKEN-CANARY",
+    "private_address": "10.23.45.67",
+    "mac": "02:00:5e:10:00:01",
+    "payload_register": "REG!",
+}
+
+
+class _DecoderModule(Protocol):
+    dpkt: ModuleType | None
+    CaptureError: type[Exception]
+
+    def process_pcap(self, pcap_path: str | Path) -> dict[str, object]: ...
+
+    def main(self, argv: list[str] | None = None) -> int: ...
+
+
+def _dpkt() -> ModuleType:
+    return cast(
+        ModuleType,
+        pytest.importorskip("dpkt", reason="offline PCAP adapter dependency"),
+    )
+
+
+def _ethernet_packet(
+    payload: bytes,
+    *,
+    sequence: int,
+    flags: int,
+    cloud_to_dongle: bool = False,
+) -> bytes:
+    packet_module = _dpkt()
+    tcp = packet_module.tcp.TCP(
+        sport=4346 if cloud_to_dongle else 32000,
+        dport=32000 if cloud_to_dongle else 4346,
+        seq=sequence,
+        flags=flags,
+        data=payload,
+    )
+    ip = packet_module.ip.IP(
+        src=b"\xc6\x33\x64\x63" if cloud_to_dongle else b"\xc0\x00\x02\x63",
+        dst=b"\xc0\x00\x02\x63" if cloud_to_dongle else b"\xc6\x33\x64\x63",
+        p=packet_module.ip.IP_PROTO_TCP,
+        data=tcp,
+    )
+    ethernet = packet_module.ethernet.Ethernet(
+        src=b"\x02\x00\x00\x00\x00\x01",
+        dst=b"\x02\x00\x00\x00\x00\x02",
+        type=packet_module.ethernet.ETH_TYPE_IP,
+        data=ip,
+    )
+    return bytes(ethernet)
+
+
+def _write_capture(
+    capture_path: Path,
+    packets: list[tuple[float, bytes]],
+    *,
+    link_type: int = 1,
+    pcapng: bool = False,
+) -> None:
+    packet_module = _dpkt()
+    with capture_path.open("wb") as capture_file:
+        writer_type = (
+            packet_module.pcapng.Writer if pcapng else packet_module.pcap.Writer
+        )
+        writer = writer_type(capture_file, linktype=link_type)
+        for timestamp, packet in packets:
+            writer.writepkt(packet, ts=timestamp)
+        writer.close()
 
 
 def _cloud_frame(
@@ -83,11 +165,19 @@ def _segments(*payloads: bytes) -> list[CapturedSegment]:
                 sequence=sequence,
                 captured_at=captured_at,
                 payload=payload,
+                starts_stream=not result,
             )
         )
         sequence += len(payload)
         captured_at += 0.01
     return result
+
+
+@pytest.mark.parametrize(
+    "value", [b"123456789", bytearray(b"123456789"), memoryview(b"123456789")]
+)
+def test_public_crc_seam_normalizes_bytes_like_inputs(value: Buffer) -> None:
+    assert compute_crc16(value) == 0x4B37
 
 
 @pytest.mark.parametrize(
@@ -111,21 +201,29 @@ def test_parser_policy_accepts_contract_boundaries(
 
 
 @pytest.mark.parametrize(
-    "overrides",
+    "constructor",
     [
-        {"maximum_frame_bytes": 511},
-        {"maximum_frame_bytes": 65536},
-        {"prefix_scan_bytes": 1},
-        {"prefix_scan_bytes": 1025},
-        {"overall_frame_deadline": 0.9},
-        {"overall_frame_deadline": 30.1},
+        lambda: ParserPolicy(maximum_frame_bytes=511),
+        lambda: ParserPolicy(maximum_frame_bytes=65536),
+        lambda: ParserPolicy(prefix_scan_bytes=1),
+        lambda: ParserPolicy(prefix_scan_bytes=1025),
+        lambda: ParserPolicy(overall_frame_deadline=0.9),
+        lambda: ParserPolicy(overall_frame_deadline=30.1),
+        lambda: ParserPolicy(maximum_capture_bytes=0),
+        lambda: ParserPolicy(maximum_packet_bytes=0),
+        lambda: ParserPolicy(maximum_packets=0),
+        lambda: ParserPolicy(maximum_flows=0),
+        lambda: ParserPolicy(maximum_segments_per_flow=0),
+        lambda: ParserPolicy(maximum_pending_bytes_per_flow=0),
+        lambda: ParserPolicy(maximum_reassembled_bytes_per_flow=0),
+        lambda: ParserPolicy(maximum_aggregate_memory_bytes=0),
     ],
 )
 def test_parser_policy_rejects_values_outside_contract(
-    overrides: dict[str, int | float],
+    constructor: Callable[[], ParserPolicy],
 ) -> None:
     with pytest.raises(ValueError, match="outside the internal contract"):
-        ParserPolicy(**overrides)  # type: ignore[arg-type]
+        constructor()
 
 
 def test_stream_decoder_handles_every_split_and_byte_fragmentation() -> None:
@@ -156,18 +254,17 @@ def test_stream_decoder_emits_coalesced_frames() -> None:
 
 def test_tcp_reassembler_deduplicates_and_orders_segments() -> None:
     reassembler = TCPStreamReassembler(ParserPolicy())
+    reassembler.start(100)
 
     assert reassembler.push(100, b"abc", captured_at=1.0) == [(1.0, b"abc")]
     assert reassembler.push(106, b"ghi", captured_at=1.2) == []
     assert reassembler.push(100, b"abc", captured_at=1.3) == []
-    assert reassembler.push(102, b"cdef", captured_at=1.4) == [
-        (1.4, b"def"),
-        (1.4, b"ghi"),
-    ]
+    assert reassembler.push(102, b"cdef", captured_at=1.4) == [(1.4, b"defghi")]
 
 
 def test_tcp_reassembler_fails_closed_on_gap_conflict_and_capacity() -> None:
     gap = TCPStreamReassembler()
+    gap.start(100)
     gap.push(100, b"a", captured_at=1.0)
     gap.push(102, b"c", captured_at=1.1)
     with pytest.raises(CaptureError) as gap_error:
@@ -175,6 +272,7 @@ def test_tcp_reassembler_fails_closed_on_gap_conflict_and_capacity() -> None:
     assert gap_error.value.reason is FailureReason.TRUNCATED
 
     conflict = TCPStreamReassembler()
+    conflict.start(100)
     conflict.push(100, b"a", captured_at=1.0)
     conflict.push(102, b"c", captured_at=1.1)
     with pytest.raises(CaptureError) as conflict_error:
@@ -182,19 +280,27 @@ def test_tcp_reassembler_fails_closed_on_gap_conflict_and_capacity() -> None:
     assert conflict_error.value.reason is FailureReason.MALFORMED
 
     capacity = TCPStreamReassembler()
+    capacity.start(100)
     capacity.push(100, b"a", captured_at=1.0)
     with pytest.raises(CaptureError) as capacity_error:
         capacity.push(102, b"x" * (16 * 1024 + 1), captured_at=1.1)
     assert capacity_error.value.reason is FailureReason.CAPACITY
 
 
-def test_combined_stream_storage_matches_contract_budget() -> None:
-    policy = ParserPolicy()
-    decoder_storage = policy.maximum_frame_bytes + policy.prefix_scan_bytes
+def test_reassembly_pending_storage_accepts_exact_limit_and_rejects_one_over() -> None:
+    policy = ParserPolicy(maximum_pending_bytes_per_flow=4)
+    exact = TCPStreamReassembler(policy)
+    exact.start(100)
+    assert exact.push(101, b"bcde", captured_at=1.0) == []
+    assert exact.pending_bytes == 4
+    assert exact.retained_bytes == 4
 
-    assert decoder_storage + policy.reassembly_capacity == (
-        policy.maximum_frame_bytes + policy.prefix_scan_bytes + 16 * 1024
-    )
+    overflow = TCPStreamReassembler(policy)
+    overflow.start(100)
+    with pytest.raises(CaptureError) as caught:
+        overflow.push(101, b"bcdef", captured_at=1.0)
+    assert caught.value.reason is FailureReason.CAPACITY
+    assert overflow.pending_bytes <= policy.maximum_pending_bytes_per_flow
 
 
 def test_stream_decoder_rejects_truncation_at_eof() -> None:
@@ -208,7 +314,13 @@ def test_stream_decoder_rejects_truncation_at_eof() -> None:
 
 
 def test_stream_decoder_rejects_oversize_before_body_buffering() -> None:
-    decoder = StreamFrameDecoder(ParserPolicy(maximum_frame_bytes=512))
+    policy = ParserPolicy(maximum_frame_bytes=512)
+    exact_frame = _cloud_frame(0xC1, b"x" * (policy.maximum_frame_bytes - 18))
+    exact = StreamFrameDecoder(policy)
+    assert exact.feed(exact_frame, captured_at=1.0) == [exact_frame]
+    exact.close(captured_at=1.0)
+
+    decoder = StreamFrameDecoder(policy)
     advertised_body = (507).to_bytes(2, "little")
 
     with pytest.raises(CaptureError) as caught:
@@ -293,25 +405,14 @@ def test_sanitizer_fails_closed_on_unknown_functions_and_ranges(
 
 
 def test_sanitizer_emits_only_synthetic_minimal_data() -> None:
-    protected_canaries = (
-        b"PIN=7391;PSK=private-canary;cookie=private-cookie;"
-        b"token=private-token;192.0.2.99;02:00:5e:10:00:00"
-    )
-    heartbeat = _cloud_frame(0xC1, b"\x01" + protected_canaries)
-    response = _c2(_read_response())
+    payload = "|".join(PROTECTED_CANARIES.values()).encode()
+    heartbeat = _cloud_frame(0xC1, b"\x01" + payload)
+    response = _c2(_read_response(words=(0x4552, 0x2147)))
 
     sanitized = sanitize_segments(_segments(heartbeat, response))
     serialized = json.dumps(sanitized, sort_keys=True)
 
-    for forbidden in (
-        OUTER_IDENTITY.decode(),
-        INNER_IDENTITY.decode(),
-        protected_canaries.decode(),
-        "192.0.2.99",
-        "02:00:5e:10:00:00",
-        "1234",
-        "5678",
-    ):
+    for forbidden in PROTECTED_CANARIES.values():
         assert forbidden not in serialized
     assert sanitized["capture"] == {
         "source": "authorized_offline_input",
@@ -355,38 +456,34 @@ def test_sanitizer_fails_closed_at_synthetic_record_capacity(
 def test_offline_pcap_adapter_and_cli_never_report_source_metadata(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    heartbeat = _cloud_frame(0xC1, b"\x01")
-    response = _c2(_read_response())
+    heartbeat = _cloud_frame(
+        0xC1, b"\x01" + "|".join(PROTECTED_CANARIES.values()).encode()
+    )
+    response = _c2(_read_response(words=(0x4552, 0x2147)))
     chunks = (heartbeat[:5], heartbeat[5:] + response)
     capture_path = tmp_path / "CANARYDG01-authorized-input.pcap"
     output_path = tmp_path / "sanitized.json"
-
-    with capture_path.open("wb") as capture_file:
-        writer = dpkt.pcap.Writer(capture_file)
-        sequence = 100
-        for index, chunk in enumerate(chunks):
-            tcp = dpkt.tcp.TCP(
-                sport=32000,
-                dport=4346,
-                seq=sequence,
-                flags=dpkt.tcp.TH_ACK,
-                data=chunk,
+    packet_module = _dpkt()
+    sequence = 100
+    packets = [
+        (
+            0.9,
+            _ethernet_packet(
+                b"", sequence=sequence - 1, flags=packet_module.tcp.TH_SYN
+            ),
+        )
+    ]
+    for index, chunk in enumerate(chunks):
+        packets.append(
+            (
+                1.0 + index / 10,
+                _ethernet_packet(
+                    chunk, sequence=sequence, flags=packet_module.tcp.TH_ACK
+                ),
             )
-            ip = dpkt.ip.IP(
-                src=b"\xc0\x00\x02\x63",
-                dst=b"\xc6\x33\x64\x63",
-                p=dpkt.ip.IP_PROTO_TCP,
-                data=tcp,
-            )
-            ethernet = dpkt.ethernet.Ethernet(
-                src=b"\x02\x00\x00\x00\x00\x01",
-                dst=b"\x02\x00\x00\x00\x00\x02",
-                type=dpkt.ethernet.ETH_TYPE_IP,
-                data=ip,
-            )
-            writer.writepkt(ethernet, ts=1.0 + index / 10)
-            sequence += len(chunk)
-        writer.close()
+        )
+        sequence += len(chunk)
+    _write_capture(capture_path, packets)
 
     direct = process_pcap(capture_path)
     assert direct["frames"][0]["identity"] == "SYNTHDG001"
@@ -402,8 +499,13 @@ def test_offline_pcap_adapter_and_cli_never_report_source_metadata(
         == 0
     )
     captured_output = capsys.readouterr()
-    assert "CANARYDG01" not in captured_output.out
-    assert "CANARYDG01" not in captured_output.err
+    recursive_return = json.dumps(direct, sort_keys=True)
+    created_output = output_path.read_text(encoding="utf-8")
+    for canary in PROTECTED_CANARIES.values():
+        assert canary not in recursive_return
+        assert canary not in captured_output.out
+        assert canary not in captured_output.err
+        assert canary not in created_output
     assert str(capture_path) not in captured_output.out
     assert str(capture_path) not in captured_output.err
     assert str(output_path) not in captured_output.out
@@ -415,36 +517,597 @@ def test_pcap_reconnect_on_same_flow_starts_a_new_stream(tmp_path: Path) -> None
     capture_path = tmp_path / "synthetic-reconnect.pcap"
     frames = (_c2(_read_response(start=7)), _c2(_read_response(start=42)))
 
-    with capture_path.open("wb") as capture_file:
-        writer = dpkt.pcap.Writer(capture_file)
-        for timestamp, sequence, flags, payload in (
-            (1.0, 100, dpkt.tcp.TH_SYN, b""),
-            (1.1, 101, dpkt.tcp.TH_ACK, frames[0]),
-            (2.0, 10, dpkt.tcp.TH_SYN, b""),
-            (2.1, 11, dpkt.tcp.TH_ACK, frames[1]),
-        ):
-            tcp = dpkt.tcp.TCP(
-                sport=32000,
-                dport=4346,
-                seq=sequence,
-                flags=flags,
-                data=payload,
+    packet_module = _dpkt()
+    _write_capture(
+        capture_path,
+        [
+            (
+                timestamp,
+                _ethernet_packet(payload, sequence=sequence, flags=flags),
             )
-            ip = dpkt.ip.IP(
-                src=b"\xc0\x00\x02\x63",
-                dst=b"\xc6\x33\x64\x63",
-                p=dpkt.ip.IP_PROTO_TCP,
-                data=tcp,
+            for timestamp, sequence, flags, payload in (
+                (1.0, 100, packet_module.tcp.TH_SYN, b""),
+                (1.1, 101, packet_module.tcp.TH_ACK, frames[0]),
+                (2.0, 10, packet_module.tcp.TH_SYN, b""),
+                (2.1, 11, packet_module.tcp.TH_ACK, frames[1]),
             )
-            ethernet = dpkt.ethernet.Ethernet(
-                src=b"\x02\x00\x00\x00\x00\x01",
-                dst=b"\x02\x00\x00\x00\x00\x02",
-                type=dpkt.ethernet.ETH_TYPE_IP,
-                data=ip,
-            )
-            writer.writepkt(ethernet, ts=timestamp)
-        writer.close()
+        ],
+    )
 
     sanitized = process_pcap(capture_path)
 
     assert [frame["start_register"] for frame in sanitized["frames"]] == [7, 42]
+
+
+def test_tcp_reassembler_requires_explicit_stream_origin() -> None:
+    reassembler = TCPStreamReassembler()
+
+    with pytest.raises(CaptureError) as caught:
+        reassembler.push(100, b"a", captured_at=1.0)
+
+    assert caught.value.reason is FailureReason.TRUNCATED
+
+
+def test_tcp_reassembler_handles_sequence_wrap_and_reverse_one_byte_segments() -> None:
+    policy = ParserPolicy(maximum_segments_per_flow=257)
+    reassembler = TCPStreamReassembler(policy)
+    origin = (1 << 32) - 4
+    reassembler.start(origin)
+
+    for offset in range(256, 0, -1):
+        assert (
+            reassembler.push(
+                (origin + offset) % (1 << 32),
+                bytes((offset % 251,)),
+                captured_at=1.0,
+            )
+            == []
+        )
+    assert reassembler.pending_bytes == 256
+    expected = bytes(offset % 251 for offset in range(257))
+    assert reassembler.push(origin, b"\x00", captured_at=1.1) == [(1.1, expected)]
+    assert reassembler.segment_count == policy.maximum_segments_per_flow
+
+
+def test_tcp_reassembler_rejects_one_segment_over_limit() -> None:
+    reassembler = TCPStreamReassembler(ParserPolicy(maximum_segments_per_flow=1))
+    reassembler.start(10)
+    reassembler.push(10, b"a", captured_at=1.0)
+
+    with pytest.raises(CaptureError) as caught:
+        reassembler.push(11, b"b", captured_at=1.1)
+
+    assert caught.value.reason is FailureReason.CAPACITY
+
+
+@pytest.mark.parametrize(
+    ("first_sequence", "first", "second_sequence", "second", "expected"),
+    [
+        (100, b"abcd", 100, b"abcd", b""),
+        (100, b"abcd", 102, b"cdef", b"ef"),
+        (102, b"cdef", 100, b"abcd", b"abcdef"),
+        (103, b"def", 102, b"cde", b"abcdef"),
+        (102, b"cde", 103, b"def", b"abcdef"),
+    ],
+)
+def test_tcp_reassembler_accepts_every_matching_overlap_shape(
+    first_sequence: int,
+    first: bytes,
+    second_sequence: int,
+    second: bytes,
+    expected: bytes,
+) -> None:
+    reassembler = TCPStreamReassembler()
+    reassembler.start(100)
+    first_chunks = reassembler.push(first_sequence, first, captured_at=1.0)
+    second_chunks = reassembler.push(second_sequence, second, captured_at=1.1)
+    if first_sequence > 100 and second_sequence > 100:
+        second_chunks += reassembler.push(100, b"ab", captured_at=1.2)
+
+    emitted = b"".join(chunk for _, chunk in first_chunks + second_chunks)
+    if first_sequence == 100:
+        assert emitted == first + expected
+    else:
+        assert emitted == expected
+
+
+@pytest.mark.parametrize(
+    ("first_sequence", "first", "second_sequence", "second"),
+    [
+        (100, b"abcd", 100, b"abXd"),
+        (100, b"abcd", 102, b"Xdef"),
+        (102, b"cdef", 100, b"abXd"),
+        (103, b"def", 102, b"cXe"),
+        (102, b"cde", 103, b"dXf"),
+    ],
+)
+def test_tcp_reassembler_rejects_every_conflicting_overlap_shape(
+    first_sequence: int,
+    first: bytes,
+    second_sequence: int,
+    second: bytes,
+) -> None:
+    reassembler = TCPStreamReassembler()
+    reassembler.start(100)
+    reassembler.push(first_sequence, first, captured_at=1.0)
+
+    with pytest.raises(CaptureError) as caught:
+        reassembler.push(second_sequence, second, captured_at=1.1)
+
+    assert caught.value.reason is FailureReason.MALFORMED
+
+
+def test_reassembly_memory_and_stream_limits_accept_exact_and_reject_one_over() -> None:
+    exact_policy = ParserPolicy(
+        maximum_reassembled_bytes_per_flow=4,
+        maximum_aggregate_memory_bytes=4,
+    )
+    exact = TCPStreamReassembler(exact_policy)
+    exact.start(1)
+    assert exact.push(1, b"abcd", captured_at=1.0) == [(1.0, b"abcd")]
+    assert exact.retained_bytes == 4
+
+    aggregate = TCPStreamReassembler(exact_policy)
+    aggregate.start(1)
+    with pytest.raises(CaptureError) as aggregate_error:
+        aggregate.push(1, b"abcde", captured_at=1.0)
+    assert aggregate_error.value.reason is FailureReason.CAPACITY
+    assert aggregate.retained_bytes <= exact_policy.maximum_aggregate_memory_bytes
+
+    stream_policy = ParserPolicy(
+        maximum_reassembled_bytes_per_flow=4,
+        maximum_aggregate_memory_bytes=5,
+    )
+    stream = TCPStreamReassembler(stream_policy)
+    stream.start(1)
+    with pytest.raises(CaptureError) as stream_error:
+        stream.push(1, b"abcde", captured_at=1.0)
+    assert stream_error.value.reason is FailureReason.CAPACITY
+    assert stream.retained_bytes <= stream_policy.maximum_aggregate_memory_bytes
+
+
+def test_sanitizer_flow_limit_accepts_exact_and_rejects_one_over() -> None:
+    frame = _cloud_frame(0xC1, b"\x01")
+    exact = [
+        CapturedSegment(
+            "dongle_to_cloud", 100, float(stream_id), frame, stream_id, True
+        )
+        for stream_id in range(2)
+    ]
+    assert len(sanitize_segments(exact, ParserPolicy(maximum_flows=2))["frames"]) == 1
+
+    with pytest.raises(CaptureError) as caught:
+        sanitize_segments(exact, ParserPolicy(maximum_flows=1))
+
+    assert caught.value.reason is FailureReason.CAPACITY
+
+
+def test_sanitizer_aggregate_memory_limit_accepts_peak_and_rejects_one_under() -> None:
+    frame = _cloud_frame(0xC1, b"\x01")
+    segments = [
+        CapturedSegment(
+            "dongle_to_cloud", 100, float(stream_id), frame, stream_id, True
+        )
+        for stream_id in range(2)
+    ]
+    peak_retained = len(frame) * 3
+
+    assert sanitize_segments(
+        segments,
+        ParserPolicy(maximum_aggregate_memory_bytes=peak_retained),
+    )["frames"]
+    with pytest.raises(CaptureError) as caught:
+        sanitize_segments(
+            segments,
+            ParserPolicy(maximum_aggregate_memory_bytes=peak_retained - 1),
+        )
+
+    assert caught.value.reason is FailureReason.CAPACITY
+
+
+def test_session_binds_outer_identity_across_both_directions() -> None:
+    segments = [
+        CapturedSegment(
+            "dongle_to_cloud", 100, 1.0, _cloud_frame(0xC1, b"\x01"), 0, True
+        ),
+        CapturedSegment(
+            "cloud_to_dongle",
+            200,
+            1.1,
+            _cloud_frame(0xC1, b"\x01", identity=b"CANARYDG02"),
+            0,
+            True,
+        ),
+    ]
+
+    with pytest.raises(CaptureError) as caught:
+        sanitize_segments(segments)
+
+    assert caught.value.reason is FailureReason.IDENTITY
+
+
+def test_session_binds_inner_identity_across_both_directions() -> None:
+    segments = [
+        CapturedSegment("dongle_to_cloud", 100, 1.0, _c2(_read_request()), 0, True),
+        CapturedSegment(
+            "cloud_to_dongle",
+            200,
+            1.1,
+            _c2(_read_request(identity=b"CANARYIV02")),
+            0,
+            True,
+        ),
+    ]
+
+    with pytest.raises(CaptureError) as caught:
+        sanitize_segments(segments)
+
+    assert caught.value.reason is FailureReason.IDENTITY
+
+
+def test_distinct_valid_identities_receive_distinct_synthetic_aliases() -> None:
+    segments = [
+        CapturedSegment("dongle_to_cloud", 100, 1.0, _c2(_read_request()), 0, True),
+        CapturedSegment(
+            "dongle_to_cloud",
+            200,
+            1.1,
+            _c2(
+                _read_request(identity=b"CANARYIV02"),
+                identity=b"CANARYDG02",
+            ),
+            1,
+            True,
+        ),
+    ]
+
+    frames = sanitize_segments(segments)["frames"]
+
+    assert [frame["identity"] for frame in frames] == ["SYNTHDG001", "SYNTHDG002"]
+    assert [frame["inner_identity"] for frame in frames] == [
+        "SYNTHIV001",
+        "SYNTHIV002",
+    ]
+
+
+def test_recursive_output_schema_rejects_unknown_nested_fields() -> None:
+    sanitized = sanitize_segments(_segments(_cloud_frame(0xC1, b"\x01")))
+    frames = cast(list[dict[str, object]], sanitized["frames"])
+    frames[0]["unexpected"] = "SYNTHETIC_ONLY"
+
+    with pytest.raises(CaptureError) as caught:
+        _validate_synthetic_output(sanitized)
+
+    assert caught.value.reason is FailureReason.SCHEMA
+
+
+@pytest.mark.parametrize("kind", ["directory", "symlink", "fifo", "socket"])
+def test_process_pcap_rejects_non_regular_and_linked_inputs(
+    tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    target = Path("input")
+    peer_socket: socket.socket | None = None
+    if kind == "directory":
+        target.mkdir()
+    elif kind == "symlink":
+        regular = Path("regular")
+        regular.write_bytes(b"safe")
+        target.symlink_to(regular)
+    elif kind == "fifo":
+        os.mkfifo(target)
+    else:
+        peer_socket = socket.socket(socket.AF_UNIX)
+        peer_socket.bind(str(target))
+    try:
+        with pytest.raises(CaptureError) as caught:
+            process_pcap(target)
+    finally:
+        if peer_socket is not None:
+            peer_socket.close()
+
+    assert caught.value.reason is FailureReason.INPUT_KIND
+
+
+def test_capture_size_limit_distinguishes_exact_boundary_and_one_over(
+    tmp_path: Path,
+) -> None:
+    capture_path = tmp_path / "capture"
+    capture_path.write_bytes(b"abcd")
+    with pytest.raises(CaptureError) as exact:
+        process_pcap(capture_path, ParserPolicy(maximum_capture_bytes=4))
+    assert exact.value.reason is FailureReason.MALFORMED
+
+    with pytest.raises(CaptureError) as overflow:
+        process_pcap(capture_path, ParserPolicy(maximum_capture_bytes=3))
+    assert overflow.value.reason is FailureReason.INPUT_SIZE
+
+
+@pytest.mark.parametrize("replacement_content", [b"abcd", b"abcde"])
+def test_process_pcap_rejects_file_identity_or_size_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replacement_content: bytes,
+) -> None:
+    capture_path = tmp_path / "capture"
+    replacement = tmp_path / "replacement"
+    capture_path.write_bytes(b"abcd")
+    replacement.write_bytes(replacement_content)
+    original_stat = os.stat
+
+    def changed_stat(
+        path: os.PathLike[str] | str, *, follow_symlinks: bool = True
+    ) -> os.stat_result:
+        if Path(path) == capture_path and not follow_symlinks:
+            return original_stat(replacement, follow_symlinks=False)
+        return original_stat(path, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(os, "stat", changed_stat)
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.INPUT_CHANGED
+
+
+def test_process_pcap_redacts_read_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture_path = tmp_path / "capture"
+    capture_path.write_bytes(b"synthetic")
+
+    def failed_read(descriptor: int, count: int) -> bytes:
+        raise OSError("synthetic read failure")
+
+    monkeypatch.setattr(os, "read", failed_read)
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.INPUT_CHANGED
+    assert str(caught.value) == "capture rejected: input_changed"
+
+
+def test_capture_rejects_unsupported_link_and_malformed_supported_packet(
+    tmp_path: Path,
+) -> None:
+    unsupported = tmp_path / "unsupported.pcap"
+    malformed = tmp_path / "malformed.pcap"
+    _write_capture(unsupported, [(1.0, b"synthetic")], link_type=147)
+    _write_capture(malformed, [(1.0, b"\x00")])
+
+    with pytest.raises(CaptureError) as unsupported_error:
+        process_pcap(unsupported)
+    with pytest.raises(CaptureError) as malformed_error:
+        process_pcap(malformed)
+
+    assert unsupported_error.value.reason is FailureReason.UNSUPPORTED_LINK
+    assert malformed_error.value.reason is FailureReason.MALFORMED
+
+
+def test_capture_distinguishes_irrelevant_traffic_from_decode_failure(
+    tmp_path: Path,
+) -> None:
+    packet_module = _dpkt()
+    udp = packet_module.udp.UDP(sport=1000, dport=1001, data=b"synthetic")
+    ip = packet_module.ip.IP(
+        src=b"\xc0\x00\x02\x01",
+        dst=b"\xc6\x33\x64\x01",
+        p=packet_module.ip.IP_PROTO_UDP,
+        data=udp,
+    )
+    ethernet = packet_module.ethernet.Ethernet(
+        src=b"\x02\x00\x00\x00\x00\x01",
+        dst=b"\x02\x00\x00\x00\x00\x02",
+        type=packet_module.ethernet.ETH_TYPE_IP,
+        data=ip,
+    )
+    capture_path = tmp_path / "irrelevant.pcap"
+    _write_capture(capture_path, [(1.0, bytes(ethernet))])
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.EMPTY
+
+
+def test_capture_rejects_midstream_payload_without_handshake(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    capture_path = tmp_path / "midstream.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (
+                1.0,
+                _ethernet_packet(
+                    _cloud_frame(0xC1, b"\x01"),
+                    sequence=100,
+                    flags=packet_module.tcp.TH_ACK,
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.TRUNCATED
+
+
+def test_capture_rejects_reverse_payload_without_syn_ack(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    capture_path = tmp_path / "missing-syn-ack.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(
+                    _cloud_frame(0xC1, b"\x01"),
+                    sequence=200,
+                    flags=packet_module.tcp.TH_ACK,
+                    cloud_to_dongle=True,
+                ),
+            ),
+        ],
+    )
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.TRUNCATED
+
+
+def test_capture_packet_count_and_size_limits_have_exact_boundaries(
+    tmp_path: Path,
+) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    syn = _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)
+    data = _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK)
+    capture_path = tmp_path / "bounded.pcap"
+    _write_capture(capture_path, [(1.0, syn), (1.1, data)])
+    exact = ParserPolicy(
+        maximum_packets=2, maximum_packet_bytes=max(len(syn), len(data))
+    )
+    assert process_pcap(capture_path, exact)["frames"]
+
+    with pytest.raises(CaptureError) as packet_count:
+        process_pcap(capture_path, ParserPolicy(maximum_packets=1))
+    with pytest.raises(CaptureError) as packet_size:
+        process_pcap(
+            capture_path,
+            ParserPolicy(maximum_packet_bytes=max(len(syn), len(data)) - 1),
+        )
+
+    assert packet_count.value.reason is FailureReason.CAPACITY
+    assert packet_size.value.reason is FailureReason.CAPACITY
+
+
+def test_output_uses_one_exclusive_write_and_removes_short_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    capture_path = tmp_path / "input.pcap"
+    output_path = tmp_path / "output.json"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
+            ),
+        ],
+    )
+    writes = 0
+
+    def short_write(descriptor: int, content: Buffer) -> int:
+        nonlocal writes
+        writes += 1
+        return max(0, len(memoryview(content)) - 1)
+
+    monkeypatch.setattr(os, "write", short_write)
+    assert (
+        main(
+            [
+                str(capture_path),
+                "--output",
+                str(output_path),
+                "--authorized-offline-input",
+            ]
+        )
+        == 2
+    )
+    output = capsys.readouterr()
+
+    assert writes == 1
+    assert not output_path.exists()
+    assert output.out == ""
+    assert output.err == "capture rejected: output\n"
+
+
+def test_output_success_is_one_write_and_existing_target_is_preserved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    packet_module = _dpkt()
+    capture_path = tmp_path / "input.pcap"
+    output_path = tmp_path / "output.json"
+    frame = _cloud_frame(0xC1, b"\x01")
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
+            ),
+        ],
+    )
+    original_write = os.write
+    writes = 0
+
+    def counted_write(descriptor: int, content: Buffer) -> int:
+        nonlocal writes
+        writes += 1
+        return original_write(descriptor, content)
+
+    monkeypatch.setattr(os, "write", counted_write)
+    arguments = [
+        str(capture_path),
+        "--output",
+        str(output_path),
+        "--authorized-offline-input",
+    ]
+    assert main(arguments) == 0
+    assert writes == 1
+    first_output = output_path.read_bytes()
+    assert main(arguments) == 2
+    capsys.readouterr()
+
+    assert output_path.read_bytes() == first_output
+    assert set(tmp_path.iterdir()) == {capture_path, output_path}
+
+
+def test_missing_dpkt_fails_closed_in_process_and_cli(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module_name = "decode_cloud_frames_without_optional_dependency"
+    script_path = Path(decoder_module.__file__)
+    spec = util.spec_from_file_location(module_name, script_path)
+    assert spec is not None and spec.loader is not None
+    loaded = util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, module_name, loaded)
+    monkeypatch.setitem(sys.modules, "dpkt", None)
+    spec.loader.exec_module(loaded)
+    isolated = cast(_DecoderModule, loaded)
+    capture_path = tmp_path / "SYNTHETIC_CANARY_INPUT"
+    output_path = tmp_path / "output.json"
+    capture_path.write_bytes(b"synthetic-only")
+
+    with pytest.raises(isolated.CaptureError) as caught:
+        isolated.process_pcap(capture_path)
+    assert str(caught.value) == "capture rejected: dependency"
+    assert (
+        isolated.main(
+            [
+                str(capture_path),
+                "--output",
+                str(output_path),
+                "--authorized-offline-input",
+            ]
+        )
+        == 2
+    )
+    output = capsys.readouterr()
+
+    assert output.out == ""
+    assert output.err == "capture rejected: dependency\n"
+    assert not output_path.exists()
+    assert "SYNTHETIC_CANARY_INPUT" not in output.err
