@@ -97,7 +97,7 @@
           "modbus_unit_id": "ID jednostki"
         },
         "data_description": {
-          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.168.1.100)",
+          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.0.2.10)",
           "modbus_port": "Port TCP (domyslnie: 502)",
           "modbus_unit_id": "ID slave Modbus (domyslnie: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "ID jednostki"
         },
         "data_description": {
-          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.168.1.100)",
+          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.0.2.10)",
           "modbus_port": "Port TCP (domyslnie: 502)",
           "modbus_unit_id": "ID slave Modbus (domyslnie: 1)"
         }

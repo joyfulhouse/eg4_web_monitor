@@ -153,10 +153,10 @@ class TestCoordinatorGridBossProcessing:
             },
         }
 
-        result = await coordinator._process_gridboss_data("9876543210", device_data)
+        result = await coordinator._process_gridboss_data("SYNTH10005", device_data)
 
         assert result["type"] == "gridboss"
-        assert result["serial"] == "9876543210"
+        assert result["serial"] == "SYNTH10005"
         assert "sensors" in result
 
 

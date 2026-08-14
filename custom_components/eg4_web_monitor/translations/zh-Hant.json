@@ -97,7 +97,7 @@
           "modbus_unit_id": "單元 ID"
         },
         "data_description": {
-          "modbus_host": "您的 RS485 轉乙太網路轉接器的 IP 位址（例如 192.168.1.100）",
+          "modbus_host": "您的 RS485 轉乙太網路轉接器的 IP 位址（例如 192.0.2.10）",
           "modbus_port": "TCP 連接埠（預設：502）",
           "modbus_unit_id": "Modbus 從站 ID（預設：1）"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "單元 ID"
         },
         "data_description": {
-          "modbus_host": "您的 RS485 轉乙太網路轉接器的 IP 位址（例如 192.168.1.100）",
+          "modbus_host": "您的 RS485 轉乙太網路轉接器的 IP 位址（例如 192.0.2.10）",
           "modbus_port": "TCP 連接埠（預設：502）",
           "modbus_unit_id": "Modbus 從站 ID（預設：1）"
         }

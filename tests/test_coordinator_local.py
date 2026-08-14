@@ -77,7 +77,7 @@ def local_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "INV001",
-                    "host": "192.168.1.100",
+                    "host": "192.0.2.10",
                     "port": 502,
                     "transport_type": "modbus_tcp",
                     "inverter_family": "EG4_HYBRID",
@@ -109,7 +109,7 @@ def hybrid_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "INV001",
-                    "host": "192.168.1.100",
+                    "host": "192.0.2.10",
                     "port": 502,
                     "transport_type": "modbus_tcp",
                     "inverter_family": "EG4_HYBRID",
@@ -1074,7 +1074,7 @@ class TestPerDeviceParamRetry:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": self.SERIAL_A,
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -1082,7 +1082,7 @@ class TestPerDeviceParamRetry:
                     },
                     {
                         "serial": self.SERIAL_B,
-                        "host": "192.168.1.101",
+                        "host": "192.0.2.18",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",
@@ -1332,7 +1332,7 @@ class TestHasLocalRegisterPath:
                 CONF_PLANT_NAME: "Test",
                 CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
                 # DEPRECATED flat keys — deliberately no CONF_LOCAL_TRANSPORTS
-                CONF_MODBUS_HOST: "192.168.1.50",
+                CONF_MODBUS_HOST: "192.0.2.14",
                 CONF_INVERTER_SERIAL: "1234567890",
             },
             options={},
@@ -1394,7 +1394,7 @@ class TestBuildLocalDeviceData:
         # _transport is the network CONNECTION object (Modbus/Dongle socket), not
         # a pylxpweb data model — a real one needs a live socket.  It is an infra
         # mock by design; transport_host is connection metadata, not device data.
-        inverter._transport = make_transport_spec(host="192.168.1.100")
+        inverter._transport = make_transport_spec(host="192.0.2.10")
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
@@ -1413,7 +1413,7 @@ class TestBuildLocalDeviceData:
         assert result["serial"] == "INV001"
         assert result["firmware_version"] == "ARM-1.0"
         assert result["sensors"]["firmware_version"] == "ARM-1.0"
-        assert result["sensors"]["transport_host"] == "192.168.1.100"
+        assert result["sensors"]["transport_host"] == "192.0.2.10"
         assert result["batteries"] == {}
 
     async def test_includes_energy_data(self, hass, local_config_entry):
@@ -1853,10 +1853,10 @@ class TestFinishAttachRecovery:
             patch.object(coordinator, "_refresh_device_parameters", side_effect=reload),
         ):
             await coordinator._finish_attach_recovery(
-                [MagicMock()], ["1234567890", "9876543210"]
+                [MagicMock()], ["1234567890", "SYNTH10005"]
             )
 
-        assert calls == ["drain:1", "reload:1234567890", "reload:9876543210"]
+        assert calls == ["drain:1", "reload:1234567890", "reload:SYNTH10005"]
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
@@ -1878,20 +1878,20 @@ class TestFinishAttachRecovery:
         coordinator.data = {
             "parameters": {
                 "1234567890": {"HOLD_AC_CHARGE_POWER_CMD": 12},
-                "9876543210": {"HOLD_AC_CHARGE_POWER_CMD": 12},
+                "SYNTH10005": {"HOLD_AC_CHARGE_POWER_CMD": 12},
             }
         }
         with patch.object(
             coordinator, "_refresh_device_parameters", side_effect=reload
         ):
-            await coordinator._finish_attach_recovery([], ["1234567890", "9876543210"])
+            await coordinator._finish_attach_recovery([], ["1234567890", "SYNTH10005"])
 
-        assert reloaded == ["9876543210"]
+        assert reloaded == ["SYNTH10005"]
         # Both serials were pre-blanked; the successful reload repopulated
         # its serial (raw), the failed one stays unknown rather than
         # 10x-wrong.
         assert coordinator.data["parameters"]["1234567890"] == {}
-        assert coordinator.data["parameters"]["9876543210"] == {
+        assert coordinator.data["parameters"]["SYNTH10005"] == {
             "HOLD_AC_CHARGE_POWER_CMD": 25
         }
 
@@ -2118,7 +2118,7 @@ class TestAttachSerialTransports:
         tcp_dict = {
             "serial": "INV002",
             "transport_type": "modbus_tcp",
-            "host": "192.168.1.100",
+            "host": "192.0.2.10",
             "port": 502,
             "unit_id": 1,
             "inverter_family": "EG4_HYBRID",
@@ -2431,7 +2431,7 @@ class TestAsyncUpdateLocalDataEdgeCases:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         # Missing serial
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                     },
@@ -2610,7 +2610,7 @@ class TestSharedBatterySecondary:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "PRIMARY001",
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2620,7 +2620,7 @@ class TestSharedBatterySecondary:
                     },
                     {
                         "serial": "SECONDARY01",
-                        "host": "192.168.1.101",
+                        "host": "192.0.2.18",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2678,7 +2678,7 @@ class TestSharedBatterySecondary:
             {
                 "serial": "6000123456",
                 "transport_type": "modbus_tcp",
-                "host": "192.168.1.50",
+                "host": "192.0.2.14",
                 "port": 502,
                 "model": "6000XP",
                 "inverter_family": "UNKNOWN",
@@ -2757,9 +2757,7 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(
-            is_connected=True, host="192.168.1.101"
-        )
+        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.18")
 
         # Pre-populate caches
         coordinator._inverter_cache["SECONDARY01"] = inverter
@@ -2832,9 +2830,7 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("PRIMARY001", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(
-            is_connected=True, host="192.168.1.100"
-        )
+        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
 
         coordinator._inverter_cache["PRIMARY001"] = inverter
         coordinator._firmware_cache["PRIMARY001"] = "FAAB-2525"
@@ -2892,7 +2888,7 @@ class TestSharedBatterySecondary:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "STANDALONE1",
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2929,9 +2925,7 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("STANDALONE1", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(
-            is_connected=True, host="192.168.1.100"
-        )
+        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
 
         coordinator._inverter_cache["STANDALONE1"] = inverter
         coordinator._firmware_cache["STANDALONE1"] = "FAAB-2525"
@@ -2975,7 +2969,7 @@ class TestBatteryBankCountSuppression:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": serial,
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3008,9 +3002,7 @@ class TestBatteryBankCountSuppression:
         inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(
-            is_connected=True, host="192.168.1.100"
-        )
+        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
         return inverter
 
     async def test_secondary_no_battery_bank_sensors(self, hass):
@@ -3085,7 +3077,7 @@ class TestBatteryBankCountSuppression:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "PRIMARY001",
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3095,7 +3087,7 @@ class TestBatteryBankCountSuppression:
                     },
                     {
                         "serial": "SECONDARY01",
-                        "host": "192.168.1.101",
+                        "host": "192.0.2.18",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3177,7 +3169,7 @@ class TestBatteryRRCacheFallback:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": serial,
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 8899,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",
@@ -3211,9 +3203,7 @@ class TestBatteryRRCacheFallback:
         inverter = make_real_inverter("DONGLE001", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(
-            is_connected=True, host="192.168.1.100"
-        )
+        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
         return inverter
 
     async def test_cache_fallback_when_batteries_empty_this_poll(
@@ -3545,7 +3535,7 @@ class TestCanonicalAbsentPredicateInRRMerge:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": serial,
-                        "host": "192.168.1.100",
+                        "host": "192.0.2.10",
                         "port": 8899,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",

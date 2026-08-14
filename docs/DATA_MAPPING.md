@@ -737,7 +737,7 @@ per boundary). Cloud param names take the window suffix
 `HOLD_AC_CHARGE_START_HOUR_2` + `HOLD_AC_CHARGE_START_MINUTE_2`.
 
 > **Evidence for the packed layout and cloud naming**: the live cloud
-> register probes (pylxpweb `docs/inverters/FlexBOSS21_52XXXXXX78.json` for
+> register probes (pylxpweb `docs/inverters/FlexBOSS21_SYNTH10004.json` for
 > 68-73, `SNA12KUS_52XXXXXX68.json` blocks 106-111 for 152-157) read each
 > register individually and get **two** named params back per register —
 > the hour *and* the minute — with window 1 unsuffixed and windows 2/3
@@ -911,8 +911,8 @@ per boundary). Cloud param names take the window suffix
 > `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
 > [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) was **pinned to
 > bit 3** on 2026-06-12 (~16:05–16:07 PT) via authorized live cloud toggles
-> raw-verified on BOTH 12K-hybrid models: FlexBOSS21 52842P0581 and 18kPV
-> 4512670118 each toggled the reg-179 raw frame `0x104c` ↔ `0x1044` (XOR `0x0008`
+> raw-verified on BOTH 12K-hybrid models: FlexBOSS21 SYNTH00003 and 18kPV
+> SYNTH00004 each toggled the reg-179 raw frame `0x104c` ↔ `0x1044` (XOR `0x0008`
 > = single bit 3) in lockstep with the named parameter, restores verified by
 > re-read (`remoteRead` valueFrame, base64 LE uint16). With pylxpweb ≥ 0.9.36b6
 > the switch works in ALL modes: local-raw parameter caches decode the bit by
@@ -1262,9 +1262,9 @@ authoritative about which strings exist.
 
 Live validation against plant 19147 on 2026-08-01 confirms the fields and scale:
 
-- 18kPV `4512670118`: lifetime strings `1471.8 + 527.5 + 98.4 = 2097.7`
+- 18kPV `SYNTH00004`: lifetime strings `1471.8 + 527.5 + 98.4 = 2097.7`
   kWh, exactly matching `getInverterEnergyInfo.totalYieldingText = "2097.7"`.
-- FlexBOSS21 `52842P0581`: lifetime strings
+- FlexBOSS21 `SYNTH00003`: lifetime strings
   `2731.5 + 4481.4 + 4.8 = 7217.7` kWh versus aggregate raw
   `totalYielding = 72216` (`7221.6` kWh), a 0.054% difference (approximately
   0.05%).

@@ -2,7 +2,7 @@
 
 **Generated from**: EG4 18kPV ARM Cortex-M4 firmware decompilation
 **Firmware file**: `18kpv_FAAB-27xx_20260330_App.bin`
-**Live dump devices**: 18kPV (192.0.2.26), FlexBOSS21 (192.0.2.27)
+**Live dump endpoints**: runtime-configured; not recorded
 
 ---
 

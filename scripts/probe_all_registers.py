@@ -567,7 +567,7 @@ def run_probe() -> ProbeResults:
     # Connect to both devices
     clients: dict[str, ModbusTcpClient] = {}
     for name, cfg in DEVICES.items():
-        print(f"Connecting to configured {name} endpoint...")
+        print(f"Connecting to {name} at {cfg['host']}:{cfg['port']}...")
         client = ModbusTcpClient(cfg["host"], port=cfg["port"], timeout=TIMEOUT)
         if not client.connect():
             results.errors.append(f"Failed to connect to {name}")
@@ -772,7 +772,7 @@ def generate_markdown(results: ProbeResults) -> Path:
     lines.append("")
     lines.append(f"**Probe date**: {results.timestamp}")
     lines.append("**Firmware**: fAAB-2727 (both devices)")
-    lines.append("**Devices**: 18kPV (192.0.2.46:502), FlexBOSS21 (192.0.2.47:502)")
+    lines.append("**Endpoints**: runtime-configured; not recorded in this report")
     lines.append("")
 
     # Summary

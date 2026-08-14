@@ -97,7 +97,7 @@
           "modbus_unit_id": "ID da Unidade"
         },
         "data_description": {
-          "modbus_host": "Endereço IP do seu adaptador RS485-para-Ethernet (ex.: 192.168.1.100)",
+          "modbus_host": "Endereço IP do seu adaptador RS485-para-Ethernet (ex.: 192.0.2.10)",
           "modbus_port": "Porta TCP (padrão: 502)",
           "modbus_unit_id": "ID escravo Modbus (padrão: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "ID da Unidade"
         },
         "data_description": {
-          "modbus_host": "Endereço IP do seu adaptador RS485-para-Ethernet (ex.: 192.168.1.100)",
+          "modbus_host": "Endereço IP do seu adaptador RS485-para-Ethernet (ex.: 192.0.2.10)",
           "modbus_port": "Porta TCP (padrão: 502)",
           "modbus_unit_id": "ID escravo Modbus (padrão: 1)"
         }

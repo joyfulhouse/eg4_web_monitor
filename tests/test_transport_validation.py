@@ -124,7 +124,7 @@ class TestTransportFactories:
         from pylxpweb.transports import create_modbus_transport
 
         transport = create_modbus_transport(
-            host="192.168.1.100",
+            host="192.0.2.10",
             port=502,
             serial="CE12345678",
         )
@@ -140,7 +140,7 @@ class TestTransportFactories:
         from pylxpweb.transports import create_dongle_transport
 
         transport = create_dongle_transport(
-            host="192.168.1.100",
+            host="192.0.2.10",
             dongle_serial="BA12345678",
             inverter_serial="CE12345678",
         )

@@ -132,8 +132,8 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
     },
     # Export PV Only (FUNC_PV_SELL_TO_GRID_EN, GH #135) — register 179
     # bit 3, pinned 2026-06-12 via authorized live cloud toggles
-    # raw-verified on BOTH 12K-hybrid models (FlexBOSS21 52842P0581 and
-    # 18kPV 4512670118: reg-179 raw 0x104c <-> 0x1044, single bit 3,
+    # raw-verified on BOTH 12K-hybrid models (FlexBOSS21 SYNTH00003 and
+    # 18kPV SYNTH00004: reg-179 raw 0x104c <-> 0x1044, single bit 3,
     # restores verified by re-read). Local read/write resolves through
     # pylxpweb's register map from 0.9.36b6 on; against older installs the
     # switch.py setup probe keeps it cloud-only.
@@ -214,7 +214,7 @@ WORKING_MODES: dict[str, dict[str, Any]] = {
     #     exactly as GH #471's AC Couple switch reasoned. NEVER family-gate
     #     (#490).
     #   - Reg-179 bit 15 pinned (GH #559): hardware-toggle-proven 2026-08-12
-    #     on FlexBOSS21 52842P0581 — portal toggle flipped local raw 0x1048
+    #     on FlexBOSS21 SYNTH00003 — portal toggle flipped local raw 0x1048
     #     -> 0x9048 (XOR exactly 0x8000), clean restore verified cloud and
     #     local. (Originally app-write-path-proven 2026-08-11 via the EG4
     #     mobile app's name->bit resolver, 4-for-4 against anchors bits

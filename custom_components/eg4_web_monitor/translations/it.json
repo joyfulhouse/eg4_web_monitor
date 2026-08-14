@@ -97,7 +97,7 @@
           "modbus_unit_id": "ID Unita"
         },
         "data_description": {
-          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.168.1.100)",
+          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.0.2.10)",
           "modbus_port": "Porta TCP (predefinita: 502)",
           "modbus_unit_id": "ID slave Modbus (predefinito: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "ID Unita"
         },
         "data_description": {
-          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.168.1.100)",
+          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.0.2.10)",
           "modbus_port": "Porta TCP (predefinita: 502)",
           "modbus_unit_id": "ID slave Modbus (predefinito: 1)"
         }

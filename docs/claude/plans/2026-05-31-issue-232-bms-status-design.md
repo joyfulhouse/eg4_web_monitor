@@ -125,7 +125,7 @@ can expose the same attributes the local `BatteryBankData` does.
   cloud booleans disagree (operationalises the cloud-as-arbiter confirmation).
 - **Live confirmation (DONE 2026-05-31)** — `scratchpad/confirm_reg95_vs_cloud.py`
   read reg 95 over Modbus from both hybrid inverters and compared the decode to
-  the cloud booleans: 18kPV `4512670118` and FlexBOSS21 `52842P0581` both read
+  the cloud booleans: 18kPV `SYNTH00004` and FlexBOSS21 `SYNTH00003` both read
   `reg95=0x03` → `(charge, discharge, force)=(True, True, False)`, **exactly
   matching** `bmsCharge/bmsDischarge/bmsForceCharge` from the cloud API. ✅
 - Integration tests: mapping (cloud+local), static-key contract, sensor

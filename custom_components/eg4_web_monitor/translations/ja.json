@@ -97,7 +97,7 @@
           "modbus_unit_id": "ユニットID"
         },
         "data_description": {
-          "modbus_host": "RS485-イーサネットアダプターのIPアドレス（例：192.168.1.100）",
+          "modbus_host": "RS485-イーサネットアダプターのIPアドレス（例：192.0.2.10）",
           "modbus_port": "TCPポート（デフォルト：502）",
           "modbus_unit_id": "ModbusスレーブID（デフォルト：1）"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "ユニットID"
         },
         "data_description": {
-          "modbus_host": "RS485-イーサネットアダプターのIPアドレス（例：192.168.1.100）",
+          "modbus_host": "RS485-イーサネットアダプターのIPアドレス（例：192.0.2.10）",
           "modbus_port": "TCPポート（デフォルト：502）",
           "modbus_unit_id": "ModbusスレーブID（デフォルト：1）"
         }

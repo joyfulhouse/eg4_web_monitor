@@ -1311,7 +1311,7 @@ _WORKING_MODE_PARAMETERS: dict[str, str | None] = {
     "FUNC_CHARGE_LAST": PARAM_FUNC_CHARGE_LAST,
     # Register 179, bit 3 (GH #135) — pinned 2026-06-12 via authorized live
     # cloud toggles raw-verified on BOTH 12K-hybrid models (FlexBOSS21
-    # 52842P0581 and 18kPV 4512670118: reg-179 raw 0x104c <-> 0x1044, XOR
+    # SYNTH00003 and 18kPV SYNTH00004: reg-179 raw 0x104c <-> 0x1044, XOR
     # 0x0008 = single bit 3, restores verified by re-read).  Requires
     # pylxpweb >= 0.9.36b6 for the name to resolve locally; older installs
     # are handled by the _local_params_can_carry() setup gate.

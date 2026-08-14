@@ -8,7 +8,7 @@ the WiFi dongle and the cloud ingestion server — no separate HTTP download or 
 connections are established.
 
 **Capture date**: 2026-04-13
-**Devices upgraded**: EG4 18kPV (serial SYNTH00001), EG4 FlexBOSS21 (serial SYNTH00003)
+**Devices upgraded**: EG4 18kPV (serial SYNTH00004), EG4 FlexBOSS21 (serial SYNTH00003)
 **Firmware version**: fAAB-2525 → fAAB-2727
 
 ## Network Architecture
@@ -20,13 +20,13 @@ EG4 Cloud Server (192.0.2.2:4346)
         │  (same connection used for normal polling)
         │
    ┌────┴────┐
-   │  WiFi   │  dongle serial: SYNTH00005 (18kPV)
-   │  Dongle │  dongle serial: SYNTH00004 (FlexBOSS21)
+   │  WiFi   │  dongle serial: BC34000380 (18kPV)
+   │  Dongle │  dongle serial: BC33600194 (FlexBOSS21)
    └────┬────┘
         │  RS485 / internal bus
         │
    ┌────┴────┐
-   │Inverter │  inverter serial: SYNTH00001 / SYNTH00003
+   │Inverter │  inverter serial: SYNTH00004 / SYNTH00003
    └─────────┘
 ```
 
@@ -45,10 +45,10 @@ gateway. Captures are performed via SSH to the UDM running tcpdump.
 
 ```bash
 # SSH to UDM and start capture (no timeout, no port filter)
-ssh root@192.0.2.3 "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
+ssh root@192.0.2.19 "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
 
 # Download when complete
-scp root@192.0.2.4:/tmp/capture.pcap .
+scp root@192.0.2.19:/tmp/capture.pcap .
 ```
 
 Key flags:
@@ -63,13 +63,13 @@ Key flags:
 
 ```bash
 # Verify connectivity (dry run)
-./scripts/capture_firmware_upgrade.sh --ip 192.0.2.5 --verify
+./scripts/capture_firmware_upgrade.sh --ip 192.0.2.11 --verify
 
 # Start capture (runs until Ctrl+C)
-./scripts/capture_firmware_upgrade.sh --ip 192.0.2.6
+./scripts/capture_firmware_upgrade.sh --ip 192.0.2.11
 
 # With auto-stop duration
-./scripts/capture_firmware_upgrade.sh --ip 192.0.2.7 --duration 1800
+./scripts/capture_firmware_upgrade.sh --ip 192.0.2.11 --duration 1800
 ```
 
 ### SLL2 Deduplication
@@ -92,7 +92,7 @@ Offset  Size  Field
 4       2     Frame length (uint16 LE) — total_size - 6
 6       1     Address byte
 7       1     Function code (0xC1=heartbeat, 0xC2=data)
-8       10    Dongle serial (ASCII, e.g., "SYNTH00005")
+8       10    Dongle serial (ASCII, e.g., "BC34000380")
 18      N     Payload (function-specific)
 ```
 
@@ -107,7 +107,7 @@ Offset  Size  Field
 0       2     Modbus data length (uint16 LE)
 2       1     Slave address (always 0)
 3       1     Modbus function code
-4       10    Inverter serial (ASCII, e.g., "SYNTH00001")
+4       10    Inverter serial (ASCII, e.g., "SYNTH00004")
 14      2     Start register / sequence number (uint16 LE)
 16      N     Function-specific data
 ```
@@ -338,11 +338,12 @@ custom dongle IPs, and optional duration limits.
 
 | Device | Dongle Serial | Dongle IP | Dongle MAC | Inverter Serial | Cloud Server |
 |--------|--------------|-----------|------------|-----------------|-------------|
-| 18kPV | SYNTH00005 | 192.0.2.8 | 02:00:00:00:00:01 | SYNTH00001 | 192.0.2.9:4346 |
-| FlexBOSS21 | SYNTH00004 | 192.0.2.10 | 02:00:00:00:00:02 | SYNTH00003 | 192.0.2.11:4346 |
-| GridBOSS | SYNTH00006 | 192.0.2.12 | 02:00:00:00:00:03 | SYNTH00002 | 192.0.2.13:4346 |
+| 18kPV | BC34000380 | 192.0.2.11 | 02:00:00:00:00:02 | SYNTH00001 | 192.0.2.9:4346 |
+| FlexBOSS21 | BC33600194 | 192.0.2.16 | 02:00:00:00:00:01 | SYNTH00003 | 192.0.2.11:4346 |
+| GridBOSS | SYNTH00001 | 192.0.2.15 | 02:00:00:00:00:03 | SYNTH00002 | 192.0.2.13:4346 |
 
-MAC prefixes: `00:30:60` and `00:30:6a` are WIZnet (W7500 chip), `b0:81:84` is Espressif (ESP32).
+The observed MAC vendor assignments identify WIZnet (W7500 chip) and Espressif
+(ESP32) hardware; deployment-specific prefix bytes are intentionally omitted.
 
 ## Open Questions
 

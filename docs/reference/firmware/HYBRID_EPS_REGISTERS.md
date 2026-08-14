@@ -204,8 +204,8 @@ the counter hypothesis from a working sensor; only the firmware does.**
 ### Exposed today — `eps_apparent_power_l2` (register 132)
 
 ```
-sensor.18kpv_4512670118_eps_apparent_power_l2         0 VA
-sensor.flexboss21_52842p0581_eps_apparent_power_l2    0 VA
+sensor.18kpv_SYNTH00004_eps_apparent_power_l2         0 VA
+sensor.flexboss21_SYNTH00003_eps_apparent_power_l2    0 VA
 ```
 
 Four such entities exist on the maintainer's system. They are backed by a counter. Once the

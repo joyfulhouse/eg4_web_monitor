@@ -346,7 +346,7 @@ def build_register_map(
     lines.append("")
     lines.append("**Generated from**: EG4 18kPV ARM Cortex-M4 firmware decompilation")
     lines.append("**Firmware file**: `18kpv_FAAB-27xx_20260330_App.bin`")
-    lines.append("**Live dump devices**: 18kPV (192.0.2.42), FlexBOSS21 (192.0.2.43)")
+    lines.append("**Live dump endpoints**: runtime-configured; not recorded")
     lines.append("")
     lines.append("---")
     lines.append("")

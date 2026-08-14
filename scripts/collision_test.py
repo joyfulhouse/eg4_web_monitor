@@ -124,8 +124,8 @@ async def read_registers(
         return (label, False, "timeout")
     except ConnectionRefusedError:
         return (label, False, "connection refused")
-    except Exception:
-        return (label, False, "unexpected network error")
+    except Exception as err:
+        return (label, False, f"error: {err}")
 
 
 async def run_collision_round(
@@ -189,7 +189,7 @@ async def main(
     rounds: int,
 ) -> None:
     print("=== Modbus Collision Test ===")
-    print("Targets supplied for two inverters and one dongle")
+    print(f"Targets: INV1={inverter_1}, INV2={inverter_2}, DONGLE={dongle}")
     print(f"Rounds: {rounds}, parallel reads per round: ~{len(INPUT_REGS) * 2 + 4}")
     print("=" * 60)
 

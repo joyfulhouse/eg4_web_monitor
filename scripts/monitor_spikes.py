@@ -115,12 +115,9 @@ def fetch_states(token: str, base_url: str) -> dict[str, str]:
     return {s["entity_id"]: s["state"] for s in data}
 
 
-def _sensor_label(sensor: str, serials: tuple[str, ...]) -> str:
-    """Return a log-safe label with runtime identities removed."""
-    label = sensor
-    for serial in serials:
-        label = label.replace(serial, "device")
-    return label
+def _sensor_label(sensor: str) -> str:
+    """Return the operator-facing entity label for diagnostics."""
+    return sensor.split(".")[-1]
 
 
 def main(
@@ -151,8 +148,8 @@ def main(
         now = datetime.now().strftime("%H:%M:%S")
         try:
             states = fetch_states(token, base_url)
-        except Exception:
-            print(f"[{now}] FETCH ERROR")
+        except Exception as err:
+            print(f"[{now}] FETCH ERROR: {err}")
             time.sleep(POLL_INTERVAL)
             continue
 
@@ -163,9 +160,7 @@ def main(
             val_str = states.get(sensor, "missing")
             if val_str in ("unavailable", "unknown", "missing"):
                 if val_str != "missing":
-                    unavail_this_poll.append(
-                        f"{_sensor_label(sensor, serials)}={val_str}"
-                    )
+                    unavail_this_poll.append(f"{_sensor_label(sensor)}={val_str}")
                 continue
 
             try:
@@ -179,7 +174,7 @@ def main(
                 threshold = get_threshold(sensor)
                 if delta > threshold:
                     spike_count += 1
-                    short = _sensor_label(sensor, serials)
+                    short = _sensor_label(sensor)
                     msg = f"SPIKE #{spike_count}: {short}: {prev} -> {val} (delta={delta:.1f}, threshold={threshold})"
                     spikes_this_poll.append(msg)
 

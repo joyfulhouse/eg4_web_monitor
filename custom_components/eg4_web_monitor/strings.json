@@ -97,7 +97,7 @@
           "modbus_unit_id": "Unit ID"
         },
         "data_description": {
-          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.0.2.10)",
           "modbus_port": "TCP port (default: 502)",
           "modbus_unit_id": "Modbus slave ID (default: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "Unit ID"
         },
         "data_description": {
-          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.168.1.100)",
+          "modbus_host": "IP address of your RS485-to-Ethernet adapter (e.g., 192.0.2.10)",
           "modbus_port": "TCP port (default: 502)",
           "modbus_unit_id": "Modbus slave ID (default: 1)"
         }

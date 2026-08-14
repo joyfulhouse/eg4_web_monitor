@@ -99,7 +99,7 @@ async def probe(
 
     try:
         await transport.connect()
-        print("Connected to configured GridBOSS endpoint")
+        print(f"Connected to GridBOSS endpoint at {host}:{port}")
         print()
 
         # =====================================================================
@@ -164,8 +164,8 @@ async def probe(
                     print(f"  Reg {addr:3d}: raw={val:5d}  (÷10 → {energy_16:.1f})")
             if all(v == 0 for v in gap_regs):
                 print("  All zero — no generator energy here")
-        except Exception:
-            print("  Read error")
+        except Exception as err:
+            print(f"  Read error: {err}")
 
         print()
 
@@ -184,8 +184,8 @@ async def probe(
                     print(f"  Reg {addr:3d}: raw={val:5d}  (÷10 → {val / 10:.1f})")
             if all(v == 0 for v in unk_regs):
                 print("  All zero — no data here")
-        except Exception:
-            print("  Read error")
+        except Exception as err:
+            print(f"  Read error: {err}")
 
         print()
 
@@ -239,8 +239,8 @@ async def probe(
         else:
             print("  Registers are zero — hypothesis may be wrong.")
 
-    except Exception:
-        print("Probe failed")
+    except Exception as err:
+        print(f"Probe failed: {err}")
         raise
     finally:
         await transport.disconnect()

@@ -70,6 +70,8 @@ echo "============================================"
 echo "  EG4 Firmware Upgrade Packet Capture"
 echo "============================================"
 echo ""
+echo "  Dongle IP:     $DONGLE_IP"
+echo "  UDM Gateway:   ${UDM_USER}@${UDM_HOST}"
 echo "  Remote pcap:   $REMOTE_PCAP"
 echo "  Local pcap:    $LOCAL_PCAP"
 if [[ -n "$DURATION" ]]; then
@@ -82,7 +84,7 @@ echo ""
 # --- Step 1: Verify SSH connectivity ---
 echo "[1/4] Verifying SSH to UDM..."
 if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "${UDM_USER}@${UDM_HOST}" "echo ok" >/dev/null 2>&1; then
-    echo "  FAIL: Cannot SSH to configured gateway"
+    echo "  FAIL: Cannot SSH to ${UDM_USER}@${UDM_HOST}"
     echo "  Ensure SSH key is configured for the UDM."
     exit 1
 fi
@@ -99,7 +101,7 @@ echo "  OK ($TCPDUMP_PATH)"
 
 # --- Step 3: Verify dongle is reachable (traffic exists) ---
 echo "[3/4] Verifying dongle traffic is visible from UDM..."
-echo "  Capturing 5 seconds of configured dongle traffic..."
+echo "  Capturing 5 seconds of traffic from $DONGLE_IP..."
 
 # tcpdump prints a summary line even with 0 packets; check actual count
 VERIFY_PACKETS=$(printf '%s\n' "$DONGLE_IP" | ssh "${UDM_USER}@${UDM_HOST}" \
@@ -109,7 +111,7 @@ VERIFY_PACKETS=$(printf '%s\n' "$DONGLE_IP" | ssh "${UDM_USER}@${UDM_HOST}" \
 if [[ "$VERIFY_PACKETS" -gt 0 ]]; then
     echo "  OK: Captured $VERIFY_PACKETS packets in 5 seconds"
 else
-    echo "  WARNING: No packets seen from configured dongle in 5 seconds"
+    echo "  WARNING: No packets seen from $DONGLE_IP in 5 seconds"
     echo "  The dongle may be idle. This is OK if it wakes up during firmware upgrade."
     echo "  Continuing anyway..."
 fi
@@ -129,7 +131,7 @@ if $VERIFY_ONLY; then
     echo "============================================"
     echo ""
     echo "  To start capture, run:"
-    echo "    ./scripts/capture_firmware_upgrade.sh"
+    echo "    ./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP"
     exit 0
 fi
 
@@ -138,7 +140,7 @@ echo "============================================"
 echo "  STARTING CAPTURE"
 echo "============================================"
 echo ""
-echo "  Filter: configured dongle host (ALL ports, ALL protocols)"
+echo "  Filter: host $DONGLE_IP (ALL ports, ALL protocols)"
 echo "  Snap length: 65535 (full packets)"
 echo ""
 echo "  >>> Trigger the firmware upgrade now. <<<"
@@ -191,7 +193,8 @@ cleanup() {
         echo "  Remote file cleaned up."
     else
         echo "  FAIL: Could not download pcap."
-        echo "  The remote capture file may require manual recovery."
+        echo "  File may still be on UDM at: $REMOTE_PCAP"
+        echo "  Manual download: scp ${UDM_USER}@${UDM_HOST}:${REMOTE_PCAP} ."
     fi
 
     echo ""

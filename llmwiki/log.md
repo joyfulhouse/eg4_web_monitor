@@ -294,7 +294,7 @@ Release cut for v3.5.1-beta.11 (pylxpweb 0.9.39b11 on PyPI). Two operations:
    minimum: portal named toggle of Grid Always On flipped the local raw reg-179
    read 0x1048 → 0x9048 (single-bit XOR exactly 0x8000 = bit 15), and the restore
    returned 0x1048, verified via both cloud and local reads, on FlexBOSS21
-   52842P0581. `40-hardware/registers.md` H179 b15 re-graded
+   SYNTH00003. `40-hardware/registers.md` H179 b15 re-graded
    `app-write-path-proven` → `hardware-toggle-proven`, scoped to the tested unit
    (component firmware unrecorded); the app-resolver lineage is retained in the
    row as history and still carries the family-wide extension. Accounting ledger
@@ -448,3 +448,10 @@ complete live-use unresolved set to issue `eg4-asjv`; removed an issue citation 
 contained an early single-client hypothesis; and made parser memory, queue policy,
 session-expiry observation, local-only soak and per-field portal parity numerically
 testable.
+
+## [2026-08-13] lint | Deployment identities removed from the tracked wiki frame
+
+Replaced deployment-specific identifiers in the affected integration and hardware pages
+with stable synthetic identities. The repository guard now derives its text frame from
+Git-tracked files and reports only path and category, so future findings cannot disclose
+the matched value. Issue `eg4-jhto` and draft PR #575 own the remediation record.

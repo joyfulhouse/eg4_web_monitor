@@ -18,13 +18,13 @@ _PATCH_DISCOVER_MODBUS = (
 _MOCK_ADAPTERS = [
     {
         "enabled": True,
-        "ipv4": [{"address": "192.168.1.100", "network_prefix": 24}],
+        "ipv4": [{"address": "192.0.2.10", "network_prefix": 24}],
     }
 ]
 
 
 def _make_scan_result(
-    ip: str = "192.168.1.50",
+    ip: str = "192.0.2.14",
     port: int = 502,
     device_type_name: str = "MODBUS_VERIFIED",
     serial: str | None = "4512345678",
@@ -160,7 +160,7 @@ class TestNetworkScanResults:
 
     async def test_select_modbus_device_prefills_form(self, hass: HomeAssistant):
         """Selecting a Modbus device pre-fills the modbus form."""
-        mock_result = _make_scan_result(ip="192.168.1.50", port=502)
+        mock_result = _make_scan_result(ip="192.0.2.14", port=502)
 
         mock_scanner_instance = MagicMock()
 
@@ -183,19 +183,19 @@ class TestNetworkScanResults:
             # Select the discovered device → pre-fills modbus form → calls discover
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
-                {"device": "192.168.1.50"},
+                {"device": "192.0.2.14"},
             )
 
         # The modbus step should have been called with pre-filled IP
         assert mock_discover.called
         call_args = mock_discover.call_args
-        assert call_args[0][0] == "192.168.1.50"
+        assert call_args[0][0] == "192.0.2.14"
         assert call_args[0][1] == 502
 
     async def test_scan_finds_dongle_candidate(self, hass: HomeAssistant):
         """Scan finds a dongle candidate → shows results."""
         mock_result = _make_scan_result(
-            ip="192.168.1.100",
+            ip="192.0.2.10",
             port=8000,
             device_type_name="DONGLE_CANDIDATE",
             serial=None,
@@ -316,7 +316,7 @@ class TestDiscoveryModelInfo:
         )
 
         transport = self._make_transport(device_type_code=2092, power_rating=6)
-        device = await _read_device_info_from_transport(transport, "4512670118")
+        device = await _read_device_info_from_transport(transport, "SYNTH00004")
 
         assert device.model == "18KPV"
 

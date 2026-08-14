@@ -45,8 +45,8 @@ from custom_components.eg4_web_monitor.services import async_fetch_events
 from custom_components.eg4_web_monitor.utils import normalize_event_row
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
-INVERTER_SERIAL = "SYNTH00122"
-GRIDBOSS_SERIAL = "SYNTH00109"
+INVERTER_SERIAL = "1234567890"
+GRIDBOSS_SERIAL = "SYNTH00002"
 
 # Row shape live-validated against the portal 2026-07-15 (docs/api/openapi.yaml
 # EventRow schema) — NOT the (incorrect) pylxpweb docstring field names.
@@ -54,7 +54,7 @@ FAULT_ROW: dict[str, Any] = {
     "recordId": 7583193,
     "plantName": "Test Plant",
     "serialNum": INVERTER_SERIAL,
-    "datalogSn": "SYNTH00123",
+    "datalogSn": "BC33600194",
     "eventTypeText": "Fault",
     "eventType": "FAULT",
     "eventText": "Bus voltage high",
@@ -581,7 +581,7 @@ class TestFetchEventsService:
         with pytest.raises(ServiceValidationError, match="not found"):
             await async_fetch_events(
                 hass,
-                _service_call({"config_entry": "cloud_entry", "serial": "SYNTH00125"}),
+                _service_call({"config_entry": "cloud_entry", "serial": "0000000000"}),
             )
 
     async def test_local_only_entry_raises(self, hass: HomeAssistant):

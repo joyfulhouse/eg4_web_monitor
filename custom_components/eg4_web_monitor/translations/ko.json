@@ -97,7 +97,7 @@
           "modbus_unit_id": "유닛 ID"
         },
         "data_description": {
-          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.168.1.100)",
+          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.0.2.10)",
           "modbus_port": "TCP 포트 (기본값: 502)",
           "modbus_unit_id": "Modbus 슬레이브 ID (기본값: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "유닛 ID"
         },
         "data_description": {
-          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.168.1.100)",
+          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.0.2.10)",
           "modbus_port": "TCP 포트 (기본값: 502)",
           "modbus_unit_id": "Modbus 슬레이브 ID (기본값: 1)"
         }

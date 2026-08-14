@@ -4,9 +4,9 @@ Proven from the reporting device's own firmware (12000XP, ``ceaa-0709``); the
 full derivation with addresses lives in
 ``docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md``:
 
-  * Input reg 123 (``generator_power``) — the FC04 handler at ``SYNTH00113``
-    returns ``RAM16[SYNTH00114]``, a word of the ARM comms processor's own RAM
-    that a timer task increments once per second at ``SYNTH00115`` with no
+  * Input reg 123 (``generator_power``) — the FC04 handler at ``0x0801E9CA``
+    returns ``RAM16[0x2000D70A]``, a word of the ARM comms processor's own RAM
+    that a timer task increments once per second at ``0x08018BDA`` with no
     bound check, so it wraps at 65536.  It is seconds-since-boot, not watts.  A
     whole-image writer audit found only that increment and the power-on memset;
     no DSP measurement path reaches it.  The reporter's two samples fit the
@@ -15,7 +15,7 @@ full derivation with addresses lives in
   * Input regs 124/125/126 (``generator_energy`` / ``_lifetime``) — ARM-local
     status words.  124 is byte-assembled from a frame byte plus a local
     bitmask; 125/126 are the halves of one 32-bit status bitfield, which is why
-    a "lifetime" of 135,494.5 kWh decodes to the bit pattern ``SYNTH00116``.
+    a "lifetime" of 135,494.5 kWh decodes to the bit pattern ``0x0014ACC1``.
 
 Genuine on the same family and therefore NOT suppressed: ``generator_voltage``
 (reg 121), ``generator_frequency`` (reg 122) and ``generator_voltage_l1/l2``
@@ -272,10 +272,10 @@ class TestOffgridGeneratorRegistryCleanup:
         registry = er.async_get(hass)
 
         offgrid, hybrid, unknown, gridboss = (
-            "SYNTH00117",
-            "SYNTH00118",
-            "SYNTH00119",
-            "SYNTH00109",
+            "1000000001",
+            "1000000002",
+            "1000000003",
+            "SYNTH00002",
         )
         uids = {
             f"{serial}_{key}"

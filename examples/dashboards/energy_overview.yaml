@@ -6,7 +6,7 @@
 # To use: Copy this configuration to your Lovelace dashboard
 # Adjust entity IDs to match your inverter model and serial number:
 # replace "flexboss21_1234567890" with "<your_model>_<your_serial>"
-# (e.g. 18kpv_3344556677 or 6000xp_3344556677) and
+# (e.g. 18kpv_SYNTH10002 or 6000xp_SYNTH10002) and
 # "grid_boss_1234567890" with your GridBOSS serial. Off-grid models
 # (6000XP/12000XP) lack some grid-tie controls shown here (AC charge /
 # forced discharge rows) — remove rows whose entities don't exist.

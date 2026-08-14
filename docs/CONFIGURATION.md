@@ -82,7 +82,7 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
 1. Connect the adapter to your network via Ethernet.
 2. Open the web configuration at `http://192.168.1.200` (default IP).
 3. Configure:
-   - **Network:** static IP (e.g. `192.168.1.100`), subnet `255.255.255.0`,
+   - **Network:** static IP (e.g. `192.0.2.10`), subnet `255.255.255.0`,
      gateway = your router IP.
    - **Serial port:** baud `19200`, data bits `8`, stop bits `1`, parity `None`.
    - **Working mode:** `TCP Server`, local port `502` (standard Modbus TCP).
@@ -91,7 +91,7 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
 #### Home Assistant side
 
 During setup, select **Local Modbus TCP (RS485 adapter)**, then enter the
-adapter's IP (e.g. `192.168.1.100`), port `502`, unit ID `1` (default for most
+adapter's IP (e.g. `192.0.2.10`), port `502`, unit ID `1` (default for most
 inverters), your inverter's serial number, and inverter family.
 
 ### Serial Modbus (USB/RS485)
