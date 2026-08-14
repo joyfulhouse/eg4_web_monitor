@@ -476,3 +476,13 @@ network-scan fallback are operational fixtures, not deployment identities. The g
 matches the audited private addresses by integer encoding and the audited plant/cloud
 identifiers by digest, with mutation checks proving both the false-positive boundary and
 continued detection.
+
+## [2026-08-14] lint | Identifier scrub restricted to deployment-owned data
+
+Reworked PR #575's regression guard so every audited address, encoded address, serial,
+plant, cloud-host and physical-location value is represented only by a SHA-256 digest.
+Synthetic mutation fixtures now prove dotted and bare-integer address detection, serial
+matching in prose and entity IDs, camel-case plant fields, location matching, worktree
+reads, exact path exclusions and the RFC1918 scan-default boundary. Restored generic
+private-network examples and public vendor ingestion endpoints, and repaired the probe,
+monitor and firmware-capture helper regressions identified by tribunal review.

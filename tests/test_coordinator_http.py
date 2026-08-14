@@ -89,7 +89,7 @@ def hybrid_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "INV001",
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                     "port": 502,
                     "transport_type": "modbus_tcp",
                     "inverter_family": "EG4_HYBRID",
@@ -607,7 +607,9 @@ class TestHybridMode:
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
         inv = make_real_inverter(serial_number="INV001")
-        mock_transport = make_transport_spec(transport_type="modbus", host="192.0.2.10")
+        mock_transport = make_transport_spec(
+            transport_type="modbus", host="192.168.1.100"
+        )
         inv._transport = mock_transport
 
         coordinator.station = _mock_station([inv])
@@ -628,7 +630,7 @@ class TestHybridMode:
 
         device_sensors = result["devices"]["INV001"]["sensors"]
         assert "Hybrid" in device_sensors["connection_transport"]
-        assert device_sensors["transport_host"] == "192.0.2.10"
+        assert device_sensors["transport_host"] == "192.168.1.100"
 
     @patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient")
     @patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client")
@@ -686,7 +688,7 @@ def hybrid_dongle_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "MID001",
-                    "host": "192.0.2.6",
+                    "host": "192.168.1.200",
                     "port": 8000,
                     "transport_type": "wifi_dongle",
                     "inverter_family": "EG4_GRIDBOSS",
@@ -721,7 +723,7 @@ def hybrid_mixed_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "INV001",
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                     "port": 8000,
                     "transport_type": "modbus_tcp",
                     "inverter_family": "EG4_HYBRID",
@@ -729,7 +731,7 @@ def hybrid_mixed_config_entry():
                 },
                 {
                     "serial": "MID001",
-                    "host": "192.0.2.6",
+                    "host": "192.168.1.200",
                     "port": 8000,
                     "transport_type": "wifi_dongle",
                     "inverter_family": "EG4_GRIDBOSS",
@@ -1844,23 +1846,23 @@ class TestRefreshStationDevices:
         hybrid_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, hybrid_config_entry)
 
-        # Two inverters + GridBOSS, all on same dongle (192.0.2.10:8000)
+        # Two inverters + GridBOSS, all on same dongle (192.168.1.100:8000)
         inv1 = _mock_inverter(serial="INV001")
         inv1._transport = MagicMock()
-        inv1._transport._host = "192.0.2.10"
+        inv1._transport._host = "192.168.1.100"
         inv1._transport._port = 8000
         inv1.refresh = AsyncMock()
 
         inv2 = _mock_inverter(serial="INV002")
         inv2._transport = MagicMock()
-        inv2._transport._host = "192.0.2.10"
+        inv2._transport._host = "192.168.1.100"
         inv2._transport._port = 8000
         inv2.refresh = AsyncMock()
 
         mid = MagicMock()
         mid.serial_number = "MID001"
         mid._transport = MagicMock()
-        mid._transport._host = "192.0.2.10"
+        mid._transport._host = "192.168.1.100"
         mid._transport._port = 8000
         mid.refresh = AsyncMock()
 
@@ -1889,14 +1891,14 @@ class TestRefreshStationDevices:
 
         inv = _mock_inverter(serial="INV001")
         inv._transport = MagicMock()
-        inv._transport._host = "192.0.2.10"
+        inv._transport._host = "192.168.1.100"
         inv._transport._port = 8000
         inv.refresh = AsyncMock()
 
         mid = MagicMock()
         mid.serial_number = "MID001"
         mid._transport = MagicMock()
-        mid._transport._host = "192.0.2.10"
+        mid._transport._host = "192.168.1.100"
         mid._transport._port = 8000
         mid.refresh = AsyncMock()
 
@@ -1922,7 +1924,7 @@ class TestRefreshStationDevices:
         # One device with transport, one without
         inv1 = _mock_inverter(serial="INV001")
         inv1._transport = MagicMock()
-        inv1._transport._host = "192.0.2.10"
+        inv1._transport._host = "192.168.1.100"
         inv1._transport._port = 8000
         inv1.refresh = AsyncMock()
 
@@ -1985,7 +1987,7 @@ class _SingleSlotTransport:
         endpoint: _SingleSlotEndpoint,
         *,
         operation_name: str,
-        host: str | None = "192.0.2.14",
+        host: str | None = "192.168.1.50",
         port: int | str = 502,
     ) -> None:
         self.endpoint = endpoint
@@ -2198,7 +2200,7 @@ class TestSerialEndpointGrouping:
         inv1.transport = _FakeSerialTransport("/dev/ttyUSB0")
         inv1.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
         inv2 = _mock_inverter(serial="INV002")
-        inv2.transport = _FakeTcpTransport("192.0.2.14", 502)
+        inv2.transport = _FakeTcpTransport("192.168.1.50", 502)
         inv2.refresh = AsyncMock(side_effect=_tracking_refresh(counter))
 
         station = _mock_station([inv1, inv2])
@@ -2358,7 +2360,7 @@ class TestPhysicalEndpointOperationSerialization:
             _SingleSlotTransport(
                 endpoint,
                 operation_name="first",
-                host="192.0.2.14",
+                host="192.168.1.50",
             ),
         )
         second = _SingleSlotInverter(
@@ -2366,7 +2368,7 @@ class TestPhysicalEndpointOperationSerialization:
             _SingleSlotTransport(
                 endpoint,
                 operation_name="second",
-                host="192.0.2.9",
+                host="192.168.1.51",
             ),
         )
         self._install_devices(coordinator, first, second)

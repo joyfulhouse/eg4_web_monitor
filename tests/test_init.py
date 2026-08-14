@@ -1329,7 +1329,7 @@ class TestAsyncMigrateEntry:
                 "connection_type": "modbus",
                 "inverter_serial": "1234567890",
                 "inverter_family": "EG4_HYBRID",
-                "modbus_host": "192.0.2.10",
+                "modbus_host": "192.168.1.100",
                 "modbus_port": 502,
                 "modbus_unit_id": 1,
             },
@@ -1348,7 +1348,7 @@ class TestAsyncMigrateEntry:
         transport = entry.data["local_transports"][0]
         assert transport["transport_type"] == "modbus_tcp"
         assert transport["serial"] == "1234567890"
-        assert transport["host"] == "192.0.2.10"
+        assert transport["host"] == "192.168.1.100"
 
     async def test_migrate_v1_dongle_to_v3(self, hass: HomeAssistant):
         """Version 1 dongle entries pass through both migrations atomically."""
@@ -1359,7 +1359,7 @@ class TestAsyncMigrateEntry:
                 "connection_type": "dongle",
                 "inverter_serial": "SYNTH10005",
                 "inverter_family": "LXP",
-                "dongle_host": "192.0.2.6",
+                "dongle_host": "192.168.1.200",
                 "dongle_port": 8000,
                 "dongle_serial": "DONGLE123",
             },
@@ -1377,7 +1377,7 @@ class TestAsyncMigrateEntry:
         transport = entry.data["local_transports"][0]
         assert transport["transport_type"] == "wifi_dongle"
         assert transport["serial"] == "SYNTH10005"
-        assert transport["host"] == "192.0.2.6"
+        assert transport["host"] == "192.168.1.200"
         assert transport["dongle_serial"] == "DONGLE123"
 
     async def test_migrate_v1_http_to_canonical_identity(self, hass: HomeAssistant):
@@ -1416,7 +1416,7 @@ class TestAsyncMigrateEntry:
                     {
                         "transport_type": "modbus_tcp",
                         "serial": "1234567890",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                     }
                 ],
             },

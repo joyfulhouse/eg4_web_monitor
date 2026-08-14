@@ -77,7 +77,7 @@ def local_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "INV001",
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                     "port": 502,
                     "transport_type": "modbus_tcp",
                     "inverter_family": "EG4_HYBRID",
@@ -109,7 +109,7 @@ def hybrid_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "INV001",
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                     "port": 502,
                     "transport_type": "modbus_tcp",
                     "inverter_family": "EG4_HYBRID",
@@ -1074,7 +1074,7 @@ class TestPerDeviceParamRetry:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": self.SERIAL_A,
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -1082,7 +1082,7 @@ class TestPerDeviceParamRetry:
                     },
                     {
                         "serial": self.SERIAL_B,
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",
@@ -1332,7 +1332,7 @@ class TestHasLocalRegisterPath:
                 CONF_PLANT_NAME: "Test",
                 CONF_CONNECTION_TYPE: CONNECTION_TYPE_HYBRID,
                 # DEPRECATED flat keys — deliberately no CONF_LOCAL_TRANSPORTS
-                CONF_MODBUS_HOST: "192.0.2.14",
+                CONF_MODBUS_HOST: "192.168.1.50",
                 CONF_INVERTER_SERIAL: "1234567890",
             },
             options={},
@@ -1394,7 +1394,7 @@ class TestBuildLocalDeviceData:
         # _transport is the network CONNECTION object (Modbus/Dongle socket), not
         # a pylxpweb data model — a real one needs a live socket.  It is an infra
         # mock by design; transport_host is connection metadata, not device data.
-        inverter._transport = make_transport_spec(host="192.0.2.10")
+        inverter._transport = make_transport_spec(host="192.168.1.100")
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
@@ -1413,7 +1413,7 @@ class TestBuildLocalDeviceData:
         assert result["serial"] == "INV001"
         assert result["firmware_version"] == "ARM-1.0"
         assert result["sensors"]["firmware_version"] == "ARM-1.0"
-        assert result["sensors"]["transport_host"] == "192.0.2.10"
+        assert result["sensors"]["transport_host"] == "192.168.1.100"
         assert result["batteries"] == {}
 
     async def test_includes_energy_data(self, hass, local_config_entry):
@@ -2118,7 +2118,7 @@ class TestAttachSerialTransports:
         tcp_dict = {
             "serial": "INV002",
             "transport_type": "modbus_tcp",
-            "host": "192.0.2.10",
+            "host": "192.168.1.100",
             "port": 502,
             "unit_id": 1,
             "inverter_family": "EG4_HYBRID",
@@ -2431,7 +2431,7 @@ class TestAsyncUpdateLocalDataEdgeCases:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         # Missing serial
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                     },
@@ -2462,7 +2462,7 @@ class TestGridBOSSFirmwareCache:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 502,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "MID_DEVICE",
@@ -2533,7 +2533,7 @@ class TestGridBOSSFirmwareCache:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB002",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 502,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "MID_DEVICE",
@@ -2610,7 +2610,7 @@ class TestSharedBatterySecondary:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10023",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2620,7 +2620,7 @@ class TestSharedBatterySecondary:
                     },
                     {
                         "serial": "SECONDARY01",
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2678,7 +2678,7 @@ class TestSharedBatterySecondary:
             {
                 "serial": "SYNTH10004",
                 "transport_type": "modbus_tcp",
-                "host": "192.0.2.14",
+                "host": "192.168.1.50",
                 "port": 502,
                 "model": "6000XP",
                 "inverter_family": "UNKNOWN",
@@ -2686,7 +2686,7 @@ class TestSharedBatterySecondary:
             {
                 "serial": "SYNTH10003",
                 "transport_type": "modbus_tcp",
-                "host": "192.0.2.9",
+                "host": "192.168.1.51",
                 "port": 502,
                 "model": "FlexBOSS21",
                 "inverter_family": "EG4_HYBRID",
@@ -2757,7 +2757,9 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.18")
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.101"
+        )
 
         # Pre-populate caches
         coordinator._inverter_cache["SECONDARY01"] = inverter
@@ -2830,7 +2832,9 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("SYNTH10023", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
 
         coordinator._inverter_cache["SYNTH10023"] = inverter
         coordinator._firmware_cache["SYNTH10023"] = "FAAB-2525"
@@ -2888,7 +2892,7 @@ class TestSharedBatterySecondary:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "STANDALONE1",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2925,7 +2929,9 @@ class TestSharedBatterySecondary:
         inverter = make_real_inverter("STANDALONE1", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
 
         coordinator._inverter_cache["STANDALONE1"] = inverter
         coordinator._firmware_cache["STANDALONE1"] = "FAAB-2525"
@@ -2969,7 +2975,7 @@ class TestBatteryBankCountSuppression:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": serial,
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3002,7 +3008,9 @@ class TestBatteryBankCountSuppression:
         inverter = make_real_inverter("SECONDARY01", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
         return inverter
 
     async def test_secondary_no_battery_bank_sensors(self, hass):
@@ -3077,7 +3085,7 @@ class TestBatteryBankCountSuppression:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10023",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3087,7 +3095,7 @@ class TestBatteryBankCountSuppression:
                     },
                     {
                         "serial": "SECONDARY01",
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3169,7 +3177,7 @@ class TestBatteryRRCacheFallback:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": serial,
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 8899,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",
@@ -3203,7 +3211,9 @@ class TestBatteryRRCacheFallback:
         inverter = make_real_inverter("DONGLE001", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
-        inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
+        inverter._transport = make_transport_spec(
+            is_connected=True, host="192.168.1.100"
+        )
         return inverter
 
     async def test_cache_fallback_when_batteries_empty_this_poll(
@@ -3535,7 +3545,7 @@ class TestCanonicalAbsentPredicateInRRMerge:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": serial,
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 8899,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",
@@ -4462,7 +4472,7 @@ class TestLocalLinkDownFlow:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10013",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.60",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4491,7 +4501,7 @@ class TestLocalLinkDownFlow:
         # the failed probe, transport data caches cleared on the transition.
         transport = MagicMock(spec=["is_connected", "host", "port", "transport_type"])
         transport.is_connected = True
-        transport.host = "192.0.2.10"
+        transport.host = "192.168.1.60"
         transport.port = 502
         transport.transport_type = "modbus_tcp"
         inverter = MagicMock(
@@ -4534,7 +4544,7 @@ class TestLocalLinkDownFlow:
         assert issue.translation_key == "transport_link_down"
         assert issue.translation_placeholders == {
             "serial": "SYNTH10013",
-            "host": "192.0.2.10",
+            "host": "192.168.1.60",
         }
         assert coordinator._link_down_notified == {"SYNTH10013"}
 
@@ -4552,7 +4562,7 @@ class TestLocalLinkDownFlow:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10013",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.60",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4610,14 +4620,14 @@ class TestParallelGroupLinkDownMarking:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10013",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.60",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
                     },
                     {
                         "serial": "SYNTH10015",
-                        "host": "192.0.2.11",
+                        "host": "192.168.1.61",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4754,7 +4764,7 @@ class TestLocalProcessingFailureStaleness:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": broken_serial,
-                        "host": "192.0.2.12",
+                        "host": "192.168.1.70",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4762,7 +4772,7 @@ class TestLocalProcessingFailureStaleness:
                     },
                     {
                         "serial": healthy_serial,
-                        "host": "192.0.2.13",
+                        "host": "192.168.1.71",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4952,14 +4962,14 @@ class TestFullOutageParallelGroupMarking:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10013",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.60",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
                     },
                     {
                         "serial": "SYNTH10015",
-                        "host": "192.0.2.11",
+                        "host": "192.168.1.61",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4997,10 +5007,10 @@ class TestFullOutageParallelGroupMarking:
         }
 
         coordinator._inverter_cache["SYNTH10013"] = self._link_down_inverter(
-            "SYNTH10013", "192.0.2.10"
+            "SYNTH10013", "192.168.1.60"
         )
         coordinator._inverter_cache["SYNTH10015"] = self._link_down_inverter(
-            "SYNTH10015", "192.0.2.11"
+            "SYNTH10015", "192.168.1.61"
         )
 
         # Drive the REAL wrapper: UpdateFailed is suppressed (failure 1/3)
@@ -5060,7 +5070,7 @@ class TestFullOutageParallelGroupMarking:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10013",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.60",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -5090,7 +5100,7 @@ class TestFullOutageParallelGroupMarking:
         }
 
         # Transient: read fails but the link is NOT declared down yet.
-        inverter = self._link_down_inverter("SYNTH10013", "192.0.2.10")
+        inverter = self._link_down_inverter("SYNTH10013", "192.168.1.60")
         inverter.transport_link_down = False
         coordinator._inverter_cache["SYNTH10013"] = inverter
 

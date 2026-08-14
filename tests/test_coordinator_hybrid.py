@@ -60,7 +60,7 @@ class TestBuildTransportConfigs:
             {
                 "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
-                "host": "192.0.2.10",
+                "host": "192.168.1.100",
                 "port": 502,
                 "unit_id": 1,
                 "inverter_family": "EG4_HYBRID",
@@ -71,7 +71,7 @@ class TestBuildTransportConfigs:
 
         assert len(configs) == 1
         assert configs[0].serial == "SYNTH10014"
-        assert configs[0].host == "192.0.2.10"
+        assert configs[0].host == "192.168.1.100"
         assert configs[0].port == 502
 
     def test_build_dongle_config(self) -> None:
@@ -80,7 +80,7 @@ class TestBuildTransportConfigs:
             {
                 "serial": "SYNTH10019",
                 "transport_type": "wifi_dongle",
-                "host": "192.0.2.18",
+                "host": "192.168.1.101",
                 "port": 8000,
                 "dongle_serial": "SYNTH10007",
                 "inverter_family": "EG4_HYBRID",
@@ -91,7 +91,7 @@ class TestBuildTransportConfigs:
 
         assert len(configs) == 1
         assert configs[0].serial == "SYNTH10019"
-        assert configs[0].host == "192.0.2.18"
+        assert configs[0].host == "192.168.1.101"
         assert configs[0].port == 8000
         assert configs[0].dongle_serial == "SYNTH10007"
 
@@ -101,7 +101,7 @@ class TestBuildTransportConfigs:
             {
                 "serial": "SYNTH10013",
                 "transport_type": "modbus_tcp",
-                "host": "192.0.2.10",
+                "host": "192.168.1.100",
                 "port": 502,
                 "unit_id": 1,
                 "inverter_family": "EG4_HYBRID",
@@ -109,7 +109,7 @@ class TestBuildTransportConfigs:
             {
                 "serial": "SYNTH10015",
                 "transport_type": "modbus_tcp",
-                "host": "192.0.2.18",
+                "host": "192.168.1.101",
                 "port": 502,
                 "unit_id": 2,
                 "inverter_family": "EG4_OFFGRID",
@@ -135,7 +135,7 @@ class TestBuildTransportConfigs:
             {
                 "serial": "SYNTH10017",
                 "transport_type": "modbus_tcp",
-                "host": "192.0.2.10",
+                "host": "192.168.1.100",
                 "port": 502,
                 "unit_id": 1,
                 "inverter_family": "EG4_HYBRID",
@@ -180,7 +180,7 @@ class TestBuildTransportConfigs:
             {
                 "serial": "SYNTH10014",
                 "transport_type": "invalid_type",
-                "host": "192.0.2.10",
+                "host": "192.168.1.100",
                 "port": 502,
             }
         ]
@@ -283,13 +283,13 @@ class TestCoordinatorHybridInit:
             CONF_PLANT_ID: "12345",
             # Legacy modbus fields (still needed for coordinator __init__)
             CONF_HYBRID_LOCAL_TYPE: HYBRID_LOCAL_MODBUS,
-            CONF_MODBUS_HOST: "192.0.2.10",
+            CONF_MODBUS_HOST: "192.168.1.100",
             # New CONF_LOCAL_TRANSPORTS format for attach_local_transports()
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "SYNTH10014",
                     "transport_type": "modbus_tcp",
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                     "port": DEFAULT_MODBUS_PORT,
                     "unit_id": DEFAULT_MODBUS_UNIT_ID,
                     "inverter_family": "EG4_HYBRID",
@@ -337,7 +337,7 @@ class TestCoordinatorHybridInit:
             CONF_PLANT_ID: "12345",
             # Legacy modbus fields (still needed for coordinator __init__)
             CONF_HYBRID_LOCAL_TYPE: HYBRID_LOCAL_MODBUS,
-            CONF_MODBUS_HOST: "192.0.2.10",
+            CONF_MODBUS_HOST: "192.168.1.100",
             # No CONF_LOCAL_TRANSPORTS - should default to empty list
         }
         entry.options = {}
@@ -420,7 +420,7 @@ class TestAttachLocalTransports:
             {
                 "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
-                "host": "192.0.2.10",
+                "host": "192.168.1.100",
                 "port": 502,
                 "unit_id": 1,
                 "inverter_family": "EG4_HYBRID",
@@ -1044,7 +1044,7 @@ class TestTransportLinkDown:
 
     @staticmethod
     def _transport(
-        transport_type: str = "modbus_tcp", host: str = "192.0.2.14"
+        transport_type: str = "modbus_tcp", host: str = "192.168.1.50"
     ) -> MagicMock:
         transport = MagicMock(spec=["transport_type", "host", "port"])
         transport.transport_type = transport_type
@@ -1315,7 +1315,7 @@ class TestTransportLinkDown:
 
         sensors = data["devices"]["1111111111"]["sensors"]
         assert sensors["connection_transport"] == "Hybrid (Modbus_tcp — link down)"
-        assert sensors["transport_host"] == "192.0.2.14"
+        assert sensors["transport_host"] == "192.168.1.50"
 
     @pytest.mark.asyncio
     async def test_hybrid_label_normal_when_healthy(self) -> None:
@@ -1376,7 +1376,7 @@ class TestTransportLinkDown:
         assert create_call.kwargs["translation_key"] == "transport_link_down"
         assert create_call.kwargs["translation_placeholders"] == {
             "serial": "1111111111",
-            "host": "192.0.2.14",
+            "host": "192.168.1.50",
         }
 
     @pytest.mark.asyncio

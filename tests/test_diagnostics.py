@@ -40,7 +40,7 @@ def entry(hass):
             "plant_id": PLANT_ID,
             "plant_name": "My Home Address",
             "connection_type": "http",
-            "modbus_host": "192.0.2.1",
+            "modbus_host": "10.0.0.42",
             "inverter_serial": SERIAL,
             "dongle_serial": DONGLE_SERIAL,
         },
@@ -96,7 +96,7 @@ async def test_secrets_redacted_and_serials_aliased(hass, entry):
         "real_user",
         "real_pass",
         "My Home Address",
-        "192.0.2.1",
+        "10.0.0.42",
         "Private Street",  # entry title is omitted, station name/address redacted
     ):
         assert secret not in dump
@@ -171,7 +171,7 @@ async def test_unknown_objects_become_type_placeholders(hass, entry):
 
     class _Secretive:
         def __repr__(self) -> str:  # pragma: no cover - the point is it never runs
-            return "ClientConnectorError(host='192.0.2.1', password='real_pass')"
+            return "ClientConnectorError(host='10.0.0.42', password='real_pass')"
 
     coordinator = _make_coordinator(hass, entry)
     coordinator.data["devices"][SERIAL]["transport"] = _Secretive()
@@ -179,6 +179,6 @@ async def test_unknown_objects_become_type_placeholders(hass, entry):
 
     result = await async_get_config_entry_diagnostics(hass, entry)
     dump = json.dumps(result)
-    assert "192.0.2.1" not in dump
+    assert "10.0.0.42" not in dump
     assert "real_pass" not in dump
     assert "<_Secretive>" in dump

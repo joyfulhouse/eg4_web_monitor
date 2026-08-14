@@ -444,7 +444,7 @@ async def test_user_flow_rejects_legacy_hybrid_for_same_cloud_plant(
                 {
                     "transport_type": "modbus_tcp",
                     "serial": "1234567890",
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                     "port": 502,
                 }
             ],
@@ -898,7 +898,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -937,7 +937,7 @@ class TestLocalModbusFlow:
             transport = result["data"][CONF_LOCAL_TRANSPORTS][0]
             assert transport["transport_type"] == "modbus_tcp"
             assert transport["serial"] == "1234567890"
-            assert transport["host"] == "192.0.2.10"
+            assert transport["host"] == "192.168.1.100"
             assert transport["port"] == 502
 
     async def test_modbus_timeout_error(self, hass: HomeAssistant):
@@ -956,7 +956,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -982,7 +982,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1008,7 +1008,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1037,7 +1037,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1063,7 +1063,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1091,7 +1091,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1117,7 +1117,7 @@ class TestLocalModbusFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.6",
+                    "modbus_host": "192.168.1.200",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1169,7 +1169,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
                     "inverter_serial": "SYNTH10005",
@@ -1201,7 +1201,7 @@ class TestLocalDongleFlow:
             transport = result["data"][CONF_LOCAL_TRANSPORTS][0]
             assert transport["transport_type"] == "wifi_dongle"
             assert transport["serial"] == "SYNTH10005"
-            assert transport["host"] == "192.0.2.4"
+            assert transport["host"] == "192.168.1.150"
             assert transport["port"] == 8000
 
     async def test_dongle_timeout_error(self, hass: HomeAssistant):
@@ -1219,7 +1219,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
                     "inverter_serial": "SYNTH10005",
@@ -1245,7 +1245,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
                     "inverter_serial": "SYNTH10005",
@@ -1283,7 +1283,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
                     "inverter_serial": "SYNTH10005",
@@ -1313,7 +1313,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
                     "inverter_serial": "SYNTH10005",
@@ -1345,7 +1345,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1370,7 +1370,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
                     "inverter_serial": "SYNTH10005",
@@ -1400,7 +1400,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "D111",
                     "inverter_serial": "1111111111",
@@ -1427,7 +1427,7 @@ class TestLocalDongleFlow:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.4",
+                    "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
                     "dongle_serial": "D222",
                     "inverter_serial": "2222222222",
@@ -1469,7 +1469,7 @@ class TestLocalDongleFlow:
         flow = hass.config_entries.flow._progress[result["flow_id"]]
         flow._scan_results = [
             ScanResult(
-                ip="192.0.2.14",
+                ip="192.168.9.145",
                 port=8000,
                 device_type=DeviceType.DONGLE_CANDIDATE,
             ),
@@ -1478,7 +1478,7 @@ class TestLocalDongleFlow:
         # Simulate what network_scan_results does: select device → call
         # async_step_local_dongle with partial input (host+port, no serials).
         # Before the fix, this raised KeyError: 'dongle_serial'.
-        result = await flow.async_step_network_scan_results({"device": "192.0.2.14"})
+        result = await flow.async_step_network_scan_results({"device": "192.168.9.145"})
 
         # Should show dongle form pre-filled with host/port (no crash)
         assert result["type"] == data_entry_flow.FlowResultType.FORM
@@ -1492,7 +1492,7 @@ class TestLocalDongleFlow:
         ):
             result = await flow.async_step_local_dongle(
                 {
-                    "dongle_host": "192.0.2.14",
+                    "dongle_host": "192.168.9.145",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10009",
                     "inverter_serial": "SYNTH10005",
@@ -1528,7 +1528,7 @@ class TestLocalDeviceConfirmedAndFinish:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1558,7 +1558,7 @@ class TestLocalDeviceConfirmedAndFinish:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1593,7 +1593,7 @@ class TestLocalDeviceConfirmedAndFinish:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1636,7 +1636,7 @@ class TestLocalDeviceConfirmedAndFinish:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1681,7 +1681,7 @@ class TestLocalDeviceConfirmedAndFinish:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1725,7 +1725,7 @@ class TestLocalDeviceConfirmedAndFinish:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1764,7 +1764,7 @@ class TestAddMultipleLocalDevices:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1791,7 +1791,7 @@ class TestAddMultipleLocalDevices:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.18",
+                    "modbus_host": "192.168.1.101",
                     "modbus_port": 502,
                     "modbus_unit_id": 2,
                 },
@@ -1849,7 +1849,7 @@ class TestLocalThenCloudHybrid:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -2118,7 +2118,7 @@ class TestHasDuplicateTransport:
         from custom_components.eg4_web_monitor._config_flow import EG4ConfigFlow
 
         flow = EG4ConfigFlow()
-        assert flow._has_duplicate_transport("192.0.2.3", 502) is False
+        assert flow._has_duplicate_transport("192.168.1.1", 502) is False
 
     def test_detects_duplicate(self):
         """Test detects duplicate host:port."""
@@ -2126,9 +2126,9 @@ class TestHasDuplicateTransport:
 
         flow = EG4ConfigFlow()
         flow._local_transports = [
-            {"host": "192.0.2.3", "port": 502, "serial": "1234"},
+            {"host": "192.168.1.1", "port": 502, "serial": "1234"},
         ]
-        assert flow._has_duplicate_transport("192.0.2.3", 502) is True
+        assert flow._has_duplicate_transport("192.168.1.1", 502) is True
 
     def test_different_port_not_duplicate(self):
         """Test same host but different port is not duplicate."""
@@ -2136,9 +2136,9 @@ class TestHasDuplicateTransport:
 
         flow = EG4ConfigFlow()
         flow._local_transports = [
-            {"host": "192.0.2.3", "port": 502, "serial": "1234"},
+            {"host": "192.168.1.1", "port": 502, "serial": "1234"},
         ]
-        assert flow._has_duplicate_transport("192.0.2.3", 8000) is False
+        assert flow._has_duplicate_transport("192.168.1.1", 8000) is False
 
     def test_different_host_not_duplicate(self):
         """Test different host same port is not duplicate."""
@@ -2146,9 +2146,9 @@ class TestHasDuplicateTransport:
 
         flow = EG4ConfigFlow()
         flow._local_transports = [
-            {"host": "192.0.2.3", "port": 502, "serial": "1234"},
+            {"host": "192.168.1.1", "port": 502, "serial": "1234"},
         ]
-        assert flow._has_duplicate_transport("192.0.2.5", 502) is False
+        assert flow._has_duplicate_transport("192.168.1.2", 502) is False
 
 
 # =====================================================
@@ -2241,7 +2241,7 @@ class TestCloudThenAddLocal:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },

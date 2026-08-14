@@ -65,7 +65,7 @@
           "timeout": "Limit czasu polaczenia (sekundy)"
         },
         "data_description": {
-          "ip_range": "Zakres sieci w notacji CIDR (np. 192.0.2.2/24). Automatycznie wykryty z sieci Home Assistant.",
+          "ip_range": "Zakres sieci w notacji CIDR (np. 192.168.1.0/24). Automatycznie wykryty z sieci Home Assistant.",
           "timeout": "Czas oczekiwania na odpowiedz kazdego urzadzenia. Nizszy = szybsze skanowanie, wyzszy = bardziej niezawodne."
         }
       },
@@ -97,7 +97,7 @@
           "modbus_unit_id": "ID jednostki"
         },
         "data_description": {
-          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.0.2.10)",
+          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.168.1.100)",
           "modbus_port": "Port TCP (domyslnie: 502)",
           "modbus_unit_id": "ID slave Modbus (domyslnie: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "ID jednostki"
         },
         "data_description": {
-          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.0.2.10)",
+          "modbus_host": "Adres IP adaptera RS485-Ethernet (np. 192.168.1.100)",
           "modbus_port": "Port TCP (domyslnie: 502)",
           "modbus_unit_id": "ID slave Modbus (domyslnie: 1)"
         }
@@ -350,7 +350,7 @@
       "serial_permission_denied": "Odmowa dostepu do portu szeregowego. W systemie Linux upewnij sie, ze uzytkownik jest w grupie 'dialout'. W systemie macOS przyznaj Home Assistant dostep do urzadzenia USB.",
       "serial_port_error": "Nie udalo sie otworzyc portu szeregowego. Sprawdz: (1) czy sciezka portu jest poprawna, (2) czy adapter USB jest podlaczony, (3) czy urzadzenie nie jest uzywane przez inna aplikacje.",
       "serial_port_in_use": "Port szeregowy jest juz uzywany przez inna aplikacje. Zamknij inne aplikacje uzywajace tego portu i sprobuj ponownie.",
-      "invalid_ip_range": "Nieprawidlowy zakres IP. Uzyj notacji CIDR (np. 192.0.2.2/24) lub zakresu (np. 192.0.2.3-192.0.2.8). Dozwolone sa tylko prywatne zakresy IP.",
+      "invalid_ip_range": "Nieprawidlowy zakres IP. Uzyj notacji CIDR (np. 192.168.1.0/24) lub zakresu (np. 192.168.1.1-192.168.1.254). Dozwolone sa tylko prywatne zakresy IP.",
       "no_scan_type_selected": "Wybierz co najmniej jeden typ skanowania (Modbus lub Dongle)."
     },
     "abort": {

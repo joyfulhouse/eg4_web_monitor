@@ -65,7 +65,7 @@
           "timeout": "Verbindungs-Timeout (Sekunden)"
         },
         "data_description": {
-          "ip_range": "Netzwerkbereich in CIDR-Notation (z.B. 192.0.2.2/24). Automatisch aus Ihrem Home Assistant-Netzwerk erkannt.",
+          "ip_range": "Netzwerkbereich in CIDR-Notation (z.B. 192.168.1.0/24). Automatisch aus Ihrem Home Assistant-Netzwerk erkannt.",
           "timeout": "Wartezeit für jedes Gerät. Niedriger = schnellerer Scan, höher = zuverlässiger."
         }
       },
@@ -97,7 +97,7 @@
           "modbus_unit_id": "Geräte-ID"
         },
         "data_description": {
-          "modbus_host": "IP-Adresse Ihres RS485-zu-Ethernet-Adapters (z.B. 192.0.2.10)",
+          "modbus_host": "IP-Adresse Ihres RS485-zu-Ethernet-Adapters (z.B. 192.168.1.100)",
           "modbus_port": "TCP-Port (Standard: 502)",
           "modbus_unit_id": "Modbus Slave-ID (Standard: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "Geräte-ID"
         },
         "data_description": {
-          "modbus_host": "IP-Adresse Ihres RS485-zu-Ethernet-Adapters (z.B. 192.0.2.10)",
+          "modbus_host": "IP-Adresse Ihres RS485-zu-Ethernet-Adapters (z.B. 192.168.1.100)",
           "modbus_port": "TCP-Port (Standard: 502)",
           "modbus_unit_id": "Modbus Slave-ID (Standard: 1)"
         }
@@ -350,7 +350,7 @@
       "serial_permission_denied": "Zugriff auf den seriellen Port verweigert. Unter Linux stellen Sie sicher, dass Ihr Benutzer in der Gruppe 'dialout' ist. Unter macOS gewähren Sie Home Assistant Zugriff auf das USB-Gerät.",
       "serial_port_error": "Öffnen des seriellen Ports fehlgeschlagen. Bitte überprüfen Sie: (1) Port-Pfad ist korrekt, (2) USB-Adapter ist angeschlossen, (3) Gerät wird nicht von einer anderen Anwendung verwendet.",
       "serial_port_in_use": "Serieller Port wird bereits von einer anderen Anwendung verwendet. Schließen Sie andere Anwendungen, die diesen Port verwenden, und versuchen Sie es erneut.",
-      "invalid_ip_range": "Ungültiger IP-Bereich. Verwenden Sie CIDR-Notation (z.B. 192.0.2.2/24) oder einen Bereichsformat (z.B. 192.0.2.3-192.0.2.8). Nur private IP-Bereiche sind erlaubt.",
+      "invalid_ip_range": "Ungültiger IP-Bereich. Verwenden Sie CIDR-Notation (z.B. 192.168.1.0/24) oder einen Bereichsformat (z.B. 192.168.1.1-192.168.1.254). Nur private IP-Bereiche sind erlaubt.",
       "no_scan_type_selected": "Wählen Sie mindestens einen Scan-Typ (Modbus oder Dongle)."
     },
     "abort": {

@@ -185,7 +185,7 @@ def _make_local_entry(
 
 def _make_inverter_transport(
     serial: str,
-    host: str = "192.0.2.10",
+    host: str = "192.168.1.100",
     *,
     parallel_number: int | None = None,
     parallel_master_slave: int | None = None,
@@ -1382,7 +1382,7 @@ class TestDeferredLocalParameters:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1234567890",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -1589,7 +1589,7 @@ class TestCacheTTLAdherence:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "INV001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -1613,7 +1613,7 @@ class TestCacheTTLAdherence:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "INV001",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",
@@ -1665,7 +1665,7 @@ class TestCacheTTLAdherence:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "INV001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -1744,7 +1744,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1234567890",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -1770,7 +1770,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "model": "GridBOSS",
@@ -1796,7 +1796,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "model": "GridBOSS",
@@ -1804,14 +1804,14 @@ class TestStaticLocalData:
                     },
                     {
                         "serial": "INV001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "model": "FlexBOSS21",
                     },
                     {
                         "serial": "INV002",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "model": "FlexBOSS21",
@@ -1851,7 +1851,7 @@ class TestStaticLocalData:
         assert sensors["state_of_charge"] is None
         assert sensors["firmware_version"] == "ARM-1.0"
         assert sensors["connection_transport"] == "Modbus"
-        assert sensors["transport_host"] == "192.0.2.10"
+        assert sensors["transport_host"] == "192.168.1.100"
 
     async def test_static_follow_up_refresh_is_tracked_and_cancelled(
         self, hass, local_config_entry
@@ -1970,7 +1970,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10020",
-                        "host": "192.0.2.14",
+                        "host": "192.168.1.50",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "LXP",
@@ -2000,7 +2000,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10012",
-                        "host": "192.0.2.9",
+                        "host": "192.168.1.51",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "LXP",
@@ -2294,7 +2294,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "MASTER001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2304,7 +2304,7 @@ class TestStaticLocalData:
                     },
                     {
                         "serial": "SLAVE002",
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2345,7 +2345,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "model": "GridBOSS",
@@ -2353,7 +2353,7 @@ class TestStaticLocalData:
                     },
                     {
                         "serial": "INV001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2363,7 +2363,7 @@ class TestStaticLocalData:
                     },
                     {
                         "serial": "INV002",
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2401,7 +2401,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SOLO001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2430,7 +2430,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "DEV_A",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2438,7 +2438,7 @@ class TestStaticLocalData:
                     },
                     {
                         "serial": "DEV_B",
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2471,7 +2471,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB_ONLY",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "model": "GridBOSS",
@@ -2505,7 +2505,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "model": "GridBOSS",
@@ -2513,7 +2513,7 @@ class TestStaticLocalData:
                     },
                     {
                         "serial": "INV_SOLO",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2563,7 +2563,7 @@ class TestParallelGroupAggregationMath:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "MASTER001",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -2573,7 +2573,7 @@ class TestParallelGroupAggregationMath:
                     },
                     {
                         "serial": "SLAVE002",
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3274,7 +3274,7 @@ class TestGridBOSSOverlay:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "type": "modbus_tcp",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 8000,
                         "serial": "INV001",
                         "unit_id": 1,
@@ -3284,7 +3284,7 @@ class TestGridBOSSOverlay:
                     },
                     {
                         "type": "modbus_tcp",
-                        "host": "192.0.2.18",
+                        "host": "192.168.1.101",
                         "port": 8000,
                         "serial": "GB001",
                         "unit_id": 1,
@@ -3858,7 +3858,7 @@ class TestPerTransportIntervals:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1111111111",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3866,7 +3866,7 @@ class TestPerTransportIntervals:
                     },
                     {
                         "serial": "2222222222",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "dongle_serial": "BJ1234567890",
@@ -3891,7 +3891,7 @@ class TestPerTransportIntervals:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "3333333333",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -3915,7 +3915,7 @@ class TestPerTransportIntervals:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "4444444444",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "dongle_serial": "BJ9876543210",
@@ -4015,7 +4015,7 @@ class TestPerTransportIntervals:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10006",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4023,7 +4023,7 @@ class TestPerTransportIntervals:
                     },
                     {
                         "serial": "SYNTH10008",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4086,7 +4086,7 @@ class TestPerTransportIntervals:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": tcp_serial,
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4233,7 +4233,7 @@ class TestPerTransportIntervals:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "5555555555",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4979,7 +4979,7 @@ class TestParameterPreComputation:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1111111111",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4987,7 +4987,7 @@ class TestParameterPreComputation:
                     },
                     {
                         "serial": "2222222222",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -5075,7 +5075,7 @@ class TestParameterPreComputation:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1111111111",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -5635,7 +5635,7 @@ class TestDataValidationFlag:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1111111111",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -5660,7 +5660,7 @@ class TestDataValidationFlag:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1111111111",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -6224,13 +6224,13 @@ class TestStaticParallelGroupDeviceRegistration:
                 [
                     _make_inverter_transport(
                         "INV001",
-                        "192.0.2.10",
+                        "192.168.1.100",
                         parallel_number=1,
                         parallel_master_slave=1,
                     ),
                     _make_inverter_transport(
                         "INV002",
-                        "192.0.2.18",
+                        "192.168.1.101",
                         parallel_number=1,
                         parallel_master_slave=2,
                     ),
@@ -6239,8 +6239,8 @@ class TestStaticParallelGroupDeviceRegistration:
             (
                 "heuristic_parallel",
                 [
-                    _make_inverter_transport("INV001", "192.0.2.10"),
-                    _make_inverter_transport("INV002", "192.0.2.18"),
+                    _make_inverter_transport("INV001", "192.168.1.100"),
+                    _make_inverter_transport("INV002", "192.168.1.101"),
                 ],
             ),
         ],

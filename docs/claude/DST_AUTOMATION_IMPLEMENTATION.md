@@ -56,10 +56,10 @@ coordinator.data["station"] = {
     "continent": "NORTH_AMERICA",
     "region": "NORTH_AMERICA",
     "country": "United States of America",
-    "longitude": "-118.10842",
-    "latitude": "34.09724",
+    "longitude": "-122.00000",
+    "latitude": "37.00000",
     "createDate": "2025-05-05",
-    "address": "6245 North Willard Avenue"
+    "address": "123 Example Street"
 }
 ```
 
@@ -126,7 +126,7 @@ automation:
     action:
       - service: switch.turn_on
         target:
-          entity_id: switch.eg4_station_6245_n_willard_daylight_saving_time
+          entity_id: switch.eg4_station_123_example_street_daylight_saving_time
       - service: notify.mobile_app
         data:
           title: "EG4 Station DST Enabled"
@@ -151,7 +151,7 @@ automation:
     action:
       - service: switch.turn_off
         target:
-          entity_id: switch.eg4_station_6245_n_willard_daylight_saving_time
+          entity_id: switch.eg4_station_123_example_street_daylight_saving_time
       - service: notify.mobile_app
         data:
           title: "EG4 Station DST Disabled"

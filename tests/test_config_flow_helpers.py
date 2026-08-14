@@ -232,7 +232,7 @@ class TestMigrateLegacyEntry:
             "connection_type": "modbus",
             "inverter_serial": "1234567890",
             "inverter_family": "EG4_HYBRID",
-            "modbus_host": "192.0.2.10",
+            "modbus_host": "192.168.1.100",
             "modbus_port": 502,
             "modbus_unit_id": 1,
             "other_field": "preserved",
@@ -248,7 +248,7 @@ class TestMigrateLegacyEntry:
         assert transport["transport_type"] == "modbus_tcp"
         assert transport["serial"] == "1234567890"
         assert transport["family"] == "EG4_HYBRID"
-        assert transport["host"] == "192.0.2.10"
+        assert transport["host"] == "192.168.1.100"
         assert transport["port"] == 502
         assert transport["unit_id"] == 1
 
@@ -268,7 +268,7 @@ class TestMigrateLegacyEntry:
             "connection_type": "dongle",
             "inverter_serial": "SYNTH10005",
             "inverter_family": "LXP",
-            "dongle_host": "192.0.2.6",
+            "dongle_host": "192.168.1.200",
             "dongle_port": 8000,
             "dongle_serial": "DONGLE123",
             "other_field": "preserved",
@@ -284,7 +284,7 @@ class TestMigrateLegacyEntry:
         assert transport["transport_type"] == "wifi_dongle"
         assert transport["serial"] == "SYNTH10005"
         assert transport["family"] == "LXP"
-        assert transport["host"] == "192.0.2.6"
+        assert transport["host"] == "192.168.1.200"
         assert transport["port"] == 8000
         assert transport["dongle_serial"] == "DONGLE123"
 
@@ -320,7 +320,7 @@ class TestMigrateLegacyEntry:
                 {
                     "transport_type": "modbus_tcp",
                     "serial": "1234567890",
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                 }
             ],
         }

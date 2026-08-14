@@ -828,7 +828,7 @@ async def test_real_tolerance_window_refresh_retains(
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": SERIAL,
-                    "host": "192.0.2.10",
+                    "host": "192.168.1.100",
                     "port": 502,
                     "transport_type": "modbus_tcp",
                     "inverter_family": "EG4_HYBRID",

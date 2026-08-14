@@ -8,10 +8,7 @@
 # a separate VLAN and their traffic is only visible from the gateway.
 #
 # Usage:
-#   ./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST \
-
-#   ./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST \
-
+#   ./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP --verify
 #
 # Workflow:
 #   1. Run with --verify first to confirm everything works

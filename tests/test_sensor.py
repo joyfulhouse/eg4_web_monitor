@@ -40,7 +40,7 @@ class TestLateBatteryRegistration:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1234567890",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -226,7 +226,7 @@ class TestLateDeviceSensorRegistration:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "1234567890",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -452,7 +452,7 @@ class TestSmartPortListenerOwnership:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "SYNTH10001",
-                        "host": "192.0.2.14",
+                        "host": "192.168.1.50",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "is_gridboss": True,

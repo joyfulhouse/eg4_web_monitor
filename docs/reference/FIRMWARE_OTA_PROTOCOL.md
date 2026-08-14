@@ -14,7 +14,7 @@ connections are established.
 ## Network Architecture
 
 ```
-EG4 Cloud Server (192.0.2.2:4346)
+EG4 Cloud Server (3.101.7.137:4346)
         │
         │  TCP persistent connection
         │  (same connection used for normal polling)
@@ -338,9 +338,9 @@ custom dongle IPs, and optional duration limits.
 
 | Device | Dongle Serial | Dongle IP | Dongle MAC | Inverter Serial | Cloud Server |
 |--------|--------------|-----------|------------|-----------------|-------------|
-| 18kPV | SYNTH00005 | 192.0.2.11 | 02:00:00:00:00:02 | SYNTH00004 | 192.0.2.9:4346 |
-| FlexBOSS21 | SYNTH00006 | 192.0.2.16 | 02:00:00:00:00:01 | SYNTH00003 | 192.0.2.9:4346 |
-| GridBOSS | SYNTH00001 | 192.0.2.15 | 02:00:00:00:00:03 | SYNTH00002 | 192.0.2.13:4346 |
+| 18kPV | SYNTH00005 | 192.0.2.11 | 02:00:00:00:00:02 | SYNTH00004 | 3.101.7.137:4346 |
+| FlexBOSS21 | SYNTH00006 | 192.0.2.16 | 02:00:00:00:00:01 | SYNTH00003 | 3.101.7.137:4346 |
+| GridBOSS | SYNTH00001 | 192.0.2.15 | 02:00:00:00:00:03 | SYNTH00002 | 13.56.41.37:4346 |
 
 The observed MAC vendor assignments identify WIZnet (W7500 chip) and Espressif
 (ESP32) hardware; deployment-specific prefix bytes are intentionally omitted.

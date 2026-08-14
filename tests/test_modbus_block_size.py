@@ -162,7 +162,7 @@ class TestTransportConfigBlockSizeKwargs:
 _TCP_DICT = {
     "serial": "SYNTH10014",
     "transport_type": "modbus_tcp",
-    "host": "192.0.2.10",
+    "host": "192.168.1.100",
     "port": 502,
     "unit_id": 1,
     "inverter_family": "EG4_HYBRID",
@@ -214,7 +214,7 @@ def _legacy_modbus_entry(options: dict[str, Any] | None = None) -> MagicMock:
     entry = MagicMock()
     entry.data = {
         CONF_CONNECTION_TYPE: CONNECTION_TYPE_MODBUS,
-        CONF_MODBUS_HOST: "192.0.2.10",
+        CONF_MODBUS_HOST: "192.168.1.100",
         CONF_INVERTER_SERIAL: "SYNTH10014",
     }
     entry.options = options or {}

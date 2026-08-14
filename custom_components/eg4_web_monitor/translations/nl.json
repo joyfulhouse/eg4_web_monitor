@@ -65,7 +65,7 @@
           "timeout": "Verbindingstimeout (seconden)"
         },
         "data_description": {
-          "ip_range": "Netwerkbereik in CIDR-notatie (bijv. 192.0.2.2/24). Automatisch gedetecteerd vanuit uw Home Assistant-netwerk.",
+          "ip_range": "Netwerkbereik in CIDR-notatie (bijv. 192.168.1.0/24). Automatisch gedetecteerd vanuit uw Home Assistant-netwerk.",
           "timeout": "Wachttijd per apparaat. Lager = snellere scan, hoger = betrouwbaarder."
         }
       },
@@ -97,7 +97,7 @@
           "modbus_unit_id": "Unit-ID"
         },
         "data_description": {
-          "modbus_host": "IP-adres van uw RS485-naar-Ethernet adapter (bijv. 192.0.2.10)",
+          "modbus_host": "IP-adres van uw RS485-naar-Ethernet adapter (bijv. 192.168.1.100)",
           "modbus_port": "TCP-poort (standaard: 502)",
           "modbus_unit_id": "Modbus slave-ID (standaard: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "Unit-ID"
         },
         "data_description": {
-          "modbus_host": "IP-adres van uw RS485-naar-Ethernet adapter (bijv. 192.0.2.10)",
+          "modbus_host": "IP-adres van uw RS485-naar-Ethernet adapter (bijv. 192.168.1.100)",
           "modbus_port": "TCP-poort (standaard: 502)",
           "modbus_unit_id": "Modbus slave-ID (standaard: 1)"
         }
@@ -350,7 +350,7 @@
       "serial_permission_denied": "Toegang tot de seriële poort geweigerd. Zorg er op Linux voor dat uw gebruiker in de 'dialout'-groep zit. Geef op macOS Home Assistant toegang tot het USB-apparaat.",
       "serial_port_error": "Kan seriële poort niet openen. Controleer: (1) poortpad is correct, (2) USB-adapter is aangesloten, (3) apparaat wordt niet gebruikt door een andere applicatie.",
       "serial_port_in_use": "Seriële poort wordt al gebruikt door een andere applicatie. Sluit andere applicaties die deze poort gebruiken en probeer het opnieuw.",
-      "invalid_ip_range": "Ongeldig IP-bereik. Gebruik CIDR-notatie (bijv. 192.0.2.2/24) of een bereik (bijv. 192.0.2.3-192.0.2.8). Alleen privé IP-bereiken zijn toegestaan.",
+      "invalid_ip_range": "Ongeldig IP-bereik. Gebruik CIDR-notatie (bijv. 192.168.1.0/24) of een bereik (bijv. 192.168.1.1-192.168.1.254). Alleen privé IP-bereiken zijn toegestaan.",
       "no_scan_type_selected": "Selecteer ten minste één scantype (Modbus of Dongle)."
     },
     "abort": {

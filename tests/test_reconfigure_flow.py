@@ -399,7 +399,7 @@ class TestReconfigureMenuOptions:
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -437,7 +437,7 @@ class TestReconfigureMenuOptions:
                         "transport_type": "modbus_tcp",
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -482,7 +482,7 @@ class TestReconfigureCloudRemove:
                         "transport_type": "modbus_tcp",
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -546,7 +546,7 @@ class TestReconfigureCloudAdd:
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -611,7 +611,7 @@ class TestReconfigureCloudAdd:
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -686,7 +686,7 @@ class TestReconfigureCloudAdd:
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -757,7 +757,7 @@ class TestReconfigureCloudAdd:
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -875,7 +875,7 @@ class TestReconfigureCloudAdd:
                         "transport_type": "modbus_tcp",
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -944,7 +944,7 @@ class TestReconfigureCloudAdd:
                         "serial": "1234567890",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -1000,14 +1000,14 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "modbus_tcp",
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                     {
                         "transport_type": "wifi_dongle",
                         "serial": "2222222222",
                         "model": "18kPV",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                     },
                 ],
@@ -1088,7 +1088,7 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "modbus_tcp",
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     }
                 ],
@@ -1160,7 +1160,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.18",
+                    "modbus_host": "192.168.1.101",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1192,14 +1192,14 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "modbus_tcp",
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                     {
                         "transport_type": "wifi_dongle",
                         "serial": "2222222222",
                         "model": "18kPV",
-                        "host": "192.0.2.6",
+                        "host": "192.168.1.200",
                         "port": 8000,
                     },
                 ],
@@ -1269,7 +1269,7 @@ class TestReconfigureDeviceManagement:
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                 ],
@@ -1310,7 +1310,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.18",
+                    "modbus_host": "192.168.1.101",
                     "modbus_port": 502,
                     "modbus_unit_id": 2,
                 },
@@ -1361,7 +1361,7 @@ class TestReconfigureDeviceManagement:
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
                         "inverter_family": "EG4_HYBRID",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                 ],
@@ -1399,7 +1399,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.7",
+                    "dongle_host": "192.168.1.201",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10010",
                     "inverter_serial": "4444444444",
@@ -1434,7 +1434,7 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "modbus_tcp",
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                 ],
@@ -1467,7 +1467,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.6",
+                    "modbus_host": "192.168.1.200",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1492,7 +1492,7 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "modbus_tcp",
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                 ],
@@ -1525,7 +1525,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.6",
+                    "dongle_host": "192.168.1.200",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10011",
                     "inverter_serial": "5555555555",
@@ -1558,7 +1558,7 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "modbus_tcp",
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                 ],
@@ -1593,7 +1593,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.0.2.6",
+                    "dongle_host": "192.168.1.200",
                     "dongle_port": 8000,
                     "dongle_serial": "SYNTH10011",
                     "inverter_serial": "5555555555",
@@ -1621,7 +1621,7 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "modbus_tcp",
                         "serial": "1111111111",
                         "model": "FlexBOSS21",
-                        "host": "192.0.2.10",
+                        "host": "192.168.1.100",
                         "port": 502,
                     },
                 ],
@@ -1656,7 +1656,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.0.2.10",
+                    "modbus_host": "192.168.1.100",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1685,7 +1685,7 @@ class TestReconfigureLegacyMigration:
                 CONF_CONNECTION_TYPE: "modbus",
                 "inverter_serial": "1234567890",
                 "inverter_family": "EG4_HYBRID",
-                "modbus_host": "192.0.2.10",
+                "modbus_host": "192.168.1.100",
                 "modbus_port": 502,
                 "modbus_unit_id": 1,
                 CONF_VERIFY_SSL: True,
@@ -1722,7 +1722,7 @@ class TestReconfigureLegacyMigration:
                 CONF_CONNECTION_TYPE: "dongle",
                 "inverter_serial": "SYNTH10005",
                 "inverter_family": "LXP",
-                "dongle_host": "192.0.2.6",
+                "dongle_host": "192.168.1.200",
                 "dongle_port": 8000,
                 "dongle_serial": "SYNTH10009",
                 CONF_VERIFY_SSL: True,

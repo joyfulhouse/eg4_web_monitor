@@ -103,21 +103,21 @@ class TestBuildModbusSchema:
     def test_applies_defaults(self):
         """Test that defaults are applied."""
         schema = build_modbus_schema()
-        result = schema({CONF_MODBUS_HOST: "192.0.2.10"})
+        result = schema({CONF_MODBUS_HOST: "192.168.1.100"})
 
-        assert result[CONF_MODBUS_HOST] == "192.0.2.10"
+        assert result[CONF_MODBUS_HOST] == "192.168.1.100"
         assert result[CONF_MODBUS_PORT] == DEFAULT_MODBUS_PORT
         assert result[CONF_MODBUS_UNIT_ID] == DEFAULT_MODBUS_UNIT_ID
 
     def test_uses_provided_defaults(self):
         """Test that provided defaults are used."""
         defaults = {
-            CONF_MODBUS_HOST: "192.0.2.6",
+            CONF_MODBUS_HOST: "192.168.1.200",
             CONF_MODBUS_PORT: 8502,
             CONF_INVERTER_SERIAL: "1234567890",
         }
         schema = build_modbus_schema(defaults)
-        result = schema({CONF_MODBUS_HOST: "192.0.2.6"})
+        result = schema({CONF_MODBUS_HOST: "192.168.1.200"})
 
         assert result[CONF_MODBUS_PORT] == 8502
 
@@ -148,7 +148,7 @@ class TestBuildDongleSchema:
         schema = build_dongle_schema()
         result = schema(
             {
-                CONF_DONGLE_HOST: "192.0.2.10",
+                CONF_DONGLE_HOST: "192.168.1.100",
                 CONF_DONGLE_SERIAL: "dongle123",
                 CONF_INVERTER_SERIAL: "inverter456",
             }

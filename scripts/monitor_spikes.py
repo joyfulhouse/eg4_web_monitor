@@ -189,8 +189,25 @@ def main(
                 print(f"  *** {sp}")
         elif poll_count % 10 == 0 or poll_count == 1:
             # Periodic status every ~5 minutes
+            key_sensors = (
+                ("grid_power", f"sensor.grid_boss_{serials[0]}_grid_power"),
+                (
+                    "grid_voltage_l1",
+                    f"sensor.grid_boss_{serials[0]}_grid_voltage_l1",
+                ),
+                (
+                    "battery_power",
+                    f"sensor.18kpv_{serials[1]}_battery_power",
+                ),
+            )
+            key_values = " | ".join(
+                f"{label}={previous_values.get(entity_id, '?')}"
+                for label, entity_id in key_sensors
+            )
             print(
-                f"[{now}] Poll #{poll_count} OK | {remaining / 60:.0f}m left | spikes={spike_count} | unavail={len(unavail_this_poll)}"
+                f"[{now}] Poll #{poll_count} OK | {remaining / 60:.0f}m left | "
+                f"spikes={spike_count} | unavail={len(unavail_this_poll)} | "
+                f"{key_values}"
             )
 
         if unavail_this_poll and poll_count <= 3:

@@ -65,7 +65,7 @@
           "timeout": "Timeout Connessione (secondi)"
         },
         "data_description": {
-          "ip_range": "Intervallo di rete in notazione CIDR (es., 192.0.2.2/24). Rilevato automaticamente dalla rete di Home Assistant.",
+          "ip_range": "Intervallo di rete in notazione CIDR (es., 192.168.1.0/24). Rilevato automaticamente dalla rete di Home Assistant.",
           "timeout": "Tempo di attesa per ogni dispositivo. Inferiore = scansione piu veloce, superiore = piu affidabile."
         }
       },
@@ -97,7 +97,7 @@
           "modbus_unit_id": "ID Unita"
         },
         "data_description": {
-          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.0.2.10)",
+          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.168.1.100)",
           "modbus_port": "Porta TCP (predefinita: 502)",
           "modbus_unit_id": "ID slave Modbus (predefinito: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "ID Unita"
         },
         "data_description": {
-          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.0.2.10)",
+          "modbus_host": "Indirizzo IP del tuo adattatore RS485-to-Ethernet (es., 192.168.1.100)",
           "modbus_port": "Porta TCP (predefinita: 502)",
           "modbus_unit_id": "ID slave Modbus (predefinito: 1)"
         }
@@ -350,7 +350,7 @@
       "serial_permission_denied": "Permesso negato per l'accesso alla porta seriale. Su Linux, assicurati che il tuo utente sia nel gruppo 'dialout'. Su macOS, concedi a Home Assistant l'accesso al dispositivo USB.",
       "serial_port_error": "Impossibile aprire la porta seriale. Verifica: (1) il percorso della porta sia corretto, (2) l'adattatore USB sia collegato, (3) il dispositivo non sia in uso da un'altra applicazione.",
       "serial_port_in_use": "La porta seriale e gia in uso da un'altra applicazione. Chiudi le altre applicazioni che usano questa porta e riprova.",
-      "invalid_ip_range": "Intervallo IP non valido. Usa la notazione CIDR (es., 192.0.2.2/24) o un intervallo con trattino (es., 192.0.2.3-192.0.2.8). Sono consentiti solo intervalli IP privati.",
+      "invalid_ip_range": "Intervallo IP non valido. Usa la notazione CIDR (es., 192.168.1.0/24) o un intervallo con trattino (es., 192.168.1.1-192.168.1.254). Sono consentiti solo intervalli IP privati.",
       "no_scan_type_selected": "Seleziona almeno un tipo di scansione (Modbus o Dongle)."
     },
     "abort": {

@@ -726,7 +726,10 @@ def save_json(results: ProbeResults) -> Path:
     """Save raw results as JSON for future analysis."""
     data: dict[str, Any] = {
         "timestamp": results.timestamp,
-        "devices": list(DEVICES),
+        "devices": {
+            name: {**config, "host": "<runtime-configured>"}
+            for name, config in DEVICES.items()
+        },
         "holding_registers": [],
         "input_registers": [],
         "errors": results.errors,

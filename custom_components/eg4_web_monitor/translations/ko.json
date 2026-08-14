@@ -65,7 +65,7 @@
           "timeout": "연결 제한 시간 (초)"
         },
         "data_description": {
-          "ip_range": "CIDR 표기법의 네트워크 범위 (예: 192.0.2.2/24). Home Assistant 네트워크에서 자동 감지됩니다.",
+          "ip_range": "CIDR 표기법의 네트워크 범위 (예: 192.168.1.0/24). Home Assistant 네트워크에서 자동 감지됩니다.",
           "timeout": "각 장치의 응답 대기 시간. 낮을수록 스캔이 빠르고, 높을수록 더 신뢰할 수 있습니다."
         }
       },
@@ -97,7 +97,7 @@
           "modbus_unit_id": "유닛 ID"
         },
         "data_description": {
-          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.0.2.10)",
+          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.168.1.100)",
           "modbus_port": "TCP 포트 (기본값: 502)",
           "modbus_unit_id": "Modbus 슬레이브 ID (기본값: 1)"
         }
@@ -281,7 +281,7 @@
           "modbus_unit_id": "유닛 ID"
         },
         "data_description": {
-          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.0.2.10)",
+          "modbus_host": "RS485-이더넷 어댑터의 IP 주소 (예: 192.168.1.100)",
           "modbus_port": "TCP 포트 (기본값: 502)",
           "modbus_unit_id": "Modbus 슬레이브 ID (기본값: 1)"
         }
@@ -350,7 +350,7 @@
       "serial_permission_denied": "시리얼 포트 액세스 권한이 거부되었습니다. Linux에서는 사용자가 'dialout' 그룹에 있는지 확인하세요. macOS에서는 Home Assistant에 USB 장치 액세스 권한을 부여하세요.",
       "serial_port_error": "시리얼 포트를 열지 못했습니다. 다음을 확인하세요: (1) 포트 경로가 올바른지, (2) USB 어댑터가 연결되어 있는지, (3) 다른 애플리케이션에서 장치를 사용하고 있지 않은지.",
       "serial_port_in_use": "시리얼 포트가 이미 다른 애플리케이션에서 사용 중입니다. 이 포트를 사용하는 다른 애플리케이션을 닫고 다시 시도하세요.",
-      "invalid_ip_range": "잘못된 IP 범위입니다. CIDR 표기법 (예: 192.0.2.2/24) 또는 대시 범위 (예: 192.0.2.3-192.0.2.8)를 사용하세요. 사설 IP 범위만 허용됩니다.",
+      "invalid_ip_range": "잘못된 IP 범위입니다. CIDR 표기법 (예: 192.168.1.0/24) 또는 대시 범위 (예: 192.168.1.1-192.168.1.254)를 사용하세요. 사설 IP 범위만 허용됩니다.",
       "no_scan_type_selected": "최소 하나의 스캔 유형 (Modbus 또는 동글)을 선택하세요."
     },
     "abort": {

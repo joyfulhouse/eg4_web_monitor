@@ -306,7 +306,7 @@ views:
           - show_current: true
             show_forecast: true
             type: weather-forecast
-            entity: weather.6245_n_willard_2
+            entity: weather.123_example_street
             forecast_type: hourly
             forecast_slots: 8
           - type: horizontal-stack
