@@ -227,10 +227,6 @@ class _MemoryBudget:
     limit: int
     retained: int = 0
 
-    @property
-    def available(self) -> int:
-        return self.limit - self.retained
-
     def reserve(self, count: int) -> None:
         if count < 0 or self.retained + count > self.limit:
             raise CaptureError(FailureReason.CAPACITY)
@@ -308,8 +304,7 @@ class _ChargedRingBuffer:
     def discard(self, count: int) -> None:
         if not 0 <= count <= self._size:
             raise CaptureError(FailureReason.MALFORMED)
-        if self._capacity:
-            self._head = (self._head + count) % self._capacity
+        self._head = (self._head + count) % self._capacity
         self._size -= count
         if not self._size:
             self._head = 0
@@ -469,12 +464,12 @@ class TCPStreamReassembler:
         self._origin: int | None = None
         self._assembled_bytes = 0
         self._history_start = 0
-        history_capacity = min(
+        self._history_limit = min(
             self.policy.maximum_packet_bytes,
             self.policy.maximum_reassembled_bytes_per_flow,
             16 * 1024,
         )
-        self._history = _ChargedRingBuffer(history_capacity, self._budget)
+        self._history = _ChargedRingBuffer(self._history_limit, self._budget)
         self._pending: dict[int, int] | None = None
         self._segment_count = 0
         self._started_at: float | None = None
@@ -518,7 +513,7 @@ class TCPStreamReassembler:
         normalized = bytes(payload)
         if not normalized:
             return []
-        if len(normalized) > self._budget.available:
+        if len(normalized) > self._budget.limit - self._budget.retained:
             raise CaptureError(FailureReason.CAPACITY)
         if self._started_at is None:
             self._started_at = captured_at
@@ -587,12 +582,7 @@ class TCPStreamReassembler:
             if pending is not None and not pending:
                 self._pending = None
                 pending = None
-        overlap_limit = min(
-            self.policy.maximum_packet_bytes,
-            self.policy.maximum_reassembled_bytes_per_flow,
-            16 * 1024,
-        )
-        expired = max(0, len(self._history) + len(contiguous) - overlap_limit)
+        expired = max(0, len(self._history) + len(contiguous) - self._history_limit)
         contiguous_history_start = 0
         if expired > 0:
             from_history = min(expired, len(self._history))
@@ -1001,16 +991,11 @@ def _decode_link_packet(packet: bytes, link_type: int) -> _IPPacket | None:
     if isinstance(data, module.ip.IP):
         return cast(_IPPacket, data)
     if isinstance(data, module.ip6.IP6):
-        ip6_packet = cast(_IPPacket, data)
-        transport_data = ip6_packet.data
+        transport_data = cast(_IPPacket, data).data
         if isinstance(transport_data, module.tcp.TCP):
             transport = cast(_TCPPacket, transport_data)
-        else:
-            transport = None
-        if transport is not None and (
-            transport.sport == 4346 or transport.dport == 4346
-        ):
-            raise CaptureError(FailureReason.IP_VERSION)
+            if transport.sport == 4346 or transport.dport == 4346:
+                raise CaptureError(FailureReason.IP_VERSION)
     return None
 
 
@@ -1194,11 +1179,6 @@ class _RedactedArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> Never:
         raise _ArgumentParseFailure
 
-    def exit(self, status: int = 0, message: str | None = None) -> Never:
-        if status:
-            raise _ArgumentParseFailure
-        super().exit(status, message)
-
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = _RedactedArgumentParser(
@@ -1234,7 +1214,6 @@ def _open_temporary(directory_descriptor: int) -> tuple[int, str]:
         | os.O_CLOEXEC
         | getattr(os, "O_NOFOLLOW", 0)
     )
-    failed = False
     for _ in range(16):
         name = f".decode-cloud-frames-{secrets.token_hex(16)}.tmp"
         try:
@@ -1242,11 +1221,10 @@ def _open_temporary(directory_descriptor: int) -> tuple[int, str]:
         except FileExistsError:
             continue
         except OSError:
-            failed = True
             break
-    if failed:
-        raise CaptureError(FailureReason.OUTPUT)
-    raise CaptureError(FailureReason.CAPACITY)
+    else:
+        raise CaptureError(FailureReason.CAPACITY)
+    raise CaptureError(FailureReason.OUTPUT)
 
 
 def _unlink_if_same(
