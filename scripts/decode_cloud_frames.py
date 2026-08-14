@@ -26,6 +26,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Final
 
+from pylxpweb.transports.dongle import compute_crc16
+
 try:
     dpkt: ModuleType | None = import_module("dpkt")
 except ImportError:  # pragma: no cover - exercised by the CLI environment
@@ -290,16 +292,6 @@ class _DirectionState:
     source_identity: bytes | None = None
 
 
-def compute_crc16(data: bytes) -> int:
-    """Return CRC-16/Modbus for an inner frame."""
-    crc = 0xFFFF
-    for byte in data:
-        crc ^= byte
-        for _ in range(8):
-            crc = (crc >> 1) ^ 0xA001 if crc & 1 else crc >> 1
-    return crc & 0xFFFF
-
-
 def find_frames(data: bytes) -> list[tuple[int, bytes]]:
     """Compatibility helper using the same bounded streaming decoder."""
     decoder = StreamFrameDecoder()
@@ -461,16 +453,17 @@ def _extract_ip_from_buf(buf: bytes, link_type: int) -> Any | None:
     if dpkt is None:
         raise RuntimeError("optional PCAP dependency unavailable")
     try:
-        if link_type == 1:
-            ethernet = dpkt.ethernet.Ethernet(buf)
-            return ethernet.data if isinstance(ethernet.data, dpkt.ip.IP) else None
-        if link_type == 113 and len(buf) >= 16:
-            return dpkt.ip.IP(buf[16:]) if buf[14:16] == b"\x08\x00" else None
-        if link_type == 276 and len(buf) >= 20:
-            return dpkt.ip.IP(buf[20:]) if buf[:2] == b"\x08\x00" else None
+        if link_type == dpkt.pcap.DLT_EN10MB:
+            link_packet = dpkt.ethernet.Ethernet(buf)
+        elif link_type == dpkt.pcap.DLT_LINUX_SLL:
+            link_packet = dpkt.sll.SLL(buf)
+        elif link_type == dpkt.pcap.DLT_LINUX_SLL2:
+            link_packet = dpkt.sll2.SLL2(buf)
+        else:
+            return None
+        return link_packet.data if isinstance(link_packet.data, dpkt.ip.IP) else None
     except (dpkt.dpkt.NeedData, dpkt.dpkt.UnpackError):
         return None
-    return None
 
 
 def _pcap_segments(pcap_path: Path) -> Iterable[CapturedSegment]:
@@ -478,11 +471,7 @@ def _pcap_segments(pcap_path: Path) -> Iterable[CapturedSegment]:
         raise RuntimeError("optional PCAP dependency unavailable")
     try:
         with pcap_path.open("rb") as capture_file:
-            try:
-                reader = dpkt.pcap.Reader(capture_file)
-            except ValueError:
-                capture_file.seek(0)
-                reader = dpkt.pcapng.Reader(capture_file)
+            reader = dpkt.pcap.UniversalReader(capture_file)
             link_type = reader.datalink()
             stream_ids: dict[tuple[bytes, int, bytes, int], int] = {}
             next_stream_id = 0
