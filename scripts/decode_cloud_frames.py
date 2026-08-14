@@ -11,6 +11,7 @@ import os
 import re
 import stat
 import sys
+import tempfile
 from collections.abc import Buffer, Iterable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -829,7 +830,12 @@ def _read_capture(path: Path, policy: ParserPolicy) -> bytes:
     if path_stat is None or stat.S_ISLNK(path_stat.st_mode):
         raise CaptureError(FailureReason.INPUT_KIND)
     descriptor: int | None = None
-    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK
+    flags = (
+        os.O_RDONLY
+        | os.O_CLOEXEC
+        | getattr(os, "O_NONBLOCK", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
     try:
         descriptor = os.open(path, flags)
     except OSError:
@@ -902,6 +908,8 @@ class _ObservedSession:
     server_handshake: tuple[int, bytes, bytes] | None = None
     client_terminal_sequence: int | None = None
     server_terminal_sequence: int | None = None
+    client_terminal_packet: tuple[int, int, bytes] | None = None
+    server_terminal_packet: tuple[int, int, bytes] | None = None
     application_started: bool = False
 
 
@@ -1004,14 +1012,36 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
             ):
                 raise CaptureError(FailureReason.TRUNCATED)
             assert session is not None
+            packet_signature = (sequence, tcp.flags, payload)
             terminal_sequence = (
                 session.client_terminal_sequence
                 if client_side
                 else session.server_terminal_sequence
             )
             if terminal_sequence is not None:
-                if payload or _sequence_advances(sequence, terminal_sequence):
+                terminal_packet = (
+                    session.client_terminal_packet
+                    if client_side
+                    else session.server_terminal_packet
+                )
+                payload_end = (sequence + len(payload)) % _SEQUENCE_MODULUS
+                if packet_signature == terminal_packet:
+                    continue
+                if (
+                    has_terminal_flag
+                    or _sequence_advances(sequence, terminal_sequence)
+                    or (payload and _sequence_advances(payload_end, terminal_sequence))
+                ):
                     raise CaptureError(FailureReason.MALFORMED)
+                if not payload:
+                    continue
+                yield CapturedSegment(
+                    direction,
+                    sequence,
+                    captured_at,
+                    payload,
+                    session.stream_id,
+                )
                 continue
             if fin and rst:
                 raise CaptureError(FailureReason.MALFORMED)
@@ -1020,8 +1050,10 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                     raise CaptureError(FailureReason.MALFORMED)
                 if client_side:
                     session.client_terminal_sequence = sequence
+                    session.client_terminal_packet = packet_signature
                 else:
                     session.server_terminal_sequence = sequence
+                    session.server_terminal_packet = packet_signature
                 continue
             if payload:
                 session.application_started = True
@@ -1029,8 +1061,10 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                 terminal_sequence = (sequence + len(payload) + 1) % _SEQUENCE_MODULUS
                 if client_side:
                     session.client_terminal_sequence = terminal_sequence
+                    session.client_terminal_packet = packet_signature
                 else:
                     session.server_terminal_sequence = terminal_sequence
+                    session.server_terminal_packet = packet_signature
             if starts_stream or payload:
                 yield CapturedSegment(
                     direction,
@@ -1080,23 +1114,27 @@ def _serialize_output(value: object) -> bytes:
 
 def _write_exclusive(path: Path, content: bytes) -> None:
     failure: FailureReason | None = None
-    created = False
+    temporary_path: Path | None = None
     try:
-        output = path.open("xb")
-        created = True
-        with output:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as output:
+            temporary_path = Path(output.name)
             if output.write(content) != len(content):
                 raise CaptureError(FailureReason.OUTPUT)
+            output.flush()
+            os.fsync(output.fileno())
+        os.link(temporary_path, path)
     except FileExistsError:
         failure = FailureReason.OUTPUT_EXISTS
     except CaptureError as error:
         failure = error.reason
     except OSError:
         failure = FailureReason.OUTPUT
+    if temporary_path is not None:
+        with suppress(OSError):
+            temporary_path.unlink()
     if failure is not None:
-        if created:
-            with suppress(OSError):
-                path.unlink()
         raise CaptureError(failure)
 
 

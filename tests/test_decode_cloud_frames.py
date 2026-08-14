@@ -6,6 +6,7 @@ import json
 import os
 import socket
 import sys
+import tempfile
 import traceback
 from collections.abc import Buffer, Callable
 from importlib import util
@@ -811,6 +812,43 @@ def test_pcap_accepts_exact_empty_terminal_duplicate(
     assert process_pcap(capture_path)["frames"]
 
 
+def test_pcap_accepts_duplicate_fin_with_data_and_prior_data_retransmission(
+    tmp_path: Path,
+) -> None:
+    packet_module = _dpkt()
+    prior_frame = _cloud_frame(0xC1, b"\x01")
+    final_frame = _cloud_frame(0xC1, b"\x01")
+    terminal_sequence = 100 + len(prior_frame)
+    terminal_packet = _ethernet_packet(
+        final_frame,
+        sequence=terminal_sequence,
+        flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_FIN,
+    )
+    capture_path = tmp_path / "duplicate-data-fin.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(
+                    prior_frame, sequence=100, flags=packet_module.tcp.TH_ACK
+                ),
+            ),
+            (1.2, terminal_packet),
+            (1.3, terminal_packet),
+            (
+                1.4,
+                _ethernet_packet(
+                    prior_frame, sequence=100, flags=packet_module.tcp.TH_ACK
+                ),
+            ),
+        ],
+    )
+
+    assert process_pcap(capture_path)["frames"]
+
+
 def test_pcap_accepts_nonadvancing_half_close_ack(tmp_path: Path) -> None:
     packet_module = _dpkt()
     frame = _cloud_frame(0xC1, b"\x01")
@@ -1279,6 +1317,27 @@ def test_process_pcap_rejects_symlink_input(tmp_path: Path) -> None:
     assert caught.value.reason is FailureReason.INPUT_KIND
 
 
+def test_process_pcap_rejects_lstat_to_open_symlink_swap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture_path = tmp_path / "input.pcap"
+    replacement = tmp_path / "replacement.pcap"
+    capture_path.write_bytes(b"synthetic")
+    replacement.write_bytes(b"synthetic")
+    real_open = os.open
+
+    def swap_then_open(path: Path, flags: int) -> int:
+        capture_path.unlink()
+        capture_path.symlink_to(replacement)
+        return real_open(path, flags)
+
+    monkeypatch.setattr(os, "open", swap_then_open)
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.INPUT_KIND
+
+
 def test_capture_read_is_bounded_after_descriptor_stat(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1548,22 +1607,24 @@ def test_cli_exclusive_create_allows_shared_directory(
 
     assert output_path.read_bytes() == first_output
     assert output.err == "capture rejected: output_exists\n"
+    assert list(shared.iterdir()) == [output_path]
 
 
 @pytest.mark.parametrize("failure_stage", ["partial_write", "flush"])
-def test_exclusive_create_removes_partial_file_on_failure(
+def test_safe_publish_removes_only_temporary_file_on_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     failure_stage: str,
 ) -> None:
     output_path = tmp_path / "output.json"
-    real_open = Path.open
+    real_named_temporary_file = tempfile.NamedTemporaryFile
 
-    class FailingOutput:
+    class FailingTemporaryFile:
         def __init__(self) -> None:
-            self.output = real_open(output_path, "xb")
+            self.output = real_named_temporary_file(dir=tmp_path, delete=False)
+            self.name = self.output.name
 
-        def __enter__(self) -> FailingOutput:
+        def __enter__(self) -> FailingTemporaryFile:
             return self
 
         def write(self, content: bytes) -> int:
@@ -1572,6 +1633,14 @@ def test_exclusive_create_removes_partial_file_on_failure(
                 return 1
             return self.output.write(content)
 
+        def flush(self) -> None:
+            if failure_stage == "flush":
+                raise OSError("synthetic flush failure")
+            self.output.flush()
+
+        def fileno(self) -> int:
+            return self.output.fileno()
+
         def __exit__(
             self,
             exception_type: object,
@@ -1579,15 +1648,18 @@ def test_exclusive_create_removes_partial_file_on_failure(
             traceback_object: object,
         ) -> None:
             self.output.close()
-            if failure_stage == "flush":
-                raise OSError("synthetic flush failure")
 
-    monkeypatch.setattr(Path, "open", lambda path, mode: FailingOutput())
+    monkeypatch.setattr(
+        tempfile,
+        "NamedTemporaryFile",
+        lambda **kwargs: FailingTemporaryFile(),
+    )
     with pytest.raises(CaptureError) as caught:
         decoder_module._write_exclusive(output_path, b"synthetic\n")
 
     assert caught.value.reason is FailureReason.OUTPUT
     assert not output_path.exists()
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_missing_dpkt_fails_closed_in_process_and_cli(
