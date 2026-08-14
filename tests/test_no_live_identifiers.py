@@ -338,6 +338,7 @@ def _has_operational_identity_default(path: str, content: str) -> bool:
                 name is not None
                 and value is not None
                 and _identity_name(name)
+                and not name.startswith(("SYNTHETIC_", "DOCUMENTATION_"))
                 and isinstance(value, ast.Constant)
                 and isinstance(value.value, str)
                 and value.value
@@ -684,4 +685,19 @@ def test_config_flow_scan_default_must_be_private() -> None:
     assert not _has_operational_identity_default(
         "custom_components/eg4_web_monitor/_config_flow/scanner.py",
         'DEFAULT_SCAN_NETWORK = "192.168.1.0/24"\n',
+    )
+
+
+def test_script_identity_defaults_allow_explicit_safe_fixtures() -> None:
+    safe_content = "\n".join(
+        (
+            'SYNTHETIC_DONGLE_IDENTITY = "SYNTHDG001"',
+            'SYNTHETIC_INVERTER_IDENTITY = "SYNTHIV001"',
+            'DOCUMENTATION_DONGLE_ADDRESS = "192.0.2.10"',
+        )
+    )
+
+    assert not _has_operational_identity_default("scripts/example.py", safe_content)
+    assert _has_operational_identity_default(
+        "scripts/example.py", 'DONGLE_SERIAL = "runtime-default"\n'
     )

@@ -494,3 +494,10 @@ audits the exact bytes a commit would contain. Local gitignored vectors prove th
 digests against the deployment values without republishing them. Vendor cloud hosts, public
 cloud addresses, MAC OUIs and generic private gateways remain actionable documentation;
 only audited full MACs and deployment-owned identifiers are blocked.
+
+## [2026-08-14] lint | Synthetic script fixtures exempted from identity defaults
+
+The PR merge check exposed that the operational-default rule treated explicitly named
+`SYNTHETIC_*` and `DOCUMENTATION_*` constants as live defaults. Narrowed that rule to keep
+those safe fixtures while continuing to reject ordinary script identity defaults; the
+digest-backed repository scan remains authoritative for audited deployment values.
