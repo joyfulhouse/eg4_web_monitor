@@ -58,7 +58,7 @@ class TestBuildTransportConfigs:
         """Test building TransportConfig from Modbus config dict."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
                 "host": "192.0.2.10",
                 "port": 502,
@@ -70,7 +70,7 @@ class TestBuildTransportConfigs:
         configs = _build_transport_configs(config_list)
 
         assert len(configs) == 1
-        assert configs[0].serial == "CE12345678"
+        assert configs[0].serial == "SYNTH10014"
         assert configs[0].host == "192.0.2.10"
         assert configs[0].port == 502
 
@@ -78,11 +78,11 @@ class TestBuildTransportConfigs:
         """Test building TransportConfig from Dongle config dict."""
         config_list = [
             {
-                "serial": "CE87654321",
+                "serial": "SYNTH10019",
                 "transport_type": "wifi_dongle",
                 "host": "192.0.2.18",
                 "port": 8000,
-                "dongle_serial": "BA12345678",
+                "dongle_serial": "SYNTH10007",
                 "inverter_family": "EG4_HYBRID",
             }
         ]
@@ -90,16 +90,16 @@ class TestBuildTransportConfigs:
         configs = _build_transport_configs(config_list)
 
         assert len(configs) == 1
-        assert configs[0].serial == "CE87654321"
+        assert configs[0].serial == "SYNTH10019"
         assert configs[0].host == "192.0.2.18"
         assert configs[0].port == 8000
-        assert configs[0].dongle_serial == "BA12345678"
+        assert configs[0].dongle_serial == "SYNTH10007"
 
     def test_build_multiple_configs(self) -> None:
         """Test building multiple TransportConfig objects."""
         config_list = [
             {
-                "serial": "CE11111111",
+                "serial": "SYNTH10013",
                 "transport_type": "modbus_tcp",
                 "host": "192.0.2.10",
                 "port": 502,
@@ -107,7 +107,7 @@ class TestBuildTransportConfigs:
                 "inverter_family": "EG4_HYBRID",
             },
             {
-                "serial": "CE22222222",
+                "serial": "SYNTH10015",
                 "transport_type": "modbus_tcp",
                 "host": "192.0.2.18",
                 "port": 502,
@@ -119,21 +119,21 @@ class TestBuildTransportConfigs:
         configs = _build_transport_configs(config_list)
 
         assert len(configs) == 2
-        assert configs[0].serial == "CE11111111"
-        assert configs[1].serial == "CE22222222"
+        assert configs[0].serial == "SYNTH10013"
+        assert configs[1].serial == "SYNTH10015"
 
     def test_serial_malformed_numeric_skipped_not_fatal(self) -> None:
         """A None baudrate (TypeError in int()) skips the config, not setup (#233)."""
         config_list = [
             {
-                "serial": "CE33333333",
+                "serial": "SYNTH10016",
                 "transport_type": "modbus_serial",
                 "serial_port": "/dev/ttyUSB0",
                 "serial_baudrate": None,
                 "inverter_family": "EG4_HYBRID",
             },
             {
-                "serial": "CE44444444",
+                "serial": "SYNTH10017",
                 "transport_type": "modbus_tcp",
                 "host": "192.0.2.10",
                 "port": 502,
@@ -146,13 +146,13 @@ class TestBuildTransportConfigs:
 
         # Bad serial config skipped; the good TCP config still builds.
         assert len(configs) == 1
-        assert configs[0].serial == "CE44444444"
+        assert configs[0].serial == "SYNTH10017"
 
     def test_serial_string_numerics_coerced(self) -> None:
         """String numeric fields from older stored entries coerce cleanly (#233)."""
         config_list = [
             {
-                "serial": "CE55555555",
+                "serial": "SYNTH10018",
                 "transport_type": "modbus_serial",
                 "serial_port": "/dev/ttyUSB0",
                 "serial_baudrate": "19200",
@@ -178,7 +178,7 @@ class TestBuildTransportConfigs:
         """Test building with invalid transport type skips the config."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "invalid_type",
                 "host": "192.0.2.10",
                 "port": 502,
@@ -193,7 +193,7 @@ class TestBuildTransportConfigs:
         """Test building with missing required field skips the config."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
                 # Missing "host" field
                 "port": 502,
@@ -213,7 +213,7 @@ class TestBuildTransportConfigs:
         """
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_serial",
                 "serial_port": "/dev/ttyUSB0",
                 "serial_baudrate": 19200,
@@ -228,7 +228,7 @@ class TestBuildTransportConfigs:
 
         assert len(configs) == 1
         assert configs[0].transport_type == TransportType.MODBUS_SERIAL
-        assert configs[0].serial == "CE12345678"
+        assert configs[0].serial == "SYNTH10014"
         assert configs[0].serial_port == "/dev/ttyUSB0"
         assert configs[0].serial_baudrate == 19200
         assert configs[0].serial_parity == "N"
@@ -239,7 +239,7 @@ class TestBuildTransportConfigs:
         """Serial config without serial_port is skipped, not crashed on."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_serial",
             }
         ]
@@ -287,7 +287,7 @@ class TestCoordinatorHybridInit:
             # New CONF_LOCAL_TRANSPORTS format for attach_local_transports()
             CONF_LOCAL_TRANSPORTS: [
                 {
-                    "serial": "CE12345678",
+                    "serial": "SYNTH10014",
                     "transport_type": "modbus_tcp",
                     "host": "192.0.2.10",
                     "port": DEFAULT_MODBUS_PORT,
@@ -317,7 +317,7 @@ class TestCoordinatorHybridInit:
             )
 
         assert len(coordinator._local_transport_configs) == 1
-        assert coordinator._local_transport_configs[0]["serial"] == "CE12345678"
+        assert coordinator._local_transport_configs[0]["serial"] == "SYNTH10014"
         assert coordinator._local_transports_attached is False
 
     def test_empty_local_transports_list(self, mock_hass: MagicMock) -> None:
@@ -370,7 +370,7 @@ class TestAttachLocalTransports:
         # Create a mock coordinator with station = None
         mock_self = MagicMock()
         mock_self.station = None
-        mock_self._local_transport_configs = [{"serial": "CE12345678"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH10014"}]
         mock_self._local_transports_attached = False
 
         # Call the method as a bound method
@@ -418,7 +418,7 @@ class TestAttachLocalTransports:
         mock_self.station.is_hybrid_mode = True
         mock_self._local_transport_configs = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
                 "host": "192.0.2.10",
                 "port": 502,

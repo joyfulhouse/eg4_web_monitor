@@ -686,7 +686,7 @@ def hybrid_dongle_config_entry():
             CONF_LOCAL_TRANSPORTS: [
                 {
                     "serial": "MID001",
-                    "host": "192.168.1.200",
+                    "host": "192.0.2.6",
                     "port": 8000,
                     "transport_type": "wifi_dongle",
                     "inverter_family": "EG4_GRIDBOSS",
@@ -729,7 +729,7 @@ def hybrid_mixed_config_entry():
                 },
                 {
                     "serial": "MID001",
-                    "host": "192.168.1.200",
+                    "host": "192.0.2.6",
                     "port": 8000,
                     "transport_type": "wifi_dongle",
                     "inverter_family": "EG4_GRIDBOSS",
@@ -2366,7 +2366,7 @@ class TestPhysicalEndpointOperationSerialization:
             _SingleSlotTransport(
                 endpoint,
                 operation_name="second",
-                host="192.168.1.51",
+                host="192.0.2.9",
             ),
         )
         self._install_devices(coordinator, first, second)

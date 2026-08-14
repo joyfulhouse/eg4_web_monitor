@@ -437,7 +437,7 @@ class TestSmartPortListenerOwnership:
     errors from the #217 report (codex review LOW).
     """
 
-    GRIDBOSS_SERIAL = "4434850364"
+    GRIDBOSS_SERIAL = "SYNTH10001"
 
     @pytest.fixture
     def gridboss_config_entry(self):
@@ -451,7 +451,7 @@ class TestSmartPortListenerOwnership:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "4434850364",
+                        "serial": "SYNTH10001",
                         "host": "192.0.2.14",
                         "port": 502,
                         "transport_type": "modbus_tcp",

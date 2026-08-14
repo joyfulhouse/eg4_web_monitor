@@ -126,7 +126,7 @@ class TestTransportFactories:
         transport = create_modbus_transport(
             host="192.0.2.10",
             port=502,
-            serial="CE12345678",
+            serial="SYNTH10014",
         )
 
         assert transport is not None
@@ -141,8 +141,8 @@ class TestTransportFactories:
 
         transport = create_dongle_transport(
             host="192.0.2.10",
-            dongle_serial="BA12345678",
-            inverter_serial="CE12345678",
+            dongle_serial="SYNTH10007",
+            inverter_serial="SYNTH10014",
         )
 
         assert transport is not None
@@ -157,7 +157,7 @@ class TestTransportFactories:
         mock_client = MagicMock()
         transport = create_http_transport(
             client=mock_client,
-            serial="CE12345678",
+            serial="SYNTH10014",
         )
 
         assert transport is not None

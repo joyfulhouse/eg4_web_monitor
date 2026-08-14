@@ -504,6 +504,6 @@ class TestErrorKeyAvailabilityContract:
         assert sensor.available is True
 
         mock_coordinator.data["devices"]["parallel_group_a"]["error"] = (
-            "Local transport link down for member(s): CE22222222"
+            "Local transport link down for member(s): SYNTH10015"
         )
         assert sensor.available is False

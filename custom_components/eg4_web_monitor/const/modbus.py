@@ -363,7 +363,7 @@ SCHEDULE_TIME_TYPES: tuple[ScheduleTimeSpec, ...] = (
     # Forced Charge (PV charge priority, #295): regs 76-81 (EG4-18KPV spec,
     # pylxpweb SCHEDULE_CONFIGS). Suppressed on EG4_OFFGRID: the cloud
     # rejects HOLD_FORCED_CHARGE_* writes on a 12000XP v2 (REMOTE_SET_ERROR,
-    # serial 61062J0147, #295 live report) and the SNA working-mode portal
+    # serial SYNTH10005, #295 live report) and the SNA working-mode portal
     # page contains ZERO HOLD_FORCED_CHARGE params (vs a full Forced
     # Discharge schedule widget) — same evidence standard as the #307
     # Battery Backup gate.

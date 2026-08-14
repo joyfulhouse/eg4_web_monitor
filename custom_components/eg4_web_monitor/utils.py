@@ -137,7 +137,7 @@ CONTROL_CAPABLE_FAMILIES: frozenset[str] = frozenset(
 # discriminate an XP-v2-only quirk.
 #
 # EG4_OFFGRID / FUNC_BATTERY_BACKUP_CTRL (reg 233 bit 1): enabling Battery
-# Backup Mode on a 12000XP v2 (serial 61062J0147, fw ceaa-000709) is
+# Backup Mode on a 12000XP v2 (serial SYNTH10005, fw ceaa-000709) is
 # rejected by the cloud ("failed to enable working mode"), and the EG4
 # maintenance Remote Set page for the unit exposes no working-mode toggle
 # (its Working Mode section is an AC Charge / AC First / Self Consumption

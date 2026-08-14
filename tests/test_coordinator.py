@@ -1613,7 +1613,7 @@ class TestCacheTTLAdherence:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "INV001",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "EG4_HYBRID",
@@ -1770,7 +1770,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "model": "GridBOSS",
@@ -1969,7 +1969,7 @@ class TestStaticLocalData:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "EU12345678",
+                        "serial": "SYNTH10020",
                         "host": "192.0.2.14",
                         "port": 502,
                         "transport_type": "modbus_tcp",
@@ -1984,7 +1984,7 @@ class TestStaticLocalData:
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         result = await coordinator._async_update_local_data()
 
-        device = result["devices"]["EU12345678"]
+        device = result["devices"]["SYNTH10020"]
         assert device["features"]["supports_three_phase"] is True
         assert device["features"]["supports_split_phase"] is False
 
@@ -1999,8 +1999,8 @@ class TestStaticLocalData:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "BR12345678",
-                        "host": "192.168.1.51",
+                        "serial": "SYNTH10012",
+                        "host": "192.0.2.9",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "LXP",
@@ -2014,7 +2014,7 @@ class TestStaticLocalData:
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         result = await coordinator._async_update_local_data()
 
-        device = result["devices"]["BR12345678"]
+        device = result["devices"]["SYNTH10012"]
         assert device["features"]["supports_three_phase"] is False
         assert device["features"]["supports_split_phase"] is True
 
@@ -2345,7 +2345,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "model": "GridBOSS",
@@ -2471,7 +2471,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB_ONLY",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "model": "GridBOSS",
@@ -2505,7 +2505,7 @@ class TestStaticLocalData:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "model": "GridBOSS",
@@ -3866,7 +3866,7 @@ class TestPerTransportIntervals:
                     },
                     {
                         "serial": "2222222222",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "dongle_serial": "BJ1234567890",
@@ -3915,7 +3915,7 @@ class TestPerTransportIntervals:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "4444444444",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                         "transport_type": "wifi_dongle",
                         "dongle_serial": "BJ9876543210",
@@ -4014,7 +4014,7 @@ class TestPerTransportIntervals:
                 CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "AAAA111111",
+                        "serial": "SYNTH10006",
                         "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
@@ -4022,7 +4022,7 @@ class TestPerTransportIntervals:
                         "model": "FlexBOSS21",
                     },
                     {
-                        "serial": "BBBB222222",
+                        "serial": "SYNTH10008",
                         "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
@@ -4057,8 +4057,8 @@ class TestPerTransportIntervals:
 
         # Both modbus_tcp devices must be in the same group
         all_serials = [s for group in polled_configs for s in group]
-        assert "AAAA111111" in all_serials, "First modbus_tcp device was not polled"
-        assert "BBBB222222" in all_serials, (
+        assert "SYNTH10006" in all_serials, "First modbus_tcp device was not polled"
+        assert "SYNTH10008" in all_serials, (
             "Second modbus_tcp device was skipped (transport interval bug)"
         )
 
@@ -6883,7 +6883,7 @@ class TestUnknownFamilyModelFallback:
                 self._features = InverterFeatures.from_device_type_code(
                     device_type_code
                 )
-                self.serial_number = "6000123456"
+                self.serial_number = "SYNTH10004"
                 self.model = model
 
         return _Inverter()
@@ -6897,7 +6897,7 @@ class TestUnknownFamilyModelFallback:
 
         # Real HybridInverter exactly as the cloud path builds it: model from
         # deviceTypeText, _features defaulted to UNKNOWN (unmapped type code).
-        inverter = make_real_inverter("6000123456", "6000XP")
+        inverter = make_real_inverter("SYNTH10004", "6000XP")
         features = DeviceProcessingMixin._extract_inverter_features(inverter)
 
         assert features["inverter_family"] == "EG4_OFFGRID"
@@ -8759,7 +8759,7 @@ class TestQuickChargeOffgridCloudStatus:
     @staticmethod
     def _offgrid_inverter() -> MagicMock:
         inverter = MagicMock()
-        inverter.serial_number = "61062J0147"
+        inverter.serial_number = "SYNTH10005"
         # HYBRID: local transport attached; reg 234 (duration/remaining
         # minutes) reads 45 locally.
         transport = MagicMock()
@@ -8792,7 +8792,7 @@ class TestQuickChargeOffgridCloudStatus:
         await coordinator._fetch_quick_charge_status(inverter, target)
 
         coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
-            "61062J0147"
+            "SYNTH10005"
         )
         inverter.get_quick_charge_detail.assert_not_awaited()
         status = target["quick_charge_status"]
@@ -8908,7 +8908,7 @@ class TestQuickChargeOffgridCloudStatus:
             "hasUnclosedQuickChargeTask": True,
             "fetched_at": 1234.5,
         }
-        coordinator.data = {"devices": {"61062J0147": {"quick_charge_status": prev}}}
+        coordinator.data = {"devices": {"SYNTH10005": {"quick_charge_status": prev}}}
         inverter = self._offgrid_inverter()
         inverter.get_quick_charge_detail = AsyncMock(side_effect=OSError("bus stalled"))
         target: dict[str, Any] = {"features": {}}
@@ -8941,7 +8941,7 @@ class TestQuickChargeOffgridCloudStatus:
             side_effect=_stalled
         )
         prev = {"hasUnclosedQuickChargeTask": True, "fetched_at": 1234.5}
-        coordinator.data = {"devices": {"61062J0147": {"quick_charge_status": prev}}}
+        coordinator.data = {"devices": {"SYNTH10005": {"quick_charge_status": prev}}}
         inverter = self._offgrid_inverter()
         target: dict[str, Any] = {
             "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
@@ -8960,7 +8960,7 @@ class TestQuickChargeOffgridCloudStatus:
         coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
         coordinator.data = {
             "devices": {
-                "61062J0147": {
+                "SYNTH10005": {
                     "type": "inverter",
                     "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
                 }
@@ -8968,10 +8968,10 @@ class TestQuickChargeOffgridCloudStatus:
         }
         inverter = self._offgrid_inverter()
         with patch.object(coordinator, "get_inverter_object", return_value=inverter):
-            assert await coordinator.is_quick_charge_active_live("61062J0147") is True
+            assert await coordinator.is_quick_charge_active_live("SYNTH10005") is True
         inverter.get_quick_charge_detail.assert_not_awaited()
         coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
-            "61062J0147"
+            "SYNTH10005"
         )
 
 

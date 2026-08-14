@@ -222,7 +222,7 @@ def build_network_scan_schema(
     """
     return vol.Schema(
         {
-            vol.Required("ip_range", default=default_ip_range or "192.168.1.0/24"): str,
+            vol.Required("ip_range", default=default_ip_range or "192.0.2.2/24"): str,
             vol.Optional("scan_modbus", default=True): bool,
             vol.Optional("scan_dongle", default=True): bool,
             vol.Optional("timeout", default=0.5): vol.All(

@@ -2160,13 +2160,13 @@ class TestAttachSerialTransports:
     ):
         """Serial transports attach to GridBOSS/MID devices too."""
         serial_dict = dict(_SERIAL_TRANSPORT_DICT)
-        serial_dict["serial"] = "GB00000001"
+        serial_dict["serial"] = "SYNTH10021"
         serial_dict["model"] = "GridBOSS"
         entry = _make_hybrid_entry([serial_dict], "hybrid_serial_mid")
         entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, entry)
 
-        mid = make_real_mid("GB00000001")
+        mid = make_real_mid("SYNTH10021")
         mock_station = MagicMock()
         mock_station.attach_local_transports = AsyncMock()
         mock_station.is_hybrid_mode = True
@@ -2462,7 +2462,7 @@ class TestGridBOSSFirmwareCache:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB001",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 502,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "MID_DEVICE",
@@ -2533,7 +2533,7 @@ class TestGridBOSSFirmwareCache:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": "GB002",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 502,
                         "transport_type": "wifi_dongle",
                         "inverter_family": "MID_DEVICE",
@@ -2609,7 +2609,7 @@ class TestSharedBatterySecondary:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "PRIMARY001",
+                        "serial": "SYNTH10023",
                         "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
@@ -2652,7 +2652,7 @@ class TestSharedBatterySecondary:
         coordinator = EG4DataUpdateCoordinator(hass, parallel_config_entry)
         result = coordinator._build_static_local_data()
 
-        primary_sensors = result["devices"]["PRIMARY001"]["sensors"]
+        primary_sensors = result["devices"]["SYNTH10023"]["sensors"]
         secondary_sensors = result["devices"]["SECONDARY01"]["sensors"]
 
         # Both primary and secondary should have core battery bank keys
@@ -2676,7 +2676,7 @@ class TestSharedBatterySecondary:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
         coordinator._local_transport_configs = [
             {
-                "serial": "6000123456",
+                "serial": "SYNTH10004",
                 "transport_type": "modbus_tcp",
                 "host": "192.0.2.14",
                 "port": 502,
@@ -2684,9 +2684,9 @@ class TestSharedBatterySecondary:
                 "inverter_family": "UNKNOWN",
             },
             {
-                "serial": "5284200001",
+                "serial": "SYNTH10003",
                 "transport_type": "modbus_tcp",
-                "host": "192.168.1.51",
+                "host": "192.0.2.9",
                 "port": 502,
                 "model": "FlexBOSS21",
                 "inverter_family": "EG4_HYBRID",
@@ -2701,7 +2701,7 @@ class TestSharedBatterySecondary:
         # Exactly one issue — for the fallback device, not the clean one.
         mock_issue.assert_called_once()
         args, kwargs = mock_issue.call_args
-        assert args[2] == "unknown_family_fallback_6000123456"
+        assert args[2] == "unknown_family_fallback_SYNTH10004"
         assert kwargs["translation_key"] == "unknown_family_fallback"
         assert kwargs["translation_placeholders"]["model"] == "6000XP"
         assert kwargs["translation_placeholders"]["family"] == "EG4_OFFGRID"
@@ -2827,13 +2827,13 @@ class TestSharedBatterySecondary:
             ],
         )
 
-        inverter = make_real_inverter("PRIMARY001", "FlexBOSS21", runtime=mock_runtime)
+        inverter = make_real_inverter("SYNTH10023", "FlexBOSS21", runtime=mock_runtime)
         inverter.refresh = AsyncMock()
         inverter._transport_battery = mock_battery_data
         inverter._transport = make_transport_spec(is_connected=True, host="192.0.2.10")
 
-        coordinator._inverter_cache["PRIMARY001"] = inverter
-        coordinator._firmware_cache["PRIMARY001"] = "FAAB-2525"
+        coordinator._inverter_cache["SYNTH10023"] = inverter
+        coordinator._firmware_cache["SYNTH10023"] = "FAAB-2525"
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_local._build_runtime_sensor_mapping",
@@ -2851,7 +2851,7 @@ class TestSharedBatterySecondary:
                 device_availability=device_availability,
             )
 
-        device = processed["devices"]["PRIMARY001"]
+        device = processed["devices"]["SYNTH10023"]
 
         # Primary should have battery bank sensors
         assert "battery_bank_soc" in device["sensors"]
@@ -3007,7 +3007,7 @@ class TestBatteryBankCountSuppression:
 
     async def test_secondary_no_battery_bank_sensors(self, hass):
         """Secondary with battery_count=0 gets no battery_bank_* sensors."""
-        serial = "INVPARAM01"
+        serial = "SYNTH10022"
         entry = self._make_detection_entry(hass, serial, "param_test")
         coordinator = EG4DataUpdateCoordinator(hass, entry)
         coordinator._local_static_phase_done = True
@@ -3076,7 +3076,7 @@ class TestBatteryBankCountSuppression:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "PRIMARY001",
+                        "serial": "SYNTH10023",
                         "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
@@ -3105,10 +3105,10 @@ class TestBatteryBankCountSuppression:
 
         processed: dict[str, Any] = {
             "devices": {
-                "PRIMARY001": {
+                "SYNTH10023": {
                     "type": "inverter",
                     "model": "FlexBOSS18",
-                    "serial": "PRIMARY001",
+                    "serial": "SYNTH10023",
                     "sensors": {
                         "battery_bank_count": 4,
                         "battery_bank_current": 30.0,
@@ -4461,8 +4461,8 @@ class TestLocalLinkDownFlow:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "CE11111111",
-                        "host": "192.168.1.60",
+                        "serial": "SYNTH10013",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4479,7 +4479,7 @@ class TestLocalLinkDownFlow:
         # Previous good cycle's data (this is what would freeze pre-fix).
         coordinator.data = {
             "devices": {
-                "CE11111111": {
+                "SYNTH10013": {
                     "type": "inverter",
                     "sensors": {"battery_voltage": 53.2},
                 }
@@ -4491,7 +4491,7 @@ class TestLocalLinkDownFlow:
         # the failed probe, transport data caches cleared on the transition.
         transport = MagicMock(spec=["is_connected", "host", "port", "transport_type"])
         transport.is_connected = True
-        transport.host = "192.168.1.60"
+        transport.host = "192.0.2.10"
         transport.port = 502
         transport.transport_type = "modbus_tcp"
         inverter = MagicMock(
@@ -4505,14 +4505,14 @@ class TestLocalLinkDownFlow:
                 "serial_number",
             ]
         )
-        inverter.serial_number = "CE11111111"
+        inverter.serial_number = "SYNTH10013"
         inverter.transport = transport
         inverter.transport_link_down = True
         inverter.transport_energy = None
         inverter.transport_battery = None
         inverter.transport_runtime = None  # cleared at the down transition
         inverter.refresh = AsyncMock()
-        coordinator._inverter_cache["CE11111111"] = inverter
+        coordinator._inverter_cache["SYNTH10013"] = inverter
 
         with pytest.raises(UpdateFailed, match="All 1 local transports failed"):
             await coordinator._async_update_local_data()
@@ -4523,20 +4523,20 @@ class TestLocalLinkDownFlow:
         # The carried-forward device data is error-marked, which flips the
         # base_entity availability contract to unavailable.
         assert (
-            coordinator.data["devices"]["CE11111111"]["error"]
+            coordinator.data["devices"]["SYNTH10013"]["error"]
             == "Local transport link down"
         )
 
         # One-shot Repairs issue exists with the right placeholders.
         registry = ir.async_get(hass)
-        issue = registry.async_get_issue(DOMAIN, "transport_link_down_CE11111111")
+        issue = registry.async_get_issue(DOMAIN, "transport_link_down_SYNTH10013")
         assert issue is not None
         assert issue.translation_key == "transport_link_down"
         assert issue.translation_placeholders == {
-            "serial": "CE11111111",
-            "host": "192.168.1.60",
+            "serial": "SYNTH10013",
+            "host": "192.0.2.10",
         }
-        assert coordinator._link_down_notified == {"CE11111111"}
+        assert coordinator._link_down_notified == {"SYNTH10013"}
 
     async def test_recovery_clears_repairs_issue(self, hass):
         """When the link comes back, the Repairs issue is deleted."""
@@ -4551,8 +4551,8 @@ class TestLocalLinkDownFlow:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "CE11111111",
-                        "host": "192.168.1.60",
+                        "serial": "SYNTH10013",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4568,27 +4568,27 @@ class TestLocalLinkDownFlow:
         ir.async_create_issue(
             hass,
             DOMAIN,
-            "transport_link_down_CE11111111",
+            "transport_link_down_SYNTH10013",
             is_fixable=False,
             severity=ir.IssueSeverity.WARNING,
             translation_key="transport_link_down",
-            translation_placeholders={"serial": "CE11111111", "host": "x"},
+            translation_placeholders={"serial": "SYNTH10013", "host": "x"},
         )
-        coordinator._link_down_notified = {"CE11111111"}
+        coordinator._link_down_notified = {"SYNTH10013"}
 
         transport = MagicMock(spec=["is_connected", "host", "port"])
         inverter = MagicMock(spec=["transport", "transport_link_down", "serial_number"])
-        inverter.serial_number = "CE11111111"
+        inverter.serial_number = "SYNTH10013"
         inverter.transport = transport
         inverter.transport_link_down = False  # recovered
-        coordinator._inverter_cache["CE11111111"] = inverter
+        coordinator._inverter_cache["SYNTH10013"] = inverter
 
         processed: dict[str, Any] = {"devices": {}}
         coordinator._sync_transport_link_state(processed)
 
         registry = ir.async_get(hass)
         assert (
-            registry.async_get_issue(DOMAIN, "transport_link_down_CE11111111") is None
+            registry.async_get_issue(DOMAIN, "transport_link_down_SYNTH10013") is None
         )
         assert coordinator._link_down_notified == set()
 
@@ -4609,15 +4609,15 @@ class TestParallelGroupLinkDownMarking:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "CE11111111",
-                        "host": "192.168.1.60",
+                        "serial": "SYNTH10013",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
                     },
                     {
-                        "serial": "CE22222222",
-                        "host": "192.168.1.61",
+                        "serial": "SYNTH10015",
+                        "host": "192.0.2.11",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4655,9 +4655,9 @@ class TestParallelGroupLinkDownMarking:
         old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
         processed: dict[str, Any] = {
             "devices": {
-                "CE11111111": self._member("CE11111111", master=True),
-                "CE22222222": self._member(
-                    "CE22222222", master=False, error="Local transport link down"
+                "SYNTH10013": self._member("SYNTH10013", master=True),
+                "SYNTH10015": self._member(
+                    "SYNTH10015", master=False, error="Local transport link down"
                 ),
                 # Previous cycle's PG entry (carried forward in real cycles)
                 "parallel_group_a": {
@@ -4671,7 +4671,7 @@ class TestParallelGroupLinkDownMarking:
 
         pg_data = processed["devices"]["parallel_group_a"]
         assert pg_data["error"] == (
-            "Local transport link down for member(s): CE22222222"
+            "Local transport link down for member(s): SYNTH10015"
         )
         # No fresh-poll claim: the previous stamp is carried forward.
         assert pg_data["sensors"]["parallel_group_last_polled"] == old_stamp
@@ -4687,11 +4687,11 @@ class TestParallelGroupLinkDownMarking:
         old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
         processed: dict[str, Any] = {
             "devices": {
-                "CE11111111": self._member("CE11111111", master=True),
-                "CE22222222": self._member("CE22222222", master=False),
+                "SYNTH10013": self._member("SYNTH10013", master=True),
+                "SYNTH10015": self._member("SYNTH10015", master=False),
                 "parallel_group_a": {
                     "type": "parallel_group",
-                    "error": "Local transport link down for member(s): CE22222222",
+                    "error": "Local transport link down for member(s): SYNTH10015",
                     "sensors": {"parallel_group_last_polled": old_stamp},
                 },
             },
@@ -4714,10 +4714,10 @@ class TestParallelGroupLinkDownMarking:
 
         processed: dict[str, Any] = {
             "devices": {
-                "CE11111111": self._member("CE11111111", master=True),
-                "GB00000001": {
+                "SYNTH10013": self._member("SYNTH10013", master=True),
+                "SYNTH10021": {
                     "type": "gridboss",
-                    "serial": "GB00000001",
+                    "serial": "SYNTH10021",
                     "error": "Local transport link down",
                     "sensors": {"load_power": 1200.0},
                 },
@@ -4728,7 +4728,7 @@ class TestParallelGroupLinkDownMarking:
 
         pg_data = processed["devices"]["parallel_group_a"]
         assert pg_data["error"] == (
-            "Local transport link down for member(s): GB00000001"
+            "Local transport link down for member(s): SYNTH10021"
         )
         assert "parallel_group_last_polled" not in pg_data["sensors"]
 
@@ -4754,7 +4754,7 @@ class TestLocalProcessingFailureStaleness:
                 CONF_LOCAL_TRANSPORTS: [
                     {
                         "serial": broken_serial,
-                        "host": "192.168.1.70",
+                        "host": "192.0.2.12",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4762,7 +4762,7 @@ class TestLocalProcessingFailureStaleness:
                     },
                     {
                         "serial": healthy_serial,
-                        "host": "192.168.1.71",
+                        "host": "192.0.2.13",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4951,15 +4951,15 @@ class TestFullOutageParallelGroupMarking:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "CE11111111",
-                        "host": "192.168.1.60",
+                        "serial": "SYNTH10013",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
                     },
                     {
-                        "serial": "CE22222222",
-                        "host": "192.168.1.61",
+                        "serial": "SYNTH10015",
+                        "host": "192.0.2.11",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -4976,17 +4976,17 @@ class TestFullOutageParallelGroupMarking:
         old_stamp = datetime(2026, 6, 10, 11, 0, 0, tzinfo=UTC)
         coordinator.data = {
             "devices": {
-                "CE11111111": {
+                "SYNTH10013": {
                     "type": "inverter",
                     "sensors": {"battery_voltage": 53.2},
                 },
-                "CE22222222": {
+                "SYNTH10015": {
                     "type": "inverter",
                     "sensors": {"battery_voltage": 52.9},
                 },
                 "parallel_group_a": {
                     "type": "parallel_group",
-                    "member_serials": ["CE11111111", "CE22222222"],
+                    "member_serials": ["SYNTH10013", "SYNTH10015"],
                     "sensors": {
                         "pv_total_power": 5000.0,
                         "parallel_group_last_polled": old_stamp,
@@ -4996,11 +4996,11 @@ class TestFullOutageParallelGroupMarking:
             "parameters": {},
         }
 
-        coordinator._inverter_cache["CE11111111"] = self._link_down_inverter(
-            "CE11111111", "192.168.1.60"
+        coordinator._inverter_cache["SYNTH10013"] = self._link_down_inverter(
+            "SYNTH10013", "192.0.2.10"
         )
-        coordinator._inverter_cache["CE22222222"] = self._link_down_inverter(
-            "CE22222222", "192.168.1.61"
+        coordinator._inverter_cache["SYNTH10015"] = self._link_down_inverter(
+            "SYNTH10015", "192.0.2.11"
         )
 
         # Drive the REAL wrapper: UpdateFailed is suppressed (failure 1/3)
@@ -5014,12 +5014,12 @@ class TestFullOutageParallelGroupMarking:
         # coordinator's RETAINED data — no fresh-poll claim on the stamp.
         pg_data = coordinator.data["devices"]["parallel_group_a"]
         assert pg_data["error"] == (
-            "Local transport link down for member(s): CE11111111, CE22222222"
+            "Local transport link down for member(s): SYNTH10013, SYNTH10015"
         )
         assert pg_data["sensors"]["parallel_group_last_polled"] == old_stamp
 
         # Member devices were marked too (round-1 behavior, unchanged)
-        assert "error" in coordinator.data["devices"]["CE11111111"]
+        assert "error" in coordinator.data["devices"]["SYNTH10013"]
 
         # PG sensors read unavailable during the suppressed window
         pg_sensor = EG4BaseSensor(
@@ -5034,8 +5034,8 @@ class TestFullOutageParallelGroupMarking:
         # carried (still-marked) entry with a clean, freshly-stamped one.
         recovered_processed: dict[str, Any] = {
             "devices": {
-                "CE11111111": self._healthy_member("CE11111111", master=True),
-                "CE22222222": self._healthy_member("CE22222222", master=False),
+                "SYNTH10013": self._healthy_member("SYNTH10013", master=True),
+                "SYNTH10015": self._healthy_member("SYNTH10015", master=False),
                 "parallel_group_a": coordinator.data["devices"]["parallel_group_a"],
             },
         }
@@ -5059,8 +5059,8 @@ class TestFullOutageParallelGroupMarking:
                 CONF_LIBRARY_DEBUG: False,
                 CONF_LOCAL_TRANSPORTS: [
                     {
-                        "serial": "CE11111111",
-                        "host": "192.168.1.60",
+                        "serial": "SYNTH10013",
+                        "host": "192.0.2.10",
                         "port": 502,
                         "transport_type": "modbus_tcp",
                         "inverter_family": "EG4_HYBRID",
@@ -5076,13 +5076,13 @@ class TestFullOutageParallelGroupMarking:
 
         coordinator.data = {
             "devices": {
-                "CE11111111": {
+                "SYNTH10013": {
                     "type": "inverter",
                     "sensors": {"battery_voltage": 53.2},
                 },
                 "parallel_group_a": {
                     "type": "parallel_group",
-                    "member_serials": ["CE11111111"],
+                    "member_serials": ["SYNTH10013"],
                     "sensors": {"pv_total_power": 2500.0},
                 },
             },
@@ -5090,12 +5090,12 @@ class TestFullOutageParallelGroupMarking:
         }
 
         # Transient: read fails but the link is NOT declared down yet.
-        inverter = self._link_down_inverter("CE11111111", "192.168.1.60")
+        inverter = self._link_down_inverter("SYNTH10013", "192.0.2.10")
         inverter.transport_link_down = False
-        coordinator._inverter_cache["CE11111111"] = inverter
+        coordinator._inverter_cache["SYNTH10013"] = inverter
 
         returned = await coordinator._async_update_data()
         assert returned is coordinator.data
 
         assert "error" not in coordinator.data["devices"]["parallel_group_a"]
-        assert "error" not in coordinator.data["devices"]["CE11111111"]
+        assert "error" not in coordinator.data["devices"]["SYNTH10013"]

@@ -80,7 +80,7 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
 #### Waveshare adapter settings
 
 1. Connect the adapter to your network via Ethernet.
-2. Open the web configuration at `http://192.168.1.200` (default IP).
+2. Open the web configuration at `http://192.0.2.6` (default IP).
 3. Configure:
    - **Network:** static IP (e.g. `192.0.2.10`), subnet `255.255.255.0`,
      gateway = your router IP.

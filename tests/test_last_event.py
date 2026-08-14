@@ -54,7 +54,7 @@ FAULT_ROW: dict[str, Any] = {
     "recordId": 7583193,
     "plantName": "Test Plant",
     "serialNum": INVERTER_SERIAL,
-    "datalogSn": "BC33600194",
+    "datalogSn": "SYNTH00006",
     "eventTypeText": "Fault",
     "eventType": "FAULT",
     "eventText": "Bus voltage high",
@@ -377,7 +377,7 @@ class TestLastEventSensorEntity:
         sensor class is created."""
         device = {
             "type": "inverter",
-            "model": "FlexBOSS21",
+            "model": "SYNTH10022",
             "sensors": {"last_event": "Bus voltage high"},
             "batteries": {},
         }
@@ -391,7 +391,7 @@ class TestLastEventSensorEntity:
         """Pure LOCAL: the coordinator never publishes the key -> no entity."""
         device = {
             "type": "inverter",
-            "model": "FlexBOSS21",
+            "model": "SYNTH10022",
             "sensors": {"status_code": 0},
             "batteries": {},
         }
@@ -428,7 +428,7 @@ class TestLastEventSensorEntity:
         }
         device = {
             "type": "inverter",
-            "model": "FlexBOSS21",
+            "model": "SYNTH10022",
             "sensors": {"last_event": "Bus voltage high"},
             "last_event_detail": detail,
             "batteries": {},
@@ -454,7 +454,7 @@ class TestLastEventSensorEntity:
         """No events: state None (unknown) and no attributes."""
         device = {
             "type": "inverter",
-            "model": "FlexBOSS21",
+            "model": "SYNTH10022",
             "sensors": {"last_event": None},
             "last_event_detail": None,
             "batteries": {},

@@ -112,12 +112,12 @@ class TestBuildModbusSchema:
     def test_uses_provided_defaults(self):
         """Test that provided defaults are used."""
         defaults = {
-            CONF_MODBUS_HOST: "192.168.1.200",
+            CONF_MODBUS_HOST: "192.0.2.6",
             CONF_MODBUS_PORT: 8502,
             CONF_INVERTER_SERIAL: "1234567890",
         }
         schema = build_modbus_schema(defaults)
-        result = schema({CONF_MODBUS_HOST: "192.168.1.200"})
+        result = schema({CONF_MODBUS_HOST: "192.0.2.6"})
 
         assert result[CONF_MODBUS_PORT] == 8502
 

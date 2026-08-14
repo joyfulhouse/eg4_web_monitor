@@ -65,7 +65,7 @@
           "timeout": "Connection Timeout (seconds)"
         },
         "data_description": {
-          "ip_range": "Network range in CIDR notation (e.g., 192.168.1.0/24). Auto-detected from your Home Assistant network.",
+          "ip_range": "Network range in CIDR notation (e.g., 192.0.2.2/24). Auto-detected from your Home Assistant network.",
           "timeout": "How long to wait for each device to respond. Lower = faster scan, higher = more reliable."
         }
       },
@@ -350,7 +350,7 @@
       "serial_permission_denied": "Permission denied accessing the serial port. On Linux, ensure your user is in the 'dialout' group. On macOS, grant Home Assistant access to the USB device.",
       "serial_port_error": "Failed to open serial port. Please check: (1) port path is correct, (2) USB adapter is connected, (3) device is not in use by another application.",
       "serial_port_in_use": "Serial port is already in use by another application. Close other applications using this port and try again.",
-      "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.168.1.0/24) or a dash range (e.g., 192.168.1.1-192.168.1.254). Only private IP ranges are allowed.",
+      "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.0.2.2/24) or a dash range (e.g., 192.0.2.3-192.0.2.8). Only private IP ranges are allowed.",
       "no_scan_type_selected": "Select at least one scan type (Modbus or Dongle)."
     },
     "abort": {

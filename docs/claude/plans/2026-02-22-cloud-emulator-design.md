@@ -467,7 +467,7 @@ CloudEmitter is an **explicit opt-in** API. It never auto-starts.
 
 ```python
 # Enable cloud reporting on an inverter
-inverter.enable_cloud_reporting(dongle_serial="BA12345678")
+inverter.enable_cloud_reporting(dongle_serial="SYNTH10007")
 
 # Disable
 await inverter.disable_cloud_reporting()

@@ -65,7 +65,7 @@
           "timeout": "连接超时（秒）"
         },
         "data_description": {
-          "ip_range": "CIDR 表示法的网络范围（例如 192.168.1.0/24）。从您的 Home Assistant 网络自动检测。",
+          "ip_range": "CIDR 表示法的网络范围（例如 192.0.2.2/24）。从您的 Home Assistant 网络自动检测。",
           "timeout": "等待每个设备响应的时间。较低 = 更快扫描，较高 = 更可靠。"
         }
       },
@@ -350,7 +350,7 @@
       "serial_permission_denied": "访问串口被拒绝。在 Linux 上，请确保您的用户属于 'dialout' 组。在 macOS 上，请授予 Home Assistant 访问 USB 设备的权限。",
       "serial_port_error": "无法打开串口。请检查：(1) 端口路径是否正确，(2) USB 适配器是否已连接，(3) 设备是否未被其他应用程序使用。",
       "serial_port_in_use": "串口已被其他应用程序使用。请关闭使用此端口的其他应用程序并重试。",
-      "invalid_ip_range": "无效的 IP 范围。请使用 CIDR 表示法（例如 192.168.1.0/24）或范围（例如 192.168.1.1-192.168.1.254）。仅允许私有 IP 范围。",
+      "invalid_ip_range": "无效的 IP 范围。请使用 CIDR 表示法（例如 192.0.2.2/24）或范围（例如 192.0.2.3-192.0.2.8）。仅允许私有 IP 范围。",
       "no_scan_type_selected": "请至少选择一种扫描类型（Modbus 或 Dongle）。"
     },
     "abort": {

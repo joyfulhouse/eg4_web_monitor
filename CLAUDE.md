@@ -167,7 +167,7 @@ The *shapes* below match a live registry capture of one maintainer system; the
 ```
 sensor.18kpv_1234567890_battery_voltage
 sensor.battery_bank_1234567890_battery_bank_max_cell_temperature
-select.grid_boss_SYNTH10005_smart_port_1_mode
+select.grid_boss_synth10005_smart_port_1_mode
 number.flexboss21_1234a56789_battery_charge_current
 sensor.parallel_group_a_ac_power
 ```

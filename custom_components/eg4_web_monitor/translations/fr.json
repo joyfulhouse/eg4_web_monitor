@@ -65,7 +65,7 @@
           "timeout": "Delai de connexion (secondes)"
         },
         "data_description": {
-          "ip_range": "Plage reseau en notation CIDR (ex. : 192.168.1.0/24). Detectee automatiquement depuis votre reseau Home Assistant.",
+          "ip_range": "Plage reseau en notation CIDR (ex. : 192.0.2.2/24). Detectee automatiquement depuis votre reseau Home Assistant.",
           "timeout": "Temps d'attente pour la reponse de chaque appareil. Plus bas = scan plus rapide, plus haut = plus fiable."
         }
       },
@@ -350,7 +350,7 @@
       "serial_permission_denied": "Permission refusee pour acceder au port serie. Sous Linux, assurez-vous que votre utilisateur est dans le groupe 'dialout'. Sous macOS, accordez a Home Assistant l'acces au peripherique USB.",
       "serial_port_error": "Echec d'ouverture du port serie. Veuillez verifier : (1) le chemin du port est correct, (2) l'adaptateur USB est connecte, (3) l'appareil n'est pas utilise par une autre application.",
       "serial_port_in_use": "Le port serie est deja utilise par une autre application. Fermez les autres applications utilisant ce port et reessayez.",
-      "invalid_ip_range": "Plage IP invalide. Utilisez la notation CIDR (ex. : 192.168.1.0/24) ou une plage avec tiret (ex. : 192.168.1.1-192.168.1.254). Seules les plages IP privees sont autorisees.",
+      "invalid_ip_range": "Plage IP invalide. Utilisez la notation CIDR (ex. : 192.0.2.2/24) ou une plage avec tiret (ex. : 192.0.2.3-192.0.2.8). Seules les plages IP privees sont autorisees.",
       "no_scan_type_selected": "Selectionnez au moins un type de scan (Modbus ou Dongle)."
     },
     "abort": {

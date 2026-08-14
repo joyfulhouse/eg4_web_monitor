@@ -950,7 +950,7 @@ class TestSmartPortCleanupOnReboot:
     permanently breaking automations pinned to the old entry ID.
     """
 
-    GRIDBOSS_SERIAL = "4434850364"
+    GRIDBOSS_SERIAL = "SYNTH10001"
     # Keys an automation may be pinned to (port 1 = active smart load)
     ACTIVE_KEYS = ("smart_load1_power_l1", "smart_load1_power", "smart_load_power")
     # Key for a port that is genuinely inactive (stale, should be cleaned)
@@ -1359,7 +1359,7 @@ class TestAsyncMigrateEntry:
                 "connection_type": "dongle",
                 "inverter_serial": "SYNTH10005",
                 "inverter_family": "LXP",
-                "dongle_host": "192.168.1.200",
+                "dongle_host": "192.0.2.6",
                 "dongle_port": 8000,
                 "dongle_serial": "DONGLE123",
             },
@@ -1377,7 +1377,7 @@ class TestAsyncMigrateEntry:
         transport = entry.data["local_transports"][0]
         assert transport["transport_type"] == "wifi_dongle"
         assert transport["serial"] == "SYNTH10005"
-        assert transport["host"] == "192.168.1.200"
+        assert transport["host"] == "192.0.2.6"
         assert transport["dongle_serial"] == "DONGLE123"
 
     async def test_migrate_v1_http_to_canonical_identity(self, hass: HomeAssistant):

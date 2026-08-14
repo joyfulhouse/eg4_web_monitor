@@ -268,7 +268,7 @@ class TestMigrateLegacyEntry:
             "connection_type": "dongle",
             "inverter_serial": "SYNTH10005",
             "inverter_family": "LXP",
-            "dongle_host": "192.168.1.200",
+            "dongle_host": "192.0.2.6",
             "dongle_port": 8000,
             "dongle_serial": "DONGLE123",
             "other_field": "preserved",
@@ -284,7 +284,7 @@ class TestMigrateLegacyEntry:
         assert transport["transport_type"] == "wifi_dongle"
         assert transport["serial"] == "SYNTH10005"
         assert transport["family"] == "LXP"
-        assert transport["host"] == "192.168.1.200"
+        assert transport["host"] == "192.0.2.6"
         assert transport["port"] == 8000
         assert transport["dongle_serial"] == "DONGLE123"
 

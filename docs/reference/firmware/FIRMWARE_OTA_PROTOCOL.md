@@ -20,8 +20,8 @@ EG4 Cloud Server (192.0.2.2:4346)
         │  (same connection used for normal polling)
         │
    ┌────┴────┐
-   │  WiFi   │  dongle serial: BC34000380 (18kPV)
-   │  Dongle │  dongle serial: BC33600194 (FlexBOSS21)
+   │  WiFi   │  dongle serial: SYNTH00005 (18kPV)
+   │  Dongle │  dongle serial: SYNTH00006 (FlexBOSS21)
    └────┬────┘
         │  RS485 / internal bus
         │
@@ -63,13 +63,13 @@ Key flags:
 
 ```bash
 # Verify connectivity (dry run)
-./scripts/capture_firmware_upgrade.sh --ip 192.0.2.11 --verify
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP --verify
 
 # Start capture (runs until Ctrl+C)
-./scripts/capture_firmware_upgrade.sh --ip 192.0.2.11
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP
 
 # With auto-stop duration
-./scripts/capture_firmware_upgrade.sh --ip 192.0.2.11 --duration 1800
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP --duration 1800
 ```
 
 ### SLL2 Deduplication
@@ -92,7 +92,7 @@ Offset  Size  Field
 4       2     Frame length (uint16 LE) — total_size - 6
 6       1     Address byte
 7       1     Function code (0xC1=heartbeat, 0xC2=data)
-8       10    Dongle serial (ASCII, e.g., "BC34000380")
+8       10    Dongle serial (ASCII, e.g., "SYNTH00005")
 18      N     Payload (function-specific)
 ```
 
@@ -294,7 +294,7 @@ Automated pcap capture script for the UDM gateway. Supports verify mode,
 custom dongle IPs, and optional duration limits.
 
 ```bash
-./scripts/capture_firmware_upgrade.sh --ip <dongle_ip> [--verify] [--duration <seconds>]
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP --verify
 ```
 
 ## File Inventory
@@ -338,8 +338,8 @@ custom dongle IPs, and optional duration limits.
 
 | Device | Dongle Serial | Dongle IP | Dongle MAC | Inverter Serial | Cloud Server |
 |--------|--------------|-----------|------------|-----------------|-------------|
-| 18kPV | BC34000380 | 192.0.2.11 | 02:00:00:00:00:02 | SYNTH00001 | 192.0.2.9:4346 |
-| FlexBOSS21 | BC33600194 | 192.0.2.16 | 02:00:00:00:00:01 | SYNTH00003 | 192.0.2.11:4346 |
+| 18kPV | SYNTH00005 | 192.0.2.11 | 02:00:00:00:00:02 | SYNTH00004 | 192.0.2.9:4346 |
+| FlexBOSS21 | SYNTH00006 | 192.0.2.16 | 02:00:00:00:00:01 | SYNTH00003 | 192.0.2.9:4346 |
 | GridBOSS | SYNTH00001 | 192.0.2.15 | 02:00:00:00:00:03 | SYNTH00002 | 192.0.2.13:4346 |
 
 The observed MAC vendor assignments identify WIZnet (W7500 chip) and Espressif

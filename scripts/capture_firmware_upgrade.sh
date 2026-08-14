@@ -8,14 +8,14 @@
 # a separate VLAN and their traffic is only visible from the gateway.
 #
 # Usage:
-#   ./scripts/capture_firmware_upgrade.sh --gateway-host 192.0.2.10 \
-#       --ip 192.0.2.20
-#   ./scripts/capture_firmware_upgrade.sh --gateway-host 192.0.2.10 \
-#       --ip 192.0.2.20 --verify
+#   ./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST \
+
+#   ./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST \
+
 #
 # Workflow:
 #   1. Run with --verify first to confirm everything works
-#   2. Run without flags to start capture (runs until Ctrl+C)
+#   2. Run with the required gateway and target flags to start capture (runs until Ctrl+C)
 #   3. Trigger firmware upgrade via EG4 app/portal
 #   4. Wait for upgrade to complete
 #   5. Press Ctrl+C to stop capture

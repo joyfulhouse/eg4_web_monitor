@@ -1007,7 +1007,7 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "wifi_dongle",
                         "serial": "2222222222",
                         "model": "18kPV",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                     },
                 ],
@@ -1199,7 +1199,7 @@ class TestReconfigureDeviceManagement:
                         "transport_type": "wifi_dongle",
                         "serial": "2222222222",
                         "model": "18kPV",
-                        "host": "192.168.1.200",
+                        "host": "192.0.2.6",
                         "port": 8000,
                     },
                 ],
@@ -1399,9 +1399,9 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.168.1.201",
+                    "dongle_host": "192.0.2.7",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ44444444",
+                    "dongle_serial": "SYNTH10010",
                     "inverter_serial": "4444444444",
                 },
             )
@@ -1467,7 +1467,7 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "modbus_host": "192.168.1.200",
+                    "modbus_host": "192.0.2.6",
                     "modbus_port": 502,
                     "modbus_unit_id": 1,
                 },
@@ -1525,9 +1525,9 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.168.1.200",
+                    "dongle_host": "192.0.2.6",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ55555555",
+                    "dongle_serial": "SYNTH10011",
                     "inverter_serial": "5555555555",
                 },
             )
@@ -1593,9 +1593,9 @@ class TestReconfigureDeviceManagement:
             result = await hass.config_entries.flow.async_configure(
                 result["flow_id"],
                 {
-                    "dongle_host": "192.168.1.200",
+                    "dongle_host": "192.0.2.6",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ55555555",
+                    "dongle_serial": "SYNTH10011",
                     "inverter_serial": "5555555555",
                 },
             )
@@ -1722,9 +1722,9 @@ class TestReconfigureLegacyMigration:
                 CONF_CONNECTION_TYPE: "dongle",
                 "inverter_serial": "SYNTH10005",
                 "inverter_family": "LXP",
-                "dongle_host": "192.168.1.200",
+                "dongle_host": "192.0.2.6",
                 "dongle_port": 8000,
-                "dongle_serial": "BJ12345678",
+                "dongle_serial": "SYNTH10009",
                 CONF_VERIFY_SSL: True,
                 CONF_DST_SYNC: False,
             },
@@ -1745,7 +1745,7 @@ class TestReconfigureLegacyMigration:
         assert len(transports) == 1
         assert transports[0]["transport_type"] == "wifi_dongle"
         assert transports[0]["serial"] == "SYNTH10005"
-        assert transports[0]["dongle_serial"] == "BJ12345678"
+        assert transports[0]["dongle_serial"] == "SYNTH10009"
 
 
 # =====================================================

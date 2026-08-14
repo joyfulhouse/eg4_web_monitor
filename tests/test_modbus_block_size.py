@@ -160,7 +160,7 @@ class TestTransportConfigBlockSizeKwargs:
 # ---------------------------------------------------------------------------
 
 _TCP_DICT = {
-    "serial": "CE12345678",
+    "serial": "SYNTH10014",
     "transport_type": "modbus_tcp",
     "host": "192.0.2.10",
     "port": 502,
@@ -174,7 +174,7 @@ class TestBuildTransportConfigs:
         """No TypeError and no dropped configs on 0.9.36b19."""
         configs = _build_transport_configs([dict(_TCP_DICT)], 120)
         assert len(configs) == 1
-        assert configs[0].serial == "CE12345678"
+        assert configs[0].serial == "SYNTH10014"
 
     def test_none_block_size_builds_unchanged(self) -> None:
         configs = _build_transport_configs([dict(_TCP_DICT)])
@@ -215,7 +215,7 @@ def _legacy_modbus_entry(options: dict[str, Any] | None = None) -> MagicMock:
     entry.data = {
         CONF_CONNECTION_TYPE: CONNECTION_TYPE_MODBUS,
         CONF_MODBUS_HOST: "192.0.2.10",
-        CONF_INVERTER_SERIAL: "CE12345678",
+        CONF_INVERTER_SERIAL: "SYNTH10014",
     }
     entry.options = options or {}
     return entry

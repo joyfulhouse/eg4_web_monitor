@@ -65,7 +65,7 @@
           "timeout": "Tempo Limite de Conexão (segundos)"
         },
         "data_description": {
-          "ip_range": "Faixa de rede em notação CIDR (ex.: 192.168.1.0/24). Detectada automaticamente da sua rede Home Assistant.",
+          "ip_range": "Faixa de rede em notação CIDR (ex.: 192.0.2.2/24). Detectada automaticamente da sua rede Home Assistant.",
           "timeout": "Quanto tempo esperar para cada dispositivo responder. Menor = escaneamento mais rápido, maior = mais confiável."
         }
       },
@@ -350,7 +350,7 @@
       "serial_permission_denied": "Permissão negada ao acessar a porta serial. No Linux, certifique-se de que seu usuário está no grupo 'dialout'. No macOS, conceda ao Home Assistant acesso ao dispositivo USB.",
       "serial_port_error": "Falha ao abrir a porta serial. Por favor, verifique: (1) o caminho da porta está correto, (2) o adaptador USB está conectado, (3) o dispositivo não está em uso por outro aplicativo.",
       "serial_port_in_use": "A porta serial já está em uso por outro aplicativo. Feche outros aplicativos usando esta porta e tente novamente.",
-      "invalid_ip_range": "Faixa de IP inválida. Use notação CIDR (ex.: 192.168.1.0/24) ou uma faixa com traço (ex.: 192.168.1.1-192.168.1.254). Apenas faixas de IP privadas são permitidas.",
+      "invalid_ip_range": "Faixa de IP inválida. Use notação CIDR (ex.: 192.0.2.2/24) ou uma faixa com traço (ex.: 192.0.2.3-192.0.2.8). Apenas faixas de IP privadas são permitidas.",
       "no_scan_type_selected": "Selecione pelo menos um tipo de escaneamento (Modbus ou Dongle)."
     },
     "abort": {
