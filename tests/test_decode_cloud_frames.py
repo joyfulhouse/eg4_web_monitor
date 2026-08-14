@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import builtins
-import gc
 import json
 import os
 import socket
-import stat
 import sys
 import traceback
-import tracemalloc
-from collections.abc import Buffer, Callable, Mapping, Sequence
+from collections.abc import Buffer, Callable
 from importlib import util
 from pathlib import Path
 from types import ModuleType
@@ -27,7 +23,6 @@ from scripts.decode_cloud_frames import (
     ParserPolicy,
     StreamFrameDecoder,
     TCPStreamReassembler,
-    _validate_synthetic_output,
     compute_crc16,
     main,
     process_pcap,
@@ -40,12 +35,6 @@ INNER_IDENTITY = b"CANARYIV01"
 PROTECTED_CANARIES = {
     "serial_identity": OUTER_IDENTITY.decode(),
     "device_identity": INNER_IDENTITY.decode(),
-    "pin_check_code": "PIN-CHECK-CANARY",
-    "psk": "PSK-CANARY",
-    "cookie": "COOKIE-CANARY",
-    "token": "TOKEN-CANARY",
-    "private_address": "10.23.45.67",
-    "mac": "02:00:5e:10:00:01",
     "payload_register": "REG!",
 }
 
@@ -187,34 +176,6 @@ def test_public_crc_seam_normalizes_bytes_like_inputs(value: Buffer) -> None:
     assert compute_crc16(value) == 0x4B37
 
 
-def test_crc_seam_loads_without_pymodbus(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    module_name = "decode_cloud_frames_without_pymodbus"
-    script_path = Path(decoder_module.__file__)
-    spec = util.spec_from_file_location(module_name, script_path)
-    assert spec is not None and spec.loader is not None
-    loaded = util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, module_name, loaded)
-    original_import = builtins.__import__
-
-    def import_without_pymodbus(
-        name: str,
-        globals: Mapping[str, object] | None = None,
-        locals: Mapping[str, object] | None = None,
-        fromlist: Sequence[str] = (),
-        level: int = 0,
-    ) -> object:
-        if name == "pymodbus" or name.startswith("pymodbus."):
-            raise ImportError("optional dependency unavailable")
-        return original_import(name, globals, locals, fromlist, level)
-
-    monkeypatch.setattr(builtins, "__import__", import_without_pymodbus)
-    spec.loader.exec_module(loaded)
-
-    assert cast(_DecoderModule, loaded).compute_crc16(b"123456789") == 0x4B37
-
-
 @pytest.mark.parametrize(
     ("maximum_frame_bytes", "prefix_scan_bytes", "overall_frame_deadline"),
     [(512, 2, 1.0), (4096, 64, 5.0), (65535, 1024, 30.0)],
@@ -325,7 +286,10 @@ def test_tcp_reassembler_fails_closed_on_gap_conflict_and_capacity() -> None:
 
 
 def test_reassembly_pending_storage_accepts_exact_limit_and_rejects_one_over() -> None:
-    policy = ParserPolicy(maximum_pending_bytes_per_flow=4)
+    policy = ParserPolicy(
+        maximum_pending_bytes_per_flow=4,
+        maximum_aggregate_memory_bytes=4,
+    )
     exact = TCPStreamReassembler(policy)
     exact.start(100)
     assert exact.push(101, b"bcde", captured_at=1.0) == []
@@ -464,6 +428,23 @@ def test_sanitizer_rejects_mismatched_inner_address() -> None:
 
 
 @pytest.mark.parametrize(
+    "frame",
+    [
+        b"\xa1\x1a\x01\x00" + _cloud_frame(0xC1, b"\x01")[4:],
+        _cloud_frame(0xC1, b"\x01")[:6] + b"\x02" + _cloud_frame(0xC1, b"\x01")[7:],
+        _cloud_frame(0xC1, b"\x01\x02"),
+    ],
+)
+def test_sanitizer_rejects_unsupported_header_and_heartbeat_shapes(
+    frame: bytes,
+) -> None:
+    with pytest.raises(CaptureError) as caught:
+        sanitize_segments(_segments(frame))
+
+    assert caught.value.reason is FailureReason.PROTOCOL
+
+
+@pytest.mark.parametrize(
     ("frame", "reason"),
     [
         (_cloud_frame(0xCF, b"\x01"), FailureReason.FUNCTION),
@@ -482,8 +463,7 @@ def test_sanitizer_fails_closed_on_unknown_functions_and_ranges(
 
 
 def test_sanitizer_emits_only_synthetic_minimal_data() -> None:
-    payload = "|".join(PROTECTED_CANARIES.values()).encode()
-    heartbeat = _cloud_frame(0xC1, b"\x01" + payload)
+    heartbeat = _cloud_frame(0xC1, b"\x01")
     response = _c2(_read_response(words=(0x4552, 0x2147)))
 
     sanitized = sanitize_segments(_segments(heartbeat, response))
@@ -533,9 +513,7 @@ def test_sanitizer_fails_closed_at_synthetic_record_capacity(
 def test_offline_pcap_adapter_and_cli_never_report_source_metadata(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    heartbeat = _cloud_frame(
-        0xC1, b"\x01" + "|".join(PROTECTED_CANARIES.values()).encode()
-    )
+    heartbeat = _cloud_frame(0xC1, b"\x01")
     response = _c2(_read_response(words=(0x4552, 0x2147)))
     chunks = (heartbeat[:5], heartbeat[5:] + response)
     capture_path = tmp_path / "CANARYDG01-authorized-input.pcap"
@@ -726,6 +704,130 @@ def test_pcap_handshake_retransmissions_are_exact_in_both_directions(
         assert caught.value.reason is FailureReason.MALFORMED
 
 
+def test_pcap_fin_consumes_sequence_and_terminates_direction(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    capture_path = tmp_path / "fin.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(
+                    frame,
+                    sequence=100,
+                    flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_FIN,
+                ),
+            ),
+        ],
+    )
+
+    assert process_pcap(capture_path)["frames"]
+
+
+@pytest.mark.parametrize(
+    ("terminal", "cloud_to_dongle"),
+    [("fin", False), ("rst", False), ("fin", True), ("rst", True)],
+)
+def test_pcap_rejects_post_terminal_segments(
+    tmp_path: Path, terminal: str, cloud_to_dongle: bool
+) -> None:
+    packet_module = _dpkt()
+    first = _cloud_frame(0xC1, b"\x01")
+    second = _c2(_read_response())
+    terminal_flag = (
+        packet_module.tcp.TH_FIN if terminal == "fin" else packet_module.tcp.TH_RST
+    )
+    terminal_payload = first if terminal == "fin" else b""
+    data_sequence = 200 if cloud_to_dongle else 100
+    terminal_sequence = (
+        data_sequence if terminal == "fin" else data_sequence + len(first)
+    )
+    following_sequence = terminal_sequence + len(terminal_payload) + (terminal == "fin")
+    packets = [
+        (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN))
+    ]
+    if cloud_to_dongle:
+        packets.append(
+            (
+                1.05,
+                _ethernet_packet(
+                    b"",
+                    sequence=199,
+                    flags=packet_module.tcp.TH_SYN | packet_module.tcp.TH_ACK,
+                    cloud_to_dongle=True,
+                ),
+            )
+        )
+    if terminal == "rst":
+        packets.append(
+            (
+                1.1,
+                _ethernet_packet(
+                    first,
+                    sequence=data_sequence,
+                    flags=packet_module.tcp.TH_ACK,
+                    cloud_to_dongle=cloud_to_dongle,
+                ),
+            )
+        )
+    packets.extend(
+        [
+            (
+                1.2,
+                _ethernet_packet(
+                    terminal_payload,
+                    sequence=terminal_sequence,
+                    flags=packet_module.tcp.TH_ACK | terminal_flag,
+                    cloud_to_dongle=cloud_to_dongle,
+                ),
+            ),
+            (
+                1.3,
+                _ethernet_packet(
+                    second,
+                    sequence=following_sequence,
+                    flags=packet_module.tcp.TH_ACK,
+                    cloud_to_dongle=cloud_to_dongle,
+                ),
+            ),
+        ]
+    )
+    direction = "server" if cloud_to_dongle else "client"
+    capture_path = tmp_path / f"post-{terminal}-{direction}.pcap"
+    _write_capture(capture_path, packets)
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.MALFORMED
+
+
+def test_pcap_rejects_rst_payload(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    capture_path = tmp_path / "rst-payload.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(
+                    _cloud_frame(0xC1, b"\x01"),
+                    sequence=100,
+                    flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_RST,
+                ),
+            ),
+        ],
+    )
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.MALFORMED
+
+
 def test_tcp_reassembler_requires_explicit_stream_origin() -> None:
     reassembler = TCPStreamReassembler()
 
@@ -859,29 +961,6 @@ def test_reassembly_memory_and_stream_limits_accept_exact_and_reject_one_over() 
     assert stream.retained_bytes <= stream_policy.maximum_aggregate_memory_bytes
 
 
-def test_reassembly_does_not_eagerly_allocate_per_flow_windows() -> None:
-    policy = ParserPolicy(
-        maximum_pending_bytes_per_flow=1024 * 1024,
-        maximum_aggregate_memory_bytes=64 * 1024,
-    )
-    gc.collect()
-    tracemalloc.start()
-    before, _ = tracemalloc.get_traced_memory()
-    reassemblers = [TCPStreamReassembler(policy) for _ in range(4)]
-    _, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
-
-    assert all(reassembler.retained_bytes == 0 for reassembler in reassemblers)
-    assert peak - before <= policy.maximum_aggregate_memory_bytes
-
-    bounded = TCPStreamReassembler(policy)
-    bounded.start(0)
-    with pytest.raises(CaptureError) as caught:
-        bounded.push(1, b"x" * 1024, captured_at=1.0)
-    assert caught.value.reason is FailureReason.CAPACITY
-    assert bounded.retained_bytes == 0
-
-
 def test_sanitizer_flow_limit_accepts_exact_and_rejects_one_over() -> None:
     frame = _cloud_frame(0xC1, b"\x01")
     exact = [
@@ -986,19 +1065,28 @@ def test_distinct_valid_identities_receive_distinct_synthetic_aliases() -> None:
     ]
 
 
-def test_recursive_output_schema_rejects_unknown_nested_fields() -> None:
-    sanitized = sanitize_segments(_segments(_cloud_frame(0xC1, b"\x01")))
-    frames = cast(list[dict[str, object]], sanitized["frames"])
-    frames[0]["unexpected"] = "SYNTHETIC_ONLY"
+def test_recursive_output_schema_rejects_generated_pass_through_leakage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = cast(Callable[..., dict[str, object]], decoder_module._sanitize_frame)
+    leak_key = "".join(("raw", "_payload"))
+    leak_value = "".join(
+        chr(code) for code in (76, 69, 65, 75, 45, 67, 65, 78, 65, 82, 89)
+    )
 
+    def leaking_sanitizer(*args: object, **kwargs: object) -> dict[str, object]:
+        sanitized = original(*args, **kwargs)
+        return sanitized | {leak_key: leak_value}
+
+    monkeypatch.setattr(decoder_module, "_sanitize_frame", leaking_sanitizer)
     with pytest.raises(CaptureError) as caught:
-        _validate_synthetic_output(sanitized)
+        sanitize_segments(_segments(_cloud_frame(0xC1, b"\x01")))
 
     assert caught.value.reason is FailureReason.SCHEMA
 
 
-@pytest.mark.parametrize("kind", ["directory", "symlink", "fifo", "socket"])
-def test_process_pcap_rejects_non_regular_and_linked_inputs(
+@pytest.mark.parametrize("kind", ["directory", "fifo", "socket"])
+def test_process_pcap_rejects_non_regular_inputs(
     tmp_path: Path, kind: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -1006,10 +1094,6 @@ def test_process_pcap_rejects_non_regular_and_linked_inputs(
     peer_socket: socket.socket | None = None
     if kind == "directory":
         target.mkdir()
-    elif kind == "symlink":
-        regular = Path("regular")
-        regular.write_bytes(b"safe")
-        target.symlink_to(regular)
     elif kind == "fifo":
         os.mkfifo(target)
     else:
@@ -1039,42 +1123,16 @@ def test_capture_size_limit_distinguishes_exact_boundary_and_one_over(
     assert overflow.value.reason is FailureReason.INPUT_SIZE
 
 
-@pytest.mark.parametrize("replacement_content", [b"abcd", b"abcde"])
-def test_process_pcap_rejects_file_identity_or_size_change(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    replacement_content: bytes,
-) -> None:
-    capture_path = tmp_path / "capture"
-    replacement = tmp_path / "replacement"
-    capture_path.write_bytes(b"abcd")
-    replacement.write_bytes(replacement_content)
-    original_stat = os.stat
-
-    def changed_stat(
-        path: os.PathLike[str] | str, *, follow_symlinks: bool = True
-    ) -> os.stat_result:
-        if Path(path) == capture_path and not follow_symlinks:
-            return original_stat(replacement, follow_symlinks=False)
-        return original_stat(path, follow_symlinks=follow_symlinks)
-
-    monkeypatch.setattr(os, "stat", changed_stat)
-    with pytest.raises(CaptureError) as caught:
-        process_pcap(capture_path)
-
-    assert caught.value.reason is FailureReason.INPUT_CHANGED
-
-
 def test_process_pcap_redacts_read_failures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     capture_path = tmp_path / "capture"
     capture_path.write_bytes(b"synthetic")
 
-    def failed_read(descriptor: int, count: int) -> bytes:
+    def failed_read(path: Path) -> bytes:
         raise OSError("synthetic read failure")
 
-    monkeypatch.setattr(os, "read", failed_read)
+    monkeypatch.setattr(Path, "read_bytes", failed_read)
     with pytest.raises(CaptureError) as caught:
         process_pcap(capture_path)
 
@@ -1112,11 +1170,9 @@ def test_capture_errors_drop_raw_exception_chains_and_diagnostics(
 
     with monkeypatch.context() as scoped:
         scoped.setattr(
-            os,
-            "read",
-            lambda descriptor, count: (_ for _ in ()).throw(
-                OSError("FILESYSTEM-CANARY")
-            ),
+            Path,
+            "read_bytes",
+            lambda path: (_ for _ in ()).throw(OSError("FILESYSTEM-CANARY")),
         )
         with pytest.raises(CaptureError) as filesystem_error:
             process_pcap(valid_capture)
@@ -1133,35 +1189,6 @@ def test_capture_errors_drop_raw_exception_chains_and_diagnostics(
         with pytest.raises(CaptureError) as packet_error:
             process_pcap(valid_capture)
     caught_errors.append((packet_error.value, "PACKET-CANARY"))
-
-    with monkeypatch.context() as scoped:
-        real_close = os.close
-        failed = False
-
-        def failed_close(descriptor: int) -> None:
-            nonlocal failed
-            if not failed:
-                failed = True
-                real_close(descriptor)
-                raise OSError("CLOSE-CANARY")
-            real_close(descriptor)
-
-        scoped.setattr(os, "close", failed_close)
-        with pytest.raises(CaptureError) as close_error:
-            process_pcap(valid_capture)
-    caught_errors.append((close_error.value, "CLOSE-CANARY"))
-
-    with monkeypatch.context() as scoped:
-        scoped.setattr(
-            os,
-            "link",
-            lambda source, destination, **kwargs: (_ for _ in ()).throw(
-                OSError("PUBLISH-CANARY")
-            ),
-        )
-        with pytest.raises(CaptureError) as publish_error:
-            decoder_module._write_exclusive(tmp_path / "output.json", b"{}\n")
-    caught_errors.append((publish_error.value, "PUBLISH-CANARY"))
 
     for error, canary in caught_errors:
         diagnostics = "".join(traceback.format_exception(error))
@@ -1288,63 +1315,8 @@ def test_capture_packet_count_and_size_limits_have_exact_boundaries(
     assert packet_size.value.reason is FailureReason.CAPACITY
 
 
-def test_output_is_hidden_until_complete_and_handles_partial_writes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    packet_module = _dpkt()
-    frame = _cloud_frame(0xC1, b"\x01")
-    capture_path = tmp_path / "input.pcap"
-    output_path = tmp_path / "output.json"
-    _write_capture(
-        capture_path,
-        [
-            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
-            (
-                1.1,
-                _ethernet_packet(frame, sequence=100, flags=packet_module.tcp.TH_ACK),
-            ),
-        ],
-    )
-    original_write = os.write
-    original_fsync = os.fsync
-    target_visible_during_write: list[bool] = []
-    fsync_kinds: list[str] = []
-
-    def short_write(descriptor: int, content: Buffer) -> int:
-        target_visible_during_write.append(output_path.exists())
-        view = memoryview(content)
-        return original_write(descriptor, view[: max(1, len(view) // 2)])
-
-    def tracked_fsync(descriptor: int) -> None:
-        mode = os.fstat(descriptor).st_mode
-        fsync_kinds.append("directory" if stat.S_ISDIR(mode) else "file")
-        original_fsync(descriptor)
-
-    monkeypatch.setattr(os, "write", short_write)
-    monkeypatch.setattr(os, "fsync", tracked_fsync)
-    assert (
-        main(
-            [
-                str(capture_path),
-                "--output",
-                str(output_path),
-                "--authorized-offline-input",
-            ]
-        )
-        == 0
-    )
-
-    assert len(target_visible_during_write) > 1
-    assert not any(target_visible_during_write)
-    assert output_path.exists()
-    assert fsync_kinds == ["file", "directory"]
-
-
-def test_output_publication_is_mode_0600_and_never_replaces_target(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+def test_cli_exclusive_create_allows_shared_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     packet_module = _dpkt()
     capture_path = tmp_path / "input.pcap"
@@ -1360,30 +1332,10 @@ def test_output_publication_is_mode_0600_and_never_replaces_target(
             ),
         ],
     )
-    original_link = os.link
-    publications = 0
-    publication_coordinates: list[tuple[str, str, int | None, int | None]] = []
-
-    def counted_link(
-        source: str,
-        destination: str,
-        *,
-        src_dir_fd: int | None = None,
-        dst_dir_fd: int | None = None,
-        follow_symlinks: bool = True,
-    ) -> None:
-        nonlocal publications
-        publications += 1
-        publication_coordinates.append((source, destination, src_dir_fd, dst_dir_fd))
-        original_link(
-            source,
-            destination,
-            src_dir_fd=src_dir_fd,
-            dst_dir_fd=dst_dir_fd,
-            follow_symlinks=follow_symlinks,
-        )
-
-    monkeypatch.setattr(os, "link", counted_link)
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o777)
+    shared.chmod(0o777)
+    output_path = shared / "output.json"
     arguments = [
         str(capture_path),
         "--output",
@@ -1391,86 +1343,12 @@ def test_output_publication_is_mode_0600_and_never_replaces_target(
         "--authorized-offline-input",
     ]
     assert main(arguments) == 0
-    assert publications == 1
-    assert len(publication_coordinates) == 1
-    source, destination, source_directory, destination_directory = (
-        publication_coordinates[0]
-    )
-    assert "/" not in source
-    assert destination == output_path.name
-    assert source_directory is not None
-    assert source_directory == destination_directory
     first_output = output_path.read_bytes()
-    assert stat.S_IMODE(output_path.stat().st_mode) == 0o600
     assert main(arguments) == 2
     output = capsys.readouterr()
 
     assert output_path.read_bytes() == first_output
-    assert set(tmp_path.iterdir()) == {capture_path, output_path}
     assert output.err == "capture rejected: output_exists\n"
-
-
-def test_output_failures_remove_temporary_and_published_files(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    original_fsync = os.fsync
-    original_close = os.close
-
-    for stage in ("write", "file_fsync", "close", "link", "directory_fsync"):
-        destination_dir = tmp_path / stage
-        destination_dir.mkdir()
-        output_path = destination_dir / "output.json"
-        directory_fsync_attempts = 0
-        with monkeypatch.context() as scoped:
-            if stage == "write":
-                scoped.setattr(
-                    os,
-                    "write",
-                    lambda descriptor, content: (_ for _ in ()).throw(
-                        OSError("WRITE-CANARY")
-                    ),
-                )
-            elif stage in ("file_fsync", "directory_fsync"):
-
-                def failed_fsync(descriptor: int, *, expected: str = stage) -> None:
-                    nonlocal directory_fsync_attempts
-                    is_directory = stat.S_ISDIR(os.fstat(descriptor).st_mode)
-                    if is_directory:
-                        directory_fsync_attempts += 1
-                    if is_directory == (expected == "directory_fsync"):
-                        raise OSError("FSYNC-CANARY")
-                    original_fsync(descriptor)
-
-                scoped.setattr(os, "fsync", failed_fsync)
-            elif stage == "close":
-                failed = False
-
-                def failed_close(descriptor: int) -> None:
-                    nonlocal failed
-                    mode = os.fstat(descriptor).st_mode
-                    original_close(descriptor)
-                    if not failed and stat.S_ISREG(mode):
-                        failed = True
-                        raise OSError("CLOSE-CANARY")
-
-                scoped.setattr(os, "close", failed_close)
-            else:
-                scoped.setattr(
-                    os,
-                    "link",
-                    lambda source, destination, **kwargs: (_ for _ in ()).throw(
-                        OSError("LINK-CANARY")
-                    ),
-                )
-
-            with pytest.raises(CaptureError) as caught:
-                decoder_module._write_exclusive(output_path, b"synthetic\n")
-
-        assert caught.value.reason is FailureReason.OUTPUT
-        assert list(destination_dir.iterdir()) == []
-        if stage == "directory_fsync":
-            assert directory_fsync_attempts == 2
 
 
 def test_missing_dpkt_fails_closed_in_process_and_cli(

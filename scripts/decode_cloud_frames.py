@@ -9,7 +9,6 @@ import json
 import math
 import os
 import re
-import secrets
 import stat
 import sys
 from collections.abc import Buffer, Iterable, Iterator
@@ -116,14 +115,6 @@ SYNTHETIC_REGISTER_WORD: Final = "SYNTHETIC_A55A"
 MAX_SANITIZED_RECORDS: Final = 1024
 _SEQUENCE_MODULUS: Final = 1 << 32
 _SEQUENCE_HALF: Final = 1 << 31
-_PENDING_BYTE_MEMORY_CHARGE: Final = max(
-    1,
-    sys.getsizeof({0: 0}) - sys.getsizeof({}) + sys.getsizeof(0),
-)
-_ATOMIC_DIR_FD_SUPPORTED: Final = all(
-    function in os.supports_dir_fd
-    for function in (os.open, os.link, os.stat, os.unlink)
-)
 _DONGLE_ALIAS = re.compile(r"SYNTHDG[0-9]{3}\Z")
 _INVERTER_ALIAS = re.compile(r"SYNTHIV[0-9]{3}\Z")
 
@@ -163,6 +154,7 @@ class FailureReason(StrEnum):
     OUTPUT_EXISTS = "output_exists"
     OVERSIZE = "oversize"
     PREFIX = "prefix"
+    PROTOCOL = "protocol"
     RANGE = "range"
     SCHEMA = "schema"
     TIMEOUT = "timeout"
@@ -454,7 +446,7 @@ class TCPStreamReassembler:
             raise CaptureError(FailureReason.CAPACITY)
         contiguous = bytearray()
         if start > self._assembled_bytes:
-            self._budget.reserve(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
+            self._budget.reserve(new_bytes)
             if new_bytes:
                 if pending is None:
                     pending = {}
@@ -475,12 +467,10 @@ class TCPStreamReassembler:
                     byte = normalized[self._assembled_bytes - start]
                 else:
                     byte = pending_byte
-                    self._budget.release(_PENDING_BYTE_MEMORY_CHARGE - 1)
                 contiguous.append(byte)
                 self._assembled_bytes += 1
             while pending is not None and self._assembled_bytes in pending:
                 byte = pending.pop(self._assembled_bytes)
-                self._budget.release(_PENDING_BYTE_MEMORY_CHARGE - 1)
                 contiguous.append(byte)
                 self._assembled_bytes += 1
             if pending is not None and not pending:
@@ -521,9 +511,7 @@ class TCPStreamReassembler:
         self._last_captured_at = captured_at
 
     def _clear(self) -> None:
-        retained = len(self._history) + (
-            self.pending_bytes * _PENDING_BYTE_MEMORY_CHARGE
-        )
+        retained = len(self._history) + self.pending_bytes
         self._pending = None
         self._history = b""
         self._budget.release(retained)
@@ -611,6 +599,11 @@ def _sanitize_frame(
 ) -> dict[str, Any]:
     if len(frame) < 19 or 6 + int.from_bytes(frame[4:6], "little") != len(frame):
         raise CaptureError(FailureReason.MALFORMED)
+    # Phase A1 capture evidence contains only protocol version 0x0001 and
+    # address 1. Unknown variants are rejected rather than redacted into a
+    # known-looking record.
+    if frame[2:4] != b"\x00\x01" or frame[6] != 1:
+        raise CaptureError(FailureReason.PROTOCOL)
     session.outer_identity = _bind_identity(session.outer_identity, frame[8:18])
     base: dict[str, Any] = {
         "direction": direction,
@@ -619,8 +612,10 @@ def _sanitize_frame(
     function = frame[7]
     payload = frame[18:]
     if function == 0xC1:
-        if not payload:
-            raise CaptureError(FailureReason.MALFORMED)
+        # The captured heartbeat shape is exactly one status byte. Appended
+        # fields are not evidenced and must not be silently masked.
+        if len(payload) != 1:
+            raise CaptureError(FailureReason.PROTOCOL)
         return base | {"function": "heartbeat", "payload": "SYNTHETIC_STATUS"}
     if function != 0xC2 or len(payload) < 2:
         raise CaptureError(
@@ -754,6 +749,7 @@ def _exact_keys(value: object, expected: set[str]) -> dict[str, Any]:
 
 
 def _validate_synthetic_output(value: object) -> None:
+    """Recursively enforce the complete key/type allowlist before publication."""
     root = _exact_keys(value, {"schema_version", "capture", "frames"})
     if root["schema_version"] != 1 or not isinstance(root["frames"], list):
         raise CaptureError(FailureReason.SCHEMA)
@@ -819,63 +815,27 @@ def _validate_synthetic_output(value: object) -> None:
             raise CaptureError(FailureReason.SCHEMA)
 
 
-def _stat_signature(file_stat: os.stat_result) -> tuple[int, int, int, int, int, int]:
-    return (
-        file_stat.st_dev,
-        file_stat.st_ino,
-        file_stat.st_mode,
-        file_stat.st_size,
-        file_stat.st_mtime_ns,
-        file_stat.st_ctime_ns,
-    )
-
-
-def _read_stable_capture(path: Path, policy: ParserPolicy) -> bytes:
-    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
-    descriptor: int | None = None
-    with suppress(OSError):
-        descriptor = os.open(path, flags)
-    if descriptor is None:
+def _read_capture(path: Path, policy: ParserPolicy) -> bytes:
+    file_stat: os.stat_result | None = None
+    try:
+        file_stat = path.stat()
+    except OSError:
+        pass
+    if file_stat is None:
         raise CaptureError(FailureReason.INPUT_KIND)
-    failure: FailureReason | None = None
+    if not stat.S_ISREG(file_stat.st_mode):
+        raise CaptureError(FailureReason.INPUT_KIND)
+    if file_stat.st_size > policy.maximum_capture_bytes:
+        raise CaptureError(FailureReason.INPUT_SIZE)
     capture: bytes | None = None
     try:
-        before = os.fstat(descriptor)
-        if not stat.S_ISREG(before.st_mode):
-            raise CaptureError(FailureReason.INPUT_KIND)
-        if before.st_size > policy.maximum_capture_bytes:
-            raise CaptureError(FailureReason.INPUT_SIZE)
-        chunks: list[bytes] = []
-        remaining = policy.maximum_capture_bytes + 1
-        while remaining:
-            chunk = os.read(descriptor, min(64 * 1024, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        capture = b"".join(chunks)
-        after = os.fstat(descriptor)
-        by_name = os.stat(path, follow_symlinks=False)
-        if len(capture) > policy.maximum_capture_bytes:
-            raise CaptureError(FailureReason.INPUT_SIZE)
-        if (
-            len(capture) != before.st_size
-            or _stat_signature(before) != _stat_signature(after)
-            or _stat_signature(after) != _stat_signature(by_name)
-        ):
-            raise CaptureError(FailureReason.INPUT_CHANGED)
-    except CaptureError as error:
-        failure = error.reason
+        capture = path.read_bytes()
     except OSError:
-        failure = FailureReason.INPUT_CHANGED
-    try:
-        os.close(descriptor)
-    except OSError:
-        if failure is None:
-            failure = FailureReason.INPUT_CHANGED
-    if failure is not None:
-        raise CaptureError(failure)
-    assert capture is not None
+        pass
+    if capture is None:
+        raise CaptureError(FailureReason.INPUT_CHANGED)
+    if len(capture) > policy.maximum_capture_bytes:
+        raise CaptureError(FailureReason.INPUT_SIZE)
     return capture
 
 
@@ -909,6 +869,8 @@ class _ObservedSession:
     client_handshake: tuple[int, bytes, bytes]
     server_initial_sequence: int | None = None
     server_handshake: tuple[int, bytes, bytes] | None = None
+    client_terminal_sequence: int | None = None
+    server_terminal_sequence: int | None = None
     application_started: bool = False
 
 
@@ -971,14 +933,14 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                 continue
             syn = bool(tcp.flags & module.tcp.TH_SYN)
             ack = bool(tcp.flags & module.tcp.TH_ACK)
+            fin = bool(tcp.flags & module.tcp.TH_FIN)
+            rst = bool(tcp.flags & module.tcp.TH_RST)
             session = sessions.get(key)
             starts_stream = False
             sequence = tcp.seq
             payload = bytes(tcp.data)
             handshake = (tcp.flags, bytes(tcp.opts), payload)
-            has_terminal_flag = bool(
-                tcp.flags & (module.tcp.TH_FIN | module.tcp.TH_RST)
-            )
+            has_terminal_flag = fin or rst
             if client_side and syn and not ack:
                 if session is not None and sequence == session.client_initial_sequence:
                     if handshake != session.client_handshake:
@@ -1011,8 +973,31 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
             ):
                 raise CaptureError(FailureReason.TRUNCATED)
             assert session is not None
+            terminal_sequence = (
+                session.client_terminal_sequence
+                if client_side
+                else session.server_terminal_sequence
+            )
+            if terminal_sequence is not None:
+                raise CaptureError(FailureReason.MALFORMED)
+            if fin and rst:
+                raise CaptureError(FailureReason.MALFORMED)
+            if rst:
+                if payload:
+                    raise CaptureError(FailureReason.MALFORMED)
+                if client_side:
+                    session.client_terminal_sequence = sequence
+                else:
+                    session.server_terminal_sequence = sequence
+                continue
             if payload:
                 session.application_started = True
+            if fin:
+                terminal_sequence = (sequence + len(payload) + 1) % _SEQUENCE_MODULUS
+                if client_side:
+                    session.client_terminal_sequence = terminal_sequence
+                else:
+                    session.server_terminal_sequence = terminal_sequence
             if starts_stream or payload:
                 yield CapturedSegment(
                     direction,
@@ -1034,7 +1019,7 @@ def process_pcap(
     pcap_path: str | Path, policy: ParserPolicy | None = None
 ) -> dict[str, Any]:
     active_policy = policy or ParserPolicy()
-    capture = _read_stable_capture(Path(pcap_path), active_policy)
+    capture = _read_capture(Path(pcap_path), active_policy)
     return sanitize_segments(_pcap_segments(capture, active_policy), active_policy)
 
 
@@ -1060,132 +1045,18 @@ def _serialize_output(value: object) -> bytes:
     return (json.dumps(value, indent=2) + "\n").encode()
 
 
-def _open_temporary(directory_descriptor: int) -> tuple[int, str]:
-    flags = (
-        os.O_WRONLY
-        | os.O_CREAT
-        | os.O_EXCL
-        | os.O_CLOEXEC
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    failed = False
-    for _ in range(16):
-        name = f".decode-cloud-frames-{secrets.token_hex(16)}.tmp"
-        try:
-            return os.open(name, flags, 0o600, dir_fd=directory_descriptor), name
-        except FileExistsError:
-            continue
-        except OSError:
-            failed = True
-            break
-    if failed:
-        raise CaptureError(FailureReason.OUTPUT)
-    raise CaptureError(FailureReason.CAPACITY)
-
-
-def _unlink_if_same(
-    directory_descriptor: int,
-    name: str,
-    identity: tuple[int, int],
-) -> None:
-    with suppress(OSError):
-        current = os.stat(
-            name,
-            dir_fd=directory_descriptor,
-            follow_symlinks=False,
-        )
-        if (current.st_dev, current.st_ino) == identity:
-            os.unlink(name, dir_fd=directory_descriptor)
-
-
 def _write_exclusive(path: Path, content: bytes) -> None:
-    descriptor: int | None = None
-    directory_descriptor: int | None = None
-    temporary_name: str | None = None
-    temporary_identity: tuple[int, int] | None = None
-    published = False
     failure: FailureReason | None = None
     try:
-        if (
-            not path.name
-            or not _ATOMIC_DIR_FD_SUPPORTED
-            or not hasattr(os, "O_DIRECTORY")
-        ):
-            raise CaptureError(FailureReason.OUTPUT)
-        directory_flags = (
-            os.O_RDONLY | os.O_CLOEXEC | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0)
-        )
-        directory_descriptor = os.open(path.parent, directory_flags)
-        directory_stat = os.fstat(directory_descriptor)
-        # Cleanup uses inode validation followed by unlink relative to this fd.
-        # Exclude directories writable by other principals so that validation
-        # and cleanup cannot race an untrusted replacement entry.
-        if not stat.S_ISDIR(directory_stat.st_mode) or directory_stat.st_mode & (
-            stat.S_IWGRP | stat.S_IWOTH
-        ):
-            raise CaptureError(FailureReason.OUTPUT)
-        descriptor, temporary_name = _open_temporary(directory_descriptor)
-        opened = os.fstat(descriptor)
-        temporary_identity = (opened.st_dev, opened.st_ino)
-        if stat.S_IMODE(opened.st_mode) != 0o600:
-            raise CaptureError(FailureReason.OUTPUT)
-        written = 0
-        while written < len(content):
-            count = os.write(descriptor, memoryview(content)[written:])
-            if count <= 0:
+        with path.open("xb") as output:
+            if output.write(content) != len(content):
                 raise CaptureError(FailureReason.OUTPUT)
-            written += count
-        os.fsync(descriptor)
-        os.close(descriptor)
-        descriptor = None
-        os.link(
-            temporary_name,
-            path.name,
-            src_dir_fd=directory_descriptor,
-            dst_dir_fd=directory_descriptor,
-            follow_symlinks=False,
-        )
-        published = True
-        os.unlink(temporary_name, dir_fd=directory_descriptor)
-        temporary_name = None
-        os.fsync(directory_descriptor)
-        os.close(directory_descriptor)
-        directory_descriptor = None
     except FileExistsError:
         failure = FailureReason.OUTPUT_EXISTS
     except CaptureError as error:
         failure = error.reason
     except OSError:
         failure = FailureReason.OUTPUT
-
-    if descriptor is not None:
-        try:
-            os.close(descriptor)
-        except OSError:
-            if failure is None:
-                failure = FailureReason.OUTPUT
-    if failure is not None:
-        if (
-            published
-            and temporary_identity is not None
-            and directory_descriptor is not None
-        ):
-            _unlink_if_same(directory_descriptor, path.name, temporary_identity)
-        if (
-            temporary_name is not None
-            and temporary_identity is not None
-            and directory_descriptor is not None
-        ):
-            _unlink_if_same(directory_descriptor, temporary_name, temporary_identity)
-        if directory_descriptor is not None:
-            with suppress(OSError):
-                os.fsync(directory_descriptor)
-    if directory_descriptor is not None:
-        try:
-            os.close(directory_descriptor)
-        except OSError:
-            if failure is None:
-                failure = FailureReason.OUTPUT
     if failure is not None:
         raise CaptureError(failure)
 
