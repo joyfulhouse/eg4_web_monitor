@@ -950,7 +950,7 @@ class TestSmartPortCleanupOnReboot:
     permanently breaking automations pinned to the old entry ID.
     """
 
-    GRIDBOSS_SERIAL = "4434850364"
+    GRIDBOSS_SERIAL = "SYNTH10001"
     # Keys an automation may be pinned to (port 1 = active smart load)
     ACTIVE_KEYS = ("smart_load1_power_l1", "smart_load1_power", "smart_load_power")
     # Key for a port that is genuinely inactive (stale, should be cleaned)

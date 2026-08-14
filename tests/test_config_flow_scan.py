@@ -27,7 +27,7 @@ def _make_scan_result(
     ip: str = "192.168.1.50",
     port: int = 502,
     device_type_name: str = "MODBUS_VERIFIED",
-    serial: str | None = "4512345678",
+    serial: str | None = "SYNTH10000",
     model_family: str | None = "EG4_HYBRID",
     mac_vendor: str | None = None,
 ):
@@ -172,7 +172,7 @@ class TestNetworkScanResults:
         result = await _navigate_to_scan_config(hass)
 
         mock_device = MagicMock()
-        mock_device.serial = "4512345678"
+        mock_device.serial = "SYNTH10000"
 
         result = await _submit_scan_and_wait(
             hass, result["flow_id"], mock_scanner_instance
@@ -292,7 +292,7 @@ class TestDiscoveryModelInfo:
         )
 
         transport = self._make_transport(device_type_code=10284, power_rating=8)
-        device = await _read_device_info_from_transport(transport, "4512345678")
+        device = await _read_device_info_from_transport(transport, "SYNTH10000")
 
         assert device.model == "FlexBOSS21"
 
@@ -304,7 +304,7 @@ class TestDiscoveryModelInfo:
         )
 
         transport = self._make_transport(device_type_code=10284, power_rating=9)
-        device = await _read_device_info_from_transport(transport, "4512345678")
+        device = await _read_device_info_from_transport(transport, "SYNTH10000")
 
         assert device.model == "FlexBOSS18"
 
@@ -316,7 +316,7 @@ class TestDiscoveryModelInfo:
         )
 
         transport = self._make_transport(device_type_code=2092, power_rating=6)
-        device = await _read_device_info_from_transport(transport, "4512670118")
+        device = await _read_device_info_from_transport(transport, "SYNTH00004")
 
         assert device.model == "18KPV"
 
@@ -327,7 +327,7 @@ class TestDiscoveryModelInfo:
         )
 
         transport = self._make_transport(device_type_code=10284)
-        device = await _read_device_info_from_transport(transport, "4512345678")
+        device = await _read_device_info_from_transport(transport, "SYNTH10000")
 
         assert device.model == "FlexBOSS21"
 

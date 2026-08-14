@@ -49,13 +49,13 @@ PARAM_FUNC_BAT_SHARED = "FUNC_BAT_SHARED"
 PARAM_FUNC_GRID_PEAK_SHAVING = "FUNC_GRID_PEAK_SHAVING"
 # Export PV Only (reg 179 bit 3, GH #135). Bit pinned 2026-06-12 via
 # authorized live cloud toggles raw-verified on BOTH 12K-hybrid models —
-# FlexBOSS21 52842P0581 and 18kPV 4512670118 each toggled reg-179 raw
+# FlexBOSS21 SYNTH00003 and 18kPV SYNTH00004 each toggled reg-179 raw
 # 0x104c <-> 0x1044 (XOR 0x0008 = single bit 3) in lockstep with the named
 # param, restores verified by re-read. Local writes resolve through
 # pylxpweb's REGISTER_TO_PARAM_KEYS (>= 0.9.36b6).
 PARAM_FUNC_PV_SELL_TO_GRID_EN = "FUNC_PV_SELL_TO_GRID_EN"
 # Grid Always On (reg 179 bit 15, GH #559). Hardware-toggle-proven
-# 2026-08-12 on FlexBOSS21 52842P0581: portal toggle flipped local raw
+# 2026-08-12 on FlexBOSS21 SYNTH00003: portal toggle flipped local raw
 # reg-179 0x1048 <-> 0x9048 (XOR exactly 0x8000 = bit 15), clean restore
 # verified via cloud and local reads. (Originally app-write-path-proven via
 # the EG4 mobile app's name->bit resolver, 4-for-4 against anchors bits
@@ -363,7 +363,7 @@ SCHEDULE_TIME_TYPES: tuple[ScheduleTimeSpec, ...] = (
     # Forced Charge (PV charge priority, #295): regs 76-81 (EG4-18KPV spec,
     # pylxpweb SCHEDULE_CONFIGS). Suppressed on EG4_OFFGRID: the cloud
     # rejects HOLD_FORCED_CHARGE_* writes on a 12000XP v2 (REMOTE_SET_ERROR,
-    # serial 61062J0147, #295 live report) and the SNA working-mode portal
+    # serial SYNTH30005, #295 live report) and the SNA working-mode portal
     # page contains ZERO HOLD_FORCED_CHARGE params (vs a full Forced
     # Discharge schedule widget) — same evidence standard as the #307
     # Battery Backup gate.

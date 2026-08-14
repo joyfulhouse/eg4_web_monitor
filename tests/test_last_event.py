@@ -46,7 +46,7 @@ from custom_components.eg4_web_monitor.utils import normalize_event_row
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 INVERTER_SERIAL = "1234567890"
-GRIDBOSS_SERIAL = "4524850115"
+GRIDBOSS_SERIAL = "SYNTH00002"
 
 # Row shape live-validated against the portal 2026-07-15 (docs/api/openapi.yaml
 # EventRow schema) — NOT the (incorrect) pylxpweb docstring field names.
@@ -54,7 +54,7 @@ FAULT_ROW: dict[str, Any] = {
     "recordId": 7583193,
     "plantName": "Test Plant",
     "serialNum": INVERTER_SERIAL,
-    "datalogSn": "BC33600194",
+    "datalogSn": "SYNTH00006",
     "eventTypeText": "Fault",
     "eventType": "FAULT",
     "eventText": "Bus voltage high",

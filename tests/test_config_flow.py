@@ -1171,7 +1171,7 @@ class TestLocalDongleFlow:
                 {
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ12345678",
+                    "dongle_serial": "SYNTH10009",
                     "inverter_serial": "9876543210",
                 },
             )
@@ -1221,7 +1221,7 @@ class TestLocalDongleFlow:
                 {
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ12345678",
+                    "dongle_serial": "SYNTH10009",
                     "inverter_serial": "9876543210",
                 },
             )
@@ -1247,7 +1247,7 @@ class TestLocalDongleFlow:
                 {
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ12345678",
+                    "dongle_serial": "SYNTH10009",
                     "inverter_serial": "9876543210",
                 },
             )
@@ -1285,7 +1285,7 @@ class TestLocalDongleFlow:
                 {
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ12345678",
+                    "dongle_serial": "SYNTH10009",
                     "inverter_serial": "9876543210",
                 },
             )
@@ -1315,7 +1315,7 @@ class TestLocalDongleFlow:
                 {
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ12345678",
+                    "dongle_serial": "SYNTH10009",
                     "inverter_serial": "9876543210",
                 },
             )
@@ -1372,7 +1372,7 @@ class TestLocalDongleFlow:
                 {
                     "dongle_host": "192.168.1.150",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ12345678",
+                    "dongle_serial": "SYNTH10009",
                     "inverter_serial": "9876543210",
                 },
             )
@@ -1494,7 +1494,7 @@ class TestLocalDongleFlow:
                 {
                     "dongle_host": "192.168.9.145",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ12345678",
+                    "dongle_serial": "SYNTH10009",
                     "inverter_serial": "9876543210",
                 },
             )

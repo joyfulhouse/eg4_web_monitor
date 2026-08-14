@@ -23,7 +23,7 @@ from custom_components.eg4_web_monitor.diagnostics import (
 )
 
 SERIAL = "1234567890"
-DONGLE_SERIAL = "BA12345678"
+DONGLE_SERIAL = "SYNTH10007"
 PLANT_ID = "12345"
 
 

@@ -8,7 +8,7 @@ the WiFi dongle and the cloud ingestion server — no separate HTTP download or 
 connections are established.
 
 **Capture date**: 2026-04-13
-**Devices upgraded**: EG4 18kPV (serial 4512670118), EG4 FlexBOSS21 (serial 52842P0581)
+**Devices upgraded**: EG4 18kPV (serial SYNTH00004), EG4 FlexBOSS21 (serial SYNTH00003)
 **Firmware version**: fAAB-2525 → fAAB-2727
 
 ## Network Architecture
@@ -20,13 +20,13 @@ EG4 Cloud Server (3.101.7.137:4346)
         │  (same connection used for normal polling)
         │
    ┌────┴────┐
-   │  WiFi   │  dongle serial: BC34000380 (18kPV)
-   │  Dongle │  dongle serial: BC33600194 (FlexBOSS21)
+   │  WiFi   │  dongle serial: SYNTH00005 (18kPV)
+   │  Dongle │  dongle serial: SYNTH00006 (FlexBOSS21)
    └────┬────┘
         │  RS485 / internal bus
         │
    ┌────┴────┐
-   │Inverter │  inverter serial: 4512670118 / 52842P0581
+   │Inverter │  inverter serial: SYNTH00004 / SYNTH00003
    └─────────┘
 ```
 
@@ -45,10 +45,10 @@ gateway. Captures are performed via SSH to the UDM running tcpdump.
 
 ```bash
 # SSH to UDM and start capture (no timeout, no port filter)
-ssh root@172.16.0.1 "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
+ssh root@<gateway-ip> "nohup tcpdump -i any -s 0 -U -w /tmp/capture.pcap host <DONGLE_IP> &"
 
 # Download when complete
-scp root@172.16.0.1:/tmp/capture.pcap .
+scp root@<gateway-ip>:/tmp/capture.pcap .
 ```
 
 Key flags:
@@ -63,13 +63,13 @@ Key flags:
 
 ```bash
 # Verify connectivity (dry run)
-./scripts/capture_firmware_upgrade.sh --ip 10.100.1.8 --verify
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP --verify
 
 # Start capture (runs until Ctrl+C)
-./scripts/capture_firmware_upgrade.sh --ip 10.100.1.8
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP
 
 # With auto-stop duration
-./scripts/capture_firmware_upgrade.sh --ip 10.100.1.8 --duration 1800
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP --duration 1800
 ```
 
 ### SLL2 Deduplication
@@ -92,7 +92,7 @@ Offset  Size  Field
 4       2     Frame length (uint16 LE) — total_size - 6
 6       1     Address byte
 7       1     Function code (0xC1=heartbeat, 0xC2=data)
-8       10    Dongle serial (ASCII, e.g., "BC34000380")
+8       10    Dongle serial (ASCII, e.g., "SYNTH00005")
 18      N     Payload (function-specific)
 ```
 
@@ -107,7 +107,7 @@ Offset  Size  Field
 0       2     Modbus data length (uint16 LE)
 2       1     Slave address (always 0)
 3       1     Modbus function code
-4       10    Inverter serial (ASCII, e.g., "4512670118")
+4       10    Inverter serial (ASCII, e.g., "SYNTH00004")
 14      2     Start register / sequence number (uint16 LE)
 16      N     Function-specific data
 ```
@@ -294,7 +294,7 @@ Automated pcap capture script for the UDM gateway. Supports verify mode,
 custom dongle IPs, and optional duration limits.
 
 ```bash
-./scripts/capture_firmware_upgrade.sh --ip <dongle_ip> [--verify] [--duration <seconds>]
+./scripts/capture_firmware_upgrade.sh --gateway-host GATEWAY_HOST --ip DONGLE_IP --verify
 ```
 
 ## File Inventory
@@ -338,11 +338,12 @@ custom dongle IPs, and optional duration limits.
 
 | Device | Dongle Serial | Dongle IP | Dongle MAC | Inverter Serial | Cloud Server |
 |--------|--------------|-----------|------------|-----------------|-------------|
-| 18kPV | BC34000380 | 10.100.1.8 | 00:30:60:6c:66:a6 | 4512670118 | 3.101.7.137:4346 |
-| FlexBOSS21 | BC33600194 | 10.100.1.164 | 00:30:6a:6c:64:a6 | 52842P0581 | 3.101.7.137:4346 |
-| GridBOSS | DJ43404815 | 10.100.12.175 | b0:81:84:0e:85:dc | 4524850115 | 13.56.41.37:4346 |
+| 18kPV | SYNTH00005 | 192.0.2.11 | 02:00:00:00:00:02 | SYNTH00004 | 3.101.7.137:4346 |
+| FlexBOSS21 | SYNTH00006 | 192.0.2.16 | 02:00:00:00:00:01 | SYNTH00003 | 3.101.7.137:4346 |
+| GridBOSS | SYNTH00001 | 192.0.2.15 | 02:00:00:00:00:03 | SYNTH00002 | 13.56.41.37:4346 |
 
-MAC prefixes: `00:30:60` and `00:30:6a` are WIZnet (W7500 chip), `b0:81:84` is Espressif (ESP32).
+MAC prefixes: `00:30:60` and `00:30:6a` are WIZnet (W7500 chip), while
+`b0:81:84` is Espressif (ESP32).
 
 ## Open Questions
 

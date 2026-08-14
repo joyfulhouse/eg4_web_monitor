@@ -2,7 +2,7 @@
 
 **Analysis date**: 2026-04-13
 **Firmware version**: fAAB-2727 (FAAB-27xx_20260330)
-**Devices**: EG4 18kPV (4512670118), EG4 FlexBOSS21 (52842P0581)
+**Devices**: EG4 18kPV (SYNTH00004), EG4 FlexBOSS21 (SYNTH00003)
 
 ## Architecture: Dual-Processor System
 

@@ -673,7 +673,7 @@ class TestDeprecatedCleanupSuffixes:
             "1111111111_runtime_eps_power_l1",
             "1111111111_runtime_eps_power_l2",
             # GridBOSS per-leg load keys share the ..._load_power_l1 shape.
-            "4524850115_midbox_runtime_load_power_l1",
+            "SYNTH00002_midbox_runtime_load_power_l1",
         ):
             assert not any(
                 surviving_uid.endswith(suffix)

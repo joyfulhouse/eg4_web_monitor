@@ -82,7 +82,7 @@ def _cloud_battery(index: int, serial: str) -> SimpleNamespace:
     """A cloud Battery stand-in matching pylxpweb's real attribute surface.
 
     The real cloud ``batteryKey`` is ``{inverterSn}_{batterySn}`` — verified
-    against the recorded getBatteryInfo sample (battery_44300E0585.json).
+    against the recorded getBatteryInfo sample (battery_SYNTH10000.json).
     """
     return SimpleNamespace(
         battery_key=f"{INV}_{serial}",

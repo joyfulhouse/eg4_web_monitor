@@ -9,7 +9,7 @@
 #
 # To use: Copy this configuration to your Lovelace dashboard
 # Adjust entity IDs to match your installation:
-# - "flexboss21_1234567890" -> "<your_model>_<your_serial>" (e.g. 18kpv_3344556677)
+# - "flexboss21_1234567890" -> "<your_model>_<your_serial>" (e.g. 18kpv_synth10002)
 # - "battery_1234567890_01" -> "battery_<your_serial>_01" (individual battery)
 # - "battery_bank_1234567890" -> "battery_bank_<your_serial>" (battery bank)
 # Check Settings -> Devices & Services -> Entities for the exact IDs.

@@ -20,7 +20,7 @@ This document describes the EG4 Web Monitor API endpoints for managing plant/sta
 page=1
 rows=20
 searchText=
-targetPlantId=19147
+targetPlantId=1234567890
 sort=createDate
 order=desc
 ```
@@ -31,9 +31,9 @@ order=desc
     "total": 1,
     "rows": [
         {
-            "id": 19147,
-            "plantId": 19147,
-            "name": "6245 N WILLARD",
+            "id": 1234567890,
+            "plantId": 1234567890,
+            "name": "123 Example Street",
             "nominalPower": 19000,
             "country": "United States of America",
             "currentTimezoneWithMinute": -800,
@@ -46,7 +46,7 @@ order=desc
             "noticeEmail2": "",
             "contactPerson": "",
             "contactPhone": "",
-            "address": "6245 North Willard Avenue"
+            "address": "123 Example Street"
         }
     ]
 }
@@ -73,7 +73,7 @@ order=desc
 **Editable Fields Identified**:
 
 1. **name** (text input, maxLength=50)
-   - Current: "6245 N WILLARD"
+   - Current: "123 Example Street"
    - Home Assistant Entity: `sensor.{station}_name`
 
 2. **nominalPower** (text input, maxLength=10)
@@ -125,10 +125,10 @@ order=desc
 
 **Request Parameters** (from user's curl example):
 ```
-plantId=19147
-name=6245+N+WILLARD
-longitude=-118.10842
-latitude=34.09724
+plantId=1234567890
+name=123+Example+Street
+longitude=-122.00000
+latitude=37.00000
 createDate=2025-05-05
 nominalPower=19000
 continent=NORTH_AMERICA
@@ -302,7 +302,7 @@ automation:
     action:
       - service: switch.turn_on
         target:
-          entity_id: switch.eg4_station_6245_n_willard_daylight_saving_time
+          entity_id: switch.eg4_station_123_example_street_daylight_saving_time
 
   - alias: "Disable DST for EG4 Station (Fall Back)"
     trigger:
@@ -319,7 +319,7 @@ automation:
     action:
       - service: switch.turn_off
         target:
-          entity_id: switch.eg4_station_6245_n_willard_daylight_saving_time
+          entity_id: switch.eg4_station_123_example_street_daylight_saving_time
 ```
 
 ## Timezone Options Reference

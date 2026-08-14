@@ -294,7 +294,7 @@ Release cut for v3.5.1-beta.11 (pylxpweb 0.9.39b11 on PyPI). Two operations:
    minimum: portal named toggle of Grid Always On flipped the local raw reg-179
    read 0x1048 → 0x9048 (single-bit XOR exactly 0x8000 = bit 15), and the restore
    returned 0x1048, verified via both cloud and local reads, on FlexBOSS21
-   52842P0581. `40-hardware/registers.md` H179 b15 re-graded
+   SYNTH00003. `40-hardware/registers.md` H179 b15 re-graded
    `app-write-path-proven` → `hardware-toggle-proven`, scoped to the tested unit
    (component firmware unrecorded); the app-resolver lineage is retained in the
    row as history and still carries the family-wide extension. Accounting ledger
@@ -449,6 +449,13 @@ contained an early single-client hypothesis; and made parser memory, queue polic
 session-expiry observation, local-only soak and per-field portal parity numerically
 testable.
 
+## [2026-08-13] lint | Deployment identities removed from the tracked wiki frame
+
+Replaced deployment-specific identifiers in the affected integration and hardware pages
+with stable synthetic identities. The repository guard now derives its text frame from
+Git-tracked files and reports only path and category, so future findings cannot disclose
+the matched value. Issue `eg4-jhto` and draft PR #575 own the remediation record.
+
 ## [2026-08-13] ingest | Dongle emulation limited to direct local transports
 
 The owner clarified that emulation is available only when a qualifying direct local
@@ -461,3 +468,43 @@ echo re-ingestion, parsed-value reserialization, duplicate identity and listener
 Port-8000 emulation is now permanently out of scope rather than a deferred phase. C12 remains
 an unresolved fact about physical-dongle listener capacity, but is no longer a product gate
 for this emulator. Planning item 1 and PR #577's offline-sanitizer scope are unchanged.
+
+## [2026-08-14] lint | Identifier guard narrowed to audited deployment values
+
+Corrected PR #575's overbroad private-address rule: generic RFC1918 examples and the
+network-scan fallback are operational fixtures, not deployment identities. The guard now
+matches the audited private addresses by integer encoding and the audited plant/cloud
+identifiers by digest, with mutation checks proving both the false-positive boundary and
+continued detection.
+
+## [2026-08-14] lint | Identifier scrub restricted to deployment-owned data
+
+Reworked PR #575's regression guard so every audited address, encoded address, serial,
+plant, cloud-host and physical-location value is represented only by a SHA-256 digest.
+Synthetic mutation fixtures now prove dotted and bare-integer address detection, serial
+matching in prose and entity IDs, camel-case plant fields, location matching, worktree
+reads, exact path exclusions and the RFC1918 scan-default boundary. Restored generic
+private-network examples and public vendor ingestion endpoints, and repaired the probe,
+monitor and firmware-capture helper regressions identified by tribunal review.
+
+## [2026-08-14] lint | Vendor infrastructure excluded from deployment audit
+
+Corrected the prior entry's worktree-reader claim: the guard now reads index blobs so it
+audits the exact bytes a commit would contain. Local gitignored vectors prove the committed
+digests against the deployment values without republishing them. Vendor cloud hosts, public
+cloud addresses, MAC OUIs and generic private gateways remain actionable documentation;
+only audited full MACs and deployment-owned identifiers are blocked.
+
+## [2026-08-14] lint | Synthetic script fixtures exempted from identity defaults
+
+The PR merge check exposed that the operational-default rule treated explicitly named
+`SYNTHETIC_*` and `DOCUMENTATION_*` constants as live defaults. Narrowed that rule to keep
+those safe fixtures while continuing to reject ordinary script identity defaults; the
+digest-backed repository scan remains authoritative for audited deployment values.
+
+## [2026-08-14] lint | Maintainer gateway returned to scrub scope
+
+Corrected the vendor-infrastructure boundary: the deployment's UDM gateway is maintainer
+infrastructure, not a generic example. Removed its shell default and documentation literals,
+restored its dotted and integer digests, and extended the operational-default regression
+check to quoted IP assignments in shell scripts.

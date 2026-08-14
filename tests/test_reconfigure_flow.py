@@ -1401,7 +1401,7 @@ class TestReconfigureDeviceManagement:
                 {
                     "dongle_host": "192.168.1.201",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ44444444",
+                    "dongle_serial": "SYNTH10010",
                     "inverter_serial": "4444444444",
                 },
             )
@@ -1527,7 +1527,7 @@ class TestReconfigureDeviceManagement:
                 {
                     "dongle_host": "192.168.1.200",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ55555555",
+                    "dongle_serial": "SYNTH10011",
                     "inverter_serial": "5555555555",
                 },
             )
@@ -1595,7 +1595,7 @@ class TestReconfigureDeviceManagement:
                 {
                     "dongle_host": "192.168.1.200",
                     "dongle_port": 8000,
-                    "dongle_serial": "BJ55555555",
+                    "dongle_serial": "SYNTH10011",
                     "inverter_serial": "5555555555",
                 },
             )
@@ -1724,7 +1724,7 @@ class TestReconfigureLegacyMigration:
                 "inverter_family": "LXP",
                 "dongle_host": "192.168.1.200",
                 "dongle_port": 8000,
-                "dongle_serial": "BJ12345678",
+                "dongle_serial": "SYNTH10009",
                 CONF_VERIFY_SSL: True,
                 CONF_DST_SYNC: False,
             },
@@ -1745,7 +1745,7 @@ class TestReconfigureLegacyMigration:
         assert len(transports) == 1
         assert transports[0]["transport_type"] == "wifi_dongle"
         assert transports[0]["serial"] == "9876543210"
-        assert transports[0]["dongle_serial"] == "BJ12345678"
+        assert transports[0]["dongle_serial"] == "SYNTH10009"
 
 
 # =====================================================

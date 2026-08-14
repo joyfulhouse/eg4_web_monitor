@@ -58,7 +58,7 @@ class TestBuildTransportConfigs:
         """Test building TransportConfig from Modbus config dict."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
                 "host": "192.168.1.100",
                 "port": 502,
@@ -70,7 +70,7 @@ class TestBuildTransportConfigs:
         configs = _build_transport_configs(config_list)
 
         assert len(configs) == 1
-        assert configs[0].serial == "CE12345678"
+        assert configs[0].serial == "SYNTH10014"
         assert configs[0].host == "192.168.1.100"
         assert configs[0].port == 502
 
@@ -78,11 +78,11 @@ class TestBuildTransportConfigs:
         """Test building TransportConfig from Dongle config dict."""
         config_list = [
             {
-                "serial": "CE87654321",
+                "serial": "SYNTH10019",
                 "transport_type": "wifi_dongle",
                 "host": "192.168.1.101",
                 "port": 8000,
-                "dongle_serial": "BA12345678",
+                "dongle_serial": "SYNTH10007",
                 "inverter_family": "EG4_HYBRID",
             }
         ]
@@ -90,16 +90,16 @@ class TestBuildTransportConfigs:
         configs = _build_transport_configs(config_list)
 
         assert len(configs) == 1
-        assert configs[0].serial == "CE87654321"
+        assert configs[0].serial == "SYNTH10019"
         assert configs[0].host == "192.168.1.101"
         assert configs[0].port == 8000
-        assert configs[0].dongle_serial == "BA12345678"
+        assert configs[0].dongle_serial == "SYNTH10007"
 
     def test_build_multiple_configs(self) -> None:
         """Test building multiple TransportConfig objects."""
         config_list = [
             {
-                "serial": "CE11111111",
+                "serial": "SYNTH10013",
                 "transport_type": "modbus_tcp",
                 "host": "192.168.1.100",
                 "port": 502,
@@ -107,7 +107,7 @@ class TestBuildTransportConfigs:
                 "inverter_family": "EG4_HYBRID",
             },
             {
-                "serial": "CE22222222",
+                "serial": "SYNTH10015",
                 "transport_type": "modbus_tcp",
                 "host": "192.168.1.101",
                 "port": 502,
@@ -119,21 +119,21 @@ class TestBuildTransportConfigs:
         configs = _build_transport_configs(config_list)
 
         assert len(configs) == 2
-        assert configs[0].serial == "CE11111111"
-        assert configs[1].serial == "CE22222222"
+        assert configs[0].serial == "SYNTH10013"
+        assert configs[1].serial == "SYNTH10015"
 
     def test_serial_malformed_numeric_skipped_not_fatal(self) -> None:
         """A None baudrate (TypeError in int()) skips the config, not setup (#233)."""
         config_list = [
             {
-                "serial": "CE33333333",
+                "serial": "SYNTH10016",
                 "transport_type": "modbus_serial",
                 "serial_port": "/dev/ttyUSB0",
                 "serial_baudrate": None,
                 "inverter_family": "EG4_HYBRID",
             },
             {
-                "serial": "CE44444444",
+                "serial": "SYNTH10017",
                 "transport_type": "modbus_tcp",
                 "host": "192.168.1.100",
                 "port": 502,
@@ -146,13 +146,13 @@ class TestBuildTransportConfigs:
 
         # Bad serial config skipped; the good TCP config still builds.
         assert len(configs) == 1
-        assert configs[0].serial == "CE44444444"
+        assert configs[0].serial == "SYNTH10017"
 
     def test_serial_string_numerics_coerced(self) -> None:
         """String numeric fields from older stored entries coerce cleanly (#233)."""
         config_list = [
             {
-                "serial": "CE55555555",
+                "serial": "SYNTH10018",
                 "transport_type": "modbus_serial",
                 "serial_port": "/dev/ttyUSB0",
                 "serial_baudrate": "19200",
@@ -178,7 +178,7 @@ class TestBuildTransportConfigs:
         """Test building with invalid transport type skips the config."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "invalid_type",
                 "host": "192.168.1.100",
                 "port": 502,
@@ -193,7 +193,7 @@ class TestBuildTransportConfigs:
         """Test building with missing required field skips the config."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
                 # Missing "host" field
                 "port": 502,
@@ -213,7 +213,7 @@ class TestBuildTransportConfigs:
         """
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_serial",
                 "serial_port": "/dev/ttyUSB0",
                 "serial_baudrate": 19200,
@@ -228,7 +228,7 @@ class TestBuildTransportConfigs:
 
         assert len(configs) == 1
         assert configs[0].transport_type == TransportType.MODBUS_SERIAL
-        assert configs[0].serial == "CE12345678"
+        assert configs[0].serial == "SYNTH10014"
         assert configs[0].serial_port == "/dev/ttyUSB0"
         assert configs[0].serial_baudrate == 19200
         assert configs[0].serial_parity == "N"
@@ -239,7 +239,7 @@ class TestBuildTransportConfigs:
         """Serial config without serial_port is skipped, not crashed on."""
         config_list = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_serial",
             }
         ]
@@ -287,7 +287,7 @@ class TestCoordinatorHybridInit:
             # New CONF_LOCAL_TRANSPORTS format for attach_local_transports()
             CONF_LOCAL_TRANSPORTS: [
                 {
-                    "serial": "CE12345678",
+                    "serial": "SYNTH10014",
                     "transport_type": "modbus_tcp",
                     "host": "192.168.1.100",
                     "port": DEFAULT_MODBUS_PORT,
@@ -317,7 +317,7 @@ class TestCoordinatorHybridInit:
             )
 
         assert len(coordinator._local_transport_configs) == 1
-        assert coordinator._local_transport_configs[0]["serial"] == "CE12345678"
+        assert coordinator._local_transport_configs[0]["serial"] == "SYNTH10014"
         assert coordinator._local_transports_attached is False
 
     def test_empty_local_transports_list(self, mock_hass: MagicMock) -> None:
@@ -370,7 +370,7 @@ class TestAttachLocalTransports:
         # Create a mock coordinator with station = None
         mock_self = MagicMock()
         mock_self.station = None
-        mock_self._local_transport_configs = [{"serial": "CE12345678"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH10014"}]
         mock_self._local_transports_attached = False
 
         # Call the method as a bound method
@@ -418,7 +418,7 @@ class TestAttachLocalTransports:
         mock_self.station.is_hybrid_mode = True
         mock_self._local_transport_configs = [
             {
-                "serial": "CE12345678",
+                "serial": "SYNTH10014",
                 "transport_type": "modbus_tcp",
                 "host": "192.168.1.100",
                 "port": 502,
@@ -452,7 +452,7 @@ class TestAttachRetryAndDegradedFallback:
     """
 
     @staticmethod
-    def _net_cfg(serial: str, host: str = "10.100.12.175") -> MagicMock:
+    def _net_cfg(serial: str, host: str = "192.0.2.15") -> MagicMock:
         from pylxpweb.transports.config import TransportType
 
         cfg = MagicMock()
@@ -473,7 +473,7 @@ class TestAttachRetryAndDegradedFallback:
         attach_result.unmatched = 0
         attach_result.failed = 1
         attach_result.unmatched_serials = []
-        attach_result.failed_serials = ["4524850115"]
+        attach_result.failed_serials = ["SYNTH00002"]
 
         mock_self = MagicMock()
         mock_self.station = MagicMock()
@@ -481,11 +481,11 @@ class TestAttachRetryAndDegradedFallback:
             return_value=attach_result
         )
         mock_self._local_transport_configs = [
-            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+            {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
         mock_self._local_transports_attached = False
 
-        cfg = self._net_cfg("4524850115")
+        cfg = self._net_cfg("SYNTH00002")
         with (
             patch(
                 "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
@@ -497,10 +497,10 @@ class TestAttachRetryAndDegradedFallback:
                 mock_self
             )
 
-        assert mock_self._failed_attach_serials == {"4524850115"}
+        assert mock_self._failed_attach_serials == {"SYNTH00002"}
         assert mock_self._local_transports_attached is True
         issue_ids = [c.args[2] for c in mock_ir.async_create_issue.call_args_list]
-        assert "transport_attach_failed_4524850115" in issue_ids
+        assert "transport_attach_failed_SYNTH00002" in issue_ids
 
     @pytest.mark.asyncio
     async def test_successful_attach_clears_stale_issue(self) -> None:
@@ -522,11 +522,11 @@ class TestAttachRetryAndDegradedFallback:
             return_value=attach_result
         )
         mock_self._local_transport_configs = [
-            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+            {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
         mock_self._local_transports_attached = False
 
-        cfg = self._net_cfg("4524850115")
+        cfg = self._net_cfg("SYNTH00002")
         with (
             patch(
                 "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
@@ -540,7 +540,7 @@ class TestAttachRetryAndDegradedFallback:
 
         assert mock_self._failed_attach_serials == set()
         deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
-        assert "transport_attach_failed_4524850115" in deleted
+        assert "transport_attach_failed_SYNTH00002" in deleted
 
     @pytest.mark.asyncio
     async def test_retry_recovers_and_clears_issue(self) -> None:
@@ -558,13 +558,13 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
-        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._last_attach_retry = 0.0
         mock_self._local_transport_configs = [
-            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+            {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
 
-        cfg = self._net_cfg("4524850115")
+        cfg = self._net_cfg("SYNTH00002")
         with (
             patch(
                 "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
@@ -577,7 +577,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports.assert_awaited_once_with([cfg])
         assert mock_self._failed_attach_serials == set()
         deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
-        assert "transport_attach_failed_4524850115" in deleted
+        assert "transport_attach_failed_SYNTH00002" in deleted
         mock_self._configure_attached_devices.assert_called_once()
 
     @pytest.mark.asyncio
@@ -588,7 +588,7 @@ class TestAttachRetryAndDegradedFallback:
         )
 
         attach_result = MagicMock()
-        attach_result.failed_serials = ["4524850115"]
+        attach_result.failed_serials = ["SYNTH00002"]
         attach_result.unmatched_serials = []
 
         mock_self = MagicMock()
@@ -596,13 +596,13 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
-        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._last_attach_retry = 0.0
         mock_self._local_transport_configs = [
-            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+            {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
 
-        cfg = self._net_cfg("4524850115")
+        cfg = self._net_cfg("SYNTH00002")
         with (
             patch(
                 "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
@@ -612,7 +612,7 @@ class TestAttachRetryAndDegradedFallback:
         ):
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
 
-        assert mock_self._failed_attach_serials == {"4524850115"}
+        assert mock_self._failed_attach_serials == {"SYNTH00002"}
         mock_ir.async_delete_issue.assert_not_called()
         mock_self._configure_attached_devices.assert_not_called()
 
@@ -628,7 +628,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self = MagicMock()
         mock_self.station = MagicMock()
         mock_self.station.attach_local_transports = AsyncMock()
-        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._last_attach_retry = time_mod.monotonic()
 
         await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
@@ -651,13 +651,13 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
-        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._last_attach_retry = None
         mock_self._local_transport_configs = [
-            {"serial": "4524850115", "transport_type": "wifi_dongle"}
+            {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
 
-        cfg = self._net_cfg("4524850115")
+        cfg = self._net_cfg("SYNTH00002")
         with (
             patch(
                 "custom_components.eg4_web_monitor.coordinator_local._build_transport_configs",
@@ -699,13 +699,13 @@ class TestAttachRetryAndDegradedFallback:
         )
 
         mid = MagicMock()
-        mid.serial_number = "4524850115"
+        mid.serial_number = "SYNTH00002"
         mid.transport = None
         mid.refresh = AsyncMock()
 
         mock_self = MagicMock()
         mock_self._local_transports_attached = True
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self.station = MagicMock()
         mock_self.station.all_inverters = []
         mock_self.station.all_mid_devices = [mid]
@@ -718,7 +718,7 @@ class TestAttachRetryAndDegradedFallback:
         )
 
         mock_self.client.invalidate_cache_for_device.assert_called_once_with(
-            "4524850115"
+            "SYNTH00002"
         )
         mid.refresh.assert_awaited_once()
 
@@ -736,7 +736,7 @@ class TestAttachRetryAndDegradedFallback:
 
         mock_self = MagicMock()
         mock_self._local_transports_attached = True
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self.station = MagicMock()
         mock_self.station.all_inverters = [inv]
         mock_self.station.all_mid_devices = []
@@ -761,13 +761,13 @@ class TestAttachRetryAndDegradedFallback:
         )
 
         mid = MagicMock()
-        mid.serial_number = "4524850115"
+        mid.serial_number = "SYNTH00002"
         mid.transport = None
         mid.refresh = AsyncMock(side_effect=RuntimeError("cloud down"))
 
         mock_self = MagicMock()
         mock_self._local_transports_attached = True
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self.station = MagicMock()
         mock_self.station.all_inverters = []
         mock_self.station.all_mid_devices = [mid]
@@ -779,7 +779,7 @@ class TestAttachRetryAndDegradedFallback:
             mock_self, include_mid=True
         )
 
-        assert "Cloud refresh failed for 4524850115" in caplog.text
+        assert "Cloud refresh failed for SYNTH00002" in caplog.text
 
     @pytest.mark.asyncio
     async def test_degraded_mid_escalates_include_mid_gate(self) -> None:
@@ -789,11 +789,11 @@ class TestAttachRetryAndDegradedFallback:
         )
 
         mid = MagicMock()
-        mid.serial_number = "4524850115"
+        mid.serial_number = "SYNTH00002"
 
         mock_self = MagicMock()
         mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
-        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self.station = MagicMock()
         mock_self.station.all_mid_devices = [mid]
         mock_self.station.all_inverters = []
@@ -813,7 +813,7 @@ class TestAttachRetryAndDegradedFallback:
         )
 
         mid = MagicMock()
-        mid.serial_number = "4524850115"
+        mid.serial_number = "SYNTH00002"
 
         mock_self = MagicMock()
         mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
@@ -843,20 +843,20 @@ class TestAttachRetryAndDegradedFallback:
         )
 
         mid = MagicMock()
-        mid.serial_number = "4524850115"
+        mid.serial_number = "SYNTH00002"
         mid.transport = None
         mid.refresh = AsyncMock()
 
         mock_self = MagicMock()
         mock_self._local_transports_attached = True
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self.station = MagicMock()
         mock_self.station.all_inverters = []
         mock_self.station.all_mid_devices = [mid]
         mock_self.client = MagicMock()
         mock_self._http_polling_interval = 60
         mock_self._last_degraded_cloud_refresh = {
-            "4524850115": time_mod.monotonic()  # refreshed moments ago
+            "SYNTH00002": time_mod.monotonic()  # refreshed moments ago
         }
 
         await EG4DataUpdateCoordinator._refresh_station_devices(
@@ -931,7 +931,7 @@ class TestAttachRetryAndDegradedFallback:
 
         mock_self = MagicMock()
         mock_self.connection_type = CONNECTION_TYPE_HYBRID
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self._local_transports_attached = False
         mock_self._failed_attach_serials = set()
         mock_self._last_attach_retry = 0.0
@@ -953,7 +953,7 @@ class TestAttachRetryAndDegradedFallback:
 
         mock_self = MagicMock()
         mock_self.connection_type = CONNECTION_TYPE_HYBRID
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self._local_transports_attached = False
         mock_self._failed_attach_serials = set()
         mock_self._last_attach_retry = None
@@ -980,7 +980,7 @@ class TestAttachRetryAndDegradedFallback:
 
         mock_self = MagicMock()
         mock_self.connection_type = CONNECTION_TYPE_HYBRID
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self._local_transports_attached = False
         mock_self._failed_attach_serials = set()
         mock_self._last_attach_retry = time_mod.monotonic()
@@ -999,9 +999,9 @@ class TestAttachRetryAndDegradedFallback:
 
         mock_self = MagicMock()
         mock_self.connection_type = CONNECTION_TYPE_HYBRID
-        mock_self._local_transport_configs = [{"serial": "4524850115"}]
+        mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self._local_transports_attached = True
-        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._attach_local_transports_to_station = AsyncMock()
         mock_self._maybe_retry_failed_attaches = AsyncMock()
 
@@ -1020,7 +1020,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self = MagicMock()
         mock_self.connection_type = "http"
         mock_self._local_transports_attached = False
-        mock_self._failed_attach_serials = {"4524850115"}
+        mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._attach_local_transports_to_station = AsyncMock()
         mock_self._maybe_retry_failed_attaches = AsyncMock()
 
@@ -1250,7 +1250,7 @@ class TestTransportLinkDown:
             EG4DataUpdateCoordinator,
         )
 
-        mid = self._device("4524850115", link_down=True)
+        mid = self._device("SYNTH00002", link_down=True)
 
         mock_self = MagicMock()
         mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
@@ -1273,7 +1273,7 @@ class TestTransportLinkDown:
             EG4DataUpdateCoordinator,
         )
 
-        mid = self._device("4524850115", link_down=False)
+        mid = self._device("SYNTH00002", link_down=False)
 
         mock_self = MagicMock()
         mock_self._should_poll_hybrid_local = MagicMock(return_value=False)
@@ -1386,7 +1386,7 @@ class TestTransportLinkDown:
             EG4DataUpdateCoordinator,
         )
 
-        device = self._device("4524850115", link_down=True)
+        device = self._device("SYNTH00002", link_down=True)
 
         mock_self = MagicMock()
         mock_self.station = MagicMock()
@@ -1398,7 +1398,7 @@ class TestTransportLinkDown:
             EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, None)
 
         issue_ids = [c.args[2] for c in mock_ir.async_create_issue.call_args_list]
-        assert issue_ids == ["transport_link_down_4524850115"]
+        assert issue_ids == ["transport_link_down_SYNTH00002"]
 
     @pytest.mark.asyncio
     async def test_sync_recovery_clears_issue_and_resumes(self) -> None:

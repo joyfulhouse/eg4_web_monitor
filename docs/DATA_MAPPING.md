@@ -911,8 +911,8 @@ per boundary). Cloud param names take the window suffix
 > `FUNC_PV_SELL_TO_GRID_EN` (the `Export PV Only` switch,
 > [#135](https://github.com/joyfulhouse/eg4_web_monitor/issues/135)) was **pinned to
 > bit 3** on 2026-06-12 (~16:05–16:07 PT) via authorized live cloud toggles
-> raw-verified on BOTH 12K-hybrid models: FlexBOSS21 52842P0581 and 18kPV
-> 4512670118 each toggled the reg-179 raw frame `0x104c` ↔ `0x1044` (XOR `0x0008`
+> raw-verified on BOTH 12K-hybrid models: FlexBOSS21 SYNTH00003 and 18kPV
+> SYNTH00004 each toggled the reg-179 raw frame `0x104c` ↔ `0x1044` (XOR `0x0008`
 > = single bit 3) in lockstep with the named parameter, restores verified by
 > re-read (`remoteRead` valueFrame, base64 LE uint16). With pylxpweb ≥ 0.9.36b6
 > the switch works in ALL modes: local-raw parameter caches decode the bit by
@@ -1260,11 +1260,11 @@ therefore LOCAL/HYBRID transport-only. In HYBRID, a local PV1 daily or lifetime
 value suppresses the matching cloud tier for that cycle; local transport is
 authoritative about which strings exist.
 
-Live validation against plant 19147 on 2026-08-01 confirms the fields and scale:
+Live validation against plant 1234567890 on 2026-08-01 confirms the fields and scale:
 
-- 18kPV `4512670118`: lifetime strings `1471.8 + 527.5 + 98.4 = 2097.7`
+- 18kPV `SYNTH00004`: lifetime strings `1471.8 + 527.5 + 98.4 = 2097.7`
   kWh, exactly matching `getInverterEnergyInfo.totalYieldingText = "2097.7"`.
-- FlexBOSS21 `52842P0581`: lifetime strings
+- FlexBOSS21 `SYNTH00003`: lifetime strings
   `2731.5 + 4481.4 + 4.8 = 7217.7` kWh versus aggregate raw
   `totalYielding = 72216` (`7221.6` kWh), a 0.054% difference (approximately
   0.05%).

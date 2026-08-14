@@ -1361,7 +1361,7 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_GRID_PEAK_SHAVING: (179, 7),
     # Export PV Only (GH #135): reg 179 bit 3, pinned 2026-06-12
     # ~16:05-16:07 PT via authorized live cloud toggles raw-verified on BOTH
-    # 12K-hybrid models — FlexBOSS21 52842P0581 and 18kPV 4512670118 each
+    # 12K-hybrid models — FlexBOSS21 SYNTH00003 and 18kPV SYNTH00004 each
     # toggled the reg-179 raw frame 0x104c <-> 0x1044 (XOR 0x0008 = single
     # bit 3) in lockstep with FUNC_PV_SELL_TO_GRID_EN, restores verified by
     # re-read (remoteRead valueFrame, base64 LE uint16 — register-level
@@ -1371,7 +1371,7 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_BAT_CHARGE_CONTROL: (179, 9),
     PARAM_FUNC_BAT_DISCHARGE_CONTROL: (179, 10),
     # Grid Always On (GH #559): reg 179 bit 15. Hardware-toggle-proven
-    # 2026-08-12 on FlexBOSS21 52842P0581: portal toggle flipped the local
+    # 2026-08-12 on FlexBOSS21 SYNTH00003: portal toggle flipped the local
     # raw reg-179 read 0x1048 -> 0x9048 (XOR exactly 0x8000 = bit 15),
     # clean restore verified via cloud and local reads. (Originally
     # app-write-path-proven via the EG4 mobile app's name->bit resolver,
@@ -1617,7 +1617,7 @@ def test_register_179_contract_holds_for_every_family(family: str | None) -> Non
 _CLOUD_ONLY_FUNCTION_PARAMS: dict[str, tuple[int | None, str]] = {
     # FUNC_PV_SELL_TO_GRID_EN graduated 2026-06-12: its reg-179 bit 3 was
     # pinned by authorized live cloud toggles raw-verified on both a
-    # FlexBOSS21 (52842P0581) and an 18kPV (4512670118) — raw 0x104c <->
+    # FlexBOSS21 (SYNTH00003) and an 18kPV (SYNTH00004) — raw 0x104c <->
     # 0x1044, single bit 3 — and the control moved into
     # _CONTROL_REGISTER_CONTRACT above, exactly the promotion path this
     # allowlist's honesty test was designed to force.

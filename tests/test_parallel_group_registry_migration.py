@@ -255,7 +255,7 @@ async def test_gridboss_legacy_id_migrates_via_one_to_one_fallback(
     serial is a live device of this plant (#517 review P1)."""
     entry = _entry()
     entry.add_to_hass(hass)
-    old_device, old_entity = _seed_group(hass, entry, "parallel_group_4524850115")
+    old_device, old_entity = _seed_group(hass, entry, "parallel_group_SYNTH00002")
 
     await _run_setup_with_devices(
         hass,
@@ -263,12 +263,12 @@ async def test_gridboss_legacy_id_migrates_via_one_to_one_fallback(
         {
             "parallel_group_a": {
                 "type": "parallel_group",
-                "member_serials": ["52842P0581", "52842P0582"],
-                "first_device_serial": "52842P0581",
+                "member_serials": ["SYNTH00003", "SYNTH20003"],
+                "first_device_serial": "SYNTH00003",
             },
-            "4524850115": {"type": "mid", "model": "GridBOSS"},
-            "52842P0581": {"type": "inverter"},
-            "52842P0582": {"type": "inverter"},
+            "SYNTH00002": {"type": "mid", "model": "GridBOSS"},
+            "SYNTH00003": {"type": "inverter"},
+            "SYNTH20003": {"type": "inverter"},
         },
     )
 
@@ -290,7 +290,7 @@ async def test_gridboss_legacy_id_with_two_groups_is_non_destructive(
     """The one-to-one fallback never guesses between multiple current groups."""
     entry = _entry()
     entry.add_to_hass(hass)
-    old_device, _ = _seed_group(hass, entry, "parallel_group_4524850115")
+    old_device, _ = _seed_group(hass, entry, "parallel_group_SYNTH00002")
 
     await _run_setup_with_devices(
         hass,
@@ -298,19 +298,19 @@ async def test_gridboss_legacy_id_with_two_groups_is_non_destructive(
         {
             "parallel_group_a": {
                 "type": "parallel_group",
-                "member_serials": ["52842P0581"],
+                "member_serials": ["SYNTH00003"],
             },
             "parallel_group_b": {
                 "type": "parallel_group",
-                "member_serials": ["52842P0583"],
+                "member_serials": ["SYNTH20001"],
             },
-            "4524850115": {"type": "mid", "model": "GridBOSS"},
+            "SYNTH00002": {"type": "mid", "model": "GridBOSS"},
         },
     )
 
     device_registry = dr.async_get(hass)
     assert device_registry.async_get(old_device.id).identifiers == {
-        (DOMAIN, "parallel_group_4524850115")
+        (DOMAIN, "parallel_group_SYNTH00002")
     }
 
 
@@ -320,7 +320,7 @@ async def test_foreign_legacy_serial_is_non_destructive(
     """A legacy serial that is not a live device of this plant never matches."""
     entry = _entry()
     entry.add_to_hass(hass)
-    old_device, _ = _seed_group(hass, entry, "parallel_group_9999999999")
+    old_device, _ = _seed_group(hass, entry, "parallel_group_SYNTH20005")
 
     await _run_setup_with_devices(
         hass,
@@ -328,15 +328,15 @@ async def test_foreign_legacy_serial_is_non_destructive(
         {
             "parallel_group_a": {
                 "type": "parallel_group",
-                "member_serials": ["52842P0581"],
+                "member_serials": ["SYNTH00003"],
             },
-            "52842P0581": {"type": "inverter"},
+            "SYNTH00003": {"type": "inverter"},
         },
     )
 
     device_registry = dr.async_get(hass)
     assert device_registry.async_get(old_device.id).identifiers == {
-        (DOMAIN, "parallel_group_9999999999")
+        (DOMAIN, "parallel_group_SYNTH20005")
     }
 
 
@@ -347,8 +347,8 @@ async def test_master_serial_matches_via_first_device_serial(
     member_serials."""
     entry = _entry()
     entry.add_to_hass(hass)
-    old_device, _ = _seed_group(hass, entry, "parallel_group_1111111111")
-    _seed_group(hass, entry, "parallel_group_2222222222")
+    old_device, _ = _seed_group(hass, entry, "parallel_group_SYNTH20006")
+    _seed_group(hass, entry, "parallel_group_SYNTH20004")
 
     await _run_setup_with_devices(
         hass,
@@ -356,12 +356,12 @@ async def test_master_serial_matches_via_first_device_serial(
         {
             "parallel_group_a": {
                 "type": "parallel_group",
-                "member_serials": ["3333333333"],
-                "first_device_serial": "1111111111",
+                "member_serials": ["SYNTH20002"],
+                "first_device_serial": "SYNTH20006",
             },
             "parallel_group_b": {
                 "type": "parallel_group",
-                "member_serials": ["2222222222"],
+                "member_serials": ["SYNTH20004"],
             },
         },
     )

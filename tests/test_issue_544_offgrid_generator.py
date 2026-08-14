@@ -275,7 +275,7 @@ class TestOffgridGeneratorRegistryCleanup:
             "1000000001",
             "1000000002",
             "1000000003",
-            "4524850115",
+            "SYNTH00002",
         )
         uids = {
             f"{serial}_{key}"

@@ -471,20 +471,20 @@ from pylxpweb.transports.protocol import BaseTransport
 class TestRegisterSnapshot:
     def test_base_transport_has_snapshot(self) -> None:
         """BaseTransport initializes empty register snapshot."""
-        transport = BaseTransport("CE12345678")
+        transport = BaseTransport("SYNTH10014")
         assert hasattr(transport, "_register_snapshot")
         assert transport._register_snapshot == {"input": {}, "holding": {}}
 
     def test_snapshot_is_mutable_dict(self) -> None:
-        transport = BaseTransport("CE12345678")
+        transport = BaseTransport("SYNTH10014")
         transport._register_snapshot["input"][0] = 42
         assert transport._register_snapshot["input"][0] == 42
 
     def test_snapshot_cleared_on_init(self) -> None:
-        transport = BaseTransport("CE12345678")
+        transport = BaseTransport("SYNTH10014")
         transport._register_snapshot["input"][100] = 999
         # New transport should have clean snapshot
-        transport2 = BaseTransport("CE12345678")
+        transport2 = BaseTransport("SYNTH10014")
         assert transport2._register_snapshot["input"] == {}
 ```
 
@@ -940,8 +940,8 @@ from pylxpweb.cloud.protocol import (
     parse_frame,
 )
 
-DONGLE_SERIAL = "BA12345678"
-INVERTER_SERIAL = "CE12345678"
+DONGLE_SERIAL = "SYNTH10007"
+INVERTER_SERIAL = "SYNTH10014"
 
 
 @pytest.fixture
@@ -1102,7 +1102,7 @@ Receives and proxies cloud commands (GET_PARAM, SET_PARAM) to the inverter.
 
 Usage:
     emitter = CloudEmitter(
-        dongle_serial="BA12345678",
+        dongle_serial="SYNTH10007",
         transport=modbus_transport,
     )
     await emitter.start()

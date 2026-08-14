@@ -7,16 +7,12 @@ Logs any corrupt or error responses.
 """
 
 import asyncio
+import argparse
 import struct
-import sys
 import time
 from datetime import datetime
 
-
-# Endpoints
-INVERTER_1 = ("10.100.14.68", 502)  # 18kPV
-INVERTER_2 = ("10.100.10.184", 502)  # FlexBOSS21
-DONGLE = ("10.100.12.175", 8000)  # WiFi dongle (GridBOSS)
+Endpoint = tuple[str, int]
 
 # Input registers to read (most commonly used)
 INPUT_REGS = [
@@ -128,17 +124,21 @@ async def read_registers(
         return (label, False, "timeout")
     except ConnectionRefusedError:
         return (label, False, "connection refused")
-    except Exception as e:
-        return (label, False, f"error: {e}")
+    except Exception as err:
+        return (label, False, f"error: {err}")
 
 
-async def run_collision_round(round_num: int) -> list[tuple[str, bool, str]]:
+async def run_collision_round(
+    inverter_1: Endpoint,
+    inverter_2: Endpoint,
+    dongle: Endpoint,
+) -> list[tuple[str, bool, str]]:
     """Run parallel reads against all endpoints."""
     tasks = []
     for start, count in INPUT_REGS:
         tasks.append(
             read_registers(
-                *INVERTER_1,
+                *inverter_1,
                 start,
                 count,
                 4,
@@ -147,7 +147,7 @@ async def run_collision_round(round_num: int) -> list[tuple[str, bool, str]]:
         )
         tasks.append(
             read_registers(
-                *INVERTER_2,
+                *inverter_2,
                 start,
                 count,
                 4,
@@ -159,7 +159,7 @@ async def run_collision_round(round_num: int) -> list[tuple[str, bool, str]]:
     for start, count in INPUT_REGS[:2]:
         tasks.append(
             read_registers(
-                *DONGLE,
+                *dongle,
                 start,
                 count,
                 4,
@@ -171,7 +171,7 @@ async def run_collision_round(round_num: int) -> list[tuple[str, bool, str]]:
     for start, count in HOLDING_REGS:
         tasks.append(
             read_registers(
-                *DONGLE,
+                *dongle,
                 start,
                 count,
                 3,
@@ -182,9 +182,14 @@ async def run_collision_round(round_num: int) -> list[tuple[str, bool, str]]:
     return await asyncio.gather(*tasks)
 
 
-async def main(rounds: int = DEFAULT_ROUNDS) -> None:
+async def main(
+    inverter_1: Endpoint,
+    inverter_2: Endpoint,
+    dongle: Endpoint,
+    rounds: int,
+) -> None:
     print("=== Modbus Collision Test ===")
-    print(f"Targets: INV1={INVERTER_1}, INV2={INVERTER_2}, DONGLE={DONGLE}")
+    print(f"Targets: INV1={inverter_1}, INV2={inverter_2}, DONGLE={dongle}")
     print(f"Rounds: {rounds}, parallel reads per round: ~{len(INPUT_REGS) * 2 + 4}")
     print("=" * 60)
 
@@ -194,7 +199,7 @@ async def main(rounds: int = DEFAULT_ROUNDS) -> None:
 
     for r in range(1, rounds + 1):
         now = datetime.now().strftime("%H:%M:%S")
-        results = await run_collision_round(r)
+        results = await run_collision_round(inverter_1, inverter_2, dongle)
         errors = [(label, detail) for label, ok, detail in results if not ok]
         suspects = [
             (label, detail)
@@ -230,6 +235,25 @@ async def main(rounds: int = DEFAULT_ROUNDS) -> None:
     print("=" * 60)
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse explicit runtime endpoint configuration."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--inverter-1-host", required=True)
+    parser.add_argument("--inverter-2-host", required=True)
+    parser.add_argument("--dongle-host", required=True)
+    parser.add_argument("--inverter-port", type=int, default=502)
+    parser.add_argument("--dongle-port", type=int, default=8000)
+    parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    requested_rounds = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_ROUNDS
-    asyncio.run(main(requested_rounds))
+    args = parse_args()
+    asyncio.run(
+        main(
+            (args.inverter_1_host, args.inverter_port),
+            (args.inverter_2_host, args.inverter_port),
+            (args.dongle_host, args.dongle_port),
+            args.rounds,
+        )
+    )

@@ -2,7 +2,7 @@
 
 **Probe date**: 2026-04-13 19:26:54 UTC
 **Firmware**: fAAB-2727 (both devices)
-**Devices**: 18kPV (10.100.14.68:502), FlexBOSS21 (10.100.10.184:502)
+**Endpoints**: runtime-configured; not recorded in this report
 **Probe method**: pymodbus 3.x, chunks of 10, 100ms delay, 3s timeout
 **Ranges probed**: Holding 0-999, Input 0-999 + 5000-5200, Extended 1000-2100 (18kPV only)
 

@@ -273,8 +273,8 @@ async def discover_dongle_device(
 
     Args:
         host: IP address of the WiFi dongle.
-        dongle_serial: Serial number printed on the dongle (e.g., "BJ12345678").
-        inverter_serial: Serial number of the inverter (e.g., "4512345678").
+        dongle_serial: Serial number printed on the dongle (e.g., "SYNTH10009").
+        inverter_serial: Serial number of the inverter (e.g., "SYNTH10002").
         port: TCP port (default 8000).
 
     Returns:

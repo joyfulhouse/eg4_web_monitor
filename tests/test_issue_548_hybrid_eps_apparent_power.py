@@ -149,7 +149,7 @@ class TestHybridEpsApparentPowerRegistryCleanup:
         unknown = "1000000003"
         missing = "1000000004"
         lxp = "1000000005"
-        gridboss = "4524850115"
+        gridboss = "SYNTH00002"
 
         for serial in (hybrid, offgrid, unknown, missing, lxp):
             for key in SUPPRESSED:
