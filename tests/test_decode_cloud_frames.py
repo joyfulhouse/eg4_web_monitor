@@ -314,16 +314,33 @@ def test_stream_decoder_emits_coalesced_frames() -> None:
     ]
 
 
-def test_find_frames_preserves_offsets_and_incomplete_tail() -> None:
+def test_find_frames_preserves_offsets_for_complete_input() -> None:
     heartbeat = _cloud_frame(0xC1, b"\x01")
     request = _c2(_read_request())
     prefix = b"x"
-    data = prefix + heartbeat + request + heartbeat[:5]
+    data = prefix + heartbeat + request
 
     assert find_frames(data) == [
         (len(prefix), heartbeat),
         (len(prefix) + len(heartbeat), request),
     ]
+
+
+@pytest.mark.parametrize(
+    "tail_kind", ["partial-prefix", "partial-header", "partial-body"]
+)
+def test_find_frames_rejects_incomplete_eof_tail(tail_kind: str) -> None:
+    frame = _cloud_frame(0xC1, b"\x01")
+    tails = {
+        "partial-prefix": frame[:1],
+        "partial-header": frame[:5],
+        "partial-body": frame[:-1],
+    }
+
+    with pytest.raises(CaptureError) as caught:
+        find_frames(frame + tails[tail_kind])
+
+    assert caught.value.reason is FailureReason.TRUNCATED
 
 
 def test_find_frames_preserves_strict_failure_contract() -> None:

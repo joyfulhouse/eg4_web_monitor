@@ -647,6 +647,7 @@ class _SessionState:
 def find_frames(data: bytes) -> list[tuple[int, bytes]]:
     decoder = StreamFrameDecoder()
     frames = decoder.feed(data, captured_at=0.0)
+    decoder.close(captured_at=0.0)
     result: list[tuple[int, bytes]] = []
     offset = 0
     for frame in frames:
