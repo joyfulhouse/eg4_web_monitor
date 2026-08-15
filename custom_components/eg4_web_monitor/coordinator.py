@@ -1610,13 +1610,8 @@ class EG4DataUpdateCoordinator(
             for capability in self._bus_capabilities
             if self._endpoint_bus_registry.is_retained_capability(capability)
         )
-        retained_configs = {
-            capability: config
-            for capability, config in self._bus_capability_configs.items()
-            if capability in self._bus_capabilities
-        }
-        self._bus_capability_configs.clear()
-        self._bus_capability_configs.update(retained_configs)
+        for capability in self._bus_capability_configs.keys() - self._bus_capabilities:
+            del self._bus_capability_configs[capability]
 
     def _expected_bus_config(self, serial: str | None) -> TransportConfig | None:
         """Return the one live configured endpoint for a device serial."""
