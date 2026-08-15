@@ -11,6 +11,7 @@ from typing import Any, get_protocol_members
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from pylxpweb.devices.inverters.base import BaseInverter
 from pylxpweb.transports import TerminalInverterTransport
 from pylxpweb.transports.capabilities import TransportCapabilities
@@ -21,6 +22,7 @@ from custom_components.eg4_web_monitor.bus_eligibility import (
     LocalBusProvenance,
     evaluate_bus_owner_eligibility,
 )
+import custom_components.eg4_web_monitor as integration
 from custom_components.eg4_web_monitor import endpoint_bus
 from custom_components.eg4_web_monitor._config_flow.discovery import (
     discover_modbus_device,
@@ -162,13 +164,14 @@ def _config(
     host: str = "gateway.example.invalid",
     port: int = 1502,
     transport_type: TransportType = TransportType.MODBUS_TCP,
+    serial_port: str = "loop://synthetic",
 ) -> TransportConfig:
     return TransportConfig(
         host=host,
         port=port,
         serial=serial,
         transport_type=transport_type,
-        serial_port="loop://synthetic"
+        serial_port=serial_port
         if transport_type is TransportType.MODBUS_SERIAL
         else None,
     )
@@ -266,7 +269,9 @@ async def test_coordinator_poll_control_reconnect_across_entries_and_endpoints()
     poll_coordinator, poll_inverter = _poll_coordinator(poll_capability)
     other_coordinator, other_inverter = _poll_coordinator(independent_capability)
     control_coordinator = SimpleNamespace(
-        get_local_transport=lambda serial: control_capability
+        get_local_transport=lambda serial: control_capability,
+        _endpoint_bus_registry=registry,
+        _expected_bus_config=lambda serial: _config(str(serial)),
     )
 
     shared.release.clear()
@@ -653,16 +658,45 @@ async def test_batch_shutdown_preserves_cancellation_and_terminal_failure() -> N
 async def test_registry_validates_owner_provenance_and_endpoint_identity() -> None:
     probe = _WireProbe()
     registry = _registry({"gateway.example.invalid": probe})
-    owned = registry.create_capability(_config("SYNTH00001"))
+    expected_config = _config("SYNTH00001")
+    owned = registry.create_capability(expected_config)
     wrong_endpoint = registry.create_capability(_config("SYNTH00002"))
     foreign_registry = _registry({"gateway.example.invalid": probe})
     foreign = foreign_registry.create_capability(_config("SYNTH00001"))
 
-    assert registry.validate_capability(owned, serial="SYNTH00001") is owned
-    assert registry.validate_capability(wrong_endpoint, serial="SYNTH00001") is None
-    assert registry.validate_capability(foreign, serial="SYNTH00001") is None
+    assert (
+        registry.validate_capability(
+            owned,
+            serial="SYNTH00001",
+            expected_config=expected_config,
+        )
+        is owned
+    )
+    assert (
+        registry.validate_capability(
+            wrong_endpoint,
+            serial="SYNTH00001",
+            expected_config=expected_config,
+        )
+        is None
+    )
+    assert (
+        registry.validate_capability(
+            foreign,
+            serial="SYNTH00001",
+            expected_config=expected_config,
+        )
+        is None
+    )
     owned.provenance = object()
-    assert registry.validate_capability(owned, serial="SYNTH00001") is None
+    assert (
+        registry.validate_capability(
+            owned,
+            serial="SYNTH00001",
+            expected_config=expected_config,
+        )
+        is None
+    )
     del owned.provenance
 
     await registry.async_shutdown_capabilities((owned, wrong_endpoint))
@@ -777,6 +811,270 @@ async def test_coordinator_unload_marks_all_capabilities_before_immediate_reload
 
     assert replacement is None
     assert registry.owner_count == 0
+
+
+@pytest.mark.asyncio
+async def test_unload_cancellation_waits_for_detach_and_terminal_close() -> None:
+    probe = _WireProbe()
+    raw_transports: list[_TerminalFakeRawTransport] = []
+    detach_started = asyncio.Event()
+    detach_release = asyncio.Event()
+
+    def factory(config: TransportConfig) -> _TerminalFakeRawTransport:
+        raw = _TerminalFakeRawTransport(config, probe)
+        raw_transports.append(raw)
+        return raw
+
+    class DetachingDevice:
+        async def detach_local_transport(self) -> None:
+            detach_started.set()
+            await detach_release.wait()
+
+    registry = EndpointBusRegistry(raw_transport_factory=factory)
+    capability = registry.create_capability(_config("SYNTH00001"))
+    capabilities = {capability}
+    coordinator = SimpleNamespace(
+        _inverter_cache={},
+        _mid_device_cache={},
+        station=SimpleNamespace(all_inverters=[DetachingDevice()], all_mid_devices=[]),
+        _bus_capabilities=capabilities,
+        _endpoint_bus_registry=registry,
+    )
+    unloading = asyncio.create_task(
+        EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
+    )
+    await detach_started.wait()
+    unloading.cancel()
+    detach_release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await unloading
+
+    assert raw_transports[0].shutdown_calls == 1
+    assert capabilities == set()
+    assert registry.owner_count == 0
+
+
+@pytest.mark.asyncio
+async def test_unload_aggregates_cancellation_before_terminal_failure() -> None:
+    probe = _WireProbe()
+    detach_started = asyncio.Event()
+    detach_release = asyncio.Event()
+
+    class FailingTerminalTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            raise RuntimeError("synthetic terminal failure")
+
+    class DetachingDevice:
+        async def detach_local_transport(self) -> None:
+            detach_started.set()
+            await detach_release.wait()
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: FailingTerminalTransport(config, probe)
+    )
+    capability = registry.create_capability(_config("SYNTH00001"))
+    coordinator = SimpleNamespace(
+        _inverter_cache={},
+        _mid_device_cache={},
+        station=SimpleNamespace(all_inverters=[DetachingDevice()], all_mid_devices=[]),
+        _bus_capabilities={capability},
+        _endpoint_bus_registry=registry,
+    )
+    unloading = asyncio.create_task(
+        EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
+    )
+    await detach_started.wait()
+    unloading.cancel()
+    detach_release.set()
+
+    with pytest.raises(BaseExceptionGroup) as raised:
+        await unloading
+
+    assert [type(error) for error in raised.value.exceptions] == [
+        asyncio.CancelledError,
+        RuntimeError,
+    ]
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+
+
+@pytest.mark.asyncio
+async def test_ha_registry_retries_failed_unload_after_coordinator_disposal() -> None:
+    probe = _WireProbe()
+    attempts = 0
+
+    class FailOnceTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("synthetic terminal failure")
+
+    hass = SimpleNamespace(data={})
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: FailOnceTransport(config, probe)
+    )
+    hass.data[endpoint_bus.ENDPOINT_BUS_REGISTRY_DATA] = registry
+    assert endpoint_bus.get_endpoint_bus_registry(hass) is registry
+    capability = registry.create_capability(_config("SYNTH00001"))
+    coordinator = SimpleNamespace(
+        _inverter_cache={},
+        _mid_device_cache={},
+        station=None,
+        _bus_capabilities={capability},
+        _endpoint_bus_registry=registry,
+    )
+
+    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
+        await EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
+    del coordinator
+
+    with pytest.raises(EndpointOwnerClosingError):
+        registry.create_capability(_config("SYNTH00002"))
+    await registry.async_retry_failed_shutdowns()
+
+    assert attempts == 2
+    assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
+
+
+@pytest.mark.asyncio
+async def test_setup_retries_ha_scoped_terminal_failure_before_coordinator() -> None:
+    retry = AsyncMock(side_effect=RuntimeError("synthetic retry failure"))
+    registry = SimpleNamespace(async_retry_failed_shutdowns=retry)
+    hass = SimpleNamespace()
+    entry = SimpleNamespace(entry_id="synthetic-entry", runtime_data=object())
+
+    with (
+        patch.object(integration, "get_endpoint_bus_registry", return_value=registry),
+        patch.object(
+            integration,
+            "EG4DataUpdateCoordinator",
+            side_effect=AssertionError("coordinator constructed before retry"),
+        ),
+        pytest.raises(RuntimeError, match="synthetic retry failure"),
+    ):
+        await integration._async_setup_entry(hass, entry)
+
+    retry.assert_awaited_once_with()
+    assert entry.runtime_data is None
+
+
+@pytest.mark.asyncio
+async def test_control_rejects_foreign_transport_before_capability_access() -> None:
+    accesses: list[str] = []
+    probe = _WireProbe()
+
+    class ForeignTransport:
+        provenance = LocalBusProvenance.LOCAL_BUS
+
+        @property
+        def is_connected(self) -> bool:
+            accesses.append("is_connected")
+            return True
+
+        def transaction(self) -> Any:
+            accesses.append("transaction")
+            raise AssertionError("foreign capability reached")
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: _FakeRawTransport(config, probe)
+    )
+    expected_config = _config("SYNTH00001")
+    expected = registry.create_capability(expected_config)
+    coordinator = SimpleNamespace(
+        get_local_transport=lambda serial: ForeignTransport(),
+        _endpoint_bus_registry=registry,
+        _bus_capability_configs={expected: expected_config},
+    )
+    coordinator._expected_bus_config = lambda serial: (
+        EG4DataUpdateCoordinator._expected_bus_config(coordinator, serial)
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await EG4DataUpdateCoordinator._write_with_local_transport(
+            coordinator,
+            serial="SYNTH00001",
+            no_transport_message="unavailable",
+            reconnect_message="reconnect",
+            reconnect_args=(),
+            write=AsyncMock(),
+            success_message="success",
+            success_args=(),
+            failure_message="failure: %s",
+            failure_args=(),
+            translated_error=lambda error: "rejected",
+        )
+
+    assert accesses == []
+    await expected.async_shutdown()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("expected_config", "substituted_config"),
+    [
+        (
+            _config("SYNTH00001", host="first.example.invalid"),
+            _config("SYNTH00001", host="second.example.invalid"),
+        ),
+        (
+            _config("SYNTH00001", port=1502),
+            _config("SYNTH00001", port=2502),
+        ),
+        (
+            _config(
+                "SYNTH00001",
+                transport_type=TransportType.MODBUS_SERIAL,
+                serial_port="loop://first",
+            ),
+            _config(
+                "SYNTH00001",
+                transport_type=TransportType.MODBUS_SERIAL,
+                serial_port="loop://second",
+            ),
+        ),
+    ],
+)
+async def test_control_rejects_same_serial_from_wrong_physical_endpoint(
+    expected_config: TransportConfig,
+    substituted_config: TransportConfig,
+) -> None:
+    first_probe = _WireProbe()
+    second_probe = _WireProbe()
+    probes = iter((first_probe, second_probe))
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: _FakeRawTransport(config, next(probes))
+    )
+    expected = registry.create_capability(expected_config)
+    substituted = registry.create_capability(substituted_config)
+    coordinator = SimpleNamespace(
+        get_local_transport=lambda serial: substituted,
+        _endpoint_bus_registry=registry,
+        _bus_capability_configs={expected: expected_config},
+    )
+    coordinator._expected_bus_config = lambda serial: (
+        EG4DataUpdateCoordinator._expected_bus_config(coordinator, serial)
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await EG4DataUpdateCoordinator._write_with_local_transport(
+            coordinator,
+            serial="SYNTH00001",
+            no_transport_message="unavailable",
+            reconnect_message="reconnect",
+            reconnect_args=(),
+            write=lambda transport: transport.write_parameters({1: 2}),
+            success_message="success",
+            success_args=(),
+            failure_message="failure: %s",
+            failure_args=(),
+            translated_error=lambda error: "rejected",
+        )
+
+    assert second_probe.operations == []
+    await registry.async_shutdown_capabilities((expected, substituted))
 
 
 @pytest.mark.asyncio

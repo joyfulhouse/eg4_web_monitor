@@ -1483,6 +1483,7 @@ class LocalTransportMixin(_MixinBase):
                 param_transport = self._endpoint_bus_registry.validate_capability(
                     inverter.transport,
                     serial=serial,
+                    expected_config=self._expected_bus_config(serial),
                 )
                 if read_entity_params and param_transport:
                     self._param_attempted_this_cycle = True

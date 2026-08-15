@@ -1260,6 +1260,9 @@ class TestWriteRawParameter:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_transport = make_transport_spec(is_connected=True)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            return_value=mock_transport
+        )
         with patch.object(
             coordinator, "get_local_transport", return_value=mock_transport
         ):
@@ -1274,6 +1277,9 @@ class TestWriteRawParameter:
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
         mock_transport = make_transport_spec(is_connected=False)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            return_value=mock_transport
+        )
         with patch.object(
             coordinator, "get_local_transport", return_value=mock_transport
         ):
@@ -1298,6 +1304,9 @@ class TestWriteRawParameter:
 
         mock_transport = make_transport_spec(is_connected=True)
         mock_transport.write_parameters.side_effect = RuntimeError("bus error")
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            return_value=mock_transport
+        )
         with patch.object(
             coordinator, "get_local_transport", return_value=mock_transport
         ):

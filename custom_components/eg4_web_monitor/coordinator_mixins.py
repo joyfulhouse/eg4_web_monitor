@@ -10,6 +10,7 @@ final coordinator class inheriting all mixins together.
 """
 
 import asyncio
+from builtins import BaseExceptionGroup
 import logging
 import time
 from collections.abc import Awaitable, Callable, Collection, Coroutine
@@ -281,7 +282,12 @@ async def _async_drain_teardown(teardown: Awaitable[None]) -> None:
 
     if caller_cancellation is not None:
         if teardown_error is not None:
-            raise caller_cancellation from teardown_error
+            failures: list[BaseException] = [caller_cancellation]
+            if isinstance(teardown_error, BaseExceptionGroup):
+                failures.extend(teardown_error.exceptions)
+            else:
+                failures.append(teardown_error)
+            raise BaseExceptionGroup("Teardown cancellation and failures", failures)
         raise caller_cancellation
     if teardown_error is not None:
         raise teardown_error
@@ -808,6 +814,7 @@ if TYPE_CHECKING:
         _local_transports_attached: bool
         _endpoint_bus_registry: EndpointBusRegistry
         _bus_capabilities: set[EndpointBusCapability]
+        _bus_capability_configs: dict[EndpointBusCapability, TransportConfig]
         _failed_attach_serials: set[str]
         _last_attach_retry: float | None
         _last_degraded_cloud_refresh: dict[str, float]
@@ -874,6 +881,9 @@ if TYPE_CHECKING:
         def _create_bus_capability(
             self, config: TransportConfig
         ) -> EndpointBusCapability: ...
+        def _expected_bus_config(
+            self, serial: str | None
+        ) -> TransportConfig | None: ...
 
         # ── DeviceProcessingMixin methods ──
         def _get_device_grid_type(self, serial: str) -> str | None: ...
@@ -1322,6 +1332,7 @@ class DeviceProcessingMixin(_MixinBase):
         capability = self._endpoint_bus_registry.validate_capability(
             inverter.transport,
             serial=inverter.serial_number,
+            expected_config=self._expected_bus_config(inverter.serial_number),
         )
         if capability is None:
             return None
@@ -4712,6 +4723,12 @@ class BackgroundTaskMixin(_MixinBase):
     async def _disconnect_all_transports(self) -> None:
         """Detach devices and terminally close all coordinator capabilities."""
         self._endpoint_bus_registry.begin_shutdown_capabilities(self._bus_capabilities)
+        await _async_drain_teardown(
+            BackgroundTaskMixin._disconnect_all_transports_work(self)
+        )
+
+    async def _disconnect_all_transports_work(self) -> None:
+        """Settle device detachment and terminal capability closure."""
         devices: list[Any] = [
             *self._inverter_cache.values(),
             *self._mid_device_cache.values(),
@@ -4739,8 +4756,6 @@ class BackgroundTaskMixin(_MixinBase):
             await self._endpoint_bus_registry.async_shutdown_capabilities(
                 self._bus_capabilities
             )
-        except Exception:
-            _LOGGER.debug("Error closing local capabilities", exc_info=True)
         finally:
             retained = {
                 capability

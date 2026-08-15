@@ -70,6 +70,7 @@ from .history_import import (
     SERVICE_IMPORT_HISTORICAL_DATA,
     async_import_historical_data,
 )
+from .endpoint_bus import get_endpoint_bus_registry
 from .services import (
     FETCH_EVENTS_SCHEMA,
     async_fetch_events,
@@ -1256,6 +1257,8 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # A failed constructor must not accidentally clean up stale runtime data
     # retained by a test harness or an interrupted previous setup attempt.
     entry.runtime_data = None  # type: ignore[assignment]
+
+    await get_endpoint_bus_registry(hass).async_retry_failed_shutdowns()
 
     # Force-migrate: add HTTP polling interval for existing entries
     # and bump HTTP-only users below 60s minimum to 90s default

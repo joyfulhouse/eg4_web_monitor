@@ -88,7 +88,7 @@ from .const import (
     HYBRID_LOCAL_MODBUS,
 )
 from .battery_migration import async_migrate_battery_keys
-from .bus_eligibility import LocalBusProvenance, evaluate_bus_owner_eligibility
+from .bus_eligibility import evaluate_bus_owner_eligibility
 from .cloud_requests import (
     CloudRequestLimiter,
     SharedCloudRequestBudget,
@@ -330,6 +330,7 @@ class EG4DataUpdateCoordinator(
 
         self._endpoint_bus_registry = get_endpoint_bus_registry(hass)
         self._bus_capabilities: set[EndpointBusCapability] = set()
+        self._bus_capability_configs: dict[EndpointBusCapability, TransportConfig] = {}
 
         # Initialize local transports from local_transports list (new format)
         # or fall back to flat keys (old format for backward compatibility)
@@ -1570,25 +1571,24 @@ class EG4DataUpdateCoordinator(
         translated_error: Callable[[Exception], str],
     ) -> bool:
         """Run the shared local-transport write and error-translation shell."""
-        transport = self.get_local_transport(serial)
-        if not transport:
+        candidate = self.get_local_transport(serial)
+        if candidate is None:
             raise HomeAssistantError(no_transport_message)
 
-        async def _execute_write() -> None:
-            if not transport.is_connected:
-                _LOGGER.debug(reconnect_message, *reconnect_args)
-                await transport.async_ensure_connected()
-
-            await write(transport)
-
         try:
-            if (
-                getattr(transport, "provenance", None)
-                is not LocalBusProvenance.LOCAL_BUS
-            ):
+            transport = self._endpoint_bus_registry.validate_capability(
+                candidate,
+                serial=serial,
+                expected_config=self._expected_bus_config(serial),
+            )
+            if transport is None:
                 raise RuntimeError("Local transport is not owner-issued")
+
             async with transport.transaction():
-                await _execute_write()
+                if not transport.is_connected:
+                    _LOGGER.debug(reconnect_message, *reconnect_args)
+                    await transport.async_ensure_connected()
+                await write(transport)
             _LOGGER.debug(success_message, *success_args)
             return True
 
@@ -1600,7 +1600,20 @@ class EG4DataUpdateCoordinator(
         """Create and track an owner-issued local capability."""
         capability = self._endpoint_bus_registry.create_capability(config)
         self._bus_capabilities.add(capability)
+        self._bus_capability_configs[capability] = config
         return capability
+
+    def _expected_bus_config(self, serial: str | None) -> TransportConfig | None:
+        """Return the one live configured endpoint for a device serial."""
+        if serial is None:
+            return None
+        configs = [
+            config
+            for capability, config in self._bus_capability_configs.items()
+            if config.serial == serial
+            and self._endpoint_bus_registry.is_retained_capability(capability)
+        ]
+        return configs[0] if len(configs) == 1 else None
 
     async def write_named_parameter(
         self,
