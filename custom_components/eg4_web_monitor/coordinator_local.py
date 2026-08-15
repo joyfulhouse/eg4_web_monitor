@@ -1075,6 +1075,9 @@ class LocalTransportMixin(_MixinBase):
             return
 
         unadopted_capability: EndpointBusCapability | None = None
+        snapshot_capability: EndpointBusCapability | None = None
+        snapshot_context: Any | None = None
+        snapshot_succeeded = False
         try:
             family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
 
@@ -1158,13 +1161,26 @@ class LocalTransportMixin(_MixinBase):
                         else:
                             raise
 
+            # Bracket exactly one owner refresh. The observer remains attached
+            # at construction, while task context limits staging to reads
+            # invoked by this lifecycle (never controls/background work).
+            snapshot_device = (
+                self._mid_device_cache[serial]
+                if is_gridboss
+                else self._inverter_cache[serial]
+            )
+            candidate = getattr(snapshot_device, "transport", None)
+            if isinstance(candidate, EndpointBusCapability):
+                await candidate.async_ensure_connected()
+                snapshot_capability = candidate
+                snapshot_context = candidate.complete_snapshot_refresh()
+                await snapshot_context.__aenter__()
+
             # Process based on device type
             if is_gridboss:
                 mid_device = self._mid_device_cache[serial]
 
                 transport = mid_device.transport
-                if isinstance(transport, EndpointBusCapability):
-                    await transport.async_ensure_connected()
 
                 await mid_device.refresh()
 
@@ -1217,8 +1233,6 @@ class LocalTransportMixin(_MixinBase):
                 inverter = self._inverter_cache[serial]
 
                 transport = inverter.transport
-                if isinstance(transport, EndpointBusCapability):
-                    await transport.async_ensure_connected()
 
                 # Use the per-cycle decision computed in _async_update_local_data
                 # (or fall back to the direct check for the deprecated single-
@@ -1548,6 +1562,8 @@ class LocalTransportMixin(_MixinBase):
                     getattr(runtime_data, "output_power", None),
                 )
 
+            snapshot_succeeded = True
+
         except (
             TransportConnectionError,
             TransportTimeoutError,
@@ -1601,13 +1617,19 @@ class LocalTransportMixin(_MixinBase):
             ):
                 device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
         finally:
-            if unadopted_capability is not None:
-                try:
-                    await self._endpoint_bus_registry.async_shutdown_capabilities(
-                        (unadopted_capability,)
-                    )
-                finally:
-                    self._prune_bus_capability_tracking()
+            try:
+                if snapshot_context is not None and snapshot_capability is not None:
+                    if not snapshot_succeeded:
+                        snapshot_capability.abort_snapshot_refresh()
+                    await snapshot_context.__aexit__(None, None, None)
+            finally:
+                if unadopted_capability is not None:
+                    try:
+                        await self._endpoint_bus_registry.async_shutdown_capabilities(
+                            (unadopted_capability,)
+                        )
+                    finally:
+                        self._prune_bus_capability_tracking()
 
     async def _deferred_local_parameter_load(self) -> None:
         """Background task: load parameters and detect features for local devices.
@@ -2873,6 +2895,10 @@ class LocalTransportMixin(_MixinBase):
             connection_type=self.connection_type,
             local_transports=self._local_transport_configs,
             available_serials=available_serials,
+        )
+        self._endpoint_bus_registry.set_snapshot_coverage(
+            self._bus_capabilities,
+            enabled=self._bus_owner_eligibility.eligible,
         )
 
     def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:
