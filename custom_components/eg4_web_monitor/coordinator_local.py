@@ -73,12 +73,6 @@ _LOGGER = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from pylxpweb.transports.data import BatteryData
 
-# Local network transports that carry the split-phase per-leg-fallback flag.
-# inverter.transport is typed as the generic InverterTransport protocol (which
-# HTTP transports also satisfy and which has no split_phase); narrowing to these
-# concrete local types lets the typed seam verify the split_phase write.
-_LOCAL_REGISTER_TRANSPORTS = (EndpointBusCapability,)
-
 # Minimum battery serial length to consider valid.  Shorter serials are
 # likely truncated register reads from incomplete CAN bus transfers and
 # are skipped to avoid creating phantom battery entities.
@@ -2589,7 +2583,7 @@ class LocalTransportMixin(_MixinBase):
                 inverter.validate_data = validation_enabled
                 # Propagate split-phase config for per-leg power fallback
                 grid_type = self._get_device_grid_type(inverter.serial_number)
-                if isinstance(transport, _LOCAL_REGISTER_TRANSPORTS):
+                if isinstance(transport, EndpointBusCapability):
                     transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
                 tt = getattr(transport, "transport_type", "modbus_tcp")
                 self._align_inverter_cache_ttls(inverter, tt)

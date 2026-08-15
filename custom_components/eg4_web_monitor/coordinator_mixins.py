@@ -4615,15 +4615,6 @@ class DSTSyncMixin(_MixinBase):
 class BackgroundTaskMixin(_MixinBase):
     """Mixin for background task management operations."""
 
-    @staticmethod
-    async def _shutdown_transport(transport: Any) -> bool:
-        """Terminally close an owner capability, never a raw transport."""
-        terminal_shutdown = getattr(type(transport), "async_shutdown", None)
-        if callable(terminal_shutdown):
-            await terminal_shutdown(transport)
-            return True
-        return False
-
     async def _cancel_background_tasks(self) -> None:
         """Cancel all background tasks and wait for them to finish."""
         # Close the producer before snapshotting consumers. A normally-finished
@@ -4738,12 +4729,7 @@ class BackgroundTaskMixin(_MixinBase):
             except Exception:
                 _LOGGER.debug("Error detaching local capability", exc_info=True)
 
-        seen: set[int] = set()
         for capability in tuple(self._bus_capabilities):
-            identity = id(capability)
-            if identity in seen:
-                continue
-            seen.add(identity)
             try:
                 await capability.async_shutdown()
             except Exception:

@@ -7,15 +7,13 @@ from collections.abc import AsyncIterator, Callable, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, cast
 
 from pylxpweb.transports import create_transport_from_config
 from pylxpweb.transports.capabilities import TransportCapabilities
 from pylxpweb.transports.config import TransportConfig, TransportType
 
 from .bus_eligibility import LocalBusProvenance
-
-_ResultT = TypeVar("_ResultT")
 
 
 class EndpointOwnerClosingError(RuntimeError):
