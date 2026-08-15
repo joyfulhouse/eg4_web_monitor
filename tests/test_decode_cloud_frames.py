@@ -992,6 +992,42 @@ def test_tcp_reassembler_handles_sequence_wrap_and_reverse_one_byte_segments() -
     assert reassembler.segment_count == policy.maximum_segments_per_flow
 
 
+def test_tcp_reassembler_coalesces_pathological_reverse_fragmentation() -> None:
+    policy = ParserPolicy(maximum_segments_per_flow=4096)
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    expected = bytes(offset % 251 for offset in range(4096))
+
+    for offset in range(4095, 0, -1):
+        assert (
+            reassembler.push(offset, expected[offset : offset + 1], captured_at=1.0)
+            == []
+        )
+
+    assert reassembler.pending_bytes == 4095
+    assert reassembler._pending is not None
+    assert len(reassembler._pending) == 1
+    assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
+    assert reassembler.segment_count == policy.maximum_segments_per_flow
+
+
+def test_tcp_reassembler_validates_duplicate_with_bounded_history_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reassembler = TCPStreamReassembler()
+    reassembler.start(0)
+    payload = bytes(index % 251 for index in range(16 * 1024))
+    assert reassembler.push(0, payload, captured_at=1.0) == [(1.0, payload)]
+
+    def reject_per_byte_access(_buffer: object, _index: int) -> int:
+        raise AssertionError("history overlap used per-byte validation")
+
+    monkeypatch.setattr(
+        decoder_module._ChargedRingBuffer, "byte_at", reject_per_byte_access
+    )
+    assert reassembler.push(0, payload, captured_at=1.1) == []
+
+
 def test_tcp_reassembler_rejects_one_segment_over_limit() -> None:
     reassembler = TCPStreamReassembler(ParserPolicy(maximum_segments_per_flow=1))
     reassembler.start(10)

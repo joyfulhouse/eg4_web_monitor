@@ -299,7 +299,15 @@ class _ChargedRingBuffer:
         length = self._size - start if count is None else count
         if start < 0 or length < 0 or start + length > self._size:
             raise CaptureError(FailureReason.MALFORMED)
-        return bytes(self.byte_at(start + offset) for offset in range(length))
+        if not length:
+            return b""
+        if self._data is None:
+            raise CaptureError(FailureReason.MALFORMED)
+        physical_start = (self._head + start) % self._capacity
+        first = min(length, self._capacity - physical_start)
+        return bytes(self._data[physical_start : physical_start + first]) + bytes(
+            self._data[: length - first]
+        )
 
     def discard(self, count: int) -> None:
         if not 0 <= count <= self._size:
@@ -449,6 +457,16 @@ class StreamFrameDecoder:
         self._started_at = None
 
 
+@dataclass(frozen=True, slots=True)
+class _PendingRun:
+    start: int
+    data: bytes
+
+    @property
+    def end(self) -> int:
+        return self.start + len(self.data)
+
+
 class TCPStreamReassembler:
     """Bounded sequence window with complete byte-overlap validation."""
 
@@ -470,7 +488,8 @@ class TCPStreamReassembler:
             16 * 1024,
         )
         self._history = _ChargedRingBuffer(self._history_limit, self._budget)
-        self._pending: dict[int, int] | None = None
+        self._pending: list[_PendingRun] | None = None
+        self._pending_bytes = 0
         self._segment_count = 0
         self._started_at: float | None = None
         self._emitted_started_at: float | None = None
@@ -478,7 +497,7 @@ class TCPStreamReassembler:
 
     @property
     def pending_bytes(self) -> int:
-        return len(self._pending) if self._pending is not None else 0
+        return self._pending_bytes
 
     @property
     def retained_bytes(self) -> int:
@@ -529,20 +548,44 @@ class TCPStreamReassembler:
             raise CaptureError(FailureReason.MALFORMED)
         if end > self.policy.maximum_reassembled_bytes_per_flow:
             raise CaptureError(FailureReason.CAPACITY)
+        assembled_overlap_end = min(end, self._assembled_bytes)
+        if (
+            start < assembled_overlap_end
+            and self._history.to_bytes(
+                start - self._history_start, assembled_overlap_end - start
+            )
+            != normalized[: assembled_overlap_end - start]
+        ):
+            raise CaptureError(FailureReason.MALFORMED)
+
+        unassembled_start = max(start, self._assembled_bytes)
+        unassembled = normalized[unassembled_start - start :]
         pending = self._pending
-        new_bytes = 0
-        for index, byte in enumerate(normalized):
-            offset = start + index
-            if offset < self._assembled_bytes:
-                if self._history.byte_at(offset - self._history_start) != byte:
+        first_run = 0
+        while pending is not None and first_run < len(pending):
+            if pending[first_run].end >= unassembled_start:
+                break
+            first_run += 1
+        last_run = first_run
+        overlap_bytes = 0
+        while pending is not None and last_run < len(pending):
+            run = pending[last_run]
+            if run.start > end:
+                break
+            overlap_start = max(unassembled_start, run.start)
+            overlap_end = min(end, run.end)
+            if overlap_start < overlap_end:
+                run_overlap = run.data[
+                    overlap_start - run.start : overlap_end - run.start
+                ]
+                segment_overlap = unassembled[
+                    overlap_start - unassembled_start : overlap_end - unassembled_start
+                ]
+                if run_overlap != segment_overlap:
                     raise CaptureError(FailureReason.MALFORMED)
-                continue
-            existing = pending.get(offset) if pending is not None else None
-            if existing is not None:
-                if existing != byte:
-                    raise CaptureError(FailureReason.MALFORMED)
-                continue
-            new_bytes += 1
+                overlap_bytes += overlap_end - overlap_start
+            last_run += 1
+        new_bytes = len(unassembled) - overlap_bytes
         if start > self._assembled_bytes and (
             start - self._assembled_bytes > self.policy.maximum_pending_bytes_per_flow
             or self.pending_bytes + new_bytes
@@ -551,37 +594,55 @@ class TCPStreamReassembler:
             raise CaptureError(FailureReason.CAPACITY)
         contiguous = bytearray()
         if start > self._assembled_bytes:
-            self._budget.reserve(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
             if new_bytes:
+                self._budget.reserve(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
+                merged_start = unassembled_start
+                merged_end = end
+                if pending is not None and first_run < last_run:
+                    merged_start = min(merged_start, pending[first_run].start)
+                    merged_end = max(merged_end, pending[last_run - 1].end)
+                try:
+                    merged = bytearray(merged_end - merged_start)
+                    if pending is not None:
+                        for run in pending[first_run:last_run]:
+                            run_start = run.start - merged_start
+                            merged[run_start : run_start + len(run.data)] = run.data
+                    segment_start = unassembled_start - merged_start
+                    merged[segment_start : segment_start + len(unassembled)] = (
+                        unassembled
+                    )
+                    merged_run = _PendingRun(merged_start, bytes(merged))
+                except MemoryError:
+                    self._budget.release(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
+                    raise CaptureError(FailureReason.CAPACITY) from None
                 if pending is None:
-                    pending = {}
-                for index, byte in enumerate(normalized):
-                    offset = start + index
-                    if offset not in pending:
-                        pending[offset] = byte
+                    pending = []
+                pending[first_run:last_run] = [merged_run]
                 self._pending = pending
+                self._pending_bytes += new_bytes
         else:
-            while self._assembled_bytes < end:
-                pending_byte = (
-                    pending.pop(self._assembled_bytes)
-                    if pending is not None and self._assembled_bytes in pending
-                    else None
-                )
-                if pending_byte is None:
-                    byte = normalized[self._assembled_bytes - start]
-                else:
-                    byte = pending_byte
-                    self._budget.release(_PENDING_BYTE_MEMORY_CHARGE - 1)
-                contiguous.append(byte)
-                self._assembled_bytes += 1
-            while pending is not None and self._assembled_bytes in pending:
-                byte = pending.pop(self._assembled_bytes)
-                self._budget.release(_PENDING_BYTE_MEMORY_CHARGE - 1)
-                contiguous.append(byte)
-                self._assembled_bytes += 1
-            if pending is not None and not pending:
-                self._pending = None
-                pending = None
+            contiguous.extend(unassembled)
+            contiguous_end = self._assembled_bytes + len(contiguous)
+            consumed_runs = 0
+            consumed_bytes = 0
+            while pending is not None and consumed_runs < len(pending):
+                run = pending[consumed_runs]
+                if run.start > contiguous_end:
+                    break
+                suffix_start = min(len(run.data), max(0, contiguous_end - run.start))
+                contiguous.extend(run.data[suffix_start:])
+                contiguous_end += len(run.data) - suffix_start
+                consumed_bytes += len(run.data)
+                consumed_runs += 1
+            self._assembled_bytes = contiguous_end
+            if consumed_runs:
+                assert pending is not None
+                del pending[:consumed_runs]
+                self._pending_bytes -= consumed_bytes
+                self._budget.release(consumed_bytes * (_PENDING_BYTE_MEMORY_CHARGE - 1))
+                if not pending:
+                    self._pending = None
+                    pending = None
         expired = max(0, len(self._history) + len(contiguous) - self._history_limit)
         contiguous_history_start = 0
         if expired > 0:
@@ -616,6 +677,7 @@ class TCPStreamReassembler:
     def _clear(self) -> None:
         retained = self.pending_bytes * _PENDING_BYTE_MEMORY_CHARGE
         self._pending = None
+        self._pending_bytes = 0
         self._history.release()
         self._budget.release(retained)
         self._started_at = None
