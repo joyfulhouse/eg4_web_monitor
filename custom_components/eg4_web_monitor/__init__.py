@@ -54,11 +54,11 @@ from .coordinator import (
     PV_STRING_LIFETIME_STORAGE_KEY,
     PV_STRING_LIFETIME_STORAGE_VERSION,
     EG4DataUpdateCoordinator,
+    _build_entry_transport_configs,
 )
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     SMART_PORT_VALIDATED_KEY,
-    _build_transport_configs,
 )
 
 # Home Assistant resolves the per-device Delete hook by name on the
@@ -1260,7 +1260,7 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     entry.runtime_data = None  # type: ignore[assignment]
 
     await get_endpoint_bus_registry(hass).async_retry_failed_shutdowns(
-        _build_transport_configs(list(entry.data.get(CONF_LOCAL_TRANSPORTS, [])))
+        _build_entry_transport_configs(entry.data)
     )
 
     # Force-migrate: add HTTP polling interval for existing entries

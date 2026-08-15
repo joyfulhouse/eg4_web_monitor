@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import logging
 import time
 from datetime import datetime, timedelta
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import aiohttp
@@ -32,7 +32,7 @@ else:
 from pylxpweb import LuxpowerClient
 from pylxpweb.devices import Station
 from pylxpweb.devices.inverters.base import BaseInverter
-from pylxpweb.transports.config import TransportConfig
+from pylxpweb.transports.config import TransportConfig, TransportType
 from .const import (
     BLOCK_SIZE_PRESET_REGISTERS,
     CONF_BASE_URL,
@@ -143,6 +143,59 @@ PARAMETER_SEED_CONFIRMED_GRACE = 120.0  # seconds
 # coordinator across config-entry reloads so a mid-write reload cannot let a
 # second writer interleave a schedule hour/minute or battery-mode bit pair.
 _CONTROL_TRANSACTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
+
+
+def _entry_transport_dicts(data: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Select the current or supported legacy local transports for an entry."""
+    configured = data.get(CONF_LOCAL_TRANSPORTS, [])
+    if configured:
+        return list(configured)
+    connection_type = data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)
+    hybrid_type = data.get(CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS)
+    use_modbus = connection_type == CONNECTION_TYPE_MODBUS or (
+        connection_type == CONNECTION_TYPE_HYBRID and hybrid_type == HYBRID_LOCAL_MODBUS
+    )
+    use_dongle = connection_type == CONNECTION_TYPE_DONGLE or (
+        connection_type == CONNECTION_TYPE_HYBRID and hybrid_type == HYBRID_LOCAL_DONGLE
+    )
+    if use_modbus and CONF_MODBUS_HOST in data:
+        return [
+            {
+                "transport_type": "modbus_tcp",
+                "host": data[CONF_MODBUS_HOST],
+                "port": data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
+                "serial": data.get(CONF_INVERTER_SERIAL, ""),
+                "unit_id": data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
+                "inverter_family": data.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                ),
+            }
+        ]
+    if use_dongle and CONF_DONGLE_HOST in data:
+        return [
+            {
+                "transport_type": "wifi_dongle",
+                "host": data[CONF_DONGLE_HOST],
+                "port": data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
+                "serial": data.get(CONF_INVERTER_SERIAL, ""),
+                "dongle_serial": data[CONF_DONGLE_SERIAL],
+                "inverter_family": data.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                ),
+            }
+        ]
+    return []
+
+
+def _build_entry_transport_configs(
+    data: Mapping[str, Any],
+    max_input_block_size: int | None = None,
+) -> list[TransportConfig]:
+    """Build the selected local transport configurations for an entry."""
+    return cast(
+        list[TransportConfig],
+        _build_transport_configs(_entry_transport_dicts(data), max_input_block_size),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,68 +403,33 @@ class EG4DataUpdateCoordinator(
                 self._hybrid_local_type = entry.data.get(
                     CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS
                 )
-
-            should_init_modbus = self.connection_type == CONNECTION_TYPE_MODBUS or (
-                self.connection_type == CONNECTION_TYPE_HYBRID
-                and self._hybrid_local_type == HYBRID_LOCAL_MODBUS
+            legacy_transport_dicts = _entry_transport_dicts(entry.data)
+            legacy_configs = _build_entry_transport_configs(
+                entry.data, self._max_input_block_size
             )
-            if should_init_modbus and CONF_MODBUS_HOST in entry.data:
+            if legacy_transport_dicts:
+                transport_type = legacy_transport_dicts[0]["transport_type"]
                 family_str = entry.data.get(
                     CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
                 )
-                configs = _build_transport_configs(
-                    [
-                        {
-                            "transport_type": "modbus_tcp",
-                            "host": entry.data[CONF_MODBUS_HOST],
-                            "port": entry.data.get(
-                                CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT
-                            ),
-                            "serial": entry.data.get(CONF_INVERTER_SERIAL, ""),
-                            "unit_id": entry.data.get(
-                                CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID
-                            ),
-                            "inverter_family": family_str,
-                        }
-                    ],
-                    self._max_input_block_size,
-                )
-                if configs:
-                    self._modbus_transport = self._create_bus_capability(configs[0])
-                self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-                self._modbus_model = _derive_model_from_family(
-                    entry.data.get(CONF_INVERTER_MODEL, ""), family_str
-                )
-
-            should_init_dongle = self.connection_type == CONNECTION_TYPE_DONGLE or (
-                self.connection_type == CONNECTION_TYPE_HYBRID
-                and self._hybrid_local_type == HYBRID_LOCAL_DONGLE
-            )
-            if should_init_dongle and CONF_DONGLE_HOST in entry.data:
-                family_str = entry.data.get(
-                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-                )
-                configs = _build_transport_configs(
-                    [
-                        {
-                            "transport_type": "wifi_dongle",
-                            "host": entry.data[CONF_DONGLE_HOST],
-                            "port": entry.data.get(
-                                CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT
-                            ),
-                            "serial": entry.data.get(CONF_INVERTER_SERIAL, ""),
-                            "dongle_serial": entry.data[CONF_DONGLE_SERIAL],
-                            "inverter_family": family_str,
-                        }
-                    ],
-                    self._max_input_block_size,
-                )
-                if configs:
-                    self._dongle_transport = self._create_bus_capability(configs[0])
-                self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-                self._dongle_model = _derive_model_from_family(
-                    entry.data.get(CONF_INVERTER_MODEL, ""), family_str
-                )
+                if transport_type == TransportType.MODBUS_TCP.value:
+                    if legacy_configs:
+                        self._modbus_transport = self._create_bus_capability(
+                            legacy_configs[0]
+                        )
+                    self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+                    self._modbus_model = _derive_model_from_family(
+                        entry.data.get(CONF_INVERTER_MODEL, ""), family_str
+                    )
+                elif transport_type == TransportType.WIFI_DONGLE.value:
+                    if legacy_configs:
+                        self._dongle_transport = self._create_bus_capability(
+                            legacy_configs[0]
+                        )
+                    self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+                    self._dongle_model = _derive_model_from_family(
+                        entry.data.get(CONF_INVERTER_MODEL, ""), family_str
+                    )
 
         # DST sync configuration (only for HTTP/Hybrid)
         self.dst_sync_enabled = entry.data.get(CONF_DST_SYNC, True)

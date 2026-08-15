@@ -29,7 +29,20 @@ from custom_components.eg4_web_monitor._config_flow.discovery import (
     discover_modbus_device,
     discover_serial_device,
 )
-from custom_components.eg4_web_monitor.const import CONF_LOCAL_TRANSPORTS
+from custom_components.eg4_web_monitor.const import (
+    CONF_CONNECTION_TYPE,
+    CONF_DONGLE_HOST,
+    CONF_DONGLE_PORT,
+    CONF_DONGLE_SERIAL,
+    CONF_HTTP_POLLING_INTERVAL,
+    CONF_INVERTER_SERIAL,
+    CONF_LOCAL_TRANSPORTS,
+    CONF_MODBUS_HOST,
+    CONF_MODBUS_PORT,
+    CONF_MODBUS_UNIT_ID,
+    CONNECTION_TYPE_DONGLE,
+    CONNECTION_TYPE_MODBUS,
+)
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.endpoint_bus import (
     EndpointBusCapability,
@@ -1034,12 +1047,11 @@ async def test_failed_shutdown_retry_is_isolated_to_requested_endpoint() -> None
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("discovery", "kwargs", "expected_config"),
+    ("discovery", "kwargs"),
     [
         (
             discover_modbus_device,
             {"host": "gateway.example.invalid", "port": 1502},
-            _config("discovery"),
         ),
         (
             discover_dongle_device,
@@ -1049,30 +1061,16 @@ async def test_failed_shutdown_retry_is_isolated_to_requested_endpoint() -> None
                 "dongle_serial": "SYNTH-DONGLE",
                 "inverter_serial": "SYNTH00001",
             },
-            TransportConfig(
-                host="gateway.example.invalid",
-                port=1502,
-                serial="SYNTH00001",
-                transport_type=TransportType.WIFI_DONGLE,
-                dongle_serial="SYNTH-DONGLE",
-            ),
         ),
         (
             discover_serial_device,
             {"port": "loop://synthetic"},
-            _config(
-                "discovery",
-                host="",
-                port=0,
-                transport_type=TransportType.MODBUS_SERIAL,
-            ),
         ),
     ],
 )
 async def test_discovery_terminal_failure_remains_ha_retryable(
     discovery: Any,
     kwargs: dict[str, Any],
-    expected_config: TransportConfig,
 ) -> None:
     probe = _WireProbe()
     attempts = 0
@@ -1093,8 +1091,109 @@ async def test_discovery_terminal_failure_remains_ha_retryable(
 
     assert registry.owner_count == 1
     assert registry.tombstone_count == 1
-    await registry.async_retry_failed_shutdowns((expected_config,))
-    assert attempts == 2
+    discovered = await discovery(endpoint_bus_registry=registry, **kwargs)
+    assert discovered.serial == "SYNTHETIC" or discovered.serial == "SYNTH00001"
+    assert attempts == 3
+    assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("entry_data", "transport_config"),
+    [
+        (
+            {
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_MODBUS,
+                CONF_MODBUS_HOST: "gateway.example.invalid",
+                CONF_MODBUS_PORT: 1502,
+                CONF_MODBUS_UNIT_ID: 1,
+                CONF_INVERTER_SERIAL: "SYNTH00001",
+            },
+            _config("SYNTH00001"),
+        ),
+        (
+            {
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_DONGLE,
+                CONF_DONGLE_HOST: "gateway.example.invalid",
+                CONF_DONGLE_PORT: 1502,
+                CONF_DONGLE_SERIAL: "SYNTH-DONGLE",
+                CONF_INVERTER_SERIAL: "SYNTH00001",
+            },
+            TransportConfig(
+                host="gateway.example.invalid",
+                port=1502,
+                serial="SYNTH00001",
+                transport_type=TransportType.WIFI_DONGLE,
+                dongle_serial="SYNTH-DONGLE",
+            ),
+        ),
+    ],
+)
+async def test_legacy_setup_retries_matching_terminal_failure_before_reload(
+    entry_data: dict[str, Any],
+    transport_config: TransportConfig,
+) -> None:
+    probe = _WireProbe()
+    attempts: dict[str, int] = {}
+
+    class FailOnceTerminalTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            host = str(self.host)
+            attempts[host] = attempts.get(host, 0) + 1
+            if attempts[host] == 1:
+                raise RuntimeError("synthetic terminal failure")
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: FailOnceTerminalTransport(config, probe)
+    )
+    capability = registry.create_capability(transport_config)
+    unrelated_config = _config("SYNTH00002", host="blocked.example.invalid")
+    unrelated = registry.create_capability(unrelated_config)
+    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
+        await registry.async_shutdown_capabilities((capability, unrelated))
+
+    hass = SimpleNamespace(
+        data={endpoint_bus.ENDPOINT_BUS_REGISTRY_DATA: registry},
+    )
+    entry = SimpleNamespace(
+        entry_id="synthetic-entry",
+        runtime_data=object(),
+        data=entry_data,
+        options={CONF_HTTP_POLLING_INTERVAL: 60},
+    )
+
+    class SetupReached(RuntimeError):
+        pass
+
+    def construct_after_retry(*args: Any) -> Any:
+        assert registry.owner_count == 1
+        assert registry.tombstone_count == 1
+        raise SetupReached
+
+    with (
+        patch.object(integration.dr, "async_get", return_value=object()),
+        patch.object(
+            integration.dr,
+            "async_entries_for_config_entry",
+            return_value=[],
+        ),
+        patch.object(
+            integration,
+            "EG4DataUpdateCoordinator",
+            side_effect=construct_after_retry,
+        ),
+        pytest.raises(SetupReached),
+    ):
+        await integration._async_setup_entry(hass, entry)
+
+    assert attempts == {
+        "gateway.example.invalid": 2,
+        "blocked.example.invalid": 1,
+    }
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+    await registry.async_retry_failed_shutdowns((unrelated_config,))
     assert registry.owner_count == 0
     assert registry.tombstone_count == 0
 

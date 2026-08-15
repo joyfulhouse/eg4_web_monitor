@@ -221,16 +221,16 @@ async def discover_modbus_device(
         OSError: If connection fails.
         Exception: If device discovery fails.
     """
-    transport = endpoint_bus_registry.create_discovery_capability(
-        TransportConfig(
-            host=host,
-            port=port,
-            unit_id=unit_id,
-            serial="discovery",
-            timeout=DEFAULT_MODBUS_TIMEOUT,
-            transport_type=TransportType.MODBUS_TCP,
-        )
+    config = TransportConfig(
+        host=host,
+        port=port,
+        unit_id=unit_id,
+        serial="discovery",
+        timeout=DEFAULT_MODBUS_TIMEOUT,
+        transport_type=TransportType.MODBUS_TCP,
     )
+    await endpoint_bus_registry.async_retry_failed_shutdowns((config,))
+    transport = endpoint_bus_registry.create_discovery_capability(config)
 
     try:
         await transport.async_ensure_connected()
@@ -293,16 +293,16 @@ async def discover_dongle_device(
         OSError: If connection fails.
         Exception: If device discovery fails.
     """
-    transport = endpoint_bus_registry.create_discovery_capability(
-        TransportConfig(
-            host=host,
-            serial=inverter_serial,
-            transport_type=TransportType.WIFI_DONGLE,
-            dongle_serial=dongle_serial,
-            port=port,
-            timeout=DEFAULT_DONGLE_TIMEOUT,
-        )
+    config = TransportConfig(
+        host=host,
+        serial=inverter_serial,
+        transport_type=TransportType.WIFI_DONGLE,
+        dongle_serial=dongle_serial,
+        port=port,
+        timeout=DEFAULT_DONGLE_TIMEOUT,
     )
+    await endpoint_bus_registry.async_retry_failed_shutdowns((config,))
+    transport = endpoint_bus_registry.create_discovery_capability(config)
 
     try:
         await transport.async_ensure_connected()
@@ -359,20 +359,20 @@ async def discover_serial_device(
         OSError: If serial port cannot be opened.
         Exception: If device discovery fails.
     """
-    transport = endpoint_bus_registry.create_discovery_capability(
-        TransportConfig(
-            host="",
-            port=0,
-            serial="discovery",
-            transport_type=TransportType.MODBUS_SERIAL,
-            serial_port=port,
-            serial_baudrate=baudrate,
-            serial_parity=parity,
-            serial_stopbits=stopbits,
-            unit_id=unit_id,
-            timeout=DEFAULT_SERIAL_TIMEOUT,
-        )
+    config = TransportConfig(
+        host="",
+        port=0,
+        serial="discovery",
+        transport_type=TransportType.MODBUS_SERIAL,
+        serial_port=port,
+        serial_baudrate=baudrate,
+        serial_parity=parity,
+        serial_stopbits=stopbits,
+        unit_id=unit_id,
+        timeout=DEFAULT_SERIAL_TIMEOUT,
     )
+    await endpoint_bus_registry.async_retry_failed_shutdowns((config,))
+    transport = endpoint_bus_registry.create_discovery_capability(config)
 
     try:
         await transport.async_ensure_connected()
