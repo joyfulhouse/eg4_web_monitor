@@ -576,18 +576,16 @@ async def test_live_owner_discovery_fails_closed_without_second_connection() -> 
 
     registry = EndpointBusRegistry(raw_transport_factory=factory)
     live = registry.create_capability(_config("SYNTH00001"))
-    caught: Exception | None = None
     try:
-        await discover_modbus_device(
-            "gateway.example.invalid",
-            port=1502,
-            endpoint_bus_registry=registry,
-        )
-    except Exception as err:
-        caught = err
-    await live.async_shutdown()
+        with pytest.raises(endpoint_bus.EndpointOwnerInUseError):
+            await discover_modbus_device(
+                "gateway.example.invalid",
+                port=1502,
+                endpoint_bus_registry=registry,
+            )
+    finally:
+        await live.async_shutdown()
 
-    assert isinstance(caught, endpoint_bus.EndpointOwnerInUseError)
     assert len(raw_transports) == 1
 
 
