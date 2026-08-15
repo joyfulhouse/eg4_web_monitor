@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import bisect
 import io
 import json
 import math
@@ -457,14 +458,59 @@ class StreamFrameDecoder:
         self._started_at = None
 
 
-@dataclass(frozen=True, slots=True)
 class _PendingRun:
-    start: int
-    data: bytes
+    """A coalesced run of pending stream bytes, growable at either edge.
+
+    Bytes live in a single ``bytearray`` with tracked front slack (``_head``) so a
+    reverse-adjacent fragment prepends without recopying the whole run on every
+    insert, while forward growth uses ``bytearray``'s amortized append. Both edges
+    are therefore amortized O(1); transient slack is bounded by the run length, so
+    pending memory stays within the charged budget.
+    """
+
+    __slots__ = ("start", "_buffer", "_head")
+
+    def __init__(self, start: int, data: Buffer) -> None:
+        self.start = start
+        self._buffer = bytearray(data)
+        self._head = 0
+
+    def __len__(self) -> int:
+        return len(self._buffer) - self._head
 
     @property
     def end(self) -> int:
-        return self.start + len(self.data)
+        return self.start + len(self)
+
+    def to_bytes(self, begin: int = 0, stop: int | None = None) -> bytes:
+        length = len(self)
+        stop = length if stop is None else stop
+        return bytes(self._buffer[self._head + begin : self._head + stop])
+
+    def append(self, data: Buffer) -> None:
+        self._buffer += bytes(data)
+
+    def prepend(self, start: int, data: Buffer) -> None:
+        chunk = bytes(data)
+        need = len(chunk)
+        if self._head < need:
+            length = len(self)
+            reserve = need + length
+            grown = bytearray(reserve + length)
+            grown[reserve:] = self._buffer[self._head :]
+            self._buffer = grown
+            self._head = reserve
+        self._head -= need
+        self._buffer[self._head : self._head + need] = chunk
+        self.start = start
+
+
+def _pending_run_start(run: _PendingRun) -> int:
+    return run.start
+
+
+def _pending_run_end(run: _PendingRun) -> int:
+    return run.end
 
 
 class TCPStreamReassembler:
@@ -560,31 +606,33 @@ class TCPStreamReassembler:
 
         unassembled_start = max(start, self._assembled_bytes)
         unassembled = normalized[unassembled_start - start :]
+        # Runs are sorted and non-overlapping, so both ``start`` and ``end`` rise
+        # monotonically; bisect the touched window instead of scanning from zero so
+        # sparse out-of-order fragments cost O(log runs), not O(runs), per insert.
         pending = self._pending
-        first_run = 0
-        while pending is not None and first_run < len(pending):
-            if pending[first_run].end >= unassembled_start:
-                break
-            first_run += 1
-        last_run = first_run
+        if pending is None:
+            first_run = last_run = 0
+            touched: list[_PendingRun] = []
+        else:
+            first_run = bisect.bisect_left(
+                pending, unassembled_start, key=_pending_run_end
+            )
+            last_run = bisect.bisect_right(pending, end, key=_pending_run_start)
+            touched = pending[first_run:last_run]
         overlap_bytes = 0
-        while pending is not None and last_run < len(pending):
-            run = pending[last_run]
-            if run.start > end:
-                break
+        for run in touched:
             overlap_start = max(unassembled_start, run.start)
             overlap_end = min(end, run.end)
             if overlap_start < overlap_end:
-                run_overlap = run.data[
-                    overlap_start - run.start : overlap_end - run.start
-                ]
+                run_overlap = run.to_bytes(
+                    overlap_start - run.start, overlap_end - run.start
+                )
                 segment_overlap = unassembled[
                     overlap_start - unassembled_start : overlap_end - unassembled_start
                 ]
                 if run_overlap != segment_overlap:
                     raise CaptureError(FailureReason.MALFORMED)
                 overlap_bytes += overlap_end - overlap_start
-            last_run += 1
         new_bytes = len(unassembled) - overlap_bytes
         if start > self._assembled_bytes and (
             start - self._assembled_bytes > self.policy.maximum_pending_bytes_per_flow
@@ -596,28 +644,46 @@ class TCPStreamReassembler:
         if start > self._assembled_bytes:
             if new_bytes:
                 self._budget.reserve(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
-                merged_start = unassembled_start
-                merged_end = end
-                if pending is not None and first_run < last_run:
-                    merged_start = min(merged_start, pending[first_run].start)
-                    merged_end = max(merged_end, pending[last_run - 1].end)
+                if pending is None:
+                    pending = []
                 try:
-                    merged = bytearray(merged_end - merged_start)
-                    if pending is not None:
+                    if first_run == last_run:
+                        # Isolated gap fragment: a brand-new run.
+                        pending.insert(
+                            first_run, _PendingRun(unassembled_start, unassembled)
+                        )
+                    elif last_run - first_run == 1:
+                        # One adjacent/overlapping run: grow it at the edge(s) that
+                        # extended, in place, so reverse-adjacent inserts never
+                        # recopy the whole run.
+                        run = pending[first_run]
+                        run_start = run.start
+                        run_end = run.end
+                        if end > run_end:
+                            run.append(unassembled[run_end - unassembled_start :])
+                        if unassembled_start < run_start:
+                            run.prepend(
+                                unassembled_start,
+                                unassembled[: run_start - unassembled_start],
+                            )
+                    else:
+                        # Bridge several runs into one: a single coalescing copy.
+                        merged_start = min(unassembled_start, pending[first_run].start)
+                        merged_end = max(end, pending[last_run - 1].end)
+                        merged = bytearray(merged_end - merged_start)
                         for run in pending[first_run:last_run]:
-                            run_start = run.start - merged_start
-                            merged[run_start : run_start + len(run.data)] = run.data
-                    segment_start = unassembled_start - merged_start
-                    merged[segment_start : segment_start + len(unassembled)] = (
-                        unassembled
-                    )
-                    merged_run = _PendingRun(merged_start, bytes(merged))
+                            offset = run.start - merged_start
+                            merged[offset : offset + len(run)] = run.to_bytes()
+                        segment_start = unassembled_start - merged_start
+                        merged[segment_start : segment_start + len(unassembled)] = (
+                            unassembled
+                        )
+                        pending[first_run:last_run] = [
+                            _PendingRun(merged_start, bytes(merged))
+                        ]
                 except MemoryError:
                     self._budget.release(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
                     raise CaptureError(FailureReason.CAPACITY) from None
-                if pending is None:
-                    pending = []
-                pending[first_run:last_run] = [merged_run]
                 self._pending = pending
                 self._pending_bytes += new_bytes
         else:
@@ -629,10 +695,10 @@ class TCPStreamReassembler:
                 run = pending[consumed_runs]
                 if run.start > contiguous_end:
                     break
-                suffix_start = min(len(run.data), max(0, contiguous_end - run.start))
-                contiguous.extend(run.data[suffix_start:])
-                contiguous_end += len(run.data) - suffix_start
-                consumed_bytes += len(run.data)
+                suffix_start = min(len(run), max(0, contiguous_end - run.start))
+                contiguous.extend(run.to_bytes(suffix_start))
+                contiguous_end += len(run) - suffix_start
+                consumed_bytes += len(run)
                 consumed_runs += 1
             self._assembled_bytes = contiguous_end
             if consumed_runs:

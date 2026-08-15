@@ -14,7 +14,7 @@ from collections.abc import Buffer, Callable
 from importlib import util
 from pathlib import Path
 from types import ModuleType
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import pytest
 
@@ -1009,6 +1009,77 @@ def test_tcp_reassembler_coalesces_pathological_reverse_fragmentation() -> None:
     assert len(reassembler._pending) == 1
     assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
     assert reassembler.segment_count == policy.maximum_segments_per_flow
+
+
+def test_tcp_reassembler_sparse_fragments_inspect_sublinear_runs() -> None:
+    # Sparse ascending out-of-order fragments stay as separate runs. A new insert
+    # must locate its window by binary search, touching O(log runs) entries, not by
+    # scanning the whole sorted list (which made S inserts theta(S^2)).
+    policy = ParserPolicy(
+        maximum_segments_per_flow=100_000,
+        maximum_pending_bytes_per_flow=1024 * 1024,
+    )
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    run_count = 2048
+    # Leave offset 0 unfilled so nothing assembles and every fragment stays pending.
+    for index in range(run_count):
+        assert reassembler.push(2 * index + 2, b"x", captured_at=1.0) == []
+    assert reassembler._pending is not None
+    assert len(reassembler._pending) == run_count
+
+    class _CountingList(list[decoder_module._PendingRun]):
+        def __init__(self, items: list[decoder_module._PendingRun]) -> None:
+            super().__init__(items)
+            self.access_count = 0
+
+        def __getitem__(self, item: Any) -> Any:
+            self.access_count += 1
+            return super().__getitem__(item)
+
+    counting = _CountingList(reassembler._pending)
+    reassembler._pending = counting
+    assert reassembler.push(2 * run_count + 2, b"x", captured_at=1.1) == []
+    # Two bisects plus one window slice; strictly sub-linear in run_count.
+    assert counting.access_count <= 4 * run_count.bit_length()
+    assert len(reassembler._pending) == run_count + 1
+
+
+def test_tcp_reassembler_reverse_adjacent_grows_run_without_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Reverse-adjacent one-byte fragments coalesce into a single run. The buggy
+    # rebuild constructed a fresh run per fragment (theta(n) constructions, each
+    # recopying the whole growing run -> theta(n^2) copied bytes). The run must be
+    # created once and grown in place thereafter.
+    policy = ParserPolicy(maximum_segments_per_flow=100_000)
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    length = 4096
+    expected = bytes(index % 251 for index in range(length))
+
+    constructions = 0
+    original_init = decoder_module._PendingRun.__init__
+
+    def counting_init(
+        self: decoder_module._PendingRun, start: int, data: Buffer
+    ) -> None:
+        nonlocal constructions
+        constructions += 1
+        original_init(self, start, data)
+
+    monkeypatch.setattr(decoder_module._PendingRun, "__init__", counting_init)
+
+    for offset in range(length - 1, 0, -1):
+        assert (
+            reassembler.push(offset, expected[offset : offset + 1], captured_at=1.0)
+            == []
+        )
+
+    assert reassembler._pending is not None
+    assert len(reassembler._pending) == 1
+    assert constructions == 1
+    assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
 
 
 def test_tcp_reassembler_validates_duplicate_with_bounded_history_slices(
