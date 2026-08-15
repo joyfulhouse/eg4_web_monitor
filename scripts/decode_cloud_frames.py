@@ -642,7 +642,6 @@ class TCPStreamReassembler:
                 self._budget.release(consumed_bytes * (_PENDING_BYTE_MEMORY_CHARGE - 1))
                 if not pending:
                     self._pending = None
-                    pending = None
         expired = max(0, len(self._history) + len(contiguous) - self._history_limit)
         contiguous_history_start = 0
         if expired > 0:
