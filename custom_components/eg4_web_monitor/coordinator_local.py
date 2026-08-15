@@ -1161,9 +1161,6 @@ class LocalTransportMixin(_MixinBase):
                         else:
                             raise
 
-            # Bracket exactly one owner refresh. The observer remains attached
-            # at construction, while task context limits staging to reads
-            # invoked by this lifecycle (never controls/background work).
             snapshot_device = (
                 self._mid_device_cache[serial]
                 if is_gridboss

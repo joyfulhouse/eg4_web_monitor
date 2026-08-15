@@ -264,7 +264,6 @@ class _CapabilityRecord:
     snapshot_observer_capable: bool = False
     snapshot_enabled: bool = False
     unit: int = 0
-    endpoint_alias: str = ""
     firmware_scope: str | None = None
     active_attempt: _SnapshotAttempt | None = None
 
@@ -318,8 +317,6 @@ class _EndpointBusOwner:
         self._next_token = 0
         self._wire_tasks: dict[asyncio.Task[Any], int] = {}
         self._epoch = uuid4()
-        self._next_attempt = 0
-        self._next_invocation = 0
         self._snapshot_states: dict[int, _UnitSnapshotState] = {}
 
     def add(
@@ -353,7 +350,6 @@ class _EndpointBusOwner:
             snapshot_observer_capable=snapshot_enabled,
             snapshot_enabled=snapshot_enabled,
             unit=unit,
-            endpoint_alias=f"owner-{self._identity}",
         )
         return EndpointBusCapability(self, token, raw.serial)
 
@@ -402,10 +398,9 @@ class _EndpointBusOwner:
             return
         if record.active_attempt is not None:
             raise RuntimeError("A snapshot refresh is already active")
-        self._next_attempt += 1
         record.snapshot_state.poll_cycle += 1
         attempt = _SnapshotAttempt(
-            identity=self._next_attempt,
+            identity=record.snapshot_state.poll_cycle,
             started=time.monotonic(),
             observer_errors_before=int(
                 getattr(record.raw, "register_observation_error_count", 0)
@@ -467,7 +462,7 @@ class _EndpointBusOwner:
         )
         blocks = tuple(
             RawRegisterBlock(
-                endpoint_key=record.endpoint_alias,
+                endpoint_key=f"owner-{self._identity}",
                 unit=record.unit,
                 family_scope=str(family_scope) if family_scope is not None else None,
                 firmware_scope=record.firmware_scope,
@@ -601,8 +596,7 @@ class _EndpointBusOwner:
                 if len(attempt.expected_invocations) >= MAX_SNAPSHOT_STAGED_INVOCATIONS:
                     attempt.overflow = True
                 else:
-                    self._next_invocation += 1
-                    invocation = self._next_invocation
+                    invocation = len(attempt.expected_invocations) + 1
                     attempt.expected_invocations.add(invocation)
                     read_context_token = _SNAPSHOT_READ_CONTEXT.set(invocation)
             try:
