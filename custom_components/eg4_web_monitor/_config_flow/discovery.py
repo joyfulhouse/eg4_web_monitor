@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pylxpweb.transports.config import TransportConfig, TransportType
+
 from ..const import (
     DEFAULT_DONGLE_PORT,
     DEFAULT_DONGLE_TIMEOUT,
@@ -27,6 +29,7 @@ from ..const import (
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_LXP,
 )
+from ..endpoint_bus import EndpointBusCapability, EndpointBusRegistry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,7 +95,7 @@ def _get_model_from_device_type(device_type_code: int) -> tuple[str, str]:
 
 
 async def _read_device_info_from_transport(
-    transport: Any,
+    transport: EndpointBusCapability,
     serial: str,
 ) -> DiscoveredDevice:
     """Read device information from an already-connected transport.
@@ -194,6 +197,8 @@ async def discover_modbus_device(
     host: str,
     port: int = DEFAULT_MODBUS_PORT,
     unit_id: int = DEFAULT_MODBUS_UNIT_ID,
+    *,
+    endpoint_bus_registry: EndpointBusRegistry,
 ) -> DiscoveredDevice:
     """Connect to Modbus TCP and auto-detect device information.
 
@@ -216,18 +221,19 @@ async def discover_modbus_device(
         OSError: If connection fails.
         Exception: If device discovery fails.
     """
-    from pylxpweb.transports import create_modbus_transport
-
-    transport = create_modbus_transport(
+    config = TransportConfig(
         host=host,
         port=port,
         unit_id=unit_id,
-        serial="",  # Will be auto-detected
+        serial="discovery",
         timeout=DEFAULT_MODBUS_TIMEOUT,
+        transport_type=TransportType.MODBUS_TCP,
     )
+    await endpoint_bus_registry.async_retry_failed_shutdowns((config,))
+    transport = endpoint_bus_registry.create_discovery_capability(config)
 
     try:
-        await transport.connect()
+        await transport.async_ensure_connected()
 
         # Read serial number from input registers 115-119
         serial = await transport.read_serial_number()
@@ -251,7 +257,7 @@ async def discover_modbus_device(
         return device
 
     finally:
-        await transport.disconnect()
+        await endpoint_bus_registry.async_shutdown_capabilities((transport,))
 
 
 async def discover_dongle_device(
@@ -259,6 +265,8 @@ async def discover_dongle_device(
     dongle_serial: str,
     inverter_serial: str,
     port: int = DEFAULT_DONGLE_PORT,
+    *,
+    endpoint_bus_registry: EndpointBusRegistry,
 ) -> DiscoveredDevice:
     """Connect to WiFi dongle and auto-detect device information.
 
@@ -285,18 +293,19 @@ async def discover_dongle_device(
         OSError: If connection fails.
         Exception: If device discovery fails.
     """
-    from pylxpweb.transports import create_dongle_transport
-
-    transport = create_dongle_transport(
+    config = TransportConfig(
         host=host,
+        serial=inverter_serial,
+        transport_type=TransportType.WIFI_DONGLE,
         dongle_serial=dongle_serial,
-        inverter_serial=inverter_serial,
         port=port,
         timeout=DEFAULT_DONGLE_TIMEOUT,
     )
+    await endpoint_bus_registry.async_retry_failed_shutdowns((config,))
+    transport = endpoint_bus_registry.create_discovery_capability(config)
 
     try:
-        await transport.connect()
+        await transport.async_ensure_connected()
 
         # Use the provided serial (we can't auto-detect it for dongle)
         serial = inverter_serial
@@ -318,7 +327,7 @@ async def discover_dongle_device(
         return device
 
     finally:
-        await transport.disconnect()
+        await endpoint_bus_registry.async_shutdown_capabilities((transport,))
 
 
 async def discover_serial_device(
@@ -327,6 +336,8 @@ async def discover_serial_device(
     unit_id: int = DEFAULT_MODBUS_UNIT_ID,
     parity: str = DEFAULT_SERIAL_PARITY,
     stopbits: int = DEFAULT_SERIAL_STOPBITS,
+    *,
+    endpoint_bus_registry: EndpointBusRegistry,
 ) -> DiscoveredDevice:
     """Connect to Modbus RTU over serial and auto-detect device information.
 
@@ -348,20 +359,23 @@ async def discover_serial_device(
         OSError: If serial port cannot be opened.
         Exception: If device discovery fails.
     """
-    from pylxpweb.transports import create_serial_transport
-
-    transport = create_serial_transport(
-        port=port,
-        serial="",  # Will be auto-detected
-        baudrate=baudrate,
-        parity=parity,
-        stopbits=stopbits,
+    config = TransportConfig(
+        host="",
+        port=0,
+        serial="discovery",
+        transport_type=TransportType.MODBUS_SERIAL,
+        serial_port=port,
+        serial_baudrate=baudrate,
+        serial_parity=parity,
+        serial_stopbits=stopbits,
         unit_id=unit_id,
         timeout=DEFAULT_SERIAL_TIMEOUT,
     )
+    await endpoint_bus_registry.async_retry_failed_shutdowns((config,))
+    transport = endpoint_bus_registry.create_discovery_capability(config)
 
     try:
-        await transport.connect()
+        await transport.async_ensure_connected()
 
         # Read serial number from input registers 115-119
         serial = await transport.read_serial_number()
@@ -386,7 +400,7 @@ async def discover_serial_device(
         return device
 
     finally:
-        await transport.disconnect()
+        await endpoint_bus_registry.async_shutdown_capabilities((transport,))
 
 
 def detect_grid_type(device: DiscoveredDevice) -> str:

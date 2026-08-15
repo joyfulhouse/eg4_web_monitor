@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "No se puede conectar a {brand_name} Web Monitor. Por favor verifique su conexion de red e intente de nuevo.",
+      "endpoint_in_use": "Este punto de conexión local ya está siendo utilizado por una entrada cargada. Descargue esa entrada antes de volver a intentar la detección.",
       "invalid_auth": "Nombre de usuario o contrasena invalidos. Por favor verifique sus credenciales e intente de nuevo.",
       "unknown": "Ocurrio un error inesperado. Por favor intente de nuevo o revise los registros para mas detalles.",
       "no_plants": "No se encontraron estaciones/plantas solares en su cuenta. Por favor asegurese de tener al menos una estacion configurada en su cuenta de {brand_name} Web Monitor.",

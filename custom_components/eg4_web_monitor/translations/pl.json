@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "Nie mozna polaczyc sie z {brand_name} Web Monitor. Sprawdz polaczenie sieciowe i sprobuj ponownie.",
+      "endpoint_in_use": "Ten lokalny punkt końcowy jest już używany przez załadowany wpis. Wyładuj ten wpis przed ponowną próbą wykrywania.",
       "invalid_auth": "Nieprawidlowa nazwa uzytkownika lub haslo. Sprawdz dane logowania i sprobuj ponownie.",
       "unknown": "Wystapil nieoczekiwany blad. Sprobuj ponownie lub sprawdz logi, aby uzyskac wiecej informacji.",
       "no_plants": "Nie znaleziono stacji/instalacji solarnych na Twoim koncie. Upewnij sie, ze masz co najmniej jedna stacje skonfigurowana na koncie {brand_name} Web Monitor.",

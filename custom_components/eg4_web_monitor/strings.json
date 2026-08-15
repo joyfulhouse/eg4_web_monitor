@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "Unable to connect to {brand_name} Web Monitor. Please check your network connection and try again.",
+      "endpoint_in_use": "This local endpoint is already in use by a loaded entry. Unload that entry before trying discovery again.",
       "invalid_auth": "Invalid username or password. Please check your credentials and try again.",
       "unknown": "An unexpected error occurred. Please try again or check the logs for more details.",
       "no_plants": "No solar stations/plants found in your account. Please ensure you have at least one station configured in your {brand_name} Web Monitor account.",

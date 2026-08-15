@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import logging
 import time
 from datetime import datetime, timedelta
-from collections.abc import Awaitable, Callable, Collection
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from typing import TYPE_CHECKING, Any, NoReturn, cast
 
 import aiohttp
@@ -23,11 +23,6 @@ if TYPE_CHECKING:
         UpdateFailed,
     )
 
-    from pylxpweb.transports import (
-        DongleTransport,
-        ModbusSerialTransport,
-        ModbusTransport,
-    )
 else:
     from homeassistant.helpers.update_coordinator import (  # type: ignore[assignment]
         DataUpdateCoordinator,
@@ -37,6 +32,7 @@ else:
 from pylxpweb import LuxpowerClient
 from pylxpweb.devices import Station
 from pylxpweb.devices.inverters.base import BaseInverter
+from pylxpweb.transports.config import TransportConfig, TransportType
 from .const import (
     BLOCK_SIZE_PRESET_REGISTERS,
     CONF_BASE_URL,
@@ -77,12 +73,10 @@ from .const import (
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
     DEFAULT_DONGLE_PORT,
-    DEFAULT_DONGLE_TIMEOUT,
     DEFAULT_DONGLE_UPDATE_INTERVAL,
     DEFAULT_HTTP_POLLING_INTERVAL,
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
-    DEFAULT_MODBUS_TIMEOUT,
     DEFAULT_MODBUS_UNIT_ID,
     DEFAULT_MODBUS_UPDATE_INTERVAL,
     DEFAULT_PARAMETER_REFRESH_INTERVAL,
@@ -94,6 +88,7 @@ from .const import (
     HYBRID_LOCAL_MODBUS,
 )
 from .battery_migration import async_migrate_battery_keys
+from .bus_eligibility import evaluate_bus_owner_eligibility
 from .cloud_requests import (
     CloudRequestLimiter,
     SharedCloudRequestBudget,
@@ -109,9 +104,8 @@ from .device_removal import (
     record_provided_identifiers,
 )
 from .coordinator_mappings import (
+    _build_transport_configs,
     _derive_model_from_family,
-    _parse_inverter_family,
-    input_block_size_kwargs,
 )
 from .coordinator_http import HTTPUpdateMixin
 from .coordinator_local import LocalTransportMixin
@@ -128,9 +122,9 @@ from .coordinator_mixins import (
     is_transport_link_down as _device_transport_link_down,
 )
 from .const.sensors import SENSOR_TYPES
-from .transport_serialization import (
-    EndpointOperationLock,
-    physical_endpoint_key,
+from .endpoint_bus import (
+    EndpointBusCapability,
+    get_endpoint_bus_registry,
 )
 from .utils import async_write_with_cloud_fallback
 
@@ -149,7 +143,59 @@ PARAMETER_SEED_CONFIRMED_GRACE = 120.0  # seconds
 # coordinator across config-entry reloads so a mid-write reload cannot let a
 # second writer interleave a schedule hour/minute or battery-mode bit pair.
 _CONTROL_TRANSACTION_LOCKS: dict[tuple[str, str], asyncio.Lock] = {}
-_ENDPOINT_OPERATION_LOCKS_DATA = f"{DOMAIN}_endpoint_operation_locks"
+
+
+def _entry_transport_dicts(data: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Select the current or supported legacy local transports for an entry."""
+    configured = data.get(CONF_LOCAL_TRANSPORTS, [])
+    if configured:
+        return list(configured)
+    connection_type = data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)
+    hybrid_type = data.get(CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS)
+    use_modbus = connection_type == CONNECTION_TYPE_MODBUS or (
+        connection_type == CONNECTION_TYPE_HYBRID and hybrid_type == HYBRID_LOCAL_MODBUS
+    )
+    use_dongle = connection_type == CONNECTION_TYPE_DONGLE or (
+        connection_type == CONNECTION_TYPE_HYBRID and hybrid_type == HYBRID_LOCAL_DONGLE
+    )
+    if use_modbus and CONF_MODBUS_HOST in data:
+        return [
+            {
+                "transport_type": "modbus_tcp",
+                "host": data[CONF_MODBUS_HOST],
+                "port": data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
+                "serial": data.get(CONF_INVERTER_SERIAL, ""),
+                "unit_id": data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
+                "inverter_family": data.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                ),
+            }
+        ]
+    if use_dongle and CONF_DONGLE_HOST in data:
+        return [
+            {
+                "transport_type": "wifi_dongle",
+                "host": data[CONF_DONGLE_HOST],
+                "port": data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
+                "serial": data.get(CONF_INVERTER_SERIAL, ""),
+                "dongle_serial": data[CONF_DONGLE_SERIAL],
+                "inverter_family": data.get(
+                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
+                ),
+            }
+        ]
+    return []
+
+
+def _build_entry_transport_configs(
+    data: Mapping[str, Any],
+    max_input_block_size: int | None = None,
+) -> list[TransportConfig]:
+    """Build the selected local transport configurations for an entry."""
+    return cast(
+        list[TransportConfig],
+        _build_transport_configs(_entry_transport_dicts(data), max_input_block_size),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,10 +381,14 @@ class EG4DataUpdateCoordinator(
             BLOCK_SIZE_PRESET_REGISTERS[DEFAULT_MODBUS_BLOCK_SIZE],
         )
 
+        self._endpoint_bus_registry = get_endpoint_bus_registry(hass)
+        self._bus_capabilities: set[EndpointBusCapability] = set()
+        self._bus_capability_configs: dict[EndpointBusCapability, TransportConfig] = {}
+
         # Initialize local transports from local_transports list (new format)
         # or fall back to flat keys (old format for backward compatibility)
-        self._modbus_transport: ModbusTransport | ModbusSerialTransport | None = None
-        self._dongle_transport: DongleTransport | None = None
+        self._modbus_transport: EndpointBusCapability | None = None
+        self._dongle_transport: EndpointBusCapability | None = None
         self._hybrid_local_type: str | None = None
         local_transports: list[dict[str, Any]] = entry.data.get(
             CONF_LOCAL_TRANSPORTS, []
@@ -353,56 +403,33 @@ class EG4DataUpdateCoordinator(
                 self._hybrid_local_type = entry.data.get(
                     CONF_HYBRID_LOCAL_TYPE, HYBRID_LOCAL_MODBUS
                 )
-
-            should_init_modbus = self.connection_type == CONNECTION_TYPE_MODBUS or (
-                self.connection_type == CONNECTION_TYPE_HYBRID
-                and self._hybrid_local_type == HYBRID_LOCAL_MODBUS
+            legacy_transport_dicts = _entry_transport_dicts(entry.data)
+            legacy_configs = _build_entry_transport_configs(
+                entry.data, self._max_input_block_size
             )
-            if should_init_modbus and CONF_MODBUS_HOST in entry.data:
-                from pylxpweb.transports import create_transport
-
+            if legacy_transport_dicts:
+                transport_type = legacy_transport_dicts[0]["transport_type"]
                 family_str = entry.data.get(
                     CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
                 )
-                self._modbus_transport = create_transport(
-                    "modbus",
-                    host=entry.data[CONF_MODBUS_HOST],
-                    serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
-                    port=entry.data.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
-                    unit_id=entry.data.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
-                    timeout=DEFAULT_MODBUS_TIMEOUT,
-                    inverter_family=_parse_inverter_family(family_str),
-                    **input_block_size_kwargs(self._max_input_block_size),
-                )
-                self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-                self._modbus_model = _derive_model_from_family(
-                    entry.data.get(CONF_INVERTER_MODEL, ""), family_str
-                )
-
-            should_init_dongle = self.connection_type == CONNECTION_TYPE_DONGLE or (
-                self.connection_type == CONNECTION_TYPE_HYBRID
-                and self._hybrid_local_type == HYBRID_LOCAL_DONGLE
-            )
-            if should_init_dongle and CONF_DONGLE_HOST in entry.data:
-                from pylxpweb.transports import create_transport
-
-                family_str = entry.data.get(
-                    CONF_INVERTER_FAMILY, DEFAULT_INVERTER_FAMILY
-                )
-                self._dongle_transport = create_transport(
-                    "dongle",
-                    host=entry.data[CONF_DONGLE_HOST],
-                    dongle_serial=entry.data[CONF_DONGLE_SERIAL],
-                    inverter_serial=entry.data.get(CONF_INVERTER_SERIAL, ""),
-                    port=entry.data.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
-                    timeout=DEFAULT_DONGLE_TIMEOUT,
-                    inverter_family=_parse_inverter_family(family_str),
-                    **input_block_size_kwargs(self._max_input_block_size),
-                )
-                self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
-                self._dongle_model = _derive_model_from_family(
-                    entry.data.get(CONF_INVERTER_MODEL, ""), family_str
-                )
+                if transport_type == TransportType.MODBUS_TCP.value:
+                    if legacy_configs:
+                        self._modbus_transport = self._create_bus_capability(
+                            legacy_configs[0]
+                        )
+                    self._modbus_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+                    self._modbus_model = _derive_model_from_family(
+                        entry.data.get(CONF_INVERTER_MODEL, ""), family_str
+                    )
+                elif transport_type == TransportType.WIFI_DONGLE.value:
+                    if legacy_configs:
+                        self._dongle_transport = self._create_bus_capability(
+                            legacy_configs[0]
+                        )
+                    self._dongle_serial = entry.data.get(CONF_INVERTER_SERIAL, "")
+                    self._dongle_model = _derive_model_from_family(
+                        entry.data.get(CONF_INVERTER_MODEL, ""), family_str
+                    )
 
         # DST sync configuration (only for HTTP/Hybrid)
         self.dst_sync_enabled = entry.data.get(CONF_DST_SYNC, True)
@@ -415,14 +442,11 @@ class EG4DataUpdateCoordinator(
         self._local_transport_configs: list[dict[str, Any]] = entry.data.get(
             CONF_LOCAL_TRANSPORTS, []
         )
-        self._local_transports_attached = False
-        # One lock per physical host:port or serial adapter. pylxpweb's
-        # operation lock is intentionally per transport instance, while this
-        # Home Assistant-scoped registry owns the physical boundary across
-        # logical devices and separate EG4 config-entry coordinators alike.
-        self._endpoint_operation_locks: dict[str, EndpointOperationLock] = (
-            hass.data.setdefault(_ENDPOINT_OPERATION_LOCKS_DATA, {})
+        self._bus_owner_eligibility = evaluate_bus_owner_eligibility(
+            connection_type=self.connection_type,
+            local_transports=self._local_transport_configs,
         )
+        self._local_transports_attached = False
         # Serials whose local-transport attach failed (commonly: the dongle's
         # single TCP slot still held by the previous session right after an
         # HA restart). Retried with a bounded interval each update cycle and
@@ -1565,27 +1589,24 @@ class EG4DataUpdateCoordinator(
         translated_error: Callable[[Exception], str],
     ) -> bool:
         """Run the shared local-transport write and error-translation shell."""
-        transport = self.get_local_transport(serial)
-        if not transport:
+        candidate = self.get_local_transport(serial)
+        if candidate is None:
             raise HomeAssistantError(no_transport_message)
-        endpoint_lock = self._endpoint_operation_lock_for_transport(transport)
-
-        async def _execute_write() -> None:
-            if not transport.is_connected:
-                _LOGGER.debug(reconnect_message, *reconnect_args)
-                await transport.connect()
-
-            await write(transport)
 
         try:
-            if endpoint_lock is None:
-                await _execute_write()
-            else:
-                # Keep reconnect + write in one endpoint transaction. The
-                # transport operation re-enters this task-owned lock, matching
-                # pylxpweb's named-parameter RMW nesting contract.
-                async with endpoint_lock:
-                    await _execute_write()
+            transport = self._endpoint_bus_registry.validate_capability(
+                candidate,
+                serial=serial,
+                expected_config=self._expected_bus_config(serial),
+            )
+            if transport is None:
+                raise RuntimeError("Local transport is not owner-issued")
+
+            async with transport.transaction():
+                if not transport.is_connected:
+                    _LOGGER.debug(reconnect_message, *reconnect_args)
+                    await transport.async_ensure_connected()
+                await write(transport)
             _LOGGER.debug(success_message, *success_args)
             return True
 
@@ -1593,73 +1614,34 @@ class EG4DataUpdateCoordinator(
             _LOGGER.error(failure_message, *failure_args, err)
             raise HomeAssistantError(translated_error(err)) from err
 
-    def _endpoint_operation_lock_for_transport(
-        self, transport: Any
-    ) -> EndpointOperationLock | None:
-        """Return and install the lock owned by a transport's endpoint.
+    def _create_bus_capability(self, config: TransportConfig) -> EndpointBusCapability:
+        """Create and track an owner-issued local capability."""
+        capability = self._endpoint_bus_registry.create_capability(config)
+        self._bus_capabilities.add(capability)
+        self._bus_capability_configs[capability] = config
+        return capability
 
-        pylxpweb serializes complete operations with ``_op_lock``, but owns
-        that lock per transport instance. Multiple logical devices on one
-        dongle/RS485 adapter therefore cannot see each other's work. Rebinding
-        the existing operation seam preserves concrete transport identity and
-        expands the lock boundary to the physical endpoint.
-        """
-        endpoint_key = physical_endpoint_key(transport)
-        if endpoint_key is None:
+    def _prune_bus_capability_tracking(self) -> None:
+        """Retain only live or terminally retryable capabilities."""
+        self._bus_capabilities.intersection_update(
+            capability
+            for capability in self._bus_capabilities
+            if self._endpoint_bus_registry.is_retained_capability(capability)
+        )
+        for capability in self._bus_capability_configs.keys() - self._bus_capabilities:
+            del self._bus_capability_configs[capability]
+
+    def _expected_bus_config(self, serial: str | None) -> TransportConfig | None:
+        """Return the one live configured endpoint for a device serial."""
+        if serial is None:
             return None
-        endpoint_locks = getattr(self, "_endpoint_operation_locks", None)
-        if endpoint_locks is None:
-            # A small number of focused tests construct the coordinator with
-            # __new__ to exercise isolated mixin behavior. Keep the private
-            # helper total for those partial objects; normal coordinators use
-            # the Home Assistant-scoped registry initialized in __init__.
-            endpoint_locks = {}
-            self._endpoint_operation_locks = endpoint_locks
-        lock = endpoint_locks.get(endpoint_key)
-        if lock is None:
-            lock = EndpointOperationLock()
-            endpoint_locks[endpoint_key] = lock
-        if getattr(transport, "_op_lock", None) is lock:
-            return lock
-        try:
-            # Real pylxpweb transports initialize this private operation seam
-            # in BaseTransport. object.__setattr__ also supports autospecced
-            # test doubles whose spec omits instance-only attributes.
-            object.__setattr__(transport, "_op_lock", lock)
-        except (AttributeError, TypeError):
-            _LOGGER.warning(
-                "Cannot serialize %s operations on endpoint %s: transport "
-                "does not expose pylxpweb's operation-lock seam",
-                type(transport).__name__,
-                endpoint_key,
-            )
-        return lock
-
-    def _bind_endpoint_operation_lock(self, transport: Any) -> Any:
-        """Bind a transport to its physical endpoint and preserve identity."""
-        self._endpoint_operation_lock_for_transport(transport)
-        return transport
-
-    async def _connect_endpoint_transport(self, transport: Any) -> Any:
-        """Connect a transport without racing another endpoint operation."""
-        endpoint_lock = self._endpoint_operation_lock_for_transport(transport)
-        if transport.is_connected:
-            return transport
-        if endpoint_lock is None:
-            await transport.connect()
-            return transport
-        async with endpoint_lock:
-            # Another waiter may have connected this same transport first.
-            if not transport.is_connected:
-                await transport.connect()
-        return transport
-
-    def _bind_device_endpoint_lock(self, device: Any) -> Any | None:
-        """Bind and return a device transport's physical-endpoint lock."""
-        transport = getattr(device, "transport", None)
-        if transport is None:
-            return None
-        return self._bind_endpoint_operation_lock(transport)
+        configs = [
+            config
+            for capability, config in self._bus_capability_configs.items()
+            if config.serial == serial
+            and self._endpoint_bus_registry.is_retained_capability(capability)
+        ]
+        return configs[0] if len(configs) == 1 else None
 
     async def write_named_parameter(
         self,

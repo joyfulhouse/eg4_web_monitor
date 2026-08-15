@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "無法連線到 {brand_name} Web Monitor。請檢查您的網路連線並重試。",
+      "endpoint_in_use": "此本機端點已被一個已載入的項目使用。請先卸載該項目，再重新嘗試探索。",
       "invalid_auth": "使用者名稱或密碼無效。請檢查您的憑證並重試。",
       "unknown": "發生意外錯誤。請重試或檢視日誌以獲取更多詳情。",
       "no_plants": "在您的帳戶中未找到太陽能電站/電廠。請確保您在 {brand_name} Web Monitor 帳戶中至少設定了一個電站。",

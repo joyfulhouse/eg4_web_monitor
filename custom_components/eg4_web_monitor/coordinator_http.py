@@ -240,24 +240,12 @@ class HTTPUpdateMixin(_MixinBase):
             if transport is None:
                 no_transport.append(device)
                 continue
-            transport = self._bind_device_endpoint_lock(device)
-            # Group by the PUBLIC host/port (network transports — TCP dongle).
-            host = getattr(transport, "host", None)
-            port = getattr(transport, "port", None)
-            if host is not None and port is not None:
-                endpoint = f"{host}:{port}"
-            elif isinstance(port, str) and port:
-                # Serial transports carry the tty path in ``port`` and have no
-                # host. Devices sharing one RS485 adapter MUST refresh
-                # sequentially — serial buses are single-client and concurrent
-                # frames interleave/corrupt (#233). Distinct ports still
-                # parallelize via separate groups. (Avoids the bogus ":0"
-                # collapse of the eg4-xi7 silent-default bug.)
-                endpoint = f"serial:{port}"
-            else:
+            status = getattr(transport, "status", None)
+            owner_identity = getattr(status, "owner_identity", None)
+            if not isinstance(owner_identity, int):
                 no_transport.append(device)
                 continue
-            endpoint_groups.setdefault(endpoint, []).append(device)
+            endpoint_groups.setdefault(str(owner_identity), []).append(device)
 
         async def _refresh_group_sequentially(devices: list[Any]) -> None:
             """Refresh devices on the same endpoint one at a time.

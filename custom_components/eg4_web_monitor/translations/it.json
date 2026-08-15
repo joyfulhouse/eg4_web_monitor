@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "Impossibile connettersi a {brand_name} Web Monitor. Controlla la connessione di rete e riprova.",
+      "endpoint_in_use": "Questo endpoint locale è già utilizzato da una voce caricata. Scarica la voce prima di riprovare il rilevamento.",
       "invalid_auth": "Nome utente o password non validi. Controlla le tue credenziali e riprova.",
       "unknown": "Si e verificato un errore imprevisto. Riprova o controlla i log per maggiori dettagli.",
       "no_plants": "Nessuna stazione/impianto solare trovato nel tuo account. Assicurati di avere almeno una stazione configurata nel tuo account {brand_name} Web Monitor.",

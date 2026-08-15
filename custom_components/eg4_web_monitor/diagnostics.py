@@ -259,6 +259,11 @@ async def async_get_config_entry_diagnostics(
         "update_interval": str(coordinator.update_interval),
         "device_count": len((coordinator.data or {}).get("devices", {})),
         "serial_aliases": sorted(aliases.values()),
+        "bus_owner": {
+            "eligible": coordinator._bus_owner_eligibility.eligible,
+            "reason": coordinator._bus_owner_eligibility.reason.value,
+            "provenance": coordinator._bus_owner_eligibility.provenance.value,
+        },
         "data": _clean(coordinator.data or {}),
     }
     return result

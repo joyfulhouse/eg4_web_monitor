@@ -415,6 +415,7 @@ class TestAttachLocalTransports:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
+        mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self.station.is_hybrid_mode = True
         mock_self._local_transport_configs = [
             {
@@ -439,7 +440,7 @@ class TestAttachLocalTransports:
             )
 
         # Verify attachment was called
-        mock_self.station.attach_local_transports.assert_called_once_with([mock_config])
+        mock_self._attach_owned_transports.assert_awaited_once_with([mock_config])
 
 
 class TestAttachRetryAndDegradedFallback:
@@ -480,6 +481,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
+        mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._local_transport_configs = [
             {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
@@ -499,6 +501,7 @@ class TestAttachRetryAndDegradedFallback:
 
         assert mock_self._failed_attach_serials == {"SYNTH00002"}
         assert mock_self._local_transports_attached is True
+        mock_self._attach_owned_transports.assert_awaited_once_with([cfg])
         issue_ids = [c.args[2] for c in mock_ir.async_create_issue.call_args_list]
         assert "transport_attach_failed_SYNTH00002" in issue_ids
 
@@ -521,6 +524,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
+        mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._local_transport_configs = [
             {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
@@ -539,6 +543,7 @@ class TestAttachRetryAndDegradedFallback:
             )
 
         assert mock_self._failed_attach_serials == set()
+        mock_self._attach_owned_transports.assert_awaited_once_with([cfg])
         deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
         assert "transport_attach_failed_SYNTH00002" in deleted
 
@@ -558,6 +563,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
+        mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._last_attach_retry = 0.0
         mock_self._local_transport_configs = [
@@ -574,7 +580,7 @@ class TestAttachRetryAndDegradedFallback:
         ):
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
 
-        mock_self.station.attach_local_transports.assert_awaited_once_with([cfg])
+        mock_self._attach_owned_transports.assert_awaited_once_with([cfg])
         assert mock_self._failed_attach_serials == set()
         deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
         assert "transport_attach_failed_SYNTH00002" in deleted
@@ -596,6 +602,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
+        mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._last_attach_retry = 0.0
         mock_self._local_transport_configs = [
@@ -613,6 +620,7 @@ class TestAttachRetryAndDegradedFallback:
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
 
         assert mock_self._failed_attach_serials == {"SYNTH00002"}
+        mock_self._attach_owned_transports.assert_awaited_once_with([cfg])
         mock_ir.async_delete_issue.assert_not_called()
         mock_self._configure_attached_devices.assert_not_called()
 
@@ -651,6 +659,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
+        mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._failed_attach_serials = {"SYNTH00002"}
         mock_self._last_attach_retry = None
         mock_self._local_transport_configs = [
@@ -671,7 +680,7 @@ class TestAttachRetryAndDegradedFallback:
         ):
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
 
-        mock_self.station.attach_local_transports.assert_awaited_once_with([cfg])
+        mock_self._attach_owned_transports.assert_awaited_once_with([cfg])
         assert mock_self._last_attach_retry == 1.0
 
     @pytest.mark.asyncio
@@ -887,6 +896,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self.station.attach_local_transports = AsyncMock(
             return_value=attach_result
         )
+        mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._failed_attach_serials = {"1111111111"}
         mock_self._last_attach_retry = 0.0
         mock_self._local_transport_configs = [
@@ -910,6 +920,8 @@ class TestAttachRetryAndDegradedFallback:
             patch("custom_components.eg4_web_monitor.coordinator_local.ir"),
         ):
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
+
+        mock_self._attach_owned_transports.assert_awaited_once_with([cfg])
 
         # Recovery task scheduled with ONLY the recovered inverter for the
         # drain, plus its serial for the param reload (drain-then-reload
@@ -1046,10 +1058,11 @@ class TestTransportLinkDown:
     def _transport(
         transport_type: str = "modbus_tcp", host: str = "192.168.1.50"
     ) -> MagicMock:
-        transport = MagicMock(spec=["transport_type", "host", "port"])
+        transport = MagicMock(spec=["transport_type", "host", "port", "status"])
         transport.transport_type = transport_type
         transport.host = host
         transport.port = 502
+        transport.status = MagicMock(owner_identity=1)
         return transport
 
     @classmethod

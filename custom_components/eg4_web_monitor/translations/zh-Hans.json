@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "无法连接到 {brand_name} Web Monitor。请检查您的网络连接并重试。",
+      "endpoint_in_use": "此本地端点已被一个已加载的条目使用。请先卸载该条目，再重新尝试发现。",
       "invalid_auth": "用户名或密码无效。请检查您的凭据并重试。",
       "unknown": "发生意外错误。请重试或查看日志以获取更多详情。",
       "no_plants": "在您的账户中未找到太阳能电站/电厂。请确保您在 {brand_name} Web Monitor 账户中至少配置了一个电站。",

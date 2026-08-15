@@ -613,31 +613,6 @@ class TestCoordinatorCleanup:
         mock_transport_1.disconnect.assert_awaited_once()
         mock_transport_2.disconnect.assert_awaited_once()
 
-    async def test_async_shutdown_disconnects_legacy_transports(
-        self, hass, mock_config_entry
-    ):
-        """Test async_shutdown disconnects legacy _modbus_transport/_dongle_transport.
-
-        Old single-device config entries store transports on the coordinator
-        directly.  These must also be disconnected during shutdown.
-        """
-        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-
-        mock_modbus = MagicMock()
-        mock_modbus.is_connected = True
-        mock_modbus.disconnect = AsyncMock()
-        coordinator._modbus_transport = mock_modbus
-
-        mock_dongle = MagicMock()
-        mock_dongle.is_connected = True
-        mock_dongle.disconnect = AsyncMock()
-        coordinator._dongle_transport = mock_dongle
-
-        await coordinator.async_shutdown()
-
-        mock_modbus.disconnect.assert_awaited_once()
-        mock_dongle.disconnect.assert_awaited_once()
-
     async def test_async_shutdown_disconnects_station_only_transports(
         self, hass, mock_config_entry
     ):
@@ -1460,6 +1435,9 @@ class TestDeferredLocalParameters:
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
         mock_inverter._transport = make_transport_spec(is_connected=True)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            return_value=mock_inverter.transport
+        )
 
         coordinator._inverter_cache["1234567890"] = mock_inverter
         coordinator._firmware_cache["1234567890"] = "TEST-FW"
@@ -8772,12 +8750,32 @@ class TestQuickChargeOffgridCloudStatus:
         self, hass, mock_config_entry, *, active: bool = True
     ) -> EG4DataUpdateCoordinator:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            side_effect=lambda candidate, **kwargs: candidate
+        )
         client = MagicMock()
         client.api.control.get_quick_charge_status = AsyncMock(
             return_value=self._cloud_status(active)
         )
         coordinator.client = client
         return coordinator
+
+    async def test_foreign_transport_is_not_driven_for_local_duration(
+        self, hass, mock_config_entry
+    ):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        coordinator._endpoint_bus_registry.validate_capability.side_effect = None
+        coordinator._endpoint_bus_registry.validate_capability.return_value = None
+        inverter = self._offgrid_inverter()
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        inverter.transport.read_parameters.assert_not_awaited()
+        assert target["quick_charge_status"]["quickChargeMinute"] is None
 
     async def test_fetch_uses_cloud_for_offgrid_hybrid(self, hass, mock_config_entry):
         """Offgrid + transport + cloud client -> cloud getStatusInfo is the
