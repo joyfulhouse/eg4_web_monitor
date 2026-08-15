@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Callable, Collection, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, TypeVar, cast
 
 from pylxpweb.transports import create_transport_from_config
 from pylxpweb.transports.capabilities import TransportCapabilities
@@ -103,6 +103,21 @@ RawTransportFactory = Callable[[TransportConfig], _RawLocalTransport]
 ENDPOINT_BUS_REGISTRY_DATA = "eg4_web_monitor_endpoint_bus_registry"
 MAX_ENDPOINT_WAITERS = 64
 ENDPOINT_ACQUIRE_TIMEOUT_SECONDS = 10.0
+_T = TypeVar("_T")
+
+
+async def _await_settled(future: asyncio.Future[_T]) -> _T:
+    """Shield a terminal future until settlement, then propagate cancellation."""
+    cancellation: asyncio.CancelledError | None = None
+    while not future.done():
+        try:
+            await asyncio.shield(future)
+        except asyncio.CancelledError as error:
+            cancellation = error
+    result = await future
+    if cancellation is not None:
+        raise cancellation
+    return result
 
 
 def _default_raw_transport_factory(config: TransportConfig) -> _RawLocalTransport:
@@ -418,15 +433,7 @@ class EndpointBusCapability:
         if self._shutdown_task is None:
             self._owner.begin_shutdown(self._token)
             self._shutdown_task = asyncio.create_task(self._owner.shutdown(self._token))
-        cancellation: asyncio.CancelledError | None = None
-        while not self._shutdown_task.done():
-            try:
-                await asyncio.shield(self._shutdown_task)
-            except asyncio.CancelledError as error:
-                cancellation = error
-        await self._shutdown_task
-        if cancellation is not None:
-            raise cancellation
+        await _await_settled(self._shutdown_task)
 
     async def read_runtime(self) -> Any:
         return await self._owner.invoke(self._token, "read_runtime")
@@ -535,15 +542,7 @@ class EndpointBusRegistry:
             *(capability.async_shutdown() for capability in closing),
             return_exceptions=True,
         )
-        cancellation: asyncio.CancelledError | None = None
-        while not batch.done():
-            try:
-                await asyncio.shield(batch)
-            except asyncio.CancelledError as error:
-                cancellation = error
-        results = await batch
-        if cancellation is not None:
-            raise cancellation
+        results = await _await_settled(batch)
         failures = [result for result in results if isinstance(result, BaseException)]
         if failures:
             raise BaseExceptionGroup("Endpoint shutdown failures", failures)
