@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "Impossible de se connecter a {brand_name} Web Monitor. Veuillez verifier votre connexion reseau et reessayer.",
+      "endpoint_in_use": "Ce point de terminaison local est déjà utilisé par une entrée chargée. Déchargez cette entrée avant de relancer la détection.",
       "invalid_auth": "Nom d'utilisateur ou mot de passe invalide. Veuillez verifier vos identifiants et reessayer.",
       "unknown": "Une erreur inattendue s'est produite. Veuillez reessayer ou consulter les journaux pour plus de details.",
       "no_plants": "Aucune station/installation solaire trouvee dans votre compte. Veuillez vous assurer qu'au moins une station est configuree dans votre compte {brand_name} Web Monitor.",

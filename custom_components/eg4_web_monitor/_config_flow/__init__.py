@@ -68,7 +68,7 @@ from .schemas import (
 )
 from .serial_ports import build_port_selector_options, list_serial_ports
 from ..cloud_session import async_close_client_session
-from ..endpoint_bus import get_endpoint_bus_registry
+from ..endpoint_bus import EndpointOwnerInUseError, get_endpoint_bus_registry
 from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
@@ -512,6 +512,8 @@ class EG4ConfigFlow(
                     )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
+                except EndpointOwnerInUseError:
+                    errors["base"] = "endpoint_in_use"
                 except (OSError, TransportError) as err:
                     _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"
@@ -582,6 +584,8 @@ class EG4ConfigFlow(
                     )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
+                except EndpointOwnerInUseError:
+                    errors["base"] = "endpoint_in_use"
                 except (OSError, TransportError) as err:
                     _LOGGER.warning("Dongle discovery failed: %s", err)
                     errors["base"] = "dongle_connection_failed"
@@ -1132,6 +1136,8 @@ class EG4ConfigFlow(
                     )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
+                except EndpointOwnerInUseError:
+                    errors["base"] = "endpoint_in_use"
                 except (OSError, TransportError) as err:
                     _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"
@@ -1206,6 +1212,8 @@ class EG4ConfigFlow(
                     )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
+                except EndpointOwnerInUseError:
+                    errors["base"] = "endpoint_in_use"
                 except (OSError, TransportError) as err:
                     _LOGGER.warning("Dongle discovery failed: %s", err)
                     errors["base"] = "dongle_connection_failed"
@@ -1347,6 +1355,8 @@ class EG4ConfigFlow(
             )
         except TimeoutError:
             errors["base"] = "serial_timeout"
+        except EndpointOwnerInUseError:
+            errors["base"] = "endpoint_in_use"
         except PermissionError:
             errors["base"] = "serial_permission_denied"
         except OSError as ex:

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from builtins import ExceptionGroup
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, get_protocol_members
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -26,6 +27,7 @@ from custom_components.eg4_web_monitor._config_flow.discovery import (
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.endpoint_bus import (
+    EndpointBusCapability,
     EndpointBusRegistry,
     EndpointOwnerClosingError,
 )
@@ -147,6 +149,11 @@ class _TerminalFakeRawTransport(_FakeRawTransport):
         self.shutdown_calls += 1
         await self.shutdown_release.wait()
         self.is_connected = False
+
+
+class _InstrumentedTerminalFakeRawTransport(_FakeRawTransport):
+    async def async_shutdown(self) -> None:
+        await self._probe.run("async_shutdown")
 
 
 def _config(
@@ -481,6 +488,122 @@ async def test_terminal_shutdown_interrupts_nonreturning_wire_operation() -> Non
 
 
 @pytest.mark.asyncio
+async def test_unrelated_terminal_close_waits_for_active_endpoint_wire() -> None:
+    probe = _WireProbe()
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: _InstrumentedTerminalFakeRawTransport(
+            config, probe
+        )
+    )
+    active_capability = registry.create_capability(_config("SYNTH00001"))
+    closing_capability = registry.create_capability(_config("SYNTH00002"))
+    probe.release.clear()
+    active = asyncio.create_task(active_capability.read_runtime())
+    await probe.started.wait()
+
+    closing = asyncio.create_task(closing_capability.async_shutdown())
+    await asyncio.sleep(0)
+    operations_before_release = [name for name, _ in probe.operations]
+    max_before_release = probe.max_in_flight
+    probe.release.set()
+    await asyncio.gather(active, closing)
+    await active_capability.async_shutdown()
+
+    assert operations_before_release == ["read_runtime"]
+    assert max_before_release == 1
+    assert probe.max_in_flight == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_terminal_closes_are_endpoint_serialized() -> None:
+    probe = _WireProbe()
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: _InstrumentedTerminalFakeRawTransport(
+            config, probe
+        )
+    )
+    first = registry.create_capability(_config("SYNTH00001"))
+    second = registry.create_capability(_config("SYNTH00002"))
+    probe.release.clear()
+
+    closing = asyncio.create_task(registry.async_shutdown_capabilities((first, second)))
+    await probe.started.wait()
+    await asyncio.sleep(0)
+    operations_before_release = [name for name, _ in probe.operations]
+    max_before_release = probe.max_in_flight
+    probe.release.set()
+    await closing
+
+    assert operations_before_release == ["async_shutdown"]
+    assert max_before_release == 1
+    assert probe.max_in_flight == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_shutdown_settles_siblings_before_aggregating_failure() -> None:
+    probe = _WireProbe()
+    delayed_release = asyncio.Event()
+    delayed_started = asyncio.Event()
+    delayed_finished = False
+
+    class OutcomeTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            nonlocal delayed_finished
+            if self.serial == "SYNTH00001":
+                raise RuntimeError("synthetic terminal failure")
+            delayed_started.set()
+            await delayed_release.wait()
+            delayed_finished = True
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: OutcomeTransport(config, probe)
+    )
+    failing = registry.create_capability(_config("SYNTH00001"))
+    delayed = registry.create_capability(_config("SYNTH00002"))
+    closing = asyncio.create_task(
+        registry.async_shutdown_capabilities((failing, delayed))
+    )
+    await delayed_started.wait()
+    await asyncio.sleep(0)
+    completed_before_release = closing.done()
+    delayed_release.set()
+
+    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
+        await closing
+
+    assert completed_before_release is False
+    assert delayed_finished is True
+    assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
+
+
+@pytest.mark.asyncio
+async def test_expired_endpoint_waiter_never_reaches_wire_and_slot_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(endpoint_bus, "ENDPOINT_ACQUIRE_TIMEOUT_SECONDS", 0.01)
+    probe = _WireProbe()
+    registry = _registry({"gateway.example.invalid": probe})
+    active_capability = registry.create_capability(_config("SYNTH00001"))
+    waiting_capability = registry.create_capability(_config("SYNTH00002"))
+    probe.release.clear()
+    active = asyncio.create_task(active_capability.read_runtime())
+    await probe.started.wait()
+
+    with pytest.raises(endpoint_bus.EndpointAdmissionError):
+        await asyncio.wait_for(waiting_capability.read_energy(), timeout=0.1)
+
+    probe.release.set()
+    await active
+    await waiting_capability.read_battery()
+
+    assert [name for name, _ in probe.operations] == [
+        "read_runtime",
+        "read_battery",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_endpoint_admission_fails_fast_after_bounded_waiters() -> None:
     probe = _WireProbe()
     registry = _registry({"gateway.example.invalid": probe})
@@ -652,6 +775,68 @@ async def test_repeated_failed_hybrid_attach_discards_every_attempt() -> None:
     assert len(capabilities) == 1
     assert registry.owner_count == 1
     await registry.async_shutdown_capabilities(capabilities)
+
+
+@pytest.mark.asyncio
+async def test_failed_hybrid_cleanup_settles_and_discards_tracking() -> None:
+    probe = _WireProbe()
+    delayed_release = asyncio.Event()
+    delayed_started = asyncio.Event()
+
+    class OutcomeTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            if self.serial == "SYNTH00001":
+                raise RuntimeError("synthetic terminal failure")
+            delayed_started.set()
+            await delayed_release.wait()
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: OutcomeTransport(config, probe)
+    )
+    capabilities: set[EndpointBusCapability] = set()
+
+    def create(config: TransportConfig) -> EndpointBusCapability:
+        capability = registry.create_capability(config)
+        capabilities.add(capability)
+        return capability
+
+    async def attach(configs: list[Any], *, transport_factory: Any) -> Any:
+        for config in configs:
+            transport_factory(config)
+        return SimpleNamespace(
+            matched=0,
+            failed=2,
+            failed_serials=[config.serial for config in configs],
+            unmatched_serials=[],
+        )
+
+    coordinator = SimpleNamespace(
+        station=SimpleNamespace(
+            all_inverters=[],
+            all_mid_devices=[],
+            attach_local_transports=attach,
+        ),
+        _create_bus_capability=create,
+        _endpoint_bus_registry=registry,
+        _bus_capabilities=capabilities,
+    )
+    cleanup = asyncio.create_task(
+        EG4DataUpdateCoordinator._attach_owned_transports(
+            coordinator,
+            [_config("SYNTH00001"), _config("SYNTH00002")],
+        )
+    )
+    await delayed_started.wait()
+    await asyncio.sleep(0)
+    completed_before_release = cleanup.done()
+    delayed_release.set()
+
+    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
+        await cleanup
+
+    assert completed_before_release is False
+    assert capabilities == set()
+    assert registry.owner_count == 0
 
 
 @pytest.mark.asyncio
@@ -866,12 +1051,16 @@ def _audit_supported_source(
     source: str,
     *,
     owner_module: bool,
-    declared_capability_consumer: bool = False,
 ) -> list[str]:
     """Audit statically supported escape shapes, not dynamic Python execution."""
     tree = ast.parse(source)
+    if owner_module:
+        return []
     aliases: dict[str, str] = {}
     violations: list[str] = []
+    parents = {
+        child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
+    }
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -889,62 +1078,210 @@ def _audit_supported_source(
             return f"{parent}.{node.attr}" if parent else node.attr
         return None
 
+    function_types = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+    def enclosing_function(node: ast.AST) -> ast.AST | None:
+        parent = parents.get(node)
+        while parent is not None and not isinstance(parent, function_types):
+            parent = parents.get(parent)
+        return parent
+
+    capability_names: dict[ast.AST, set[str]] = {}
+    raw_names: dict[ast.AST | None, set[str]] = {}
+
+    for node in ast.walk(tree):
+        if not isinstance(node, function_types):
+            continue
+        names = capability_names.setdefault(node, set())
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        ):
+            if (
+                argument.annotation is not None
+                and "EndpointBusCapability" in ast.unparse(argument.annotation)
+            ):
+                names.add(argument.arg)
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        called = qualified_name(node.func)
+        called_name = called.rsplit(".", 1)[-1] if called else ""
+        scope = enclosing_function(node)
+        checked_type = qualified_name(node.args[1]) if len(node.args) >= 2 else None
+        if (
+            called_name == "isinstance"
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Name)
+            and checked_type is not None
+            and checked_type.endswith("EndpointBusCapability")
+        ):
+            capability_names.setdefault(scope, set()).add(node.args[0].id)
+
+    def is_raw_expression(node: ast.expr, scope: ast.AST | None) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in raw_names.get(scope, set())
+        if isinstance(node, ast.Attribute):
+            return node.attr in _RAW_ESCAPE_ATTRIBUTES
+        if not isinstance(node, ast.Call):
+            return False
+        called = qualified_name(node.func)
+        called_name = called.rsplit(".", 1)[-1] if called else ""
+        if called_name in _RAW_CONSTRUCTORS:
+            return True
+        return (
+            called_name == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in _RAW_ESCAPE_ATTRIBUTES
+        )
+
+    assignments = [
+        node for node in ast.walk(tree) if isinstance(node, (ast.Assign, ast.AnnAssign))
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for node in assignments:
+            value = node.value
+            if value is None:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            scope = enclosing_function(node)
+            if (
+                isinstance(node, ast.AnnAssign)
+                and node.annotation is not None
+                and "EndpointBusCapability" in ast.unparse(node.annotation)
+            ):
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        capability_names.setdefault(scope, set()).add(target.id)
+            if isinstance(value, ast.Call):
+                called = qualified_name(value.func)
+                called_name = called.rsplit(".", 1)[-1] if called else ""
+                if called_name in {
+                    "create_capability",
+                    "create_discovery_capability",
+                    "get_local_transport",
+                }:
+                    for target in targets:
+                        if isinstance(target, ast.Name):
+                            capability_names.setdefault(scope, set()).add(target.id)
+            if is_raw_expression(value, scope):
+                names = raw_names.setdefault(scope, set())
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in names:
+                        names.add(target.id)
+                        changed = True
+
+    def lambda_capability_call(node: ast.Call, receiver: ast.Name) -> bool:
+        scope = enclosing_function(node)
+        if not isinstance(scope, ast.Lambda):
+            return False
+        if receiver.id not in {argument.arg for argument in scope.args.args}:
+            return False
+        keyword = parents.get(scope)
+        outer_call = parents.get(keyword) if isinstance(keyword, ast.keyword) else None
+        if not isinstance(keyword, ast.keyword) or keyword.arg != "write":
+            return False
+        outer_name = (
+            qualified_name(outer_call.func)
+            if isinstance(outer_call, ast.Call)
+            else None
+        )
+        return outer_name is not None and outer_name.endswith(
+            "_write_with_local_transport"
+        )
+
+    def is_capability_receiver(node: ast.Call) -> bool:
+        if not isinstance(node.func, ast.Attribute):
+            return False
+        receiver = node.func.value
+        called = qualified_name(receiver)
+        if called is not None and ".api." in f"{called}.":
+            return True
+        if not isinstance(receiver, ast.Name):
+            return False
+        scope = enclosing_function(node)
+        return receiver.id in capability_names.get(
+            scope, set()
+        ) or lambda_capability_call(node, receiver)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             called = qualified_name(node.func)
             called_name = called.rsplit(".", 1)[-1] if called else ""
-            if not owner_module and called_name in _RAW_CONSTRUCTORS:
+            if called_name in _RAW_CONSTRUCTORS:
                 violations.append(f"raw-constructor:{node.lineno}")
-            if (
-                not owner_module
-                and not declared_capability_consumer
-                and called_name in _LOCAL_IO_METHODS
-                and (called is None or ".api." not in called)
-            ):
+            if called_name in _LOCAL_IO_METHODS and not is_capability_receiver(node):
                 violations.append(f"direct-local-io:{node.lineno}")
             if (
-                not owner_module
-                and called_name == "getattr"
+                called_name == "getattr"
                 and len(node.args) >= 2
                 and isinstance(node.args[1], ast.Constant)
                 and node.args[1].value in _RAW_ESCAPE_ATTRIBUTES
             ):
                 violations.append(f"dynamic-unwrap:{node.lineno}")
-        if (
-            not owner_module
-            and isinstance(node, ast.Attribute)
-            and node.attr in _RAW_ESCAPE_ATTRIBUTES
-        ):
-            violations.append(f"raw-retention-or-return:{node.lineno}")
+        if isinstance(node, ast.Attribute) and node.attr in _RAW_ESCAPE_ATTRIBUTES:
+            violations.append(f"private-state:{node.lineno}")
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if any(
+                isinstance(target, (ast.Attribute, ast.Subscript)) for target in targets
+            ):
+                scope = enclosing_function(node)
+                if is_raw_expression(node.value, scope):
+                    violations.append(f"generic-retention:{node.lineno}")
+        if isinstance(node, ast.Return) and node.value is not None:
+            scope = enclosing_function(node)
+            if is_raw_expression(node.value, scope):
+                violations.append(f"direct-return:{node.lineno}")
     return violations
 
 
 @pytest.mark.parametrize(
-    "source",
+    ("source", "expected"),
     [
-        "import pylxpweb.transports as pt\npt.create_modbus_transport()",
-        "from pylxpweb.transports import create_transport as factory\nfactory()",
-        "transport.read_runtime()",
-        "holder.raw_transport = transport",
-        "def leak():\n    return holder.raw_transport",
-        "getattr(holder, '_transport')",
-        "holder._op_lock = lock",
+        (
+            "import pylxpweb.transports as pt\npt.create_modbus_transport()",
+            "raw-constructor",
+        ),
+        (
+            "from pylxpweb.transports import create_transport as factory\nfactory()",
+            "raw-constructor",
+        ),
+        ("async def leak(raw):\n    await raw.read_runtime()", "direct-local-io"),
+        (
+            "def leak(holder):\n"
+            "    raw = getattr(holder, '_transport')\n"
+            "    holder.cache = raw",
+            "generic-retention",
+        ),
+        (
+            "def leak(holder):\n"
+            "    raw = getattr(holder, '_transport')\n"
+            "    return raw",
+            "direct-return",
+        ),
+        ("getattr(holder, '_transport')", "dynamic-unwrap"),
+        ("holder._op_lock = lock", "private-state"),
     ],
 )
-def test_architecture_audit_detects_supported_escape_mutations(source: str) -> None:
-    assert _audit_supported_source(source, owner_module=False)
+def test_architecture_audit_detects_supported_escape_mutations(
+    source: str, expected: str
+) -> None:
+    violations = _audit_supported_source(
+        source,
+        owner_module=False,
+    )
+    assert any(violation.startswith(expected) for violation in violations)
 
 
 def test_architecture_rejects_raw_transport_escape_and_private_monkeypatch() -> None:
     root = Path(__file__).parents[1] / "custom_components" / "eg4_web_monitor"
     owner_path = root / "endpoint_bus.py"
-    capability_consumers = {
-        "_config_flow/discovery.py",
-        "coordinator.py",
-        "coordinator_http.py",
-        "coordinator_local.py",
-        "coordinator_mixins.py",
-    }
     violations: list[str] = []
 
     for path in sorted(root.rglob("*.py")):
@@ -952,7 +1289,6 @@ def test_architecture_rejects_raw_transport_escape_and_private_monkeypatch() -> 
         findings = _audit_supported_source(
             path.read_text(),
             owner_module=path == owner_path,
-            declared_capability_consumer=relative in capability_consumers,
         )
         violations.extend(f"{relative}:{finding}" for finding in findings)
 
@@ -972,3 +1308,13 @@ def test_architecture_rejects_raw_transport_escape_and_private_monkeypatch() -> 
     assert capability.provenance is LocalBusProvenance.LOCAL_BUS
     assert not hasattr(capability, "raw_transport")
     assert not hasattr(capability, "host")
+
+
+def test_capability_forwards_pinned_terminal_protocol_surface() -> None:
+    protocol_members = get_protocol_members(TerminalInverterTransport)
+    missing = {
+        member
+        for member in protocol_members
+        if not hasattr(EndpointBusCapability, member)
+    }
+    assert missing == set()

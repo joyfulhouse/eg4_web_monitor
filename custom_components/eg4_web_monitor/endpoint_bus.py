@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from builtins import BaseExceptionGroup
 from collections.abc import AsyncIterator, Callable, Collection, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -101,6 +102,7 @@ class _RawLocalTransport(Protocol):
 RawTransportFactory = Callable[[TransportConfig], _RawLocalTransport]
 ENDPOINT_BUS_REGISTRY_DATA = "eg4_web_monitor_endpoint_bus_registry"
 MAX_ENDPOINT_WAITERS = 64
+ENDPOINT_ACQUIRE_TIMEOUT_SECONDS = 10.0
 
 
 def _default_raw_transport_factory(config: TransportConfig) -> _RawLocalTransport:
@@ -132,18 +134,27 @@ class _TaskReentrantGate:
         self._wire_holds = 0
         self._waiters = 0
 
-    async def acquire(self) -> None:
+    async def acquire(self, *, deadline: bool = True) -> None:
         """Acquire or re-enter from the current task."""
         task = asyncio.current_task()
         if task is not None and task is self._owner and self._depth > 0:
             self._depth += 1
             return
         if self._lock.locked():
-            if self._waiters >= MAX_ENDPOINT_WAITERS:
+            if deadline and self._waiters >= MAX_ENDPOINT_WAITERS:
                 raise EndpointAdmissionError("Endpoint admission limit reached")
             self._waiters += 1
             try:
-                await self._lock.acquire()
+                if deadline:
+                    try:
+                        async with asyncio.timeout(ENDPOINT_ACQUIRE_TIMEOUT_SECONDS):
+                            await self._lock.acquire()
+                    except TimeoutError as err:
+                        raise EndpointAdmissionError(
+                            "Endpoint admission deadline exceeded"
+                        ) from err
+                else:
+                    await self._lock.acquire()
             finally:
                 self._waiters -= 1
         else:
@@ -160,6 +171,18 @@ class _TaskReentrantGate:
         """Keep the endpoint closed to successors until wire work terminates."""
         self._wire_holds += 1
         task.add_done_callback(self._wire_task_done)
+
+    def hold_if_locked(self) -> bool:
+        """Keep an active gate held across its token's terminal interrupt."""
+        if not self._lock.locked():
+            return False
+        self._wire_holds += 1
+        return True
+
+    def release_hold(self) -> None:
+        """Release a non-task hold reserved for terminal interruption."""
+        self._wire_holds -= 1
+        self._release_if_idle()
 
     def _wire_task_done(self, task: asyncio.Task[Any]) -> None:
         self._wire_holds -= 1
@@ -279,22 +302,29 @@ class _EndpointBusOwner:
         record = self._records.get(token)
         if record is None:
             return
+        wire_tasks = tuple(
+            task for task, task_token in self._wire_tasks.items() if task_token == token
+        )
+        interrupting = bool(wire_tasks) and self._gate.hold_if_locked()
+        acquired = False
         try:
+            if not interrupting:
+                await self._gate.acquire(deadline=False)
+                acquired = True
             terminal_shutdown = getattr(type(record.raw), "async_shutdown", None)
             if callable(terminal_shutdown):
                 await terminal_shutdown(record.raw)
             else:
                 await record.raw.disconnect()
         finally:
-            wire_tasks = tuple(
-                task
-                for task, task_token in self._wire_tasks.items()
-                if task_token == token
-            )
             for task in wire_tasks:
                 task.cancel()
             if wire_tasks:
                 await asyncio.gather(*wire_tasks, return_exceptions=True)
+            if acquired:
+                self._gate.release()
+            if interrupting:
+                self._gate.release_hold()
             self._records.pop(token, None)
             if not self._records:
                 self._state = _OwnerState.CLOSED
@@ -501,7 +531,22 @@ class EndpointBusRegistry:
         """Mark a capability set closing before awaiting terminal shutdown."""
         closing = tuple(capabilities)
         self.begin_shutdown_capabilities(closing)
-        await asyncio.gather(*(capability.async_shutdown() for capability in closing))
+        batch = asyncio.gather(
+            *(capability.async_shutdown() for capability in closing),
+            return_exceptions=True,
+        )
+        cancellation: asyncio.CancelledError | None = None
+        while not batch.done():
+            try:
+                await asyncio.shield(batch)
+            except asyncio.CancelledError as error:
+                cancellation = error
+        results = await batch
+        if cancellation is not None:
+            raise cancellation
+        failures = [result for result in results if isinstance(result, BaseException)]
+        if failures:
+            raise BaseExceptionGroup("Endpoint shutdown failures", failures)
 
     def begin_shutdown_capabilities(
         self, capabilities: Collection[EndpointBusCapability]

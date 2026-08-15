@@ -29,7 +29,7 @@ from ..const import (
     INVERTER_FAMILY_EG4_OFFGRID,
     INVERTER_FAMILY_LXP,
 )
-from ..endpoint_bus import EndpointBusRegistry
+from ..endpoint_bus import EndpointBusCapability, EndpointBusRegistry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def _get_model_from_device_type(device_type_code: int) -> tuple[str, str]:
 
 
 async def _read_device_info_from_transport(
-    transport: Any,
+    transport: EndpointBusCapability,
     serial: str,
 ) -> DiscoveredDevice:
     """Read device information from an already-connected transport.

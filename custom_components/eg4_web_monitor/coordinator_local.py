@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -473,7 +473,7 @@ class LocalTransportMixin(_MixinBase):
 
     async def _read_modbus_parameters(
         self,
-        transport: Any,
+        transport: EndpointBusCapability,
         device_data: dict[str, Any] | None = None,
         device: Any = None,
     ) -> tuple[dict[str, Any], bool]:
@@ -800,7 +800,7 @@ class LocalTransportMixin(_MixinBase):
 
     async def _async_update_local_transport_data(
         self,
-        transport: Any,
+        transport: EndpointBusCapability,
         serial: str,
         model: str,
         connection_type: str,
@@ -1480,7 +1480,7 @@ class LocalTransportMixin(_MixinBase):
                     getattr(self, "_param_retry_due", False)
                     and serial in self._param_retry_pending
                 )
-                param_transport = inverter.transport
+                param_transport = cast(EndpointBusCapability, inverter.transport)
                 if read_entity_params and param_transport:
                     self._param_attempted_this_cycle = True
                     parameter_read_generation = self._parameter_write_generation
@@ -2622,8 +2622,12 @@ class LocalTransportMixin(_MixinBase):
             }
             unadopted = created - adopted
             if unadopted:
-                await self._endpoint_bus_registry.async_shutdown_capabilities(unadopted)
-                self._bus_capabilities.difference_update(unadopted)
+                try:
+                    await self._endpoint_bus_registry.async_shutdown_capabilities(
+                        unadopted
+                    )
+                finally:
+                    self._bus_capabilities.difference_update(unadopted)
 
     async def _maybe_retry_failed_attaches(self) -> None:
         """Retry local-transport attaches that failed at setup (eg4-05l).

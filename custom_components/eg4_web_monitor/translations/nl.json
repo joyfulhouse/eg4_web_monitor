@@ -333,6 +333,7 @@
     },
     "error": {
       "cannot_connect": "Kan geen verbinding maken met {brand_name} Web Monitor. Controleer uw netwerkverbinding en probeer het opnieuw.",
+      "endpoint_in_use": "Dit lokale eindpunt wordt al gebruikt door een geladen invoer. Ontlaad die invoer voordat u de detectie opnieuw probeert.",
       "invalid_auth": "Ongeldige gebruikersnaam of wachtwoord. Controleer uw inloggegevens en probeer het opnieuw.",
       "unknown": "Er is een onverwachte fout opgetreden. Probeer het opnieuw of controleer de logboeken voor meer details.",
       "no_plants": "Geen zonnestations/installaties gevonden in uw account. Zorg ervoor dat u ten minste één station heeft geconfigureerd in uw {brand_name} Web Monitor-account.",

@@ -51,6 +51,7 @@ from .cloud_requests import (
     release_shared_cloud_request_budget,
     release_shared_firmware_status,
 )
+from .endpoint_bus import EndpointBusCapability
 from .coordinator_mappings import (
     CLOUD_SUPPLEMENTAL_LOST_KEYS,
     SMART_PORT_VALIDATED_KEY,
@@ -1318,8 +1319,9 @@ class DeviceProcessingMixin(_MixinBase):
         transport = getattr(inverter, "transport", None)
         if transport is None:
             return None
-        transport = inverter.transport
-        assert transport is not None
+        capability: EndpointBusCapability = cast(
+            EndpointBusCapability, inverter.transport
+        )
         if is_transport_link_down(inverter):
             _LOGGER.debug(
                 "Skipping reg 234 read for %s: local transport link is down "
@@ -1328,7 +1330,7 @@ class DeviceProcessingMixin(_MixinBase):
             )
             return None
         try:
-            regs = await transport.read_parameters(234, 1)
+            regs = await capability.read_parameters(234, 1)
             raw = regs.get(234)
             return int(raw) if raw is not None else None
         except Exception as e:

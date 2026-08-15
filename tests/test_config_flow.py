@@ -11,6 +11,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor._config_flow.discovery import detect_grid_type
 from custom_components.eg4_web_monitor._config_flow.helpers import timezone_observes_dst
+from custom_components.eg4_web_monitor.endpoint_bus import EndpointOwnerInUseError
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -866,6 +867,77 @@ class TestLocalDeviceTypeMenu:
         assert "local_dongle" in result["menu_options"]
         assert "local_serial" in result["menu_options"]
         assert "network_scan_config" in result["menu_options"]
+
+
+@pytest.mark.parametrize(
+    ("step_name", "discovery_name", "user_input"),
+    [
+        (
+            "local_modbus",
+            "discover_modbus_device",
+            {"modbus_host": "gateway.example.invalid", "modbus_port": 1502},
+        ),
+        (
+            "local_dongle",
+            "discover_dongle_device",
+            {
+                "dongle_host": "gateway.example.invalid",
+                "dongle_port": 18000,
+                "dongle_serial": "SYNTH10001",
+                "inverter_serial": "SYNTH00001",
+            },
+        ),
+        (
+            "local_serial",
+            "discover_serial_device",
+            {"serial_port": "loop://synthetic"},
+        ),
+        (
+            "reconfigure_add_modbus",
+            "discover_modbus_device",
+            {"modbus_host": "gateway.example.invalid", "modbus_port": 1502},
+        ),
+        (
+            "reconfigure_add_dongle",
+            "discover_dongle_device",
+            {
+                "dongle_host": "gateway.example.invalid",
+                "dongle_port": 18000,
+                "dongle_serial": "SYNTH10001",
+                "inverter_serial": "SYNTH00001",
+            },
+        ),
+        (
+            "reconfigure_add_serial",
+            "discover_serial_device",
+            {"serial_port": "loop://synthetic"},
+        ),
+    ],
+)
+async def test_owned_endpoint_discovery_maps_to_redacted_form_error(
+    hass: HomeAssistant,
+    step_name: str,
+    discovery_name: str,
+    user_input: dict[str, object],
+) -> None:
+    from custom_components.eg4_web_monitor._config_flow import EG4ConfigFlow
+
+    flow = EG4ConfigFlow()
+    flow.hass = hass
+    with (
+        patch(
+            f"custom_components.eg4_web_monitor._config_flow.{discovery_name}",
+            new=AsyncMock(side_effect=EndpointOwnerInUseError("redacted")),
+        ),
+        patch(
+            "custom_components.eg4_web_monitor._config_flow.list_serial_ports",
+            return_value=[],
+        ),
+    ):
+        result = await getattr(flow, f"async_step_{step_name}")(user_input)
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"base": "endpoint_in_use"}
 
 
 # =====================================================
