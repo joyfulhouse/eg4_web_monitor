@@ -549,6 +549,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
                 DOMAIN,
                 f"duplicate_cloud_entry_{config_entry.entry_id}",
                 is_fixable=False,
+                is_persistent=True,
                 severity=ir.IssueSeverity.ERROR,
                 translation_key="duplicate_cloud_entry",
                 translation_placeholders={
@@ -1593,3 +1594,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
         PV_STRING_LIFETIME_STORAGE_VERSION,
         f"{PV_STRING_LIFETIME_STORAGE_KEY}_{entry.entry_id}",
     ).async_remove()
+
+    # Removing the losing entry is the recovery this entry's duplicate Repair
+    # asks the user to perform, so clear that Repair here (no-op when none exists).
+    ir.async_delete_issue(hass, DOMAIN, f"duplicate_cloud_entry_{entry.entry_id}")

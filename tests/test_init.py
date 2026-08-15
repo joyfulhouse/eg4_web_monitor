@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import MockConfigEntry, flush_store
 
 from custom_components.eg4_web_monitor import (
     PLATFORMS,
@@ -1665,3 +1665,38 @@ class TestAsyncMigrateEntry:
         assert duplicate.version == 3
         assert duplicate.unique_id == "user@example.com_12345"
         assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+    async def test_removing_losing_entry_dismisses_repair(self, hass: HomeAssistant):
+        """Removing the losing entry — the Repair's advised recovery — clears it."""
+        _owner, duplicate = self._cloud_conflict_pair(hass)
+        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
+
+        assert await async_migrate_entry(hass, duplicate) is False
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+        # Delete the losing entry through the real Home Assistant removal path.
+        await hass.config_entries.async_remove(duplicate.entry_id)
+
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
+
+    async def test_duplicate_repair_survives_registry_reload(
+        self, hass: HomeAssistant, hass_storage
+    ):
+        """The actionable Repair persists across a registry reload (restart)."""
+        _owner, duplicate = self._cloud_conflict_pair(hass)
+        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
+
+        assert await async_migrate_entry(hass, duplicate) is False
+
+        registry = ir.async_get(hass)
+        await flush_store(registry._store)
+
+        # Simulate a restart: a fresh registry restores issues from storage.
+        reloaded = ir.IssueRegistry(hass)
+        await reloaded.async_load()
+
+        issue = reloaded.async_get_issue(DOMAIN, issue_id)
+        assert issue is not None
+        assert issue.active is True
+        assert issue.severity == ir.IssueSeverity.ERROR
+        assert issue.translation_key == "duplicate_cloud_entry"
