@@ -58,6 +58,7 @@ from .coordinator import (
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     SMART_PORT_VALIDATED_KEY,
+    _build_transport_configs,
 )
 
 # Home Assistant resolves the per-device Delete hook by name on the
@@ -1258,7 +1259,9 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # retained by a test harness or an interrupted previous setup attempt.
     entry.runtime_data = None  # type: ignore[assignment]
 
-    await get_endpoint_bus_registry(hass).async_retry_failed_shutdowns()
+    await get_endpoint_bus_registry(hass).async_retry_failed_shutdowns(
+        _build_transport_configs(list(entry.data.get(CONF_LOCAL_TRANSPORTS, [])))
+    )
 
     # Force-migrate: add HTTP polling interval for existing entries
     # and bump HTTP-only users below 60s minimum to 90s default

@@ -257,7 +257,7 @@ async def discover_modbus_device(
         return device
 
     finally:
-        await transport.async_shutdown()
+        await endpoint_bus_registry.async_shutdown_capabilities((transport,))
 
 
 async def discover_dongle_device(
@@ -327,7 +327,7 @@ async def discover_dongle_device(
         return device
 
     finally:
-        await transport.async_shutdown()
+        await endpoint_bus_registry.async_shutdown_capabilities((transport,))
 
 
 async def discover_serial_device(
@@ -400,7 +400,7 @@ async def discover_serial_device(
         return device
 
     finally:
-        await transport.async_shutdown()
+        await endpoint_bus_registry.async_shutdown_capabilities((transport,))
 
 
 def detect_grid_type(device: DiscoveredDevice) -> str:

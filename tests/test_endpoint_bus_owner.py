@@ -25,8 +25,11 @@ from custom_components.eg4_web_monitor.bus_eligibility import (
 import custom_components.eg4_web_monitor as integration
 from custom_components.eg4_web_monitor import endpoint_bus
 from custom_components.eg4_web_monitor._config_flow.discovery import (
+    discover_dongle_device,
     discover_modbus_device,
+    discover_serial_device,
 )
+from custom_components.eg4_web_monitor.const import CONF_LOCAL_TRANSPORTS
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.endpoint_bus import (
     EndpointBusCapability,
@@ -789,7 +792,14 @@ async def test_coordinator_unload_marks_all_capabilities_before_immediate_reload
         _mid_device_cache={},
         station=SimpleNamespace(all_inverters=[DetachingDevice()], all_mid_devices=[]),
         _bus_capabilities={first, second},
+        _bus_capability_configs={
+            first: _config("SYNTH00001"),
+            second: _config("SYNTH00002"),
+        },
         _endpoint_bus_registry=registry,
+    )
+    coordinator._prune_bus_capability_tracking = lambda: (
+        EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
 
     unloading = asyncio.create_task(
@@ -838,7 +848,11 @@ async def test_unload_cancellation_waits_for_detach_and_terminal_close() -> None
         _mid_device_cache={},
         station=SimpleNamespace(all_inverters=[DetachingDevice()], all_mid_devices=[]),
         _bus_capabilities=capabilities,
+        _bus_capability_configs={capability: _config("SYNTH00001")},
         _endpoint_bus_registry=registry,
+    )
+    coordinator._prune_bus_capability_tracking = lambda: (
+        EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
     unloading = asyncio.create_task(
         EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
@@ -856,7 +870,7 @@ async def test_unload_cancellation_waits_for_detach_and_terminal_close() -> None
 
 
 @pytest.mark.asyncio
-async def test_unload_aggregates_cancellation_before_terminal_failure() -> None:
+async def test_unload_preserves_native_cancellation_with_terminal_failure() -> None:
     probe = _WireProbe()
     detach_started = asyncio.Event()
     detach_release = asyncio.Event()
@@ -873,13 +887,18 @@ async def test_unload_aggregates_cancellation_before_terminal_failure() -> None:
     registry = EndpointBusRegistry(
         raw_transport_factory=lambda config: FailingTerminalTransport(config, probe)
     )
-    capability = registry.create_capability(_config("SYNTH00001"))
+    config = _config("SYNTH00001")
+    capability = registry.create_capability(config)
     coordinator = SimpleNamespace(
         _inverter_cache={},
         _mid_device_cache={},
         station=SimpleNamespace(all_inverters=[DetachingDevice()], all_mid_devices=[]),
         _bus_capabilities={capability},
+        _bus_capability_configs={capability: config},
         _endpoint_bus_registry=registry,
+    )
+    coordinator._prune_bus_capability_tracking = lambda: (
+        EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
     unloading = asyncio.create_task(
         EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
@@ -888,13 +907,13 @@ async def test_unload_aggregates_cancellation_before_terminal_failure() -> None:
     unloading.cancel()
     detach_release.set()
 
-    with pytest.raises(BaseExceptionGroup) as raised:
+    with pytest.raises(asyncio.CancelledError) as raised:
         await unloading
 
-    assert [type(error) for error in raised.value.exceptions] == [
-        asyncio.CancelledError,
-        RuntimeError,
-    ]
+    assert unloading.cancelled() is True
+    terminal_failures = raised.value.__cause__
+    assert isinstance(terminal_failures, BaseExceptionGroup)
+    assert [type(error) for error in terminal_failures.exceptions] == [RuntimeError]
     assert registry.owner_count == 1
     assert registry.tombstone_count == 1
 
@@ -917,13 +936,18 @@ async def test_ha_registry_retries_failed_unload_after_coordinator_disposal() ->
     )
     hass.data[endpoint_bus.ENDPOINT_BUS_REGISTRY_DATA] = registry
     assert endpoint_bus.get_endpoint_bus_registry(hass) is registry
-    capability = registry.create_capability(_config("SYNTH00001"))
+    config = _config("SYNTH00001")
+    capability = registry.create_capability(config)
     coordinator = SimpleNamespace(
         _inverter_cache={},
         _mid_device_cache={},
         station=None,
         _bus_capabilities={capability},
+        _bus_capability_configs={capability: config},
         _endpoint_bus_registry=registry,
+    )
+    coordinator._prune_bus_capability_tracking = lambda coordinator=coordinator: (
+        EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
 
     with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
@@ -932,7 +956,7 @@ async def test_ha_registry_retries_failed_unload_after_coordinator_disposal() ->
 
     with pytest.raises(EndpointOwnerClosingError):
         registry.create_capability(_config("SYNTH00002"))
-    await registry.async_retry_failed_shutdowns()
+    await registry.async_retry_failed_shutdowns((config,))
 
     assert attempts == 2
     assert registry.owner_count == 0
@@ -944,7 +968,17 @@ async def test_setup_retries_ha_scoped_terminal_failure_before_coordinator() -> 
     retry = AsyncMock(side_effect=RuntimeError("synthetic retry failure"))
     registry = SimpleNamespace(async_retry_failed_shutdowns=retry)
     hass = SimpleNamespace()
-    entry = SimpleNamespace(entry_id="synthetic-entry", runtime_data=object())
+    local_config = {
+        "host": "gateway.example.invalid",
+        "port": 1502,
+        "serial": "SYNTH00001",
+        "transport_type": "modbus_tcp",
+    }
+    entry = SimpleNamespace(
+        entry_id="synthetic-entry",
+        runtime_data=object(),
+        data={CONF_LOCAL_TRANSPORTS: [local_config]},
+    )
 
     with (
         patch.object(integration, "get_endpoint_bus_registry", return_value=registry),
@@ -957,8 +991,112 @@ async def test_setup_retries_ha_scoped_terminal_failure_before_coordinator() -> 
     ):
         await integration._async_setup_entry(hass, entry)
 
-    retry.assert_awaited_once_with()
+    retry.assert_awaited_once()
+    (configs,) = retry.await_args.args
+    assert len(configs) == 1
+    assert configs[0].host == "gateway.example.invalid"
+    assert configs[0].port == 1502
     assert entry.runtime_data is None
+
+
+@pytest.mark.asyncio
+async def test_failed_shutdown_retry_is_isolated_to_requested_endpoint() -> None:
+    probe = _WireProbe()
+    attempts: dict[str, int] = {}
+
+    class EndpointOutcomeTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            host = str(self.host)
+            attempts[host] = attempts.get(host, 0) + 1
+            if host == "blocked.example.invalid" or attempts[host] == 1:
+                raise RuntimeError("synthetic terminal failure")
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: EndpointOutcomeTransport(config, probe)
+    )
+    blocked_config = _config("SYNTH00001", host="blocked.example.invalid")
+    recoverable_config = _config("SYNTH00002", host="ready.example.invalid")
+    blocked = registry.create_capability(blocked_config)
+    recoverable = registry.create_capability(recoverable_config)
+
+    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
+        await registry.async_shutdown_capabilities((blocked, recoverable))
+
+    await registry.async_retry_failed_shutdowns((recoverable_config,))
+
+    assert attempts == {
+        "blocked.example.invalid": 1,
+        "ready.example.invalid": 2,
+    }
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("discovery", "kwargs", "expected_config"),
+    [
+        (
+            discover_modbus_device,
+            {"host": "gateway.example.invalid", "port": 1502},
+            _config("discovery"),
+        ),
+        (
+            discover_dongle_device,
+            {
+                "host": "gateway.example.invalid",
+                "port": 1502,
+                "dongle_serial": "SYNTH-DONGLE",
+                "inverter_serial": "SYNTH00001",
+            },
+            TransportConfig(
+                host="gateway.example.invalid",
+                port=1502,
+                serial="SYNTH00001",
+                transport_type=TransportType.WIFI_DONGLE,
+                dongle_serial="SYNTH-DONGLE",
+            ),
+        ),
+        (
+            discover_serial_device,
+            {"port": "loop://synthetic"},
+            _config(
+                "discovery",
+                host="",
+                port=0,
+                transport_type=TransportType.MODBUS_SERIAL,
+            ),
+        ),
+    ],
+)
+async def test_discovery_terminal_failure_remains_ha_retryable(
+    discovery: Any,
+    kwargs: dict[str, Any],
+    expected_config: TransportConfig,
+) -> None:
+    probe = _WireProbe()
+    attempts = 0
+
+    class FailOnceTerminalTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("synthetic terminal failure")
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: FailOnceTerminalTransport(config, probe)
+    )
+
+    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
+        await discovery(endpoint_bus_registry=registry, **kwargs)
+
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+    await registry.async_retry_failed_shutdowns((expected_config,))
+    assert attempts == 2
+    assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
 
 
 @pytest.mark.asyncio
@@ -1113,12 +1251,8 @@ async def test_repeated_failed_hybrid_attach_discards_every_attempt() -> None:
         return raw
 
     registry = EndpointBusRegistry(raw_transport_factory=factory)
-    capabilities: set[Any] = set()
-
-    def create(config: TransportConfig) -> Any:
-        capability = registry.create_capability(config)
-        capabilities.add(capability)
-        return capability
+    capabilities: set[EndpointBusCapability] = set()
+    capability_configs: dict[EndpointBusCapability, TransportConfig] = {}
 
     async def fail_attach(configs: list[Any], *, transport_factory: Any) -> Any:
         capability = transport_factory(configs[0])
@@ -1136,9 +1270,15 @@ async def test_repeated_failed_hybrid_attach_discards_every_attempt() -> None:
             all_mid_devices=[],
             attach_local_transports=fail_attach,
         ),
-        _create_bus_capability=create,
         _endpoint_bus_registry=registry,
         _bus_capabilities=capabilities,
+        _bus_capability_configs=capability_configs,
+    )
+    coordinator._create_bus_capability = lambda config: (
+        EG4DataUpdateCoordinator._create_bus_capability(coordinator, config)
+    )
+    coordinator._prune_bus_capability_tracking = lambda: (
+        EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
     config = _config("SYNTH00001")
 
@@ -1146,6 +1286,7 @@ async def test_repeated_failed_hybrid_attach_discards_every_attempt() -> None:
     await EG4DataUpdateCoordinator._attach_owned_transports(coordinator, [config])
 
     assert capabilities == set()
+    assert capability_configs == {}
     assert registry.owner_count == 0
     assert [raw.shutdown_calls for raw in raw_transports] == [1, 1]
 
@@ -1163,8 +1304,12 @@ async def test_repeated_failed_hybrid_attach_discards_every_attempt() -> None:
     await EG4DataUpdateCoordinator._attach_owned_transports(coordinator, [config])
 
     assert len(capabilities) == 1
+    assert set(capability_configs) == capabilities
     assert registry.owner_count == 1
     await registry.async_shutdown_capabilities(capabilities)
+    coordinator._prune_bus_capability_tracking()
+    assert capabilities == set()
+    assert capability_configs == {}
 
 
 @pytest.mark.asyncio
@@ -1187,11 +1332,7 @@ async def test_failed_hybrid_cleanup_settles_and_discards_tracking() -> None:
         raw_transport_factory=lambda config: OutcomeTransport(config, probe)
     )
     capabilities: set[EndpointBusCapability] = set()
-
-    def create(config: TransportConfig) -> EndpointBusCapability:
-        capability = registry.create_capability(config)
-        capabilities.add(capability)
-        return capability
+    capability_configs: dict[EndpointBusCapability, TransportConfig] = {}
 
     async def attach(configs: list[Any], *, transport_factory: Any) -> Any:
         for config in configs:
@@ -1209,9 +1350,15 @@ async def test_failed_hybrid_cleanup_settles_and_discards_tracking() -> None:
             all_mid_devices=[],
             attach_local_transports=attach,
         ),
-        _create_bus_capability=create,
         _endpoint_bus_registry=registry,
         _bus_capabilities=capabilities,
+        _bus_capability_configs=capability_configs,
+    )
+    coordinator._create_bus_capability = lambda config: (
+        EG4DataUpdateCoordinator._create_bus_capability(coordinator, config)
+    )
+    coordinator._prune_bus_capability_tracking = lambda: (
+        EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
     cleanup = asyncio.create_task(
         EG4DataUpdateCoordinator._attach_owned_transports(
@@ -1229,18 +1376,16 @@ async def test_failed_hybrid_cleanup_settles_and_discards_tracking() -> None:
 
     assert completed_before_release is False
     assert len(capabilities) == 1
+    assert set(capability_configs) == capabilities
     assert next(iter(capabilities)).serial == "SYNTH00001"
     assert registry.owner_count == 1
     assert registry.tombstone_count == 1
 
     await registry.async_shutdown_capabilities(capabilities)
-    capabilities.difference_update(
-        capability
-        for capability in tuple(capabilities)
-        if not registry.is_retained_capability(capability)
-    )
+    coordinator._prune_bus_capability_tracking()
 
     assert capabilities == set()
+    assert capability_configs == {}
     assert registry.owner_count == 0
 
 

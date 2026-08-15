@@ -1602,8 +1602,12 @@ class LocalTransportMixin(_MixinBase):
                 device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
         finally:
             if unadopted_capability is not None:
-                await unadopted_capability.async_shutdown()
-                self._bus_capabilities.discard(unadopted_capability)
+                try:
+                    await self._endpoint_bus_registry.async_shutdown_capabilities(
+                        (unadopted_capability,)
+                    )
+                finally:
+                    self._prune_bus_capability_tracking()
 
     async def _deferred_local_parameter_load(self) -> None:
         """Background task: load parameters and detect features for local devices.
@@ -2631,13 +2635,7 @@ class LocalTransportMixin(_MixinBase):
                         unadopted
                     )
                 finally:
-                    self._bus_capabilities.difference_update(
-                        capability
-                        for capability in unadopted
-                        if not self._endpoint_bus_registry.is_retained_capability(
-                            capability
-                        )
-                    )
+                    self._prune_bus_capability_tracking()
 
     async def _maybe_retry_failed_attaches(self) -> None:
         """Retry local-transport attaches that failed at setup (eg4-05l).

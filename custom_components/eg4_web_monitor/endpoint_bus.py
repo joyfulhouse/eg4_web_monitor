@@ -619,10 +619,21 @@ class EndpointBusRegistry:
         if failures:
             raise BaseExceptionGroup("Endpoint shutdown failures", failures)
 
-    async def async_retry_failed_shutdowns(self) -> None:
-        """Retry terminal capability closures retained at HA scope."""
+    async def async_retry_failed_shutdowns(
+        self, configs: Collection[TransportConfig]
+    ) -> None:
+        """Retry retained terminal closures for the requested endpoints."""
+        owners = {
+            owner
+            for config in configs
+            if (owner := self._owners.get(_endpoint_key(config))) is not None
+        }
         await self.async_shutdown_capabilities(
-            tuple(self._failed_shutdown_capabilities)
+            tuple(
+                capability
+                for capability in self._failed_shutdown_capabilities
+                if capability._owner in owners
+            )
         )
 
     def begin_shutdown_capabilities(

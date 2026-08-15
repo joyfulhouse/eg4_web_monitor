@@ -10,7 +10,6 @@ final coordinator class inheriting all mixins together.
 """
 
 import asyncio
-from builtins import BaseExceptionGroup
 import logging
 import time
 from collections.abc import Awaitable, Callable, Collection, Coroutine
@@ -282,12 +281,7 @@ async def _async_drain_teardown(teardown: Awaitable[None]) -> None:
 
     if caller_cancellation is not None:
         if teardown_error is not None:
-            failures: list[BaseException] = [caller_cancellation]
-            if isinstance(teardown_error, BaseExceptionGroup):
-                failures.extend(teardown_error.exceptions)
-            else:
-                failures.append(teardown_error)
-            raise BaseExceptionGroup("Teardown cancellation and failures", failures)
+            raise caller_cancellation from teardown_error
         raise caller_cancellation
     if teardown_error is not None:
         raise teardown_error
@@ -815,6 +809,7 @@ if TYPE_CHECKING:
         _endpoint_bus_registry: EndpointBusRegistry
         _bus_capabilities: set[EndpointBusCapability]
         _bus_capability_configs: dict[EndpointBusCapability, TransportConfig]
+        _prune_bus_capability_tracking: Callable[[], None]
         _failed_attach_serials: set[str]
         _last_attach_retry: float | None
         _last_degraded_cloud_refresh: dict[str, float]
@@ -4757,12 +4752,7 @@ class BackgroundTaskMixin(_MixinBase):
                 self._bus_capabilities
             )
         finally:
-            retained = {
-                capability
-                for capability in self._bus_capabilities
-                if self._endpoint_bus_registry.is_retained_capability(capability)
-            }
-            self._bus_capabilities.intersection_update(retained)
+            self._prune_bus_capability_tracking()
 
     def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None:
         """Remove completed task from background tasks set."""
