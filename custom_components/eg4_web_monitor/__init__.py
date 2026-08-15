@@ -562,6 +562,13 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
         new_data[CONF_PLANT_ID] = str(new_data[CONF_PLANT_ID])
         new_unique_id = canonical_unique_id
 
+    # Reaching this point means ownership resolved in this entry's favour, so any
+    # conflict that previously blocked it is gone. Clear a stale duplicate Repair
+    # (no-op when none exists) so a resolved conflict dismisses its own issue.
+    ir.async_delete_issue(
+        hass, DOMAIN, f"duplicate_cloud_entry_{config_entry.entry_id}"
+    )
+
     hass.config_entries.async_update_entry(
         config_entry,
         data=new_data,

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
+import homeassistant.helpers.issue_registry as ir
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ServiceValidationError
@@ -1555,3 +1556,113 @@ class TestAsyncMigrateEntry:
         result = await async_migrate_entry(hass, entry)
 
         assert result is False
+
+    def _cloud_conflict_pair(
+        self, hass: HomeAssistant
+    ) -> tuple[MockConfigEntry, MockConfigEntry]:
+        """Build an established canonical owner and a losing duplicate (both v2)."""
+        owner = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            title="Owner Cloud Plant",
+            data={
+                "connection_type": "http",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "owner-secret",
+                CONF_PLANT_ID: "12345",
+                "local_transports": [],
+            },
+            entry_id="canonical_owner",
+            unique_id="user@example.com_12345",
+        )
+        duplicate = MockConfigEntry(
+            domain=DOMAIN,
+            version=2,
+            title="Duplicate Cloud Plant",
+            data={
+                "connection_type": "hybrid",
+                CONF_USERNAME: "user@example.com",
+                CONF_PASSWORD: "duplicate-secret",
+                CONF_PLANT_ID: "12345",
+                "local_transports": [{"serial": "1234567890"}],
+            },
+            entry_id="legacy_duplicate",
+            unique_id="hybrid_user@example.com_12345",
+        )
+        owner.add_to_hass(hass)
+        duplicate.add_to_hass(hass)
+        return owner, duplicate
+
+    async def test_duplicate_conflict_creates_repair_issue(self, hass: HomeAssistant):
+        """A blocked duplicate migration raises a stable, non-fixable ERROR Repair."""
+        owner, duplicate = self._cloud_conflict_pair(hass)
+
+        assert await async_migrate_entry(hass, duplicate) is False
+
+        issue = ir.async_get(hass).async_get_issue(
+            DOMAIN, f"duplicate_cloud_entry_{duplicate.entry_id}"
+        )
+        assert issue is not None
+        assert issue.is_fixable is False
+        assert issue.severity == ir.IssueSeverity.ERROR
+        assert issue.translation_key == "duplicate_cloud_entry"
+        # The guidance names both entries and the canonical cloud identity.
+        assert issue.translation_placeholders == {
+            "entry_title": "Duplicate Cloud Plant",
+            "owner_title": "Owner Cloud Plant",
+            "unique_id": "user@example.com_12345",
+        }
+
+    async def test_duplicate_repair_leaves_losing_entry_unchanged(
+        self, hass: HomeAssistant
+    ):
+        """Raising the Repair must not mutate the losing entry (non-destructive)."""
+        _owner, duplicate = self._cloud_conflict_pair(hass)
+        before = dict(duplicate.data)
+
+        assert await async_migrate_entry(hass, duplicate) is False
+
+        assert duplicate.version == 2
+        assert duplicate.unique_id == "hybrid_user@example.com_12345"
+        assert dict(duplicate.data) == before
+        assert duplicate.options == {}
+        # The user-visible Repair still exists despite the entry being untouched.
+        assert (
+            ir.async_get(hass).async_get_issue(
+                DOMAIN, f"duplicate_cloud_entry_{duplicate.entry_id}"
+            )
+            is not None
+        )
+
+    async def test_duplicate_repair_persists_and_dedupes_on_repeat(
+        self, hass: HomeAssistant
+    ):
+        """Repeated failed migrations keep exactly one persistent Repair."""
+        _owner, duplicate = self._cloud_conflict_pair(hass)
+        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
+
+        assert await async_migrate_entry(hass, duplicate) is False
+        assert await async_migrate_entry(hass, duplicate) is False
+
+        registry = ir.async_get(hass)
+        assert registry.async_get_issue(DOMAIN, issue_id) is not None
+        matching = [key for key in registry.issues if key == (DOMAIN, issue_id)]
+        assert len(matching) == 1
+
+    async def test_successful_migration_after_conflict_removal_dismisses_repair(
+        self, hass: HomeAssistant
+    ):
+        """Removing the conflict lets the entry migrate and clears its Repair."""
+        owner, duplicate = self._cloud_conflict_pair(hass)
+        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
+
+        assert await async_migrate_entry(hass, duplicate) is False
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
+
+        # User resolves the conflict by removing the owning duplicate.
+        await hass.config_entries.async_remove(owner.entry_id)
+
+        assert await async_migrate_entry(hass, duplicate) is True
+        assert duplicate.version == 3
+        assert duplicate.unique_id == "user@example.com_12345"
+        assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
