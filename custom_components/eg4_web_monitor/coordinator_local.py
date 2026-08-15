@@ -6,7 +6,6 @@ aggregation, and static entity creation.
 """
 
 import asyncio
-from contextlib import AsyncExitStack
 import logging
 import time
 from datetime import datetime
@@ -18,23 +17,14 @@ from homeassistant.util import dt as dt_util
 
 from pylxpweb.devices.inverters.base import BaseInverter
 from pylxpweb.exceptions import LuxpowerDeviceError
-from pylxpweb.transports import (
-    DongleTransport,
-    ModbusSerialTransport,
-    ModbusTransport,
-)
-
 from .const import (
     CONF_GRID_TYPE,
     CONF_INCLUDE_AC_COUPLE_PV,
     CONNECTION_TYPE_DONGLE,
     CONNECTION_TYPE_LOCAL,
     CONNECTION_TYPE_MODBUS,
-    DEFAULT_DONGLE_TIMEOUT,
     DEFAULT_INVERTER_FAMILY,
     DEFAULT_MODBUS_PORT,
-    DEFAULT_MODBUS_TIMEOUT,
-    DEFAULT_MODBUS_UNIT_ID,
     DOMAIN,
     GRID_TYPE_SPLIT_PHASE,
     INVERTER_FAMILY_DEFAULT_MODELS,
@@ -49,6 +39,7 @@ from .coordinator_mixins import (
     drop_dead_inverter_grid_legs,
     is_transport_link_down,
 )
+from .bus_eligibility import evaluate_bus_owner_eligibility
 from .coordinator_mappings import (
     ALL_INVERTER_SENSOR_KEYS,
     GRIDBOSS_STATIC_ENTITY_KEYS,
@@ -63,13 +54,12 @@ from .coordinator_mappings import (
     _build_transport_configs,
     _features_from_family,
     _get_transport_label,
-    _parse_inverter_family,
     _supports_three_phase_context,
     alias_common_voltage_sensors,
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
-    input_block_size_kwargs,
 )
+from .endpoint_bus import EndpointBusCapability
 from .utils import (
     battery_row_is_absent,
     is_hybrid_family,
@@ -80,44 +70,6 @@ from .utils import (
 _LOGGER = logging.getLogger(__name__)
 
 
-async def _attach_under_endpoint_locks(
-    coordinator: Any,
-    configs: Any,
-    attach: Any,
-) -> Any:
-    """Run a transport attach while holding its endpoints' shared locks.
-
-    pylxpweb's ``Station.attach_local_transports()`` constructs and CONNECTS
-    each transport before the integration can rebind its ``_op_lock``, so
-    without this a second coordinator (or an in-flight poll) can overlap the
-    dial on a single-slot gateway (#529 review). Locks are acquired in
-    sorted key order so two coordinators attaching overlapping endpoint sets
-    cannot deadlock. Coordinators without the Home Assistant-scoped lock
-    registry (isolated mixin tests) attach unlocked, as before.
-    """
-    from .transport_serialization import EndpointOperationLock
-
-    endpoint_locks = getattr(coordinator, "_endpoint_operation_locks", None)
-    if not isinstance(endpoint_locks, dict):
-        return await attach()
-    keys: set[str] = set()
-    for cfg in configs:
-        host = getattr(cfg, "host", None)
-        port = getattr(cfg, "port", None)
-        if host is None or port is None:
-            continue
-        # Must match physical_endpoint_key()'s network normalization.
-        keys.add(f"network:{str(host).strip().casefold()}:{port}")
-    async with AsyncExitStack() as stack:
-        for key in sorted(keys):
-            lock = endpoint_locks.get(key)
-            if lock is None:
-                lock = EndpointOperationLock()
-                endpoint_locks[key] = lock
-            await stack.enter_async_context(lock)
-        return await attach()
-
-
 if TYPE_CHECKING:
     from pylxpweb.transports.data import BatteryData
 
@@ -125,7 +77,7 @@ if TYPE_CHECKING:
 # inverter.transport is typed as the generic InverterTransport protocol (which
 # HTTP transports also satisfy and which has no split_phase); narrowing to these
 # concrete local types lets the typed seam verify the split_phase write.
-_LOCAL_REGISTER_TRANSPORTS = (ModbusTransport, ModbusSerialTransport, DongleTransport)
+_LOCAL_REGISTER_TRANSPORTS = (EndpointBusCapability,)
 
 # Minimum battery serial length to consider valid.  Shorter serials are
 # likely truncated register reads from incomplete CAN bus transfers and
@@ -882,12 +834,11 @@ class LocalTransportMixin(_MixinBase):
         )
 
         transport_name = connection_type.capitalize()
-        transport = self._bind_endpoint_operation_lock(transport)
 
         try:
             _LOGGER.debug("Fetching %s data for inverter %s", transport_name, serial)
 
-            await self._connect_endpoint_transport(transport)
+            await transport.async_ensure_connected()
 
             # Create or reuse BaseInverter via factory
             if serial not in self._inverter_cache:
@@ -909,11 +860,6 @@ class LocalTransportMixin(_MixinBase):
                 self._inverter_cache[serial] = inverter
             else:
                 inverter = self._inverter_cache[serial]
-
-            # Cached legacy inverters retain the raw global transport. Bind it
-            # before any refresh so direct writes/background work cannot
-            # overlap this poll.
-            self._bind_device_endpoint_lock(inverter)
 
             include_params = self._local_parameters_loaded
             await inverter.refresh(include_parameters=include_params)
@@ -1116,7 +1062,6 @@ class LocalTransportMixin(_MixinBase):
             device_availability: Shared per-device availability tracking
         """
         from pylxpweb.devices import MIDDevice
-        from pylxpweb.transports import create_transport
         from pylxpweb.transports.exceptions import (
             TransportConnectionError,
             TransportError,
@@ -1127,8 +1072,6 @@ class LocalTransportMixin(_MixinBase):
         serial = config.get("serial", "")
         transport_type = config.get("transport_type", "modbus_tcp")
         host = config.get("host", "")
-        port = config.get("port", DEFAULT_MODBUS_PORT)
-
         # Serial transport doesn't require host
         if not serial or (not host and transport_type != "modbus_serial"):
             _LOGGER.warning(
@@ -1137,10 +1080,9 @@ class LocalTransportMixin(_MixinBase):
             )
             return
 
+        unadopted_capability: EndpointBusCapability | None = None
         try:
-            # Convert inverter family string to enum
             family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
-            inverter_family = _parse_inverter_family(family_str)
 
             # Get model from config, or derive from family
             model = config.get("model", "")
@@ -1158,46 +1100,8 @@ class LocalTransportMixin(_MixinBase):
             )
 
             if needs_creation:
-                # Modbus read block size (#254): feature-detected, {} on
-                # released pylxpweb without the parameter (stays conservative).
-                block_size_kwargs = input_block_size_kwargs(self._max_input_block_size)
-                transport: Any = None
-                if transport_type == "modbus_tcp":
-                    transport = create_transport(
-                        "modbus",
-                        host=host,
-                        serial=serial,
-                        port=port,
-                        unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
-                        timeout=DEFAULT_MODBUS_TIMEOUT,
-                        inverter_family=inverter_family,
-                        **block_size_kwargs,
-                    )
-                elif transport_type == "wifi_dongle":
-                    transport = create_transport(
-                        "dongle",
-                        host=host,
-                        dongle_serial=config.get("dongle_serial", ""),
-                        inverter_serial=serial,
-                        port=port,
-                        timeout=DEFAULT_DONGLE_TIMEOUT,
-                        inverter_family=inverter_family,
-                        **block_size_kwargs,
-                    )
-                elif transport_type == "modbus_serial":
-                    transport = create_transport(
-                        "serial",
-                        port=config.get("serial_port", ""),
-                        serial=serial,
-                        baudrate=config.get("serial_baudrate", 19200),
-                        parity=config.get("serial_parity", "N"),
-                        stopbits=config.get("serial_stopbits", 1),
-                        unit_id=config.get("unit_id", DEFAULT_MODBUS_UNIT_ID),
-                        timeout=DEFAULT_MODBUS_TIMEOUT,
-                        inverter_family=inverter_family,
-                        **block_size_kwargs,
-                    )
-                else:
+                configs = _build_transport_configs([config], self._max_input_block_size)
+                if not configs:
                     _LOGGER.error(
                         "LOCAL: Unknown transport type '%s' for %s",
                         transport_type,
@@ -1205,13 +1109,13 @@ class LocalTransportMixin(_MixinBase):
                     )
                     device_availability[serial] = False
                     return
-
-                transport = self._bind_endpoint_operation_lock(transport)
-                await self._connect_endpoint_transport(transport)
+                created_capability = self._create_bus_capability(configs[0])
+                unadopted_capability = created_capability
+                await created_capability.async_ensure_connected()
 
                 # Propagate split-phase config for per-leg power fallback
                 grid_type = config.get(CONF_GRID_TYPE)
-                transport.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
+                created_capability.split_phase = grid_type == GRID_TYPE_SPLIT_PHASE
 
                 if is_gridboss:
                     _LOGGER.debug(
@@ -1220,10 +1124,11 @@ class LocalTransportMixin(_MixinBase):
                         serial,
                     )
                     mid_device = await MIDDevice.from_transport(
-                        transport, model="GridBOSS"
+                        created_capability, model="GridBOSS"
                     )
                     mid_device.validate_data = self._data_validation_enabled
                     self._mid_device_cache[serial] = mid_device
+                    unadopted_capability = None
                 else:
                     try:
                         _LOGGER.debug(
@@ -1233,15 +1138,16 @@ class LocalTransportMixin(_MixinBase):
                         )
                         if transport_type == "wifi_dongle":
                             inverter = await BaseInverter.from_dongle_transport(
-                                transport, model=model
+                                created_capability, model=model
                             )
                         else:
                             inverter = await BaseInverter.from_modbus_transport(
-                                transport, model=model
+                                created_capability, model=model
                             )
                         inverter.validate_data = self._data_validation_enabled
                         self._align_inverter_cache_ttls(inverter, transport_type)
                         self._inverter_cache[serial] = inverter
+                        unadopted_capability = None
                     except LuxpowerDeviceError as e:
                         if "GridBOSS" in str(e) or "MIDbox" in str(e):
                             _LOGGER.info(
@@ -1249,10 +1155,11 @@ class LocalTransportMixin(_MixinBase):
                                 serial,
                             )
                             mid_device = await MIDDevice.from_transport(
-                                transport, model="GridBOSS"
+                                created_capability, model="GridBOSS"
                             )
                             mid_device.validate_data = self._data_validation_enabled
                             self._mid_device_cache[serial] = mid_device
+                            unadopted_capability = None
                             is_gridboss = True
                         else:
                             raise
@@ -1261,9 +1168,9 @@ class LocalTransportMixin(_MixinBase):
             if is_gridboss:
                 mid_device = self._mid_device_cache[serial]
 
-                transport = self._bind_device_endpoint_lock(mid_device)
-                if transport:
-                    await self._connect_endpoint_transport(transport)
+                transport = mid_device.transport
+                if isinstance(transport, EndpointBusCapability):
+                    await transport.async_ensure_connected()
 
                 await mid_device.refresh()
 
@@ -1315,9 +1222,9 @@ class LocalTransportMixin(_MixinBase):
             else:
                 inverter = self._inverter_cache[serial]
 
-                transport = self._bind_device_endpoint_lock(inverter)
-                if transport:
-                    await self._connect_endpoint_transport(transport)
+                transport = inverter.transport
+                if isinstance(transport, EndpointBusCapability):
+                    await transport.async_ensure_connected()
 
                 # Use the per-cycle decision computed in _async_update_local_data
                 # (or fall back to the direct check for the deprecated single-
@@ -1695,6 +1602,10 @@ class LocalTransportMixin(_MixinBase):
                 is not None
             ):
                 device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
+        finally:
+            if unadopted_capability is not None:
+                await unadopted_capability.async_shutdown()
+                self._bus_capabilities.discard(unadopted_capability)
 
     async def _deferred_local_parameter_load(self) -> None:
         """Background task: load parameters and detect features for local devices.
@@ -1713,7 +1624,6 @@ class LocalTransportMixin(_MixinBase):
             loaded = 0
             for serial, inverter in self._inverter_cache.items():
                 try:
-                    self._bind_device_endpoint_lock(inverter)
                     # force=False: reuse cached runtime/energy/battery from
                     # the poll cycle, only fetch parameters (holding registers)
                     await inverter.refresh(force=False, include_parameters=True)
@@ -2550,12 +2460,9 @@ class LocalTransportMixin(_MixinBase):
         via HTTP API. After attachment, devices will use local transport
         for data fetching with automatic fallback to HTTP on failure.
 
-        Network transports use the Station.attach_local_transports() API
-        from pylxpweb; serial transports are attached integration-side
-        because that API only dispatches modbus_tcp and wifi_dongle (#233).
+        Every transport uses pylxpweb's public injected-factory seam, so the
+        Station connects and retains only owner-issued capabilities.
         """
-        from pylxpweb.transports.config import AttachResult, TransportType
-
         if self.station is None or not self._local_transport_configs:
             return
 
@@ -2572,29 +2479,11 @@ class LocalTransportMixin(_MixinBase):
             _LOGGER.warning("No valid transport configs to attach")
             return
 
-        # pylxpweb's Station.attach_local_transports() only dispatches
-        # modbus_tcp and wifi_dongle ("Unknown transport type: modbus_serial"
-        # otherwise), so USB/RS485 serial configs are attached here instead,
-        # mirroring the LOCAL-only dispatch path (#233).
-        serial_configs = [
-            c for c in configs if c.transport_type == TransportType.MODBUS_SERIAL
-        ]
-        network_configs = [
-            c for c in configs if c.transport_type != TransportType.MODBUS_SERIAL
-        ]
-
         try:
-            if network_configs:
-                result = await _attach_under_endpoint_locks(
-                    self,
-                    network_configs,
-                    lambda: self.station.attach_local_transports(network_configs),
-                )
-            else:
-                result = AttachResult()
-
-            if serial_configs:
-                await self._attach_serial_transports_to_station(serial_configs, result)
+            result = await self.station.attach_local_transports(
+                configs,
+                transport_factory=self._create_bus_capability,
+            )
 
             _LOGGER.info(
                 "Local transport attachment complete: %d matched, %d unmatched, %d failed",
@@ -2622,9 +2511,9 @@ class LocalTransportMixin(_MixinBase):
             # dongle's single TCP slot still held by the previous HA session —
             # must not park the device on cloud data until a manual reload.
             self._failed_attach_serials = set(result.failed_serials)
-            network_serials = {c.serial for c in network_configs}
-            for serial in sorted(self._failed_attach_serials & network_serials):
-                cfg = next(c for c in network_configs if c.serial == serial)
+            configured_serials = {c.serial for c in configs}
+            for serial in sorted(self._failed_attach_serials & configured_serials):
+                cfg = next(c for c in configs if c.serial == serial)
                 ir.async_create_issue(
                     self.hass,
                     DOMAIN,
@@ -2706,7 +2595,6 @@ class LocalTransportMixin(_MixinBase):
                 self._align_inverter_cache_ttls(inverter, tt)
                 if tt == "modbus_tcp":
                     modbus_inverters.append(inverter)
-                self._bind_device_endpoint_lock(inverter)
 
         # Propagate validation to MID devices.  set_max_system_power()
         # cannot be called here because inverter features have not been
@@ -2714,7 +2602,6 @@ class LocalTransportMixin(_MixinBase):
         for mid in self.station.all_mid_devices:
             if mid.transport is not None:
                 mid.validate_data = validation_enabled
-                self._bind_device_endpoint_lock(mid)
         return modbus_inverters
 
     async def _maybe_retry_failed_attaches(self) -> None:
@@ -2736,8 +2623,6 @@ class LocalTransportMixin(_MixinBase):
             return
         self._last_attach_retry = now
 
-        from pylxpweb.transports.config import AttachResult, TransportType
-
         retry_dicts = [
             c
             for c in self._local_transport_configs
@@ -2747,27 +2632,15 @@ class LocalTransportMixin(_MixinBase):
         if not configs:
             self._failed_attach_serials = set()
             return
-        serial_configs = [
-            c for c in configs if c.transport_type == TransportType.MODBUS_SERIAL
-        ]
-        network_configs = [
-            c for c in configs if c.transport_type != TransportType.MODBUS_SERIAL
-        ]
         _LOGGER.debug(
             "Retrying local transport attach for: %s",
             sorted(self._failed_attach_serials),
         )
         try:
-            if network_configs:
-                result = await _attach_under_endpoint_locks(
-                    self,
-                    network_configs,
-                    lambda: self.station.attach_local_transports(network_configs),
-                )
-            else:
-                result = AttachResult()
-            if serial_configs:
-                await self._attach_serial_transports_to_station(serial_configs, result)
+            result = await self.station.attach_local_transports(
+                configs,
+                transport_factory=self._create_bus_capability,
+            )
         except Exception as err:
             _LOGGER.debug("Local transport attach retry failed: %s", err)
             return
@@ -2960,6 +2833,18 @@ class LocalTransportMixin(_MixinBase):
                     self.hass, DOMAIN, f"transport_link_down_{serial}"
                 )
 
+        available_serials = {
+            serial
+            for serial, device in devices.items()
+            if getattr(device, "transport", None) is not None
+            and not is_transport_link_down(device)
+        }
+        self._bus_owner_eligibility = evaluate_bus_owner_eligibility(
+            connection_type=self.connection_type,
+            local_transports=self._local_transport_configs,
+            available_serials=available_serials,
+        )
+
     def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:
         """Error-mark carried-forward parallel groups on a full-outage cycle.
 
@@ -3013,95 +2898,6 @@ class LocalTransportMixin(_MixinBase):
                     devices, list(stale)
                 )
 
-    async def _attach_serial_transports_to_station(
-        self, configs: list[Any], result: Any
-    ) -> None:
-        """Attach Modbus serial (USB/RS485) transports to station devices.
-
-        pylxpweb's Station.attach_local_transports() only dispatches
-        modbus_tcp and wifi_dongle configs, so serial transports are
-        created and attached here with the same factory the LOCAL-only
-        path uses, mirroring the pylxpweb attach semantics (#233).
-
-        Args:
-            configs: MODBUS_SERIAL TransportConfig objects.
-            result: AttachResult updated in place with matched/unmatched/
-                failed counts so the caller's summary logging stays accurate.
-        """
-        from pylxpweb.transports import create_transport
-
-        assert self.station is not None
-        device_lookup: dict[str, Any] = {
-            inv.serial_number: inv for inv in self.station.all_inverters
-        }
-        for mid in self.station.all_mid_devices:
-            device_lookup[mid.serial_number] = mid
-
-        for config in configs:
-            device = device_lookup.get(config.serial)
-            if device is None:
-                _LOGGER.warning(
-                    "No device found with serial %s in station %s",
-                    config.serial,
-                    self.station.id,
-                )
-                result.unmatched += 1
-                result.unmatched_serials.append(config.serial)
-                continue
-
-            try:
-                transport = create_transport(
-                    "serial",
-                    port=config.serial_port,
-                    serial=config.serial,
-                    baudrate=config.serial_baudrate,
-                    parity=config.serial_parity,
-                    stopbits=config.serial_stopbits,
-                    unit_id=config.unit_id,
-                    timeout=DEFAULT_MODBUS_TIMEOUT,
-                    inverter_family=config.inverter_family,
-                    **input_block_size_kwargs(self._max_input_block_size),
-                )
-                transport = self._bind_endpoint_operation_lock(transport)
-                await self._connect_endpoint_transport(transport)
-                device._transport = transport
-                result.matched += 1
-
-                # Tighten cache TTLs for local transport speed (inverters only,
-                # matching Station.attach_local_transports() semantics)
-                if isinstance(device, BaseInverter):
-                    device.set_transport_cache_ttls()
-
-                _LOGGER.info(
-                    "Attached modbus_serial transport to %s (%s)",
-                    config.serial,
-                    config.serial_port,
-                )
-            except Exception as err:
-                _LOGGER.error(
-                    "Failed to attach serial transport to device %s: %s",
-                    config.serial,
-                    err,
-                )
-                result.failed += 1
-                result.failed_serials.append(config.serial)
-                # Surface the degradation: the device silently falls back to
-                # cloud-only until the next reload, which is exactly the class
-                # of quiet failure #233 was filed about. Issue id includes the
-                # serial so HA de-duplicates repeat attach failures per device.
-                ir.async_create_issue(
-                    self.hass,
-                    DOMAIN,
-                    f"serial_attach_failed_{config.serial}",
-                    is_fixable=False,
-                    severity=ir.IssueSeverity.WARNING,
-                    translation_key="serial_attach_failed",
-                    translation_placeholders={
-                        "serial": str(config.serial),
-                        "serial_port": str(config.serial_port),
-                    },
-                )
-
     async def _drain_modbus_buffers(self, inverters: list[Any]) -> None:
         """Background task: drain stale Waveshare RS485 buffer after HA restart.
 
@@ -3124,7 +2920,6 @@ class LocalTransportMixin(_MixinBase):
         await asyncio.sleep(2)  # Let setup and first static refresh complete
         for inverter in inverters:
             try:
-                self._bind_device_endpoint_lock(inverter)
                 _LOGGER.debug(
                     "Draining Modbus buffer for %s after restart",
                     inverter.serial_number,

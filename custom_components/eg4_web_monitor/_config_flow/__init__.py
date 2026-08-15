@@ -68,6 +68,7 @@ from .schemas import (
 )
 from .serial_ports import build_port_selector_options, list_serial_ports
 from ..cloud_session import async_close_client_session
+from ..endpoint_bus import get_endpoint_bus_registry
 from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
@@ -503,7 +504,12 @@ class EG4ConfigFlow(
 
             if not errors:
                 try:
-                    device = await discover_modbus_device(host, port, unit_id)
+                    device = await discover_modbus_device(
+                        host,
+                        port,
+                        unit_id,
+                        endpoint_bus_registry=get_endpoint_bus_registry(self.hass),
+                    )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
                 except (OSError, TransportError) as err:
@@ -568,7 +574,11 @@ class EG4ConfigFlow(
             if not errors:
                 try:
                     device = await discover_dongle_device(
-                        host, dongle_serial, inverter_serial, port
+                        host,
+                        dongle_serial,
+                        inverter_serial,
+                        port,
+                        endpoint_bus_registry=get_endpoint_bus_registry(self.hass),
                     )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
@@ -1114,7 +1124,12 @@ class EG4ConfigFlow(
 
             if not errors:
                 try:
-                    device = await discover_modbus_device(host, port, unit_id)
+                    device = await discover_modbus_device(
+                        host,
+                        port,
+                        unit_id,
+                        endpoint_bus_registry=get_endpoint_bus_registry(self.hass),
+                    )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
                 except (OSError, TransportError) as err:
@@ -1183,7 +1198,11 @@ class EG4ConfigFlow(
             if not errors:
                 try:
                     device = await discover_dongle_device(
-                        host, dongle_serial, inverter_serial, port
+                        host,
+                        dongle_serial,
+                        inverter_serial,
+                        port,
+                        endpoint_bus_registry=get_endpoint_bus_registry(self.hass),
                     )
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "dongle_timeout"
@@ -1324,6 +1343,7 @@ class EG4ConfigFlow(
                 unit_id=unit_id,
                 parity=parity,
                 stopbits=stopbits,
+                endpoint_bus_registry=get_endpoint_bus_registry(self.hass),
             )
         except TimeoutError:
             errors["base"] = "serial_timeout"

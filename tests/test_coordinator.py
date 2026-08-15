@@ -613,31 +613,6 @@ class TestCoordinatorCleanup:
         mock_transport_1.disconnect.assert_awaited_once()
         mock_transport_2.disconnect.assert_awaited_once()
 
-    async def test_async_shutdown_disconnects_legacy_transports(
-        self, hass, mock_config_entry
-    ):
-        """Test async_shutdown disconnects legacy _modbus_transport/_dongle_transport.
-
-        Old single-device config entries store transports on the coordinator
-        directly.  These must also be disconnected during shutdown.
-        """
-        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
-
-        mock_modbus = MagicMock()
-        mock_modbus.is_connected = True
-        mock_modbus.disconnect = AsyncMock()
-        coordinator._modbus_transport = mock_modbus
-
-        mock_dongle = MagicMock()
-        mock_dongle.is_connected = True
-        mock_dongle.disconnect = AsyncMock()
-        coordinator._dongle_transport = mock_dongle
-
-        await coordinator.async_shutdown()
-
-        mock_modbus.disconnect.assert_awaited_once()
-        mock_dongle.disconnect.assert_awaited_once()
-
     async def test_async_shutdown_disconnects_station_only_transports(
         self, hass, mock_config_entry
     ):

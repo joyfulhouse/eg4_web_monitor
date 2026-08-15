@@ -204,6 +204,7 @@ class TestBuildTransportConfigs:
 
 def _mock_hass() -> MagicMock:
     hass = MagicMock()
+    hass.data = {}
     hass.config.time_zone = "America/Los_Angeles"
     hass.bus.async_listen_once = MagicMock()
     return hass
@@ -254,62 +255,3 @@ class TestCoordinatorOptionMapping:
                 _legacy_modbus_entry({CONF_MODBUS_BLOCK_SIZE: "warp-speed"}),
             )
         assert coordinator._max_input_block_size == 40
-
-
-class TestLegacyTransportConstruction:
-    """The pre-v3.2 flat-key path forwards the option (feature-detected)."""
-
-    def test_fast_with_supporting_lib_passes_kwarg(self) -> None:
-        with (
-            patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"),
-            patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client"),
-            patch("pylxpweb.transports.create_transport") as mock_create,
-            patch(
-                "custom_components.eg4_web_monitor.coordinator.input_block_size_kwargs",
-                return_value={"max_input_block_size": 120},
-            ),
-        ):
-            EG4DataUpdateCoordinator(
-                _mock_hass(),
-                _legacy_modbus_entry({CONF_MODBUS_BLOCK_SIZE: BLOCK_SIZE_FAST}),
-            )
-
-        mock_create.assert_called_once()
-        assert mock_create.call_args.kwargs["max_input_block_size"] == 120
-
-    def test_fast_with_feature_less_lib_stays_conservative(self) -> None:
-        """When detection reports no support, the kwarg is simply absent.
-
-        The feature-less library (< 0.9.36b20) is SIMULATED by patching
-        ``input_block_size_kwargs`` to return ``{}`` — asserting against the
-        real detection of whatever pylxpweb happens to be installed made this
-        test version-dependent (it failed under the manifest-mandated b20,
-        which supports the feature).
-        """
-        with (
-            patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"),
-            patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client"),
-            patch("pylxpweb.transports.create_transport") as mock_create,
-            patch(
-                "custom_components.eg4_web_monitor.coordinator.input_block_size_kwargs",
-                return_value={},
-            ),
-        ):
-            EG4DataUpdateCoordinator(
-                _mock_hass(),
-                _legacy_modbus_entry({CONF_MODBUS_BLOCK_SIZE: BLOCK_SIZE_FAST}),
-            )
-
-        mock_create.assert_called_once()
-        assert "max_input_block_size" not in mock_create.call_args.kwargs
-
-    def test_conservative_never_passes_kwarg(self) -> None:
-        with (
-            patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"),
-            patch("custom_components.eg4_web_monitor.coordinator.aiohttp_client"),
-            patch("pylxpweb.transports.create_transport") as mock_create,
-        ):
-            EG4DataUpdateCoordinator(_mock_hass(), _legacy_modbus_entry())
-
-        mock_create.assert_called_once()
-        assert "max_input_block_size" not in mock_create.call_args.kwargs

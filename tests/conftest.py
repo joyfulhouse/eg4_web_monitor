@@ -16,6 +16,7 @@ from pylxpweb.transports.data import (
     InverterRuntimeData,
     MidboxRuntimeData,
 )
+from custom_components.eg4_web_monitor.bus_eligibility import LocalBusProvenance
 
 pytest_plugins = "pytest_homeassistant_custom_component"
 
@@ -320,6 +321,18 @@ def make_real_mid_factory():
     return make_real_mid
 
 
+class _EndpointCapabilitySpec(ModbusTransport):
+    """Legacy fake shape extended with the public owner capability contract."""
+
+    provenance = LocalBusProvenance.LOCAL_BUS
+
+    async def async_ensure_connected(self) -> None:
+        """Match the owner-issued reconnect capability."""
+
+    def transaction(self) -> Any:
+        """Match the owner-issued task-reentrant transaction capability."""
+
+
 def make_transport_spec(**attrs: Any) -> Any:
     """Build a shape-faithful stand-in for a pylxpweb network transport.
 
@@ -332,7 +345,8 @@ def make_transport_spec(**attrs: Any) -> Any:
     attribute the real transport does not define raises AttributeError).  Use
     this instead of a bare MagicMock so a renamed transport attribute fails CI.
     """
-    spec = create_autospec(ModbusTransport, spec_set=True, instance=True)
+    spec = create_autospec(_EndpointCapabilitySpec, spec_set=True, instance=True)
+    spec.provenance = LocalBusProvenance.LOCAL_BUS
     if attrs:
         spec.configure_mock(**attrs)
     return spec

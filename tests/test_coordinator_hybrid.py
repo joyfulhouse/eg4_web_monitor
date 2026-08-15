@@ -439,7 +439,9 @@ class TestAttachLocalTransports:
             )
 
         # Verify attachment was called
-        mock_self.station.attach_local_transports.assert_called_once_with([mock_config])
+        mock_self.station.attach_local_transports.assert_called_once_with(
+            [mock_config], transport_factory=mock_self._create_bus_capability
+        )
 
 
 class TestAttachRetryAndDegradedFallback:
@@ -574,7 +576,9 @@ class TestAttachRetryAndDegradedFallback:
         ):
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
 
-        mock_self.station.attach_local_transports.assert_awaited_once_with([cfg])
+        mock_self.station.attach_local_transports.assert_awaited_once_with(
+            [cfg], transport_factory=mock_self._create_bus_capability
+        )
         assert mock_self._failed_attach_serials == set()
         deleted = [c.args[2] for c in mock_ir.async_delete_issue.call_args_list]
         assert "transport_attach_failed_SYNTH00002" in deleted
@@ -671,7 +675,9 @@ class TestAttachRetryAndDegradedFallback:
         ):
             await EG4DataUpdateCoordinator._maybe_retry_failed_attaches(mock_self)
 
-        mock_self.station.attach_local_transports.assert_awaited_once_with([cfg])
+        mock_self.station.attach_local_transports.assert_awaited_once_with(
+            [cfg], transport_factory=mock_self._create_bus_capability
+        )
         assert mock_self._last_attach_retry == 1.0
 
     @pytest.mark.asyncio
@@ -1046,10 +1052,11 @@ class TestTransportLinkDown:
     def _transport(
         transport_type: str = "modbus_tcp", host: str = "192.168.1.50"
     ) -> MagicMock:
-        transport = MagicMock(spec=["transport_type", "host", "port"])
+        transport = MagicMock(spec=["transport_type", "host", "port", "status"])
         transport.transport_type = transport_type
         transport.host = host
         transport.port = 502
+        transport.status = MagicMock(owner_identity=1)
         return transport
 
     @classmethod
