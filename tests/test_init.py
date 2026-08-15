@@ -1645,9 +1645,8 @@ class TestAsyncMigrateEntry:
         assert await async_migrate_entry(hass, duplicate) is False
 
         registry = ir.async_get(hass)
-        assert registry.async_get_issue(DOMAIN, issue_id) is not None
-        matching = [key for key in registry.issues if key == (DOMAIN, issue_id)]
-        assert len(matching) == 1
+        eg4_issues = [key for key in registry.issues if key[0] == DOMAIN]
+        assert eg4_issues == [(DOMAIN, issue_id)]
 
     async def test_successful_migration_after_conflict_removal_dismisses_repair(
         self, hass: HomeAssistant
