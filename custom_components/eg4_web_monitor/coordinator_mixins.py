@@ -4706,6 +4706,7 @@ class BackgroundTaskMixin(_MixinBase):
 
     async def _disconnect_all_transports(self) -> None:
         """Detach devices and terminally close all coordinator capabilities."""
+        self._endpoint_bus_registry.begin_shutdown_capabilities(self._bus_capabilities)
         devices: list[Any] = [
             *self._inverter_cache.values(),
             *self._mid_device_cache.values(),
@@ -4729,12 +4730,14 @@ class BackgroundTaskMixin(_MixinBase):
             except Exception:
                 _LOGGER.debug("Error detaching local capability", exc_info=True)
 
-        for capability in tuple(self._bus_capabilities):
-            try:
-                await capability.async_shutdown()
-            except Exception:
-                _LOGGER.debug("Error closing local capability", exc_info=True)
-        self._bus_capabilities.clear()
+        try:
+            await self._endpoint_bus_registry.async_shutdown_capabilities(
+                self._bus_capabilities
+            )
+        except Exception:
+            _LOGGER.debug("Error closing local capabilities", exc_info=True)
+        finally:
+            self._bus_capabilities.clear()
 
     def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None:
         """Remove completed task from background tasks set."""

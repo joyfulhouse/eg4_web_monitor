@@ -2474,10 +2474,7 @@ class LocalTransportMixin(_MixinBase):
             return
 
         try:
-            result = await self.station.attach_local_transports(
-                configs,
-                transport_factory=self._create_bus_capability,
-            )
+            result = await self._attach_owned_transports(configs)
 
             _LOGGER.info(
                 "Local transport attachment complete: %d matched, %d unmatched, %d failed",
@@ -2598,6 +2595,36 @@ class LocalTransportMixin(_MixinBase):
                 mid.validate_data = validation_enabled
         return modbus_inverters
 
+    async def _attach_owned_transports(self, configs: list[Any]) -> Any:
+        """Attach owner capabilities and discard every unadopted attempt."""
+        assert self.station is not None
+        created: set[EndpointBusCapability] = set()
+
+        def create(config: Any) -> EndpointBusCapability:
+            capability = self._create_bus_capability(config)
+            created.add(capability)
+            return capability
+
+        try:
+            return await self.station.attach_local_transports(
+                configs,
+                transport_factory=create,
+            )
+        finally:
+            devices = [*self.station.all_inverters, *self.station.all_mid_devices]
+            adopted = {
+                transport
+                for device in devices
+                if isinstance(
+                    (transport := getattr(device, "transport", None)),
+                    EndpointBusCapability,
+                )
+            }
+            unadopted = created - adopted
+            if unadopted:
+                await self._endpoint_bus_registry.async_shutdown_capabilities(unadopted)
+                self._bus_capabilities.difference_update(unadopted)
+
     async def _maybe_retry_failed_attaches(self) -> None:
         """Retry local-transport attaches that failed at setup (eg4-05l).
 
@@ -2631,10 +2658,7 @@ class LocalTransportMixin(_MixinBase):
             sorted(self._failed_attach_serials),
         )
         try:
-            result = await self.station.attach_local_transports(
-                configs,
-                transport_factory=self._create_bus_capability,
-            )
+            result = await self._attach_owned_transports(configs)
         except Exception as err:
             _LOGGER.debug("Local transport attach retry failed: %s", err)
             return

@@ -221,12 +221,12 @@ async def discover_modbus_device(
         OSError: If connection fails.
         Exception: If device discovery fails.
     """
-    transport = endpoint_bus_registry.create_capability(
+    transport = endpoint_bus_registry.create_discovery_capability(
         TransportConfig(
             host=host,
             port=port,
             unit_id=unit_id,
-            serial="",  # Will be auto-detected
+            serial="discovery",
             timeout=DEFAULT_MODBUS_TIMEOUT,
             transport_type=TransportType.MODBUS_TCP,
         )
@@ -293,7 +293,7 @@ async def discover_dongle_device(
         OSError: If connection fails.
         Exception: If device discovery fails.
     """
-    transport = endpoint_bus_registry.create_capability(
+    transport = endpoint_bus_registry.create_discovery_capability(
         TransportConfig(
             host=host,
             serial=inverter_serial,
@@ -359,11 +359,11 @@ async def discover_serial_device(
         OSError: If serial port cannot be opened.
         Exception: If device discovery fails.
     """
-    transport = endpoint_bus_registry.create_capability(
+    transport = endpoint_bus_registry.create_discovery_capability(
         TransportConfig(
             host="",
             port=0,
-            serial="",  # Will be auto-detected
+            serial="discovery",
             transport_type=TransportType.MODBUS_SERIAL,
             serial_port=port,
             serial_baudrate=baudrate,
