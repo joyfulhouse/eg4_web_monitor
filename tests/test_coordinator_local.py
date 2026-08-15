@@ -647,6 +647,9 @@ class TestStickyParameterCarryForward:
     def _seed_coordinator(self, hass, local_config_entry) -> EG4DataUpdateCoordinator:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            side_effect=lambda candidate, **kwargs: candidate
+        )
         coordinator._local_parameters_loaded = True
         coordinator._local_static_phase_done = True  # skip the static first refresh
 
@@ -942,6 +945,9 @@ class TestLinkDownParameterGateCycle:
     def _seed_coordinator(self, hass, local_config_entry) -> EG4DataUpdateCoordinator:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            side_effect=lambda candidate, **kwargs: candidate
+        )
         coordinator._local_parameters_loaded = True
         coordinator._local_static_phase_done = True  # skip the static first refresh
 
@@ -1095,6 +1101,9 @@ class TestPerDeviceParamRetry:
     def _seed(self, hass, two_device_entry) -> tuple[EG4DataUpdateCoordinator, dict]:
         two_device_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, two_device_entry)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            side_effect=lambda candidate, **kwargs: candidate
+        )
         coordinator._local_parameters_loaded = True
         coordinator._local_static_phase_done = True
 

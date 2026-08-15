@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers import device_registry as dr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import UpdateFailed
@@ -1480,7 +1480,10 @@ class LocalTransportMixin(_MixinBase):
                     getattr(self, "_param_retry_due", False)
                     and serial in self._param_retry_pending
                 )
-                param_transport = cast(EndpointBusCapability, inverter.transport)
+                param_transport = self._endpoint_bus_registry.validate_capability(
+                    inverter.transport,
+                    serial=serial,
+                )
                 if read_entity_params and param_transport:
                     self._param_attempted_this_cycle = True
                     parameter_read_generation = self._parameter_write_generation
@@ -2627,7 +2630,13 @@ class LocalTransportMixin(_MixinBase):
                         unadopted
                     )
                 finally:
-                    self._bus_capabilities.difference_update(unadopted)
+                    self._bus_capabilities.difference_update(
+                        capability
+                        for capability in unadopted
+                        if not self._endpoint_bus_registry.is_retained_capability(
+                            capability
+                        )
+                    )
 
     async def _maybe_retry_failed_attaches(self) -> None:
         """Retry local-transport attaches that failed at setup (eg4-05l).

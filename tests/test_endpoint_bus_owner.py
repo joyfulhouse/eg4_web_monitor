@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
-from builtins import ExceptionGroup
+from builtins import BaseExceptionGroup, ExceptionGroup
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, get_protocol_members
@@ -545,11 +545,13 @@ async def test_batch_shutdown_settles_siblings_before_aggregating_failure() -> N
     delayed_release = asyncio.Event()
     delayed_started = asyncio.Event()
     delayed_finished = False
+    failed_attempts = 0
 
     class OutcomeTransport(_FakeRawTransport):
         async def async_shutdown(self) -> None:
-            nonlocal delayed_finished
-            if self.serial == "SYNTH00001":
+            nonlocal delayed_finished, failed_attempts
+            if self.serial == "SYNTH00001" and failed_attempts == 0:
+                failed_attempts += 1
                 raise RuntimeError("synthetic terminal failure")
             delayed_started.set()
             await delayed_release.wait()
@@ -573,8 +575,98 @@ async def test_batch_shutdown_settles_siblings_before_aggregating_failure() -> N
 
     assert completed_before_release is False
     assert delayed_finished is True
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+
+    await registry.async_shutdown_capabilities((failing, delayed))
+
+    assert failed_attempts == 1
     assert registry.owner_count == 0
     assert registry.tombstone_count == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_terminal_close_keeps_tombstone_until_retry() -> None:
+    probe = _WireProbe()
+    attempts = 0
+
+    class FailOnceTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("synthetic terminal failure")
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: FailOnceTransport(config, probe)
+    )
+    capability = registry.create_capability(_config("SYNTH00001"))
+
+    with pytest.raises(RuntimeError, match="synthetic terminal failure"):
+        await capability.async_shutdown()
+
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+    with pytest.raises(EndpointOwnerClosingError):
+        registry.create_capability(_config("SYNTH00002"))
+
+    await capability.async_shutdown()
+
+    assert attempts == 2
+    assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
+
+
+@pytest.mark.asyncio
+async def test_batch_shutdown_preserves_cancellation_and_terminal_failure() -> None:
+    probe = _WireProbe()
+    terminal_started = asyncio.Event()
+    terminal_release = asyncio.Event()
+
+    class DelayedFailureTransport(_FakeRawTransport):
+        async def async_shutdown(self) -> None:
+            terminal_started.set()
+            await terminal_release.wait()
+            raise RuntimeError("synthetic terminal failure")
+
+    registry = EndpointBusRegistry(
+        raw_transport_factory=lambda config: DelayedFailureTransport(config, probe)
+    )
+    capability = registry.create_capability(_config("SYNTH00001"))
+    closing = asyncio.create_task(registry.async_shutdown_capabilities((capability,)))
+    await terminal_started.wait()
+    closing.cancel()
+    terminal_release.set()
+
+    with pytest.raises(BaseExceptionGroup) as raised:
+        await closing
+
+    assert [type(error) for error in raised.value.exceptions] == [
+        asyncio.CancelledError,
+        RuntimeError,
+    ]
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+
+
+@pytest.mark.asyncio
+async def test_registry_validates_owner_provenance_and_endpoint_identity() -> None:
+    probe = _WireProbe()
+    registry = _registry({"gateway.example.invalid": probe})
+    owned = registry.create_capability(_config("SYNTH00001"))
+    wrong_endpoint = registry.create_capability(_config("SYNTH00002"))
+    foreign_registry = _registry({"gateway.example.invalid": probe})
+    foreign = foreign_registry.create_capability(_config("SYNTH00001"))
+
+    assert registry.validate_capability(owned, serial="SYNTH00001") is owned
+    assert registry.validate_capability(wrong_endpoint, serial="SYNTH00001") is None
+    assert registry.validate_capability(foreign, serial="SYNTH00001") is None
+    owned.provenance = object()
+    assert registry.validate_capability(owned, serial="SYNTH00001") is None
+    del owned.provenance
+
+    await registry.async_shutdown_capabilities((owned, wrong_endpoint))
+    await foreign.async_shutdown()
 
 
 @pytest.mark.asyncio
@@ -782,10 +874,13 @@ async def test_failed_hybrid_cleanup_settles_and_discards_tracking() -> None:
     probe = _WireProbe()
     delayed_release = asyncio.Event()
     delayed_started = asyncio.Event()
+    failed_attempts = 0
 
     class OutcomeTransport(_FakeRawTransport):
         async def async_shutdown(self) -> None:
-            if self.serial == "SYNTH00001":
+            nonlocal failed_attempts
+            if self.serial == "SYNTH00001" and failed_attempts == 0:
+                failed_attempts += 1
                 raise RuntimeError("synthetic terminal failure")
             delayed_started.set()
             await delayed_release.wait()
@@ -835,6 +930,18 @@ async def test_failed_hybrid_cleanup_settles_and_discards_tracking() -> None:
         await cleanup
 
     assert completed_before_release is False
+    assert len(capabilities) == 1
+    assert next(iter(capabilities)).serial == "SYNTH00001"
+    assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+
+    await registry.async_shutdown_capabilities(capabilities)
+    capabilities.difference_update(
+        capability
+        for capability in tuple(capabilities)
+        if not registry.is_retained_capability(capability)
+    )
+
     assert capabilities == set()
     assert registry.owner_count == 0
 
@@ -1124,13 +1231,15 @@ def _audit_supported_source(
         if isinstance(node, ast.Name):
             return node.id in raw_names.get(scope, set())
         if isinstance(node, ast.Attribute):
-            return node.attr in _RAW_ESCAPE_ATTRIBUTES
+            return node.attr == "transport" or node.attr in _RAW_ESCAPE_ATTRIBUTES
         if not isinstance(node, ast.Call):
             return False
         called = qualified_name(node.func)
         called_name = called.rsplit(".", 1)[-1] if called else ""
         if called_name in _RAW_CONSTRUCTORS:
             return True
+        if called_name == "cast" and len(node.args) >= 2:
+            return is_raw_expression(node.args[1], scope)
         return (
             called_name == "getattr"
             and len(node.args) >= 2
@@ -1150,10 +1259,12 @@ def _audit_supported_source(
                 continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             scope = enclosing_function(node)
+            value_is_raw = is_raw_expression(value, scope)
             if (
                 isinstance(node, ast.AnnAssign)
                 and node.annotation is not None
                 and "EndpointBusCapability" in ast.unparse(node.annotation)
+                and not value_is_raw
             ):
                 for target in targets:
                     if isinstance(target, ast.Name):
@@ -1165,11 +1276,12 @@ def _audit_supported_source(
                     "create_capability",
                     "create_discovery_capability",
                     "get_local_transport",
+                    "validate_capability",
                 }:
                     for target in targets:
                         if isinstance(target, ast.Name):
                             capability_names.setdefault(scope, set()).add(target.id)
-            if is_raw_expression(value, scope):
+            if value_is_raw:
                 names = raw_names.setdefault(scope, set())
                 for target in targets:
                     if isinstance(target, ast.Name) and target.id not in names:
@@ -1264,6 +1376,19 @@ def _audit_supported_source(
             "    raw = getattr(holder, '_transport')\n"
             "    return raw",
             "direct-return",
+        ),
+        (
+            "def leak(device):\n    raw = device.transport\n    return raw",
+            "direct-return",
+        ),
+        (
+            "from typing import cast\n"
+            "async def leak(device):\n"
+            "    capability: EndpointBusCapability = cast(\n"
+            "        EndpointBusCapability, device.transport\n"
+            "    )\n"
+            "    await capability.read_runtime()",
+            "direct-local-io",
         ),
         ("getattr(holder, '_transport')", "dynamic-unwrap"),
         ("holder._op_lock = lock", "private-state"),

@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Callable, Collection, Coroutine
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Protocol, cast
 
 from pylxpweb.transports import create_transport_from_config
 from pylxpweb.transports.capabilities import TransportCapabilities
@@ -103,21 +103,20 @@ RawTransportFactory = Callable[[TransportConfig], _RawLocalTransport]
 ENDPOINT_BUS_REGISTRY_DATA = "eg4_web_monitor_endpoint_bus_registry"
 MAX_ENDPOINT_WAITERS = 64
 ENDPOINT_ACQUIRE_TIMEOUT_SECONDS = 10.0
-_T = TypeVar("_T")
 
 
-async def _await_settled(future: asyncio.Future[_T]) -> _T:
-    """Shield a terminal future until settlement, then propagate cancellation."""
+async def _await_settled(
+    future: asyncio.Future[Any],
+) -> asyncio.CancelledError | None:
+    """Wait for terminal settlement without discarding caller cancellation."""
     cancellation: asyncio.CancelledError | None = None
     while not future.done():
         try:
-            await asyncio.shield(future)
+            await asyncio.wait({future})
         except asyncio.CancelledError as error:
-            cancellation = error
-    result = await future
-    if cancellation is not None:
-        raise cancellation
-    return result
+            if cancellation is None:
+                cancellation = error
+    return cancellation
 
 
 def _default_raw_transport_factory(config: TransportConfig) -> _RawLocalTransport:
@@ -322,6 +321,7 @@ class _EndpointBusOwner:
         )
         interrupting = bool(wire_tasks) and self._gate.hold_if_locked()
         acquired = False
+        terminal_succeeded = False
         try:
             if not interrupting:
                 await self._gate.acquire(deadline=False)
@@ -331,6 +331,7 @@ class _EndpointBusOwner:
                 await terminal_shutdown(record.raw)
             else:
                 await record.raw.disconnect()
+            terminal_succeeded = True
         finally:
             for task in wire_tasks:
                 task.cancel()
@@ -340,10 +341,21 @@ class _EndpointBusOwner:
                 self._gate.release()
             if interrupting:
                 self._gate.release_hold()
-            self._records.pop(token, None)
-            if not self._records:
-                self._state = _OwnerState.CLOSED
-                self._terminal_callback()
+            if terminal_succeeded:
+                self._records.pop(token, None)
+                if not self._records:
+                    self._state = _OwnerState.CLOSED
+                    self._terminal_callback()
+                else:
+                    self._state = (
+                        _OwnerState.CLOSING
+                        if any(
+                            candidate.closing for candidate in self._records.values()
+                        )
+                        else _OwnerState.OPEN
+                    )
+            else:
+                self._state = _OwnerState.CLOSING
 
     async def wait_idle(self) -> None:
         """Wait for detached wire tasks without cancelling them."""
@@ -433,7 +445,22 @@ class EndpointBusCapability:
         if self._shutdown_task is None:
             self._owner.begin_shutdown(self._token)
             self._shutdown_task = asyncio.create_task(self._owner.shutdown(self._token))
-        await _await_settled(self._shutdown_task)
+        cancellation = await _await_settled(self._shutdown_task)
+        failure: BaseException | None = None
+        try:
+            self._shutdown_task.result()
+        except BaseException as error:
+            failure = error
+            self._shutdown_task = None
+        if cancellation is not None and failure is not None:
+            raise BaseExceptionGroup(
+                "Endpoint shutdown failed after caller cancellation",
+                [cancellation, failure],
+            )
+        if failure is not None:
+            raise failure
+        if cancellation is not None:
+            raise cancellation
 
     async def read_runtime(self) -> Any:
         return await self._owner.invoke(self._token, "read_runtime")
@@ -532,6 +559,34 @@ class EndpointBusRegistry:
             raise EndpointOwnerInUseError("Endpoint is already owned")
         return self.create_capability(config)
 
+    def validate_capability(
+        self,
+        candidate: object,
+        *,
+        serial: str | None = None,
+    ) -> EndpointBusCapability | None:
+        """Return a live local-bus capability owned by this registry."""
+        if (
+            not isinstance(candidate, EndpointBusCapability)
+            or candidate.provenance is not LocalBusProvenance.LOCAL_BUS
+            or (serial is not None and candidate.serial != serial)
+            or candidate._owner not in self._owners.values()
+        ):
+            return None
+        try:
+            candidate._owner._open_record(candidate._token)
+        except (EndpointCapabilityClosedError, EndpointOwnerClosingError):
+            return None
+        return candidate
+
+    def is_retained_capability(self, candidate: object) -> bool:
+        """Return whether this registry still retains the capability record."""
+        return (
+            isinstance(candidate, EndpointBusCapability)
+            and candidate._owner in self._owners.values()
+            and candidate._token in candidate._owner._records
+        )
+
     async def async_shutdown_capabilities(
         self, capabilities: Collection[EndpointBusCapability]
     ) -> None:
@@ -542,8 +597,11 @@ class EndpointBusRegistry:
             *(capability.async_shutdown() for capability in closing),
             return_exceptions=True,
         )
-        results = await _await_settled(batch)
+        cancellation = await _await_settled(batch)
+        results = batch.result()
         failures = [result for result in results if isinstance(result, BaseException)]
+        if cancellation is not None:
+            failures.insert(0, cancellation)
         if failures:
             raise BaseExceptionGroup("Endpoint shutdown failures", failures)
 

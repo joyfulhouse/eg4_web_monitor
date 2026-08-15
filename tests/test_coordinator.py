@@ -1435,6 +1435,9 @@ class TestDeferredLocalParameters:
         mock_inverter.refresh = AsyncMock()
         mock_inverter.detect_features = AsyncMock()
         mock_inverter._transport = make_transport_spec(is_connected=True)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            return_value=mock_inverter.transport
+        )
 
         coordinator._inverter_cache["1234567890"] = mock_inverter
         coordinator._firmware_cache["1234567890"] = "TEST-FW"
@@ -8747,12 +8750,32 @@ class TestQuickChargeOffgridCloudStatus:
         self, hass, mock_config_entry, *, active: bool = True
     ) -> EG4DataUpdateCoordinator:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        coordinator._endpoint_bus_registry.validate_capability = MagicMock(
+            side_effect=lambda candidate, **kwargs: candidate
+        )
         client = MagicMock()
         client.api.control.get_quick_charge_status = AsyncMock(
             return_value=self._cloud_status(active)
         )
         coordinator.client = client
         return coordinator
+
+    async def test_foreign_transport_is_not_driven_for_local_duration(
+        self, hass, mock_config_entry
+    ):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        coordinator._endpoint_bus_registry.validate_capability.side_effect = None
+        coordinator._endpoint_bus_registry.validate_capability.return_value = None
+        inverter = self._offgrid_inverter()
+        target: dict[str, Any] = {
+            "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
+        }
+
+        await coordinator._fetch_quick_charge_status(inverter, target)
+
+        inverter.transport.read_parameters.assert_not_awaited()
+        assert target["quick_charge_status"]["quickChargeMinute"] is None
 
     async def test_fetch_uses_cloud_for_offgrid_hybrid(self, hass, mock_config_entry):
         """Offgrid + transport + cloud client -> cloud getStatusInfo is the

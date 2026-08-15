@@ -1319,9 +1319,12 @@ class DeviceProcessingMixin(_MixinBase):
         transport = getattr(inverter, "transport", None)
         if transport is None:
             return None
-        capability: EndpointBusCapability = cast(
-            EndpointBusCapability, inverter.transport
+        capability = self._endpoint_bus_registry.validate_capability(
+            inverter.transport,
+            serial=inverter.serial_number,
         )
+        if capability is None:
+            return None
         if is_transport_link_down(inverter):
             _LOGGER.debug(
                 "Skipping reg 234 read for %s: local transport link is down "
@@ -4739,7 +4742,12 @@ class BackgroundTaskMixin(_MixinBase):
         except Exception:
             _LOGGER.debug("Error closing local capabilities", exc_info=True)
         finally:
-            self._bus_capabilities.clear()
+            retained = {
+                capability
+                for capability in self._bus_capabilities
+                if self._endpoint_bus_registry.is_retained_capability(capability)
+            }
+            self._bus_capabilities.intersection_update(retained)
 
     def _remove_task_from_set(self, task: asyncio.Task[Any]) -> None:
         """Remove completed task from background tasks set."""
