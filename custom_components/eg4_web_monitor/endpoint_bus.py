@@ -223,11 +223,9 @@ class _EndpointBusOwner:
         self,
         *,
         identity: int,
-        endpoint_key: _PhysicalEndpointKey,
         terminal_callback: Callable[[], None],
     ) -> None:
         self._identity = identity
-        self._endpoint_key = endpoint_key
         self._terminal_callback = terminal_callback
         self._state = _OwnerState.OPEN
         self._gate = _TaskReentrantGate()
@@ -242,7 +240,7 @@ class _EndpointBusOwner:
         self._next_token += 1
         token = self._next_token
         self._records[token] = _CapabilityRecord(raw)
-        return EndpointBusCapability(self, token, raw.serial, self._endpoint_key)
+        return EndpointBusCapability(self, token, raw.serial)
 
     def status(self) -> EndpointBusStatus:
         """Return bounded status without endpoint or identity material."""
@@ -384,12 +382,10 @@ class EndpointBusCapability:
         owner: _EndpointBusOwner,
         token: int,
         serial: str,
-        endpoint_key: _PhysicalEndpointKey,
     ) -> None:
         self._owner = owner
         self._token = token
         self._serial = serial
-        self._endpoint_key = endpoint_key
         self._shutdown_task: asyncio.Task[None] | None = None
 
     @property
@@ -550,7 +546,6 @@ class EndpointBusRegistry:
 
             owner = _EndpointBusOwner(
                 identity=self._next_identity,
-                endpoint_key=key,
                 terminal_callback=terminal_callback,
             )
             self._owners[key] = owner
@@ -583,9 +578,9 @@ class EndpointBusRegistry:
             or candidate.provenance is not LocalBusProvenance.LOCAL_BUS
             or (serial is not None and candidate.serial != serial)
             or expected_config is None
-            or candidate._endpoint_key != _endpoint_key(expected_config)
-            or candidate._owner not in self._owners.values()
         ):
+            return None
+        if self._owners.get(_endpoint_key(expected_config)) is not candidate._owner:
             return None
         try:
             candidate._owner._open_record(candidate._token)
@@ -612,13 +607,13 @@ class EndpointBusRegistry:
             return_exceptions=True,
         )
         cancellation = await _await_settled(batch)
-        results = batch.result()
-        for capability, result in zip(closing, results, strict=True):
+        failures: list[BaseException] = []
+        for capability, result in zip(closing, batch.result(), strict=True):
             if isinstance(result, BaseException):
                 self._failed_shutdown_capabilities.add(capability)
+                failures.append(result)
             else:
                 self._failed_shutdown_capabilities.discard(capability)
-        failures = [result for result in results if isinstance(result, BaseException)]
         if cancellation is not None:
             failures.insert(0, cancellation)
         if failures:
