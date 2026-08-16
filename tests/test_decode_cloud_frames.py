@@ -849,6 +849,40 @@ def test_pcap_accepts_duplicate_fin_with_data_and_prior_data_retransmission(
     assert process_pcap(capture_path)["frames"]
 
 
+def test_pcap_rejects_new_boundary_exact_byte_after_fin(tmp_path: Path) -> None:
+    packet_module = _dpkt()
+    frame = _cloud_frame(0xC1, b"\x01")
+    terminal_sequence = 100 + len(frame)
+    capture_path = tmp_path / "boundary-exact-post-fin.pcap"
+    _write_capture(
+        capture_path,
+        [
+            (1.0, _ethernet_packet(b"", sequence=99, flags=packet_module.tcp.TH_SYN)),
+            (
+                1.1,
+                _ethernet_packet(
+                    frame[:-1],
+                    sequence=100,
+                    flags=packet_module.tcp.TH_ACK | packet_module.tcp.TH_FIN,
+                ),
+            ),
+            (
+                1.2,
+                _ethernet_packet(
+                    frame[-1:],
+                    sequence=terminal_sequence - 1,
+                    flags=packet_module.tcp.TH_ACK,
+                ),
+            ),
+        ],
+    )
+
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.MALFORMED
+
+
 def test_pcap_accepts_nonadvancing_half_close_ack(tmp_path: Path) -> None:
     packet_module = _dpkt()
     frame = _cloud_frame(0xC1, b"\x01")
@@ -1320,6 +1354,8 @@ def test_process_pcap_rejects_symlink_input(tmp_path: Path) -> None:
 def test_process_pcap_rejects_lstat_to_open_symlink_swap(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    if not hasattr(os, "O_NOFOLLOW"):
+        pytest.skip("platform does not provide O_NOFOLLOW")
     capture_path = tmp_path / "input.pcap"
     replacement = tmp_path / "replacement.pcap"
     capture_path.write_bytes(b"synthetic")
@@ -1336,6 +1372,28 @@ def test_process_pcap_rejects_lstat_to_open_symlink_swap(
         process_pcap(capture_path)
 
     assert caught.value.reason is FailureReason.INPUT_KIND
+
+
+def test_process_pcap_rejects_lstat_to_open_symlink_swap_without_nofollow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture_path = tmp_path / "input.pcap"
+    replacement = tmp_path / "replacement.pcap"
+    capture_path.write_bytes(b"synthetic")
+    replacement.write_bytes(b"synthetic")
+    real_open = os.open
+    monkeypatch.delattr(os, "O_NOFOLLOW", raising=False)
+
+    def swap_then_open(path: Path, flags: int) -> int:
+        capture_path.unlink()
+        capture_path.symlink_to(replacement)
+        return real_open(path, flags)
+
+    monkeypatch.setattr(os, "open", swap_then_open)
+    with pytest.raises(CaptureError) as caught:
+        process_pcap(capture_path)
+
+    assert caught.value.reason is FailureReason.INPUT_CHANGED
 
 
 def test_capture_read_is_bounded_after_descriptor_stat(

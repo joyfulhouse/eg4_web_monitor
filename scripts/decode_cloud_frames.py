@@ -846,7 +846,14 @@ def _read_capture(path: Path, policy: ParserPolicy) -> bytes:
     capture: bytes | None = None
     try:
         file_stat = os.fstat(descriptor)
-        if not stat.S_ISREG(file_stat.st_mode):
+        current_path_stat = path.lstat()
+        opened_identity = (file_stat.st_dev, file_stat.st_ino)
+        if (path_stat.st_dev, path_stat.st_ino) != opened_identity or (
+            current_path_stat.st_dev,
+            current_path_stat.st_ino,
+        ) != opened_identity:
+            failure = FailureReason.INPUT_CHANGED
+        elif not stat.S_ISREG(file_stat.st_mode):
             failure = FailureReason.INPUT_KIND
         elif file_stat.st_size > policy.maximum_capture_bytes:
             failure = FailureReason.INPUT_SIZE
@@ -1027,10 +1034,16 @@ def _pcap_segments(capture: bytes, policy: ParserPolicy) -> Iterable[CapturedSeg
                 payload_end = (sequence + len(payload)) % _SEQUENCE_MODULUS
                 if packet_signature == terminal_packet:
                     continue
+                payload_boundary = terminal_sequence
+                if (
+                    terminal_packet is not None
+                    and terminal_packet[1] & module.tcp.TH_FIN
+                ):
+                    payload_boundary = (terminal_sequence - 1) % _SEQUENCE_MODULUS
                 if (
                     has_terminal_flag
                     or _sequence_advances(sequence, terminal_sequence)
-                    or (payload and _sequence_advances(payload_end, terminal_sequence))
+                    or (payload and _sequence_advances(payload_end, payload_boundary))
                 ):
                     raise CaptureError(FailureReason.MALFORMED)
                 if not payload:
