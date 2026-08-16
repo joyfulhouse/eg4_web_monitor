@@ -1129,31 +1129,41 @@ def test_tcp_reassembler_two_sided_growth_is_atomic_on_memory_error(
     reassembler.start(0)
     assert reassembler.push(2, b"cd", captured_at=1.0) == []
     assert reassembler._pending is not None
+    run = reassembler._pending[0]
+    storage_before = run._buffer
+    storage_size_before = len(storage_before)
+    head_before = run._head
+    start_before = run.start
+    end_before = run.end
+    logical_before = run.to_bytes()
+    pending_before = reassembler.pending_bytes
     retained_before = reassembler._budget.retained
 
-    allocation_calls = 0
-    native_bytearray = bytearray
+    original_append = decoder_module._PendingRun.append
 
-    def fail_second_allocation(source: object = 0) -> bytearray:
-        nonlocal allocation_calls
-        allocation_calls += 1
-        if allocation_calls == 2:
-            raise MemoryError
-        return native_bytearray(source)
+    def fail_after_preflight(self: decoder_module._PendingRun, _data: Buffer) -> None:
+        assert self is run
+        assert self._buffer is not storage_before
+        assert len(self._buffer) > storage_size_before
+        assert self._head > head_before
+        raise MemoryError
 
-    monkeypatch.setattr(
-        decoder_module, "bytearray", fail_second_allocation, raising=False
-    )
+    monkeypatch.setattr(decoder_module._PendingRun, "append", fail_after_preflight)
     with pytest.raises(CaptureError) as caught:
         reassembler.push(1, b"bcde", captured_at=1.1)
-    monkeypatch.delattr(decoder_module, "bytearray")
+    monkeypatch.setattr(decoder_module._PendingRun, "append", original_append)
 
     assert caught.value.reason is FailureReason.CAPACITY
-    assert reassembler.pending_bytes == 2
+    assert run._buffer is storage_before
+    assert len(run._buffer) == storage_size_before
+    assert run._head == head_before
+    assert run.start == start_before
+    assert run.end == end_before
+    assert run.to_bytes() == logical_before
+    assert reassembler.pending_bytes == pending_before
     assert reassembler._budget.retained == retained_before
     assert len(reassembler._pending) == 1
-    assert reassembler._pending[0].start == 2
-    assert reassembler._pending[0].to_bytes() == b"cd"
+    assert reassembler._pending[0] is run
 
     assert reassembler.push(1, b"bcde", captured_at=1.2) == []
     assert reassembler.push(0, b"a", captured_at=1.3) == [(1.3, b"abcde")]

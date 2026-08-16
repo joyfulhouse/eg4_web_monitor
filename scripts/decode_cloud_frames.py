@@ -650,6 +650,7 @@ class TCPStreamReassembler:
                 self._budget.reserve(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
                 if pending is None:
                     pending = []
+                run_snapshot: tuple[_PendingRun, bytearray, int, int] | None = None
                 try:
                     if first_run == last_run:
                         # Isolated gap fragment: a brand-new run.
@@ -664,6 +665,7 @@ class TCPStreamReassembler:
                         run = pending[first_run]
                         run_start = run.start
                         run_end = run.end
+                        run_snapshot = (run, run._buffer, run._head, run_start)
                         prefix = unassembled[: max(0, run_start - unassembled_start)]
                         if last_run - first_run == 1:
                             suffix = unassembled[max(0, run_end - unassembled_start) :]
@@ -693,6 +695,8 @@ class TCPStreamReassembler:
                             run.prepend(unassembled_start, prefix)
                         del pending[first_run + 1 : last_run]
                 except MemoryError:
+                    if run_snapshot is not None:
+                        run, run._buffer, run._head, run.start = run_snapshot
                     self._budget.release(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
                     raise CaptureError(FailureReason.CAPACITY) from None
                 self._pending = pending
