@@ -549,6 +549,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
                 DOMAIN,
                 f"duplicate_cloud_entry_{config_entry.entry_id}",
                 is_fixable=False,
+                is_persistent=True,
                 severity=ir.IssueSeverity.ERROR,
                 translation_key="duplicate_cloud_entry",
                 translation_placeholders={
@@ -561,6 +562,13 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
 
         new_data[CONF_PLANT_ID] = str(new_data[CONF_PLANT_ID])
         new_unique_id = canonical_unique_id
+
+    # Reaching this point means ownership resolved in this entry's favour, so any
+    # conflict that previously blocked it is gone. Clear a stale duplicate Repair
+    # (no-op when none exists) so a resolved conflict dismisses its own issue.
+    ir.async_delete_issue(
+        hass, DOMAIN, f"duplicate_cloud_entry_{config_entry.entry_id}"
+    )
 
     hass.config_entries.async_update_entry(
         config_entry,
@@ -1586,3 +1594,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
         PV_STRING_LIFETIME_STORAGE_VERSION,
         f"{PV_STRING_LIFETIME_STORAGE_KEY}_{entry.entry_id}",
     ).async_remove()
+
+    # Removing the losing entry is the recovery this entry's duplicate Repair
+    # asks the user to perform, so clear that Repair here (no-op when none exists).
+    ir.async_delete_issue(hass, DOMAIN, f"duplicate_cloud_entry_{entry.entry_id}")
