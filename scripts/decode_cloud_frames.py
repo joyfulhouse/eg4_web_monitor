@@ -490,16 +490,20 @@ class _PendingRun:
     def append(self, data: Buffer) -> None:
         self._buffer += bytes(data)
 
+    def reserve_prepend(self, need: int) -> None:
+        if self._head >= need:
+            return
+        length = len(self)
+        reserve = need + length
+        grown = bytearray(reserve + length)
+        grown[reserve:] = self._buffer[self._head :]
+        self._buffer = grown
+        self._head = reserve
+
     def prepend(self, start: int, data: Buffer) -> None:
         chunk = bytes(data)
         need = len(chunk)
-        if self._head < need:
-            length = len(self)
-            reserve = need + length
-            grown = bytearray(reserve + length)
-            grown[reserve:] = self._buffer[self._head :]
-            self._buffer = grown
-            self._head = reserve
+        self.reserve_prepend(need)
         self._head -= need
         self._buffer[self._head : self._head + need] = chunk
         self.start = start
@@ -652,35 +656,42 @@ class TCPStreamReassembler:
                         pending.insert(
                             first_run, _PendingRun(unassembled_start, unassembled)
                         )
-                    elif last_run - first_run == 1:
-                        # One adjacent/overlapping run: grow it at the edge(s) that
-                        # extended, in place, so reverse-adjacent inserts never
-                        # recopy the whole run.
+                    else:
+                        # Retain the leftmost touched run and append only bytes not
+                        # already stored there. Preflight front growth before the
+                        # append so a failed prepend allocation cannot leave an
+                        # uncharged suffix behind.
                         run = pending[first_run]
                         run_start = run.start
                         run_end = run.end
-                        if end > run_end:
-                            run.append(unassembled[run_end - unassembled_start :])
+                        prefix = unassembled[: max(0, run_start - unassembled_start)]
+                        if last_run - first_run == 1:
+                            suffix = unassembled[max(0, run_end - unassembled_start) :]
+                        else:
+                            tail = bytearray()
+                            cursor = run_end
+                            for subsequent in pending[first_run + 1 : last_run]:
+                                segment_end = min(subsequent.start, end)
+                                if cursor < segment_end:
+                                    tail += unassembled[
+                                        cursor - unassembled_start : segment_end
+                                        - unassembled_start
+                                    ]
+                                    cursor = segment_end
+                                if cursor < subsequent.end:
+                                    tail += subsequent.to_bytes(
+                                        max(0, cursor - subsequent.start)
+                                    )
+                                    cursor = subsequent.end
+                            if cursor < end:
+                                tail += unassembled[cursor - unassembled_start :]
+                            suffix = bytes(tail)
+                        run.reserve_prepend(len(prefix))
+                        if suffix:
+                            run.append(suffix)
                         if unassembled_start < run_start:
-                            run.prepend(
-                                unassembled_start,
-                                unassembled[: run_start - unassembled_start],
-                            )
-                    else:
-                        # Bridge several runs into one: a single coalescing copy.
-                        merged_start = min(unassembled_start, pending[first_run].start)
-                        merged_end = max(end, pending[last_run - 1].end)
-                        merged = bytearray(merged_end - merged_start)
-                        for run in pending[first_run:last_run]:
-                            offset = run.start - merged_start
-                            merged[offset : offset + len(run)] = run.to_bytes()
-                        segment_start = unassembled_start - merged_start
-                        merged[segment_start : segment_start + len(unassembled)] = (
-                            unassembled
-                        )
-                        pending[first_run:last_run] = [
-                            _PendingRun(merged_start, bytes(merged))
-                        ]
+                            run.prepend(unassembled_start, prefix)
+                        del pending[first_run + 1 : last_run]
                 except MemoryError:
                     self._budget.release(new_bytes * _PENDING_BYTE_MEMORY_CHARGE)
                     raise CaptureError(FailureReason.CAPACITY) from None

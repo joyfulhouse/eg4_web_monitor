@@ -1082,6 +1082,84 @@ def test_tcp_reassembler_reverse_adjacent_grows_run_without_rebuild(
     assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
 
 
+def test_tcp_reassembler_bridges_runs_with_linear_copy_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = ParserPolicy(maximum_segments_per_flow=4096)
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    length = 512
+    expected = bytes(index % 251 for index in range(length))
+
+    copied_bytes = 0
+    original_to_bytes = decoder_module._PendingRun.to_bytes
+
+    def counting_to_bytes(
+        self: decoder_module._PendingRun,
+        begin: int = 0,
+        stop: int | None = None,
+    ) -> bytes:
+        nonlocal copied_bytes
+        copied_bytes += len(self) - begin if stop is None else stop - begin
+        return original_to_bytes(self, begin, stop)
+
+    monkeypatch.setattr(decoder_module._PendingRun, "to_bytes", counting_to_bytes)
+
+    assert reassembler.push(1, expected[1:2], captured_at=1.0) == []
+    for bridge in range(2, length, 2):
+        assert (
+            reassembler.push(
+                bridge + 1, expected[bridge + 1 : bridge + 2], captured_at=1.0
+            )
+            == []
+        )
+        assert (
+            reassembler.push(bridge, expected[bridge : bridge + 1], captured_at=1.0)
+            == []
+        )
+
+    assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
+    assert copied_bytes <= 2 * length
+
+
+def test_tcp_reassembler_two_sided_growth_is_atomic_on_memory_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reassembler = TCPStreamReassembler()
+    reassembler.start(0)
+    assert reassembler.push(2, b"cd", captured_at=1.0) == []
+    assert reassembler._pending is not None
+    retained_before = reassembler._budget.retained
+
+    allocation_calls = 0
+    native_bytearray = bytearray
+
+    def fail_second_allocation(source: object = 0) -> bytearray:
+        nonlocal allocation_calls
+        allocation_calls += 1
+        if allocation_calls == 2:
+            raise MemoryError
+        return native_bytearray(source)
+
+    monkeypatch.setattr(
+        decoder_module, "bytearray", fail_second_allocation, raising=False
+    )
+    with pytest.raises(CaptureError) as caught:
+        reassembler.push(1, b"bcde", captured_at=1.1)
+    monkeypatch.delattr(decoder_module, "bytearray")
+
+    assert caught.value.reason is FailureReason.CAPACITY
+    assert reassembler.pending_bytes == 2
+    assert reassembler._budget.retained == retained_before
+    assert len(reassembler._pending) == 1
+    assert reassembler._pending[0].start == 2
+    assert reassembler._pending[0].to_bytes() == b"cd"
+
+    assert reassembler.push(1, b"bcde", captured_at=1.2) == []
+    assert reassembler.push(0, b"a", captured_at=1.3) == [(1.3, b"abcde")]
+    assert reassembler.pending_bytes == 0
+
+
 def test_tcp_reassembler_validates_duplicate_with_bounded_history_slices(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
