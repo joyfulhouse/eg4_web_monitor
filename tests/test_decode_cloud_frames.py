@@ -14,7 +14,7 @@ from collections.abc import Buffer, Callable
 from importlib import util
 from pathlib import Path
 from types import ModuleType
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 import pytest
 
@@ -990,6 +990,201 @@ def test_tcp_reassembler_handles_sequence_wrap_and_reverse_one_byte_segments() -
     expected = bytes(offset % 251 for offset in range(257))
     assert reassembler.push(origin, b"\x00", captured_at=1.1) == [(1.1, expected)]
     assert reassembler.segment_count == policy.maximum_segments_per_flow
+
+
+def test_tcp_reassembler_coalesces_pathological_reverse_fragmentation() -> None:
+    policy = ParserPolicy(maximum_segments_per_flow=4096)
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    expected = bytes(offset % 251 for offset in range(4096))
+
+    for offset in range(4095, 0, -1):
+        assert (
+            reassembler.push(offset, expected[offset : offset + 1], captured_at=1.0)
+            == []
+        )
+
+    assert reassembler.pending_bytes == 4095
+    assert reassembler._pending is not None
+    assert len(reassembler._pending) == 1
+    assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
+    assert reassembler.segment_count == policy.maximum_segments_per_flow
+
+
+def test_tcp_reassembler_sparse_fragments_inspect_sublinear_runs() -> None:
+    # Sparse ascending out-of-order fragments stay as separate runs. A new insert
+    # must locate its window by binary search, touching O(log runs) entries, not by
+    # scanning the whole sorted list (which made S inserts theta(S^2)).
+    policy = ParserPolicy(
+        maximum_segments_per_flow=100_000,
+        maximum_pending_bytes_per_flow=1024 * 1024,
+    )
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    run_count = 2048
+    # Leave offset 0 unfilled so nothing assembles and every fragment stays pending.
+    for index in range(run_count):
+        assert reassembler.push(2 * index + 2, b"x", captured_at=1.0) == []
+    assert reassembler._pending is not None
+    assert len(reassembler._pending) == run_count
+
+    class _CountingList(list[decoder_module._PendingRun]):
+        def __init__(self, items: list[decoder_module._PendingRun]) -> None:
+            super().__init__(items)
+            self.access_count = 0
+
+        def __getitem__(self, item: Any) -> Any:
+            self.access_count += 1
+            return super().__getitem__(item)
+
+    counting = _CountingList(reassembler._pending)
+    reassembler._pending = counting
+    assert reassembler.push(2 * run_count + 2, b"x", captured_at=1.1) == []
+    # Two bisects plus one window slice; strictly sub-linear in run_count.
+    assert counting.access_count <= 4 * run_count.bit_length()
+    assert len(reassembler._pending) == run_count + 1
+
+
+def test_tcp_reassembler_reverse_adjacent_grows_run_without_rebuild(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Reverse-adjacent one-byte fragments coalesce into a single run. The buggy
+    # rebuild constructed a fresh run per fragment (theta(n) constructions, each
+    # recopying the whole growing run -> theta(n^2) copied bytes). The run must be
+    # created once and grown in place thereafter.
+    policy = ParserPolicy(maximum_segments_per_flow=100_000)
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    length = 4096
+    expected = bytes(index % 251 for index in range(length))
+
+    constructions = 0
+    original_init = decoder_module._PendingRun.__init__
+
+    def counting_init(
+        self: decoder_module._PendingRun, start: int, data: Buffer
+    ) -> None:
+        nonlocal constructions
+        constructions += 1
+        original_init(self, start, data)
+
+    monkeypatch.setattr(decoder_module._PendingRun, "__init__", counting_init)
+
+    for offset in range(length - 1, 0, -1):
+        assert (
+            reassembler.push(offset, expected[offset : offset + 1], captured_at=1.0)
+            == []
+        )
+
+    assert reassembler._pending is not None
+    assert len(reassembler._pending) == 1
+    assert constructions == 1
+    assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
+
+
+def test_tcp_reassembler_bridges_runs_with_linear_copy_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = ParserPolicy(maximum_segments_per_flow=4096)
+    reassembler = TCPStreamReassembler(policy)
+    reassembler.start(0)
+    length = 512
+    expected = bytes(index % 251 for index in range(length))
+
+    copied_bytes = 0
+    original_to_bytes = decoder_module._PendingRun.to_bytes
+
+    def counting_to_bytes(
+        self: decoder_module._PendingRun,
+        begin: int = 0,
+        stop: int | None = None,
+    ) -> bytes:
+        nonlocal copied_bytes
+        copied_bytes += len(self) - begin if stop is None else stop - begin
+        return original_to_bytes(self, begin, stop)
+
+    monkeypatch.setattr(decoder_module._PendingRun, "to_bytes", counting_to_bytes)
+
+    assert reassembler.push(1, expected[1:2], captured_at=1.0) == []
+    for bridge in range(2, length, 2):
+        assert (
+            reassembler.push(
+                bridge + 1, expected[bridge + 1 : bridge + 2], captured_at=1.0
+            )
+            == []
+        )
+        assert (
+            reassembler.push(bridge, expected[bridge : bridge + 1], captured_at=1.0)
+            == []
+        )
+
+    assert reassembler.push(0, expected[:1], captured_at=1.1) == [(1.1, expected)]
+    assert copied_bytes <= 2 * length
+
+
+def test_tcp_reassembler_two_sided_growth_is_atomic_on_memory_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reassembler = TCPStreamReassembler()
+    reassembler.start(0)
+    assert reassembler.push(2, b"cd", captured_at=1.0) == []
+    assert reassembler._pending is not None
+    run = reassembler._pending[0]
+    storage_before = run._buffer
+    storage_size_before = len(storage_before)
+    head_before = run._head
+    start_before = run.start
+    end_before = run.end
+    logical_before = run.to_bytes()
+    pending_before = reassembler.pending_bytes
+    retained_before = reassembler._budget.retained
+
+    original_append = decoder_module._PendingRun.append
+
+    def fail_after_preflight(self: decoder_module._PendingRun, _data: Buffer) -> None:
+        assert self is run
+        assert self._buffer is not storage_before
+        assert len(self._buffer) > storage_size_before
+        assert self._head > head_before
+        raise MemoryError
+
+    monkeypatch.setattr(decoder_module._PendingRun, "append", fail_after_preflight)
+    with pytest.raises(CaptureError) as caught:
+        reassembler.push(1, b"bcde", captured_at=1.1)
+    monkeypatch.setattr(decoder_module._PendingRun, "append", original_append)
+
+    assert caught.value.reason is FailureReason.CAPACITY
+    assert run._buffer is storage_before
+    assert len(run._buffer) == storage_size_before
+    assert run._head == head_before
+    assert run.start == start_before
+    assert run.end == end_before
+    assert run.to_bytes() == logical_before
+    assert reassembler.pending_bytes == pending_before
+    assert reassembler._budget.retained == retained_before
+    assert len(reassembler._pending) == 1
+    assert reassembler._pending[0] is run
+
+    assert reassembler.push(1, b"bcde", captured_at=1.2) == []
+    assert reassembler.push(0, b"a", captured_at=1.3) == [(1.3, b"abcde")]
+    assert reassembler.pending_bytes == 0
+
+
+def test_tcp_reassembler_validates_duplicate_with_bounded_history_slices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reassembler = TCPStreamReassembler()
+    reassembler.start(0)
+    payload = bytes(index % 251 for index in range(16 * 1024))
+    assert reassembler.push(0, payload, captured_at=1.0) == [(1.0, payload)]
+
+    def reject_per_byte_access(_buffer: object, _index: int) -> int:
+        raise AssertionError("history overlap used per-byte validation")
+
+    monkeypatch.setattr(
+        decoder_module._ChargedRingBuffer, "byte_at", reject_per_byte_access
+    )
+    assert reassembler.push(0, payload, captured_at=1.1) == []
 
 
 def test_tcp_reassembler_rejects_one_segment_over_limit() -> None:
