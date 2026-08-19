@@ -583,12 +583,14 @@ class TestCoordinatorCleanup:
     async def test_async_shutdown_disconnects_cached_transports(
         self, hass, mock_config_entry
     ):
-        """Test async_shutdown disconnects transports on cached inverters/MID devices.
+        """Test async_shutdown closes transports on cached inverters/MID devices.
 
         In LOCAL/HYBRID mode, transports are attached to inverter objects
         in _inverter_cache and MID devices in _mid_device_cache.  These
-        must be disconnected during shutdown so that any in-flight
-        asyncio.gather() on transport I/O unblocks quickly.
+        must be closed during shutdown so that any in-flight
+        asyncio.gather() on transport I/O unblocks quickly.  pylxpweb>=0.10.0b3
+        closes a ``TerminalTransport`` via ``async_shutdown()`` (which does not
+        wait on the operation lock) in preference to legacy ``disconnect()``.
         """
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
@@ -596,22 +598,22 @@ class TestCoordinatorCleanup:
         # public ``.transport`` accessor returns the assigned transport (a bare
         # MagicMock's ``.transport`` would return an unrelated auto-child mock).
         mock_transport_1 = make_transport_spec(is_connected=True)
-        mock_transport_1.disconnect = AsyncMock()
+        mock_transport_1.async_shutdown = AsyncMock()
         mock_inv = make_real_inverter("INV001", "FlexBOSS21")
         mock_inv._transport = mock_transport_1
         coordinator._inverter_cache["INV001"] = mock_inv
 
         # Simulate cached MID device with an open transport
         mock_transport_2 = make_transport_spec(is_connected=True)
-        mock_transport_2.disconnect = AsyncMock()
+        mock_transport_2.async_shutdown = AsyncMock()
         mock_mid = make_real_mid("MID001", "GridBOSS")
         mock_mid._transport = mock_transport_2
         coordinator._mid_device_cache["MID001"] = mock_mid
 
         await coordinator.async_shutdown()
 
-        mock_transport_1.disconnect.assert_awaited_once()
-        mock_transport_2.disconnect.assert_awaited_once()
+        mock_transport_1.async_shutdown.assert_awaited_once()
+        mock_transport_2.async_shutdown.assert_awaited_once()
 
     async def test_async_shutdown_disconnects_station_only_transports(
         self, hass, mock_config_entry
@@ -627,7 +629,7 @@ class TestCoordinatorCleanup:
         assert not coordinator._mid_device_cache
 
         serial_transport = make_transport_spec(is_connected=True)
-        serial_transport.disconnect = AsyncMock()
+        serial_transport.async_shutdown = AsyncMock()
         mock_mid = make_real_mid("MID001", "GridBOSS")
         mock_mid._transport = serial_transport
 
@@ -638,21 +640,22 @@ class TestCoordinatorCleanup:
 
         await coordinator.async_shutdown()
 
-        serial_transport.disconnect.assert_awaited_once()
+        serial_transport.async_shutdown.assert_awaited_once()
 
     async def test_async_shutdown_dedups_station_and_cache_transports(
         self, hass, mock_config_entry
     ):
         """A transport shared between a cache entry and the station walk closes once.
 
-        The station walk's seen-set is seeded from both caches; without it the
-        same transport object would get a second disconnect() (mock transports
-        never flip is_connected, so this asserts the de-dup, not luck).
+        Devices are de-duplicated by identity across caches and the station
+        walk; without it the same transport object would be terminally closed
+        twice (mock transports never flip is_connected, so this asserts the
+        de-dup, not luck).
         """
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
         shared_transport = make_transport_spec(is_connected=True)
-        shared_transport.disconnect = AsyncMock()
+        shared_transport.async_shutdown = AsyncMock()
         mock_inv = make_real_inverter("INV001", "FlexBOSS21")
         mock_inv._transport = shared_transport
         coordinator._inverter_cache["INV001"] = mock_inv
@@ -664,7 +667,7 @@ class TestCoordinatorCleanup:
 
         await coordinator.async_shutdown()
 
-        shared_transport.disconnect.assert_awaited_once()
+        shared_transport.async_shutdown.assert_awaited_once()
 
 
 class TestDeviceInfo:
