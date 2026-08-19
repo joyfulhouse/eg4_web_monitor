@@ -647,9 +647,10 @@ class TestCoordinatorCleanup:
     ):
         """A transport shared between a cache entry and the station walk closes once.
 
-        The station walk's seen-set is seeded from both caches; without it the
-        same transport object would be terminally closed twice (mock transports
-        never flip is_connected, so this asserts the de-dup, not luck).
+        Devices are de-duplicated by identity across caches and the station
+        walk; without it the same transport object would be terminally closed
+        twice (mock transports never flip is_connected, so this asserts the
+        de-dup, not luck).
         """
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
 
