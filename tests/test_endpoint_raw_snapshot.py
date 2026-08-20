@@ -420,6 +420,25 @@ async def test_zero_observation_battery_none_does_not_hide_complete_reads() -> N
 
 
 @pytest.mark.asyncio
+async def test_partial_observation_mid_refresh_is_suppressed() -> None:
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    prior = capability.latest_complete_snapshot
+
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+        raws[0].emit = False
+        await capability.read_energy()
+
+    assert capability.latest_complete_snapshot is prior
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+
+@pytest.mark.asyncio
 async def test_invalid_observations_are_nonthrowing_bounded_and_suppressed() -> None:
     registry, raws, _ = _registry()
     capability = registry.create_capability(
