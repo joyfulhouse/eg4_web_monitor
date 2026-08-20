@@ -39,7 +39,6 @@ class _ObservedRawTransport:
     def __init__(
         self,
         config: TransportConfig,
-        observer: RegisterObserver | None,
         operations: list[tuple[str, tuple[Any, ...]]],
     ) -> None:
         self.serial = config.serial
@@ -51,7 +50,7 @@ class _ObservedRawTransport:
         self.is_connected = True
         self.capabilities = TransportCapabilities()
         self.register_observation_error_count = 0
-        self._observer = observer
+        self._observer: RegisterObserver | None = None
         self._operations = operations
         self.emit = True
         self.extra_segment = False
@@ -60,6 +59,10 @@ class _ObservedRawTransport:
         self.observation_override: object | None = None
         self.block = asyncio.Event()
         self.block.set()
+
+    def set_register_observer(self, observer: RegisterObserver | None) -> None:
+        """Attach or detach the observer through the released control seam."""
+        self._observer = observer
 
     async def _read(self, name: str, start: int, words: tuple[int, ...]) -> Any:
         self._operations.append((name, (start, len(words))))
@@ -162,12 +165,8 @@ def _registry() -> tuple[
     raws: list[_ObservedRawTransport] = []
     operations: list[tuple[str, tuple[Any, ...]]] = []
 
-    def factory(
-        config: TransportConfig,
-        *,
-        register_observer: RegisterObserver | None = None,
-    ) -> _ObservedRawTransport:
-        raw = _ObservedRawTransport(config, register_observer, operations)
+    def factory(config: TransportConfig) -> _ObservedRawTransport:
+        raw = _ObservedRawTransport(config, operations)
         raws.append(raw)
         return raw
 
@@ -545,16 +544,44 @@ async def test_coverage_loss_detaches_owner_callback_and_removes_store() -> None
         await capability.read_runtime()
     registry.set_snapshot_coverage((capability,), enabled=False)
 
+    assert raws[0]._observer is None
     observer(_observations(20, (21,)))
     await capability.read_energy()
     assert capability.latest_complete_snapshot is None
     assert registry.snapshot_store_count == 0
 
+    del observer
     await capability.async_shutdown()
     del capability
     del registry
     gc.collect()
     assert owner_reference() is None
+
+
+@pytest.mark.asyncio
+async def test_coverage_restore_reattaches_observer_and_republishes() -> None:
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+
+    registry.set_snapshot_coverage((capability,), enabled=False)
+    assert raws[0]._observer is None
+    assert capability.latest_complete_snapshot is None
+
+    registry.set_snapshot_coverage((capability,), enabled=True)
+    assert raws[0]._observer is not None
+    async with capability.complete_snapshot_refresh():
+        await capability.read_energy()
+
+    frame = capability.latest_complete_snapshot
+    assert frame is not None
+    assert frame.generation == frame.poll_cycle == 1
+    assert [(block.start_address, block.words) for block in frame.blocks] == [
+        (20, (21,))
+    ]
 
 
 @pytest.mark.asyncio
@@ -638,27 +665,26 @@ async def test_closing_one_unit_drops_only_its_owner_retained_store() -> None:
 
 @pytest.mark.asyncio
 async def test_unload_releases_raw_transport_observer_owner_reference_cycle() -> None:
-    raw_reference: weakref.ReferenceType[_ObservedRawTransport] | None = None
+    raws: list[_ObservedRawTransport] = []
 
-    def factory(
-        config: TransportConfig,
-        *,
-        register_observer: RegisterObserver | None = None,
-    ) -> _ObservedRawTransport:
-        nonlocal raw_reference
-        raw = _ObservedRawTransport(config, register_observer, [])
-        raw_reference = weakref.ref(raw)
+    def factory(config: TransportConfig) -> _ObservedRawTransport:
+        raw = _ObservedRawTransport(config, [])
+        raws.append(raw)
         return raw
 
     registry = EndpointBusRegistry(raw_transport_factory=factory)
     capability = registry.create_capability(
         _config(), snapshot_enabled=True, poll_interval_seconds=5.0
     )
+    assert raws[0]._observer is not None
     await capability.async_shutdown()
+    assert raws[0]._observer is None
+
+    raw_reference = weakref.ref(raws[0])
+    raws.clear()
     del capability
     gc.collect()
 
-    assert raw_reference is not None
     assert raw_reference() is None
     assert registry.snapshot_store_count == 0
 

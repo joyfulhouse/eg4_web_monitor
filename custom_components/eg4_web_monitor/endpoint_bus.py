@@ -9,7 +9,6 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from enum import StrEnum
-import inspect
 import time
 from typing import Any, Protocol, cast
 from uuid import uuid4
@@ -17,6 +16,7 @@ from uuid import uuid4
 from pylxpweb.transports import (
     RegisterObservation,
     RegisterObserver,
+    RegisterObserverControl,
     RegisterSegment,
     RegisterSpace,
     create_transport_from_config,
@@ -119,6 +119,8 @@ class _RawLocalTransport(Protocol):
 
     async def read_midbox_runtime(self) -> Any: ...
 
+    def set_register_observer(self, observer: RegisterObserver | None) -> None: ...
+
 
 RawTransportFactory = Callable[..., _RawLocalTransport]
 ENDPOINT_BUS_REGISTRY_DATA = "eg4_web_monitor_endpoint_bus_registry"
@@ -143,33 +145,9 @@ async def _await_settled(
     return cancellation
 
 
-def _default_raw_transport_factory(
-    config: TransportConfig,
-    *,
-    register_observer: RegisterObserver | None = None,
-) -> _RawLocalTransport:
+def _default_raw_transport_factory(config: TransportConfig) -> _RawLocalTransport:
     """Construct a raw transport at the single repository construction site."""
-    return cast(
-        _RawLocalTransport,
-        create_transport_from_config(config, register_observer=register_observer),
-    )
-
-
-def _construct_raw_transport(
-    factory: RawTransportFactory,
-    config: TransportConfig,
-    observer: RegisterObserver | None,
-) -> _RawLocalTransport:
-    """Call observer-aware factories while retaining existing injected fakes."""
-    parameters = inspect.signature(factory).parameters.values()
-    accepts_observer = any(
-        parameter.name == "register_observer"
-        or parameter.kind is inspect.Parameter.VAR_KEYWORD
-        for parameter in parameters
-    )
-    if accepts_observer:
-        return factory(config, register_observer=observer)
-    return factory(config)
+    return cast(_RawLocalTransport, create_transport_from_config(config))
 
 
 def _endpoint_key(config: TransportConfig) -> _PhysicalEndpointKey:
@@ -265,7 +243,6 @@ class _CapabilityRecord:
     snapshot_state: _UnitSnapshotState | None = None
     snapshot_observer_capable: bool = False
     snapshot_enabled: bool = False
-    snapshot_observer: _RegisterObserverRelay | None = None
     snapshot_poll_interval_seconds: float = 5.0
     unit: int = 0
     firmware_scope: str | None = None
@@ -306,26 +283,6 @@ _SNAPSHOT_READ_CONTEXT: ContextVar[int | None] = ContextVar(
 )
 
 
-class _RegisterObserverRelay:
-    """Detach integration ownership from a construction-time observer."""
-
-    __slots__ = ("_target",)
-
-    def __init__(self) -> None:
-        self._target: RegisterObserver | None = None
-
-    def bind(self, target: RegisterObserver) -> None:
-        self._target = target
-
-    def clear(self) -> None:
-        self._target = None
-
-    def __call__(self, observations: tuple[RegisterObservation, ...]) -> None:
-        target = self._target
-        if target is not None:
-            target(observations)
-
-
 class _EndpointBusOwner:
     """Own every raw transport and operation for one physical endpoint."""
 
@@ -350,7 +307,6 @@ class _EndpointBusOwner:
         raw: _RawLocalTransport,
         *,
         snapshot_enabled: bool,
-        snapshot_observer: _RegisterObserverRelay | None,
         poll_interval_seconds: float,
         unit: int,
     ) -> EndpointBusCapability:
@@ -359,8 +315,9 @@ class _EndpointBusOwner:
             raise EndpointOwnerClosingError("Endpoint owner is closing")
         self._next_token += 1
         token = self._next_token
+        observer_capable = snapshot_enabled and isinstance(raw, RegisterObserverControl)
         snapshot_state = None
-        if snapshot_enabled:
+        if observer_capable:
             snapshot_state = self._snapshot_states.get(unit)
             if snapshot_state is None:
                 snapshot_state = _UnitSnapshotState(
@@ -374,17 +331,27 @@ class _EndpointBusOwner:
         self._records[token] = _CapabilityRecord(
             raw,
             snapshot_state=snapshot_state,
-            snapshot_observer_capable=snapshot_enabled,
-            snapshot_enabled=snapshot_enabled,
-            snapshot_observer=snapshot_observer,
+            snapshot_observer_capable=observer_capable,
+            snapshot_enabled=observer_capable,
             snapshot_poll_interval_seconds=poll_interval_seconds,
             unit=unit,
         )
-        if snapshot_observer is not None:
-            snapshot_observer.bind(
-                lambda observations: self.observe(token, observations)
-            )
+        if observer_capable:
+            self._attach_snapshot_observer(token)
         return EndpointBusCapability(self, token, raw.serial)
+
+    def _attach_snapshot_observer(self, token: int) -> None:
+        """Attach the owner observation callback through the public control seam."""
+        record = self._records[token]
+        record.raw.set_register_observer(
+            lambda observations: self.observe(token, observations)
+        )
+
+    @staticmethod
+    def _detach_snapshot_observer(record: _CapabilityRecord) -> None:
+        """Restore the truly unobserved polling path through the public seam."""
+        if record.snapshot_observer_capable:
+            record.raw.set_register_observer(None)
 
     @staticmethod
     def _valid_observations(observations: object) -> bool:
@@ -622,9 +589,7 @@ class _EndpointBusOwner:
             state.active_attempt.aborted = True
 
     def _remove_snapshot_state(self, record: _CapabilityRecord) -> None:
-        observer = record.snapshot_observer
-        if observer is not None:
-            observer.clear()
+        self._detach_snapshot_observer(record)
         state = record.snapshot_state
         record.snapshot_state = None
         if state is None:
@@ -661,10 +626,7 @@ class _EndpointBusOwner:
             self._snapshot_states[record.unit] = state
         record.snapshot_state = state
         record.snapshot_enabled = True
-        if record.snapshot_observer is not None:
-            record.snapshot_observer.bind(
-                lambda observations: self.observe(token, observations)
-            )
+        self._attach_snapshot_observer(token)
 
     def status(self) -> EndpointBusStatus:
         """Return bounded status without endpoint or identity material."""
@@ -1052,14 +1014,9 @@ class EndpointBusRegistry:
             TransportType.MODBUS_TCP,
             TransportType.MODBUS_SERIAL,
         }
-        observer = _RegisterObserverRelay() if snapshot_enabled else None
 
         try:
-            raw = _construct_raw_transport(
-                self._raw_transport_factory,
-                config,
-                observer,
-            )
+            raw = self._raw_transport_factory(config)
         except Exception:
             if created_owner and self._owners.get(key) is owner:
                 self._owners.pop(key, None)
@@ -1067,7 +1024,6 @@ class EndpointBusRegistry:
         capability = owner.add(
             raw,
             snapshot_enabled=snapshot_enabled,
-            snapshot_observer=observer,
             poll_interval_seconds=poll_interval_seconds,
             unit=config.unit_id,
         )
