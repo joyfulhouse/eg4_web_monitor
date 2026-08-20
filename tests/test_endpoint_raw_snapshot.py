@@ -597,10 +597,38 @@ async def test_coverage_restore_reattaches_observer_and_republishes() -> None:
 
     frame = capability.latest_complete_snapshot
     assert frame is not None
-    assert frame.generation == frame.poll_cycle == 1
+    assert frame.generation == frame.poll_cycle == 2
     assert [(block.start_address, block.words) for block in frame.blocks] == [
         (20, (21,))
     ]
+
+
+@pytest.mark.asyncio
+async def test_coverage_restore_never_reuses_published_frame_identity() -> None:
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    first = capability.latest_complete_snapshot
+    assert first is not None
+
+    registry.set_snapshot_coverage((capability,), enabled=False)
+    assert capability.latest_complete_snapshot is None
+    registry.set_snapshot_coverage((capability,), enabled=True)
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+
+    second = capability.latest_complete_snapshot
+    assert second is not None
+    assert second.owner_epoch == first.owner_epoch
+    assert second.generation > first.generation
+    assert second.poll_cycle > first.poll_cycle
+    assert (second.owner_epoch, second.generation) != (
+        first.owner_epoch,
+        first.generation,
+    )
 
 
 @pytest.mark.asyncio

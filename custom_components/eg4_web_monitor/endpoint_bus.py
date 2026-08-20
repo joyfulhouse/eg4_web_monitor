@@ -301,6 +301,7 @@ class _EndpointBusOwner:
         self._wire_tasks: dict[asyncio.Task[Any], int] = {}
         self._epoch = uuid4()
         self._snapshot_states: dict[int, _UnitSnapshotState] = {}
+        self._snapshot_counters: dict[int, tuple[int, int]] = {}
 
     def _snapshot_state_for(
         self, unit: int, poll_interval_seconds: float
@@ -308,12 +309,15 @@ class _EndpointBusOwner:
         """Return the one retained latest-complete store for an endpoint/unit."""
         state = self._snapshot_states.get(unit)
         if state is None:
+            generation, poll_cycle = self._snapshot_counters.get(unit, (0, 0))
             state = _UnitSnapshotState(
                 LatestCompleteRawSnapshotStore(
                     freshness_policy=FreshnessPolicy.from_poll_interval(
                         poll_interval_seconds
                     )
-                )
+                ),
+                generation=generation,
+                poll_cycle=poll_cycle,
             )
             self._snapshot_states[unit] = state
         return state
@@ -611,6 +615,12 @@ class _EndpointBusOwner:
         ):
             state.store.clear()
             self._snapshot_states.pop(record.unit, None)
+            # Frame identity must never repeat within this owner epoch, so the
+            # next state for this unit continues the released identity counters.
+            self._snapshot_counters[record.unit] = (
+                state.generation,
+                state.poll_cycle,
+            )
 
     def set_snapshot_coverage(self, token: int, *, enabled: bool) -> None:
         record = self._records.get(token)
