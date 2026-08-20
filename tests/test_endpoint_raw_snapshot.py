@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from builtins import BaseExceptionGroup
 import gc
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,11 +58,17 @@ class _ObservedRawTransport:
         self.fail = False
         self.battery_result_none = False
         self.observation_override: object | None = None
+        self.fail_attach = False
+        self.fail_detach = False
         self.block = asyncio.Event()
         self.block.set()
 
     def set_register_observer(self, observer: RegisterObserver | None) -> None:
         """Attach or detach the observer through the released control seam."""
+        if self.fail_attach and observer is not None:
+            raise RuntimeError("synthetic attach failure")
+        if self.fail_detach and observer is None:
+            raise RuntimeError("synthetic detach failure")
         self._observer = observer
 
     async def _read(self, name: str, start: int, words: tuple[int, ...]) -> Any:
@@ -1037,3 +1044,195 @@ def test_snapshot_coverage_sync_fails_closed_without_eligibility(
     )
 
     assert observed == [False]
+
+
+@pytest.mark.asyncio
+async def test_initially_ineligible_capability_enables_on_later_eligibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A capability created before eligibility must enable on coverage restore."""
+    registry, raws, _ = _registry()
+    coordinator = SimpleNamespace(
+        connection_type="local",
+        _endpoint_bus_registry=registry,
+        _bus_capabilities=set(),
+        _bus_capability_configs={},
+        _bus_owner_eligibility=BusOwnerEligibility(
+            False, BusEligibilityReason.UNCOVERED_BUS
+        ),
+        _modbus_interval=5,
+        _dongle_interval=30,
+        station=None,
+        _local_transport_configs=(),
+        _inverter_cache={},
+        _mid_device_cache={},
+        _link_down_notified=set(),
+    )
+    capability = EG4DataUpdateCoordinator._create_bus_capability(coordinator, _config())
+    assert raws[0]._observer is None
+    assert capability.latest_complete_snapshot is None
+
+    monkeypatch.setattr(
+        coordinator_local,
+        "evaluate_bus_owner_eligibility",
+        lambda **kwargs: BusOwnerEligibility(True, BusEligibilityReason.ELIGIBLE),
+    )
+    coordinator_local.LocalTransportMixin._sync_transport_link_state(
+        coordinator, {"devices": {}}
+    )
+
+    assert raws[0]._observer is not None
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    frame = capability.latest_complete_snapshot
+    assert frame is not None
+    assert frame.generation == frame.poll_cycle == 1
+    await capability.async_shutdown()
+
+
+@pytest.mark.asyncio
+async def test_failed_observer_attach_during_add_retains_no_record_or_state() -> None:
+    """A rejected observer attach must not leak an unreachable record or store."""
+    raws: list[_ObservedRawTransport] = []
+
+    def factory(config: TransportConfig) -> _ObservedRawTransport:
+        raw = _ObservedRawTransport(config, [])
+        raw.fail_attach = not raws
+        raws.append(raw)
+        return raw
+
+    registry = EndpointBusRegistry(raw_transport_factory=factory)
+    with pytest.raises(RuntimeError, match="synthetic attach failure"):
+        registry.create_capability(
+            _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+        )
+
+    owner = next(iter(registry._owners.values()))
+    assert not owner._records
+    assert raws[0]._observer is None
+    assert registry.snapshot_store_count == 0
+
+    recovered = registry.create_capability(
+        _config(serial="SYNTH00002"), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    assert raws[1]._observer is not None
+    async with recovered.complete_snapshot_refresh():
+        await recovered.read_runtime()
+    assert recovered.latest_complete_snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_observer_attach_on_restore_stays_disabled_and_retryable() -> None:
+    """A rejected restore attach commits nothing and remains retryable."""
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    registry.set_snapshot_coverage((capability,), enabled=False)
+
+    raws[0].fail_attach = True
+    with pytest.raises(BaseExceptionGroup, match="snapshot coverage"):
+        registry.set_snapshot_coverage((capability,), enabled=True)
+    assert raws[0]._observer is None
+    assert capability.latest_complete_snapshot is None
+    assert registry.snapshot_store_count == 0
+
+    raws[0].fail_attach = False
+    registry.set_snapshot_coverage((capability,), enabled=True)
+    assert raws[0]._observer is not None
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    frame = capability.latest_complete_snapshot
+    assert frame is not None
+    assert frame.generation == frame.poll_cycle == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_detach_on_coverage_loss_clears_state_and_stays_retryable() -> (
+    None
+):
+    """A rejected detach must still quarantine local state and stay retryable."""
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    assert capability.latest_complete_snapshot is not None
+
+    raws[0].fail_detach = True
+    with pytest.raises(BaseExceptionGroup, match="snapshot coverage"):
+        registry.set_snapshot_coverage((capability,), enabled=False)
+    assert capability.latest_complete_snapshot is None
+    assert registry.snapshot_store_count == 0
+
+    raws[0].fail_detach = False
+    registry.set_snapshot_coverage((capability,), enabled=False)
+    assert raws[0]._observer is None
+
+    registry.set_snapshot_coverage((capability,), enabled=True)
+    async with capability.complete_snapshot_refresh():
+        await capability.read_energy()
+    frame = capability.latest_complete_snapshot
+    assert frame is not None
+    assert frame.generation == frame.poll_cycle == 2
+
+
+@pytest.mark.asyncio
+async def test_failed_detach_still_releases_remaining_capabilities() -> None:
+    """One rejected detach must not leave later capabilities observed/stale."""
+    registry, raws, _ = _registry()
+    first = registry.create_capability(
+        _config(serial="SYNTH00001", unit=1),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    second = registry.create_capability(
+        _config(serial="SYNTH00002", unit=2),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    async with first.complete_snapshot_refresh():
+        await first.read_runtime()
+    async with second.complete_snapshot_refresh():
+        await second.read_runtime()
+
+    raws[0].fail_detach = True
+    with pytest.raises(BaseExceptionGroup, match="snapshot coverage"):
+        registry.set_snapshot_coverage((first, second), enabled=False)
+
+    assert first.latest_complete_snapshot is None
+    assert second.latest_complete_snapshot is None
+    assert raws[0]._observer is not None
+    assert raws[1]._observer is None
+    assert registry.snapshot_store_count == 0
+
+
+@pytest.mark.asyncio
+async def test_retired_snapshot_identity_stays_bounded_across_units() -> None:
+    """Coverage toggles for many units retain one bounded identity high-water mark."""
+    registry, _, _ = _registry()
+    capabilities = [
+        registry.create_capability(
+            _config(serial=f"SYNTH0000{unit}", unit=unit),
+            snapshot_enabled=True,
+            poll_interval_seconds=5.0,
+        )
+        for unit in (1, 2, 3)
+    ]
+    for capability in capabilities:
+        async with capability.complete_snapshot_refresh():
+            await capability.read_runtime()
+        registry.set_snapshot_coverage((capability,), enabled=False)
+
+    owner = capabilities[0]._owner
+    assert owner._snapshot_identity_floor == (1, 1)
+    assert not hasattr(owner, "_snapshot_counters")
+    assert registry.snapshot_store_count == 0
+
+    registry.set_snapshot_coverage((capabilities[2],), enabled=True)
+    async with capabilities[2].complete_snapshot_refresh():
+        await capabilities[2].read_runtime()
+    frame = capabilities[2].latest_complete_snapshot
+    assert frame is not None
+    assert frame.generation == frame.poll_cycle == 2

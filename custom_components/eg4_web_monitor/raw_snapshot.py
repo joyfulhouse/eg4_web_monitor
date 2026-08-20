@@ -45,6 +45,10 @@ class RawRegisterBlock:
     crc_state: CrcValidationState
 
     def __post_init__(self) -> None:
+        if type(self.words) is not tuple or any(
+            type(word) is not int for word in self.words
+        ):
+            raise ValueError("Raw block words must be an exact tuple of ints")
         if self.count <= 0 or self.count != len(self.words):
             raise ValueError("Raw block count must match its non-empty word tuple")
         if self.start_address < 0 or self.unit < 0:
@@ -75,6 +79,10 @@ class RawSnapshotFrame:
     blocks: tuple[RawRegisterBlock, ...]
 
     def __post_init__(self) -> None:
+        if type(self.blocks) is not tuple or any(
+            type(block) is not RawRegisterBlock for block in self.blocks
+        ):
+            raise ValueError("Frame blocks must be an exact tuple of raw blocks")
         if self.generation <= 0 or self.poll_cycle <= 0 or not self.blocks:
             raise ValueError("A complete frame needs positive identity and blocks")
         if self.acquired_monotonic_end < self.acquired_monotonic_start:

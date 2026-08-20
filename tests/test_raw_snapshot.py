@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
 import time
+from typing import Any
 from uuid import UUID
 
 import pytest
@@ -138,3 +139,43 @@ def test_store_retains_only_latest_complete_and_saturates_redacted_health() -> N
 
     store.clear()
     assert store.latest_complete is None
+
+
+def test_raw_block_rejects_mutable_or_non_int_word_containers() -> None:
+    """Only an exact tuple of exact ints satisfies the immutable word contract."""
+    kwargs: dict[str, Any] = {
+        "endpoint_key": "owner-1",
+        "unit": 1,
+        "family_scope": None,
+        "firmware_scope": None,
+        "register_space": RegisterSpace.INPUT,
+        "start_address": 0,
+        "count": 2,
+        "owner_epoch": EPOCH,
+        "generation": 1,
+        "poll_cycle": 1,
+        "acquired_monotonic_start": 1.0,
+        "acquired_monotonic_end": 2.0,
+        "validation_state": SnapshotValidationState.VALID,
+        "crc_state": CrcValidationState.NOT_APPLICABLE,
+    }
+    with pytest.raises(ValueError):
+        RawRegisterBlock(**kwargs, words=[1, 2])
+    with pytest.raises(ValueError):
+        RawRegisterBlock(**(kwargs | {"count": 1, "words": (True,)}))
+
+
+def test_frame_rejects_mutable_or_foreign_block_containers() -> None:
+    """Only an exact tuple of raw blocks satisfies the immutable frame contract."""
+    frame = _frame()
+    kwargs: dict[str, Any] = {
+        "owner_epoch": EPOCH,
+        "generation": 1,
+        "poll_cycle": 1,
+        "acquired_monotonic_start": 19.0,
+        "acquired_monotonic_end": 20.0,
+    }
+    with pytest.raises(ValueError):
+        RawSnapshotFrame(**kwargs, blocks=[frame.blocks[0]])
+    with pytest.raises(ValueError):
+        RawSnapshotFrame(**kwargs, blocks=(object(),))

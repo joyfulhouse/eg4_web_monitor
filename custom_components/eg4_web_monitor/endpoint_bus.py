@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from builtins import BaseExceptionGroup
 from collections.abc import AsyncIterator, Callable, Collection, Coroutine
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from enum import StrEnum
@@ -301,7 +301,9 @@ class _EndpointBusOwner:
         self._wire_tasks: dict[asyncio.Task[Any], int] = {}
         self._epoch = uuid4()
         self._snapshot_states: dict[int, _UnitSnapshotState] = {}
-        self._snapshot_counters: dict[int, tuple[int, int]] = {}
+        # Highest retired (generation, poll_cycle); replacement unit states
+        # continue past it so frame identity never repeats within this epoch.
+        self._snapshot_identity_floor = (0, 0)
 
     def _snapshot_state_for(
         self, unit: int, poll_interval_seconds: float
@@ -309,7 +311,7 @@ class _EndpointBusOwner:
         """Return the one retained latest-complete store for an endpoint/unit."""
         state = self._snapshot_states.get(unit)
         if state is None:
-            generation, poll_cycle = self._snapshot_counters.get(unit, (0, 0))
+            generation, poll_cycle = self._snapshot_identity_floor
             state = _UnitSnapshotState(
                 LatestCompleteRawSnapshotStore(
                     freshness_policy=FreshnessPolicy.from_poll_interval(
@@ -335,30 +337,44 @@ class _EndpointBusOwner:
             raise EndpointOwnerClosingError("Endpoint owner is closing")
         self._next_token += 1
         token = self._next_token
-        observer_capable = snapshot_enabled and isinstance(raw, RegisterObserverControl)
+        observer_capable = isinstance(raw, RegisterObserverControl)
+        enabled = snapshot_enabled and observer_capable
         snapshot_state = (
-            self._snapshot_state_for(unit, poll_interval_seconds)
-            if observer_capable
-            else None
+            self._snapshot_state_for(unit, poll_interval_seconds) if enabled else None
         )
-        self._records[token] = _CapabilityRecord(
+        record = _CapabilityRecord(
             raw,
             snapshot_state=snapshot_state,
             snapshot_observer_capable=observer_capable,
-            snapshot_enabled=observer_capable,
+            snapshot_enabled=enabled,
             snapshot_poll_interval_seconds=poll_interval_seconds,
             unit=unit,
         )
-        if observer_capable:
-            self._attach_snapshot_observer(token)
+        try:
+            if enabled:
+                self._attach_snapshot_observer(token, record)
+        except Exception:
+            self._release_uncommitted_snapshot_state(record)
+            raise
+        self._records[token] = record
         return EndpointBusCapability(self, token, raw.serial)
 
-    def _attach_snapshot_observer(self, token: int) -> None:
+    def _attach_snapshot_observer(self, token: int, record: _CapabilityRecord) -> None:
         """Attach the owner observation callback through the public control seam."""
-        record = self._records[token]
         record.raw.set_register_observer(
             lambda observations: self.observe(token, observations)
         )
+
+    def _release_uncommitted_snapshot_state(self, record: _CapabilityRecord) -> None:
+        """Drop the unit state retained for a record that was never committed."""
+        state = record.snapshot_state
+        record.snapshot_state = None
+        if state is None:
+            return
+        if not any(
+            candidate.snapshot_state is state for candidate in self._records.values()
+        ):
+            self._snapshot_states.pop(record.unit, None)
 
     @staticmethod
     def _detach_snapshot_observer(record: _CapabilityRecord) -> None:
@@ -602,25 +618,26 @@ class _EndpointBusOwner:
             state.active_attempt.aborted = True
 
     def _remove_snapshot_state(self, record: _CapabilityRecord) -> None:
-        self._detach_snapshot_observer(record)
+        """Quarantine local state before the best-effort observer detach."""
         state = record.snapshot_state
         record.snapshot_state = None
-        if state is None:
-            return
-        if state.active_attempt is not None:
-            state.store.suppress_incomplete()
-            state.active_attempt = None
-        if not any(
-            candidate.snapshot_state is state for candidate in self._records.values()
-        ):
-            state.store.clear()
-            self._snapshot_states.pop(record.unit, None)
-            # Frame identity must never repeat within this owner epoch, so the
-            # next state for this unit continues the released identity counters.
-            self._snapshot_counters[record.unit] = (
-                state.generation,
-                state.poll_cycle,
-            )
+        if state is not None:
+            if state.active_attempt is not None:
+                state.store.suppress_incomplete()
+                state.active_attempt = None
+            if not any(
+                candidate.snapshot_state is state
+                for candidate in self._records.values()
+            ):
+                state.store.clear()
+                self._snapshot_states.pop(record.unit, None)
+                # Frame identity must never repeat within this owner epoch, so
+                # replacement states continue past this high-water mark.
+                self._snapshot_identity_floor = max(
+                    self._snapshot_identity_floor,
+                    (state.generation, state.poll_cycle),
+                )
+        self._detach_snapshot_observer(record)
 
     def set_snapshot_coverage(self, token: int, *, enabled: bool) -> None:
         record = self._records.get(token)
@@ -636,8 +653,12 @@ class _EndpointBusOwner:
         record.snapshot_state = self._snapshot_state_for(
             record.unit, record.snapshot_poll_interval_seconds
         )
+        try:
+            self._attach_snapshot_observer(token, record)
+        except Exception:
+            self._release_uncommitted_snapshot_state(record)
+            raise
         record.snapshot_enabled = True
-        self._attach_snapshot_observer(token)
 
     def status(self) -> EndpointBusStatus:
         """Return bounded status without endpoint or identity material."""
@@ -847,7 +868,7 @@ class EndpointBusCapability:
         """Return identity-free freshness and bounded health metrics."""
         return self._owner.snapshot_metrics(self._token, monotonic_now=monotonic_now)
 
-    def complete_snapshot_refresh(self) -> Any:
+    def complete_snapshot_refresh(self) -> AbstractAsyncContextManager[None]:
         """Return the owner lifecycle context for one complete refresh."""
         return self._owner.snapshot_refresh(self._token)
 
@@ -1125,8 +1146,16 @@ class EndpointBusRegistry:
         enabled: bool,
     ) -> None:
         """Atomically remove lookup/data before direct coverage is lost."""
+        failures: list[Exception] = []
         for capability in capabilities:
-            capability._owner.set_snapshot_coverage(capability._token, enabled=enabled)
+            try:
+                capability._owner.set_snapshot_coverage(
+                    capability._token, enabled=enabled
+                )
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            raise BaseExceptionGroup("Endpoint snapshot coverage failures", failures)
 
     async def async_wait_idle(self) -> None:
         await asyncio.gather(*(owner.wait_idle() for owner in self._owners.values()))
