@@ -350,20 +350,24 @@ class _EndpointBusOwner:
             snapshot_poll_interval_seconds=poll_interval_seconds,
             unit=unit,
         )
-        try:
-            if enabled:
-                self._attach_snapshot_observer(token, record)
-        except Exception:
-            self._release_uncommitted_snapshot_state(record)
-            raise
+        if enabled:
+            self._attach_snapshot_observer(token, record)
         self._records[token] = record
         return EndpointBusCapability(self, token, raw.serial)
 
     def _attach_snapshot_observer(self, token: int, record: _CapabilityRecord) -> None:
-        """Attach the owner observation callback through the public control seam."""
-        record.raw.set_register_observer(
-            lambda observations: self.observe(token, observations)
-        )
+        """Attach the owner observation callback through the public control seam.
+
+        The attach is transactional: a rejected attach releases the record's
+        uncommitted snapshot state before the failure propagates.
+        """
+        try:
+            record.raw.set_register_observer(
+                lambda observations: self.observe(token, observations)
+            )
+        except Exception:
+            self._release_uncommitted_snapshot_state(record)
+            raise
 
     def _release_uncommitted_snapshot_state(self, record: _CapabilityRecord) -> None:
         """Drop the unit state retained for a record that was never committed."""
@@ -653,11 +657,7 @@ class _EndpointBusOwner:
         record.snapshot_state = self._snapshot_state_for(
             record.unit, record.snapshot_poll_interval_seconds
         )
-        try:
-            self._attach_snapshot_observer(token, record)
-        except Exception:
-            self._release_uncommitted_snapshot_state(record)
-            raise
+        self._attach_snapshot_observer(token, record)
         record.snapshot_enabled = True
 
     def status(self) -> EndpointBusStatus:
