@@ -1077,7 +1077,6 @@ class LocalTransportMixin(_MixinBase):
         unadopted_capability: EndpointBusCapability | None = None
         snapshot_capability: EndpointBusCapability | None = None
         snapshot_context: Any | None = None
-        snapshot_context_entered = False
         snapshot_succeeded = False
         try:
             family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
@@ -1171,9 +1170,9 @@ class LocalTransportMixin(_MixinBase):
             if isinstance(candidate, EndpointBusCapability):
                 await candidate.async_ensure_connected()
                 snapshot_capability = candidate
-                snapshot_context = candidate.complete_snapshot_refresh()
-                await snapshot_context.__aenter__()
-                snapshot_context_entered = True
+                entered_context = candidate.complete_snapshot_refresh()
+                await entered_context.__aenter__()
+                snapshot_context = entered_context
 
             # Process based on device type
             if is_gridboss:
@@ -1617,11 +1616,7 @@ class LocalTransportMixin(_MixinBase):
                 device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
         finally:
             try:
-                if (
-                    snapshot_context_entered
-                    and snapshot_context is not None
-                    and snapshot_capability is not None
-                ):
+                if snapshot_context is not None and snapshot_capability is not None:
                     if not snapshot_succeeded:
                         snapshot_capability.abort_snapshot_refresh()
                     await snapshot_context.__aexit__(None, None, None)

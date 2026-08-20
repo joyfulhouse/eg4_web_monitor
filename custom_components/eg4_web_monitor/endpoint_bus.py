@@ -122,7 +122,7 @@ class _RawLocalTransport(Protocol):
     def set_register_observer(self, observer: RegisterObserver | None) -> None: ...
 
 
-RawTransportFactory = Callable[..., _RawLocalTransport]
+RawTransportFactory = Callable[[TransportConfig], _RawLocalTransport]
 ENDPOINT_BUS_REGISTRY_DATA = "eg4_web_monitor_endpoint_bus_registry"
 MAX_ENDPOINT_WAITERS = 64
 ENDPOINT_ACQUIRE_TIMEOUT_SECONDS = 10.0
@@ -302,6 +302,22 @@ class _EndpointBusOwner:
         self._epoch = uuid4()
         self._snapshot_states: dict[int, _UnitSnapshotState] = {}
 
+    def _snapshot_state_for(
+        self, unit: int, poll_interval_seconds: float
+    ) -> _UnitSnapshotState:
+        """Return the one retained latest-complete store for an endpoint/unit."""
+        state = self._snapshot_states.get(unit)
+        if state is None:
+            state = _UnitSnapshotState(
+                LatestCompleteRawSnapshotStore(
+                    freshness_policy=FreshnessPolicy.from_poll_interval(
+                        poll_interval_seconds
+                    )
+                )
+            )
+            self._snapshot_states[unit] = state
+        return state
+
     def add(
         self,
         raw: _RawLocalTransport,
@@ -316,18 +332,11 @@ class _EndpointBusOwner:
         self._next_token += 1
         token = self._next_token
         observer_capable = snapshot_enabled and isinstance(raw, RegisterObserverControl)
-        snapshot_state = None
-        if observer_capable:
-            snapshot_state = self._snapshot_states.get(unit)
-            if snapshot_state is None:
-                snapshot_state = _UnitSnapshotState(
-                    LatestCompleteRawSnapshotStore(
-                        freshness_policy=FreshnessPolicy.from_poll_interval(
-                            poll_interval_seconds
-                        )
-                    )
-                )
-                self._snapshot_states[unit] = snapshot_state
+        snapshot_state = (
+            self._snapshot_state_for(unit, poll_interval_seconds)
+            if observer_capable
+            else None
+        )
         self._records[token] = _CapabilityRecord(
             raw,
             snapshot_state=snapshot_state,
@@ -614,17 +623,9 @@ class _EndpointBusOwner:
             return
         if record.snapshot_enabled and record.snapshot_state is not None:
             return
-        state = self._snapshot_states.get(record.unit)
-        if state is None:
-            state = _UnitSnapshotState(
-                LatestCompleteRawSnapshotStore(
-                    freshness_policy=FreshnessPolicy.from_poll_interval(
-                        record.snapshot_poll_interval_seconds
-                    )
-                )
-            )
-            self._snapshot_states[record.unit] = state
-        record.snapshot_state = state
+        record.snapshot_state = self._snapshot_state_for(
+            record.unit, record.snapshot_poll_interval_seconds
+        )
         record.snapshot_enabled = True
         self._attach_snapshot_observer(token)
 
@@ -755,14 +756,7 @@ class _EndpointBusOwner:
             if interrupting:
                 self._gate.release_hold()
             if terminal_succeeded:
-                state = record.snapshot_state
                 self._records.pop(token, None)
-                if state is not None and not any(
-                    candidate.snapshot_state is state
-                    for candidate in self._records.values()
-                ):
-                    state.store.clear()
-                    self._snapshot_states.pop(record.unit, None)
                 if not self._records:
                     self._state = _OwnerState.CLOSED
                     self._terminal_callback()
@@ -1021,13 +1015,12 @@ class EndpointBusRegistry:
             if created_owner and self._owners.get(key) is owner:
                 self._owners.pop(key, None)
             raise
-        capability = owner.add(
+        return owner.add(
             raw,
             snapshot_enabled=snapshot_enabled,
             poll_interval_seconds=poll_interval_seconds,
             unit=config.unit_id,
         )
-        return capability
 
     def create_discovery_capability(
         self, config: TransportConfig
