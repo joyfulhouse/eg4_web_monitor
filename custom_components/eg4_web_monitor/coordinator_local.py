@@ -1077,6 +1077,7 @@ class LocalTransportMixin(_MixinBase):
         unadopted_capability: EndpointBusCapability | None = None
         snapshot_capability: EndpointBusCapability | None = None
         snapshot_context: Any | None = None
+        snapshot_context_entered = False
         snapshot_succeeded = False
         try:
             family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
@@ -1172,6 +1173,7 @@ class LocalTransportMixin(_MixinBase):
                 snapshot_capability = candidate
                 snapshot_context = candidate.complete_snapshot_refresh()
                 await snapshot_context.__aenter__()
+                snapshot_context_entered = True
 
             # Process based on device type
             if is_gridboss:
@@ -1615,7 +1617,11 @@ class LocalTransportMixin(_MixinBase):
                 device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
         finally:
             try:
-                if snapshot_context is not None and snapshot_capability is not None:
+                if (
+                    snapshot_context_entered
+                    and snapshot_context is not None
+                    and snapshot_capability is not None
+                ):
                     if not snapshot_succeeded:
                         snapshot_capability.abort_snapshot_refresh()
                     await snapshot_context.__aexit__(None, None, None)
@@ -2895,7 +2901,7 @@ class LocalTransportMixin(_MixinBase):
         )
         self._endpoint_bus_registry.set_snapshot_coverage(
             self._bus_capabilities,
-            enabled=self._bus_owner_eligibility.eligible,
+            enabled=bool(getattr(self._bus_owner_eligibility, "eligible", False)),
         )
 
     def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:

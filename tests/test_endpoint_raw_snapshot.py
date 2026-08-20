@@ -7,7 +7,7 @@ import asyncio
 import gc
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 import weakref
 
 import pytest
@@ -25,7 +25,7 @@ from custom_components.eg4_web_monitor.bus_eligibility import (
     BusOwnerEligibility,
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
-from custom_components.eg4_web_monitor import endpoint_bus
+from custom_components.eg4_web_monitor import coordinator_local, endpoint_bus
 from custom_components.eg4_web_monitor.endpoint_bus import (
     EndpointBusRegistry,
     EndpointCapabilityClosedError,
@@ -56,6 +56,8 @@ class _ObservedRawTransport:
         self.emit = True
         self.extra_segment = False
         self.fail = False
+        self.battery_result_none = False
+        self.observation_override: object | None = None
         self.block = asyncio.Event()
         self.block.set()
 
@@ -65,17 +67,15 @@ class _ObservedRawTransport:
         if self.fail:
             raise RuntimeError("synthetic read failure")
         if self.emit and self._observer is not None:
-            segments = [RegisterSegment(start, words)]
-            if self.extra_segment:
-                segments.append(RegisterSegment(start + len(words), (0x1234,)))
-            self._observer(
-                (
-                    RegisterObservation(
-                        RegisterSpace.INPUT,
-                        tuple(segments),
-                    ),
+            observations = self.observation_override
+            if observations is None:
+                segments = [RegisterSegment(start, words)]
+                if self.extra_segment:
+                    segments.append(RegisterSegment(start + len(words), (0x1234,)))
+                observations = (
+                    RegisterObservation(RegisterSpace.INPUT, tuple(segments)),
                 )
-            )
+            self._observer(cast(Any, observations))
         return object()
 
     async def connect(self) -> None:
@@ -93,6 +93,10 @@ class _ObservedRawTransport:
         return await self._read("read_energy", 20, (21,))
 
     async def read_battery(self) -> Any:
+        if self.battery_result_none:
+            self._operations.append(("read_battery", (40, 3)))
+            await self.block.wait()
+            return None
         return await self._read("read_battery", 40, (41, 42, 43))
 
     async def read_parameters(self, start: int, count: int) -> dict[int, int]:
@@ -170,6 +174,66 @@ def _registry() -> tuple[
     return EndpointBusRegistry(raw_transport_factory=factory), raws, operations
 
 
+def _observations(
+    start: int = 0, words: tuple[int, ...] = (11, 12)
+) -> tuple[RegisterObservation, ...]:
+    return (
+        RegisterObservation(
+            RegisterSpace.INPUT,
+            (RegisterSegment(start, words),),
+        ),
+    )
+
+
+class _CoordinatorMidDevice:
+    def __init__(self, capability: Any, refresh: Any) -> None:
+        self.transport = capability
+        self.has_data = True
+        self.refresh = refresh
+
+
+def _coordinator_refresh_owner(
+    registry: EndpointBusRegistry,
+    capability: Any,
+    refresh: Any,
+) -> SimpleNamespace:
+    serial = "SYNTH00001"
+    return SimpleNamespace(
+        _mid_device_cache={serial: _CoordinatorMidDevice(capability, refresh)},
+        _inverter_cache={},
+        _firmware_cache={serial: "synthetic-firmware"},
+        _endpoint_bus_registry=registry,
+        _filter_unused_smart_port_sensors=lambda sensors, device: None,
+        _calculate_gridboss_aggregates=lambda sensors: None,
+        _prune_bus_capability_tracking=lambda: None,
+    )
+
+
+async def _run_coordinator_refresh(
+    owner: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[dict[str, Any], dict[str, bool]]:
+    monkeypatch.setattr(
+        coordinator_local,
+        "_build_gridboss_sensor_mapping",
+        lambda device: {"synthetic_power": 1},
+    )
+    processed: dict[str, Any] = {"devices": {}, "parameters": {}}
+    availability: dict[str, bool] = {}
+    await coordinator_local.LocalTransportMixin._process_single_local_device(
+        owner,
+        {
+            "serial": "SYNTH00001",
+            "host": "gateway.example.invalid",
+            "transport_type": "modbus_tcp",
+            "is_gridboss": True,
+        },
+        processed,
+        availability,
+    )
+    return processed, availability
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("transport_type", "crc_state"),
@@ -204,6 +268,46 @@ async def test_complete_refresh_publishes_exact_segments_atomically(
     ]
     assert {block.unit for block in frame.blocks} == {2}
     assert {block.crc_state for block in frame.blocks} == {crc_state}
+
+
+@pytest.mark.asyncio
+async def test_shared_endpoint_unit_rejects_overlapping_refresh_leases() -> None:
+    registry, _, _ = _registry()
+    first = registry.create_capability(
+        _config(serial="SYNTH00001"),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    second = registry.create_capability(
+        _config(serial="SYNTH00002"),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    release = asyncio.Event()
+    staged = asyncio.Event()
+
+    async def first_refresh() -> None:
+        async with first.complete_snapshot_refresh():
+            await first.read_runtime()
+            staged.set()
+            await release.wait()
+
+    task = asyncio.create_task(first_refresh())
+    await staged.wait()
+    with pytest.raises(RuntimeError, match="already active"):
+        async with second.complete_snapshot_refresh():
+            await second.read_energy()
+    assert first.latest_complete_snapshot is None
+
+    release.set()
+    await task
+    frame = first.latest_complete_snapshot
+    assert frame is second.latest_complete_snapshot
+    assert frame is not None
+    assert frame.generation == frame.poll_cycle == 1
+    assert [(block.start_address, block.words) for block in frame.blocks] == [
+        (0, (11, 12))
+    ]
 
 
 @pytest.mark.asyncio
@@ -292,6 +396,114 @@ async def test_store_enabled_and_disabled_have_identical_read_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_zero_observation_battery_none_does_not_hide_complete_reads() -> None:
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    raws[0].battery_result_none = True
+
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+        assert await capability.read_battery() is None
+
+    frame = capability.latest_complete_snapshot
+    assert frame is not None
+    assert [(block.start_address, block.words) for block in frame.blocks] == [
+        (0, (11, 12))
+    ]
+
+    raws[0].emit = False
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    assert capability.latest_complete_snapshot is frame
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+
+@pytest.mark.asyncio
+async def test_invalid_observations_are_nonthrowing_bounded_and_suppressed() -> None:
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    prior = capability.latest_complete_snapshot
+
+    invalid_observations = (
+        (),
+        [SimpleNamespace(register_space=RegisterSpace.INPUT, segments=[])],
+        (
+            SimpleNamespace(
+                register_space="input",
+                segments=(SimpleNamespace(start_address=0, words=(1,)),),
+            ),
+        ),
+        (
+            SimpleNamespace(
+                register_space=RegisterSpace.INPUT,
+                segments=(SimpleNamespace(start_address=-1, words=(1,)),),
+            ),
+        ),
+        (
+            SimpleNamespace(
+                register_space=RegisterSpace.INPUT,
+                segments=(SimpleNamespace(start_address=0, words=[1]),),
+            ),
+        ),
+        (
+            SimpleNamespace(
+                register_space=RegisterSpace.INPUT,
+                segments=(SimpleNamespace(start_address=0, words=(True,)),),
+            ),
+        ),
+        (
+            SimpleNamespace(
+                register_space=RegisterSpace.INPUT,
+                segments=(SimpleNamespace(start_address=0xFFFF, words=(1, 2)),),
+            ),
+        ),
+    )
+    for observations in invalid_observations:
+        raws[0].observation_override = observations
+        async with capability.complete_snapshot_refresh():
+            await capability.read_runtime()
+
+    assert capability.latest_complete_snapshot is prior
+    assert capability.snapshot_health.suppressed_incomplete == len(invalid_observations)
+    assert capability.snapshot_health.observer_failures == len(invalid_observations)
+
+    raws[0].observation_override = invalid_observations[-1]
+    with pytest.raises(LookupError, match="original refresh failure"):
+        async with capability.complete_snapshot_refresh():
+            await capability.read_runtime()
+            raise LookupError("original refresh failure")
+
+
+@pytest.mark.asyncio
+async def test_terminal_observation_time_controls_freshness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 10.0
+    monkeypatch.setattr(endpoint_bus.time, "monotonic", lambda: now)
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+
+    async with capability.complete_snapshot_refresh():
+        now = 20.0
+        await capability.read_runtime()
+        now = 100.0
+
+    frame = capability.latest_complete_snapshot
+    assert frame is not None
+    assert frame.acquired_monotonic_start == 10.0
+    assert frame.acquired_monotonic_end == 20.0
+    assert capability.latest_fresh_snapshot(monotonic_now=35.0) is None
+
+
+@pytest.mark.asyncio
 async def test_fail_closed_transport_coverage_and_unload_drop_lookup_data_callbacks() -> (
     None
 ):
@@ -317,6 +529,32 @@ async def test_fail_closed_transport_coverage_and_unload_drop_lookup_data_callba
     assert registry.active_task_count == 0
     assert registry.snapshot_store_count == 0
     assert not registry.is_retained_capability(direct)
+
+
+@pytest.mark.asyncio
+async def test_coverage_loss_detaches_owner_callback_and_removes_store() -> None:
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    observer = raws[0]._observer
+    assert observer is not None
+    owner_reference = weakref.ref(capability._owner)
+
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    registry.set_snapshot_coverage((capability,), enabled=False)
+
+    observer(_observations(20, (21,)))
+    await capability.read_energy()
+    assert capability.latest_complete_snapshot is None
+    assert registry.snapshot_store_count == 0
+
+    await capability.async_shutdown()
+    del capability
+    del registry
+    gc.collect()
+    assert owner_reference() is None
 
 
 @pytest.mark.asyncio
@@ -485,14 +723,28 @@ def test_snapshot_modules_have_no_parsed_cloud_entity_or_listener_ingest_route()
         root / "custom_components/eg4_web_monitor/endpoint_bus.py",
     ]
     banned = {"cloud", "coordinator", "entity", "listener", "socket"}
-    imported_roots = {
-        alias.name.split(".")[0]
+    imported_parts = {
+        part
         for path in paths
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, (ast.Import, ast.ImportFrom))
-        for alias in node.names
+        for imported in (
+            [alias.name for alias in node.names]
+            if isinstance(node, ast.Import) or node.module is None
+            else [node.module]
+        )
+        for part in imported.split(".")
     }
-    assert imported_roots.isdisjoint(banned)
+    assert not {
+        part
+        for part in imported_parts
+        if any(
+            part == name
+            or part.startswith(f"{name}_")
+            or (name == "entity" and part == "entities")
+            for name in banned
+        )
+    }
 
 
 @pytest.mark.asyncio
@@ -554,22 +806,161 @@ async def test_coordinator_observer_construction_fails_closed(
     await capability.async_shutdown()
 
 
-def test_local_owner_refresh_path_brackets_snapshot_lifecycle() -> None:
-    """Removing the coordinator bracket disconnects observations from a cycle."""
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "custom_components/eg4_web_monitor/coordinator_local.py"
+@pytest.mark.asyncio
+async def test_coordinator_refresh_publishes_only_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
     )
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    function = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.AsyncFunctionDef)
-        and node.name == "_process_single_local_device"
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+        assert capability.latest_complete_snapshot is None
+
+    owner = _coordinator_refresh_owner(registry, capability, refresh)
+    processed, availability = await _run_coordinator_refresh(owner, monkeypatch)
+
+    assert availability == {"SYNTH00001": True}
+    assert "SYNTH00001" in processed["devices"]
+    assert capability.latest_complete_snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_coordinator_failed_refresh_retains_prior_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pylxpweb.transports.exceptions import TransportReadError
+
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
     )
-    calls = {
-        node.func.attr
-        for node in ast.walk(function)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-    }
-    assert "complete_snapshot_refresh" in calls
+    async with capability.complete_snapshot_refresh():
+        await capability.read_energy()
+    prior = capability.latest_complete_snapshot
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+        raise TransportReadError("synthetic refresh failure")
+
+    owner = _coordinator_refresh_owner(registry, capability, refresh)
+    _, availability = await _run_coordinator_refresh(owner, monkeypatch)
+
+    assert availability == {"SYNTH00001": False}
+    assert capability.latest_complete_snapshot is prior
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+
+@pytest.mark.asyncio
+async def test_coordinator_cancelled_refresh_publishes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    staged = asyncio.Event()
+    release = asyncio.Event()
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+        staged.set()
+        await release.wait()
+
+    owner = _coordinator_refresh_owner(registry, capability, refresh)
+    task = asyncio.create_task(_run_coordinator_refresh(owner, monkeypatch))
+    await staged.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert capability.latest_complete_snapshot is None
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+
+@pytest.mark.asyncio
+async def test_coordinator_coverage_loss_during_refresh_drops_partial_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+        registry.set_snapshot_coverage((capability,), enabled=False)
+
+    owner = _coordinator_refresh_owner(registry, capability, refresh)
+    await _run_coordinator_refresh(owner, monkeypatch)
+
+    assert capability.latest_complete_snapshot is None
+    assert registry.snapshot_store_count == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_snapshot_context_entry_is_not_exited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+
+    async def refresh() -> None:
+        raise AssertionError("refresh must not run after failed context entry")
+
+    owner = _coordinator_refresh_owner(registry, capability, refresh)
+    active = capability.complete_snapshot_refresh()
+    await active.__aenter__()
+    overlapping = capability.complete_snapshot_refresh()
+
+    class TrackingContext:
+        exited = False
+
+        async def __aenter__(self) -> None:
+            await overlapping.__aenter__()
+
+        async def __aexit__(self, *args: object) -> None:
+            self.exited = True
+            await overlapping.__aexit__(*args)
+
+    tracking = TrackingContext()
+    monkeypatch.setattr(capability, "complete_snapshot_refresh", lambda: tracking)
+    await _run_coordinator_refresh(owner, monkeypatch)
+    await active.__aexit__(None, None, None)
+
+    assert tracking.exited is False
+    assert capability.latest_complete_snapshot is None
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+
+def test_snapshot_coverage_sync_fails_closed_without_eligibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[bool] = []
+    owner = SimpleNamespace(
+        station=None,
+        connection_type="local",
+        _local_transport_configs=(),
+        _inverter_cache={},
+        _mid_device_cache={},
+        _link_down_notified=set(),
+        _endpoint_bus_registry=SimpleNamespace(
+            set_snapshot_coverage=lambda capabilities, *, enabled: observed.append(
+                enabled
+            )
+        ),
+        _bus_capabilities=set(),
+    )
+    monkeypatch.setattr(
+        coordinator_local, "evaluate_bus_owner_eligibility", lambda **kwargs: None
+    )
+
+    coordinator_local.LocalTransportMixin._sync_transport_link_state(
+        owner, {"devices": {}}
+    )
+
+    assert observed == [False]
