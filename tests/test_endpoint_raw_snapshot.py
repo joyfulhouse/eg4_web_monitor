@@ -782,7 +782,7 @@ async def test_capability_exposes_fresh_only_lookup_and_redacted_metrics() -> No
         monotonic_now=frame.acquired_monotonic_end + 15.0
     )
 
-    assert metrics.age_seconds == 15.0
+    assert metrics.age_seconds == pytest.approx(15.0)
     assert metrics.fresh is False
     assert (
         capability.latest_fresh_snapshot(
