@@ -9,10 +9,11 @@ sources:
   - .github/workflows/release.yml
   - pylxpweb docs/DEVELOPMENT.md
   - pylxpweb .github/workflows/release.yml
+  - pylxpweb PR #306 (single-maintainer release approval policy)
 verified-against:
   eg4_web_monitor: 9f6d6e2
-  pylxpweb: 204b95d
-last-verified: 2026-08-09
+  pylxpweb: 068e59c
+last-verified: 2026-08-21
 ---
 
 # Release process
@@ -213,13 +214,16 @@ PyPI, so that artifact lands in Home Assistant installs.
 ### Preconditions for a production `pypi` dispatch
 
 **Do not dispatch `environment: pypi` unless all three hold.** These are preconditions to *verify*,
-not assumptions — the first two live in repository settings and are **not determinable from this
-tree**, so confirm them on GitHub each time rather than inheriting a belief about them:
+not assumptions. Rows 1 and 3 depend on mutable repository settings or refs and must be checked at
+release time. Row 2 is intentionally the opposite of the former multi-maintainer rule: this is a
+single-maintainer repository, so a required reviewer would make release impossible and encourage
+bypass. The zero-review contract is locked by an executable workflow test; the mutable environment
+setting must still be checked on GitHub rather than inferred from the tree.
 
 | # | Precondition | How to confirm | Status here |
 |---|---|---|---|
 | 1 | The `pypi` environment restricts **which refs may deploy** to protected release tags — GitHub evaluates its deployment branch/tag policy against the run's `github.ref`, and it is the only automatic control that constrains *which ref* may publish | Repo → Settings → Environments → `pypi` → deployment branches and tags | **Unverified — settings not in the tree** |
-| 2 | The `pypi` environment requires **review by someone other than the dispatcher** | Same screen → required reviewers | **Unverified — settings not in the tree** |
+| 2 | The `pypi` environment has **no required reviewers**. Release safety comes from the reviewed/tag-bound workflow, protected tag-only environment policy, OIDC scoping and terminal verification—not an impossible self-review gate | Same screen → required reviewers; confirm none are configured. The repository contract test is `tests/unit/test_release_workflow.py` → `test_binding_releases_merged_pr_with_zero_reviews` | **Intentional single-maintainer policy** — `verified-against-code` at pylxpweb@`068e59c`; mutable GitHub setting observed reviewer-free on 2026-08-21 (`asserted-unverified`, re-check before release) |
 | 3 | An **immutable, protected release tag** exists, and the version in `pyproject.toml` at that tag equals the version being published | `git rev-parse 'v0.9.39b10^{commit}'` against the reviewed merge commit; a tag protection rule or ruleset to stop the tag being moved afterwards | **Unverified — tag protection is a repo setting.** Re-check the tag itself too: when last observed the release tags were lightweight and so supplied no immutability of their own ([below](#a-lightweight-tag-carries-no-evidence-of-its-own)) |
 
 If any is unconfirmed, **publish through a published GitHub Release instead of a manual dispatch**,
@@ -263,7 +267,10 @@ absence of one (pylxpweb@`204b95d` `release.yml`: the only job-level `if:` condi
 `:98`, both on the publish-target input, and no job tests `github.actor`). It therefore reduces
 to GitHub's rule that `workflow_dispatch` requires write access — `asserted-unverified` (GitHub
 Actions documented behavior, not a fact in this tree). Repository write access is a much larger set
-than release authority, which is what makes preconditions 1 and 2 load-bearing rather than optional.
+than release authority. At the historical pylxpweb@`204b95d` workflow this made ref restriction and
+independent approval load-bearing. PR #306 superseded the approval requirement for the
+single-maintainer repository; the current contract instead keeps ref/tag restrictions, protected
+environments, OIDC scoping and executable terminal verification load-bearing.
 
 `concurrency: release-publish` with `cancel-in-progress: false` serializes releases — a second
 dispatch queues rather than cancelling the first — `verified-against-code` — pylxpweb@`204b95d` `release.yml:21-23`.
