@@ -240,6 +240,28 @@ async def _run_coordinator_refresh(
     return processed, availability
 
 
+def _link_state_coordinator(
+    registry: EndpointBusRegistry, *, connection_type: str
+) -> SimpleNamespace:
+    """Namespace covering both capability creation and link-state sync seams."""
+    return SimpleNamespace(
+        connection_type=connection_type,
+        _endpoint_bus_registry=registry,
+        _bus_capabilities=set(),
+        _bus_capability_configs={},
+        _bus_owner_eligibility=BusOwnerEligibility(
+            False, BusEligibilityReason.UNCOVERED_BUS
+        ),
+        _modbus_interval=5,
+        _dongle_interval=30,
+        station=None,
+        _local_transport_configs=(),
+        _inverter_cache={},
+        _mid_device_cache={},
+        _link_down_notified=set(),
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("transport_type", "crc_state"),
@@ -1052,22 +1074,7 @@ async def test_initially_ineligible_capability_enables_on_later_eligibility(
 ) -> None:
     """A capability created before eligibility must enable on coverage restore."""
     registry, raws, _ = _registry()
-    coordinator = SimpleNamespace(
-        connection_type="local",
-        _endpoint_bus_registry=registry,
-        _bus_capabilities=set(),
-        _bus_capability_configs={},
-        _bus_owner_eligibility=BusOwnerEligibility(
-            False, BusEligibilityReason.UNCOVERED_BUS
-        ),
-        _modbus_interval=5,
-        _dongle_interval=30,
-        station=None,
-        _local_transport_configs=(),
-        _inverter_cache={},
-        _mid_device_cache={},
-        _link_down_notified=set(),
-    )
+    coordinator = _link_state_coordinator(registry, connection_type="local")
     capability = EG4DataUpdateCoordinator._create_bus_capability(coordinator, _config())
     assert raws[0]._observer is None
     assert capability.latest_complete_snapshot is None
@@ -1096,22 +1103,7 @@ async def test_coverage_restore_observes_only_direct_local_transport(
 ) -> None:
     """Eligibility restore must not observe an observer-capable WiFi dongle."""
     registry, raws, _ = _registry()
-    coordinator = SimpleNamespace(
-        connection_type="hybrid",
-        _endpoint_bus_registry=registry,
-        _bus_capabilities=set(),
-        _bus_capability_configs={},
-        _bus_owner_eligibility=BusOwnerEligibility(
-            False, BusEligibilityReason.UNCOVERED_BUS
-        ),
-        _modbus_interval=5,
-        _dongle_interval=30,
-        station=None,
-        _local_transport_configs=(),
-        _inverter_cache={},
-        _mid_device_cache={},
-        _link_down_notified=set(),
-    )
+    coordinator = _link_state_coordinator(registry, connection_type="hybrid")
     direct = EG4DataUpdateCoordinator._create_bus_capability(
         coordinator, _config(serial="SYNTH00001")
     )
