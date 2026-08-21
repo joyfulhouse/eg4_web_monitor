@@ -1091,6 +1091,56 @@ async def test_initially_ineligible_capability_enables_on_later_eligibility(
 
 
 @pytest.mark.asyncio
+async def test_coverage_restore_observes_only_direct_local_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Eligibility restore must not observe an observer-capable WiFi dongle."""
+    registry, raws, _ = _registry()
+    coordinator = SimpleNamespace(
+        connection_type="hybrid",
+        _endpoint_bus_registry=registry,
+        _bus_capabilities=set(),
+        _bus_capability_configs={},
+        _bus_owner_eligibility=BusOwnerEligibility(
+            False, BusEligibilityReason.UNCOVERED_BUS
+        ),
+        _modbus_interval=5,
+        _dongle_interval=30,
+        station=None,
+        _local_transport_configs=(),
+        _inverter_cache={},
+        _mid_device_cache={},
+        _link_down_notified=set(),
+    )
+    direct = EG4DataUpdateCoordinator._create_bus_capability(
+        coordinator, _config(serial="SYNTH00001")
+    )
+    dongle = EG4DataUpdateCoordinator._create_bus_capability(
+        coordinator,
+        _config(transport_type=TransportType.WIFI_DONGLE, serial="SYNTH00002"),
+    )
+    assert raws[0]._observer is None
+    assert raws[1]._observer is None
+
+    monkeypatch.setattr(
+        coordinator_local,
+        "evaluate_bus_owner_eligibility",
+        lambda **kwargs: BusOwnerEligibility(True, BusEligibilityReason.ELIGIBLE),
+    )
+    coordinator_local.LocalTransportMixin._sync_transport_link_state(
+        coordinator, {"devices": {}}
+    )
+
+    assert raws[0]._observer is not None
+    assert raws[1]._observer is None
+    async with dongle.complete_snapshot_refresh():
+        await dongle.read_runtime()
+    assert dongle.latest_complete_snapshot is None
+
+    await registry.async_shutdown_capabilities((direct, dongle))
+
+
+@pytest.mark.asyncio
 async def test_failed_observer_attach_during_add_retains_no_record_or_state() -> None:
     """A rejected observer attach must not leak an unreachable record or store."""
     raws: list[_ObservedRawTransport] = []
@@ -1209,6 +1259,67 @@ async def test_failed_detach_still_releases_remaining_capabilities() -> None:
 
 
 @pytest.mark.asyncio
+async def test_failed_detach_during_shutdown_is_best_effort_and_retryable() -> None:
+    """A rejected detach must not skip later capabilities or terminal retries."""
+    registry, raws, _ = _registry()
+    first = registry.create_capability(
+        _config(serial="SYNTH00001", unit=1),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    second = registry.create_capability(
+        _config(serial="SYNTH00002", unit=2),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+
+    raws[0].fail_detach = True
+    with pytest.raises(BaseExceptionGroup, match="shutdown"):
+        await registry.async_shutdown_capabilities((first, second))
+
+    # Later capabilities were still processed best-effort to terminal close.
+    assert raws[1]._observer is None
+    assert not registry.is_retained_capability(second)
+    # The failed capability stays retained, closing, and still observed.
+    assert raws[0]._observer is not None
+    assert registry.is_retained_capability(first)
+    assert registry.tombstone_count == 1
+
+    raws[0].fail_detach = False
+    await registry.async_retry_failed_shutdowns((_config(serial="SYNTH00001"),))
+    assert raws[0]._observer is None
+    assert not registry.is_retained_capability(first)
+    assert registry.owner_count == 0
+    assert registry.snapshot_store_count == 0
+
+
+@pytest.mark.asyncio
+async def test_terminal_completion_waits_for_successful_observer_detach() -> None:
+    """Terminal shutdown must not complete while the observer stays attached."""
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    assert capability.latest_complete_snapshot is not None
+
+    raws[0].fail_detach = True
+    with pytest.raises(BaseExceptionGroup, match="shutdown"):
+        await registry.async_shutdown_capabilities((capability,))
+    assert raws[0]._observer is not None
+    assert registry.is_retained_capability(capability)
+    assert registry.owner_count == 1
+
+    raws[0].fail_detach = False
+    await registry.async_retry_failed_shutdowns((_config(),))
+    assert raws[0]._observer is None
+    assert not registry.is_retained_capability(capability)
+    assert registry.owner_count == 0
+    assert registry.snapshot_store_count == 0
+
+
+@pytest.mark.asyncio
 async def test_retired_snapshot_identity_stays_bounded_across_units() -> None:
     """Coverage toggles for many units retain one bounded identity high-water mark."""
     registry, _, _ = _registry()
@@ -1220,13 +1331,22 @@ async def test_retired_snapshot_identity_stays_bounded_across_units() -> None:
         )
         for unit in (1, 2, 3)
     ]
+    frames = []
     for capability in capabilities:
         async with capability.complete_snapshot_refresh():
             await capability.read_runtime()
+        frame = capability.latest_complete_snapshot
+        assert frame is not None
+        frames.append(frame)
         registry.set_snapshot_coverage((capability,), enabled=False)
 
+    # (owner_epoch, generation) identifies a frame and must never repeat
+    # within one owner epoch, even across sibling units.
+    identities = {(frame.owner_epoch, frame.generation) for frame in frames}
+    assert len(identities) == len(frames)
+
     owner = capabilities[0]._owner
-    assert owner._snapshot_identity_floor == (1, 1)
+    assert owner._snapshot_poll_cycle_floor == 1
     assert not hasattr(owner, "_snapshot_counters")
     assert registry.snapshot_store_count == 0
 
@@ -1235,4 +1355,6 @@ async def test_retired_snapshot_identity_stays_bounded_across_units() -> None:
         await capabilities[2].read_runtime()
     frame = capabilities[2].latest_complete_snapshot
     assert frame is not None
-    assert frame.generation == frame.poll_cycle == 2
+    assert frame.generation == 4
+    assert frame.poll_cycle == 2
+    assert (frame.owner_epoch, frame.generation) not in identities

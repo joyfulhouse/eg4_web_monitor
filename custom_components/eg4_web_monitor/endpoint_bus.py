@@ -242,7 +242,9 @@ class _CapabilityRecord:
     closing: bool = False
     snapshot_state: _UnitSnapshotState | None = None
     snapshot_observer_capable: bool = False
+    snapshot_direct_eligible: bool = False
     snapshot_enabled: bool = False
+    snapshot_detach_pending: bool = False
     snapshot_poll_interval_seconds: float = 5.0
     unit: int = 0
     firmware_scope: str | None = None
@@ -253,7 +255,6 @@ class _UnitSnapshotState:
     """The one retained latest-complete store for an endpoint/unit."""
 
     store: LatestCompleteRawSnapshotStore
-    generation: int = 0
     poll_cycle: int = 0
     active_attempt: _SnapshotAttempt | None = None
 
@@ -301,9 +302,12 @@ class _EndpointBusOwner:
         self._wire_tasks: dict[asyncio.Task[Any], int] = {}
         self._epoch = uuid4()
         self._snapshot_states: dict[int, _UnitSnapshotState] = {}
-        # Highest retired (generation, poll_cycle); replacement unit states
-        # continue past it so frame identity never repeats within this epoch.
-        self._snapshot_identity_floor = (0, 0)
+        # Generation is allocated owner-globally once per successful
+        # publication so (owner_epoch, generation) never repeats within this
+        # epoch; per-unit poll cycles continue past the retired high-water
+        # mark so replacement unit states never reuse a retired identity.
+        self._snapshot_generation = 0
+        self._snapshot_poll_cycle_floor = 0
 
     def _snapshot_state_for(
         self, unit: int, poll_interval_seconds: float
@@ -311,15 +315,13 @@ class _EndpointBusOwner:
         """Return the one retained latest-complete store for an endpoint/unit."""
         state = self._snapshot_states.get(unit)
         if state is None:
-            generation, poll_cycle = self._snapshot_identity_floor
             state = _UnitSnapshotState(
                 LatestCompleteRawSnapshotStore(
                     freshness_policy=FreshnessPolicy.from_poll_interval(
                         poll_interval_seconds
                     )
                 ),
-                generation=generation,
-                poll_cycle=poll_cycle,
+                poll_cycle=self._snapshot_poll_cycle_floor,
             )
             self._snapshot_states[unit] = state
         return state
@@ -329,6 +331,7 @@ class _EndpointBusOwner:
         raw: _RawLocalTransport,
         *,
         snapshot_enabled: bool,
+        snapshot_direct_eligible: bool,
         poll_interval_seconds: float,
         unit: int,
     ) -> EndpointBusCapability:
@@ -338,7 +341,7 @@ class _EndpointBusOwner:
         self._next_token += 1
         token = self._next_token
         observer_capable = isinstance(raw, RegisterObserverControl)
-        enabled = snapshot_enabled and observer_capable
+        enabled = snapshot_enabled and snapshot_direct_eligible and observer_capable
         snapshot_state = (
             self._snapshot_state_for(unit, poll_interval_seconds) if enabled else None
         )
@@ -346,6 +349,7 @@ class _EndpointBusOwner:
             raw,
             snapshot_state=snapshot_state,
             snapshot_observer_capable=observer_capable,
+            snapshot_direct_eligible=snapshot_direct_eligible,
             snapshot_enabled=enabled,
             snapshot_poll_interval_seconds=poll_interval_seconds,
             unit=unit,
@@ -368,6 +372,7 @@ class _EndpointBusOwner:
         except Exception:
             self._release_uncommitted_snapshot_state(record)
             raise
+        record.snapshot_detach_pending = True
 
     def _release_uncommitted_snapshot_state(self, record: _CapabilityRecord) -> None:
         """Drop the unit state retained for a record that was never committed."""
@@ -382,9 +387,14 @@ class _EndpointBusOwner:
 
     @staticmethod
     def _detach_snapshot_observer(record: _CapabilityRecord) -> None:
-        """Restore the truly unobserved polling path through the public seam."""
-        if record.snapshot_observer_capable:
+        """Restore the truly unobserved polling path through the public seam.
+
+        A rejected detach leaves the pending marker set so closing-state
+        retries attempt the detach again instead of dropping it.
+        """
+        if record.snapshot_detach_pending:
             record.raw.set_register_observer(None)
+            record.snapshot_detach_pending = False
 
     @staticmethod
     def _valid_observations(observations: object) -> bool:
@@ -537,7 +547,11 @@ class _EndpointBusOwner:
 
         ended = attempt.ended
         assert ended is not None
-        state.generation += 1
+        # Allocate the owner-global generation exactly once per successful
+        # publication; sibling units share the sequence, so per-unit
+        # generations may gap and never repeat within this owner epoch.
+        self._snapshot_generation += 1
+        generation = self._snapshot_generation
         family = getattr(record.raw, "inverter_family", None)
         family_scope = getattr(family, "value", family)
         crc_state = (
@@ -556,7 +570,7 @@ class _EndpointBusOwner:
                 count=len(segment.words),
                 words=segment.words,
                 owner_epoch=self._epoch,
-                generation=state.generation,
+                generation=generation,
                 poll_cycle=state.poll_cycle,
                 acquired_monotonic_start=attempt.started,
                 acquired_monotonic_end=ended,
@@ -573,7 +587,7 @@ class _EndpointBusOwner:
         store.publish(
             RawSnapshotFrame(
                 owner_epoch=self._epoch,
-                generation=state.generation,
+                generation=generation,
                 poll_cycle=state.poll_cycle,
                 acquired_monotonic_start=attempt.started,
                 acquired_monotonic_end=ended,
@@ -637,9 +651,9 @@ class _EndpointBusOwner:
                 self._snapshot_states.pop(record.unit, None)
                 # Frame identity must never repeat within this owner epoch, so
                 # replacement states continue past this high-water mark.
-                self._snapshot_identity_floor = max(
-                    self._snapshot_identity_floor,
-                    (state.generation, state.poll_cycle),
+                self._snapshot_poll_cycle_floor = max(
+                    self._snapshot_poll_cycle_floor,
+                    state.poll_cycle,
                 )
         self._detach_snapshot_observer(record)
 
@@ -647,7 +661,11 @@ class _EndpointBusOwner:
         record = self._records.get(token)
         if record is None or record.closing:
             return
-        should_enable = enabled and record.snapshot_observer_capable
+        should_enable = (
+            enabled
+            and record.snapshot_observer_capable
+            and record.snapshot_direct_eligible
+        )
         if not should_enable:
             record.snapshot_enabled = False
             self._remove_snapshot_state(record)
@@ -745,15 +763,19 @@ class _EndpointBusOwner:
             self._gate.release()
 
     def begin_shutdown(self, token: int) -> None:
-        """Synchronously close admission for one capability."""
+        """Synchronously close admission for one capability.
+
+        Retries a pending observer detach while the record is closing so a
+        rejected detach never strands a stale callback behind a terminal
+        tombstone; the detach failure still propagates to the caller.
+        """
         record = self._records.get(token)
         if record is None:
             return
-        if not record.closing:
-            record.closing = True
-            self._remove_snapshot_state(record)
-            if all(candidate.closing for candidate in self._records.values()):
-                self._state = _OwnerState.CLOSING
+        record.closing = True
+        if all(candidate.closing for candidate in self._records.values()):
+            self._state = _OwnerState.CLOSING
+        self._remove_snapshot_state(record)
 
     async def shutdown(self, token: int) -> None:
         """Interrupt and terminally close one capability."""
@@ -1035,7 +1057,7 @@ class EndpointBusRegistry:
                 terminal_callback=terminal_callback,
             )
             self._owners[key] = owner
-        snapshot_enabled = snapshot_enabled and config.transport_type in {
+        snapshot_direct_eligible = config.transport_type in {
             TransportType.MODBUS_TCP,
             TransportType.MODBUS_SERIAL,
         }
@@ -1049,6 +1071,7 @@ class EndpointBusRegistry:
         return owner.add(
             raw,
             snapshot_enabled=snapshot_enabled,
+            snapshot_direct_eligible=snapshot_direct_eligible,
             poll_interval_seconds=poll_interval_seconds,
             unit=config.unit_id,
         )
@@ -1097,7 +1120,12 @@ class EndpointBusRegistry:
     ) -> None:
         """Mark a capability set closing before awaiting terminal shutdown."""
         closing = tuple(capabilities)
-        self.begin_shutdown_capabilities(closing)
+        try:
+            self.begin_shutdown_capabilities(closing)
+        except BaseExceptionGroup:
+            # Each capability's terminal shutdown below retries its pending
+            # observer detach; the per-capability outcomes are authoritative.
+            pass
         batch = asyncio.gather(
             *(capability.async_shutdown() for capability in closing),
             return_exceptions=True,
@@ -1135,9 +1163,19 @@ class EndpointBusRegistry:
     def begin_shutdown_capabilities(
         self, capabilities: Collection[EndpointBusCapability]
     ) -> None:
-        """Close admission for a capability set without yielding."""
+        """Close admission for a capability set without yielding.
+
+        Every capability is processed best-effort; per-capability failures
+        are aggregated instead of skipping the rest of the set.
+        """
+        failures: list[Exception] = []
         for capability in capabilities:
-            capability._owner.begin_shutdown(capability._token)
+            try:
+                capability._owner.begin_shutdown(capability._token)
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            raise BaseExceptionGroup("Endpoint shutdown failures", failures)
 
     def set_snapshot_coverage(
         self,
