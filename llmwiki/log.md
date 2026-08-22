@@ -508,3 +508,14 @@ Corrected the vendor-infrastructure boundary: the deployment's UDM gateway is ma
 infrastructure, not a generic example. Removed its shell default and documentation literals,
 restored its dotted and integer digests, and extended the operational-default regression
 check to quoted IP assignments in shell scripts.
+
+## [2026-08-21] lint | Single-maintainer release approval policy corrected
+
+Corrected [`50-operations/release-process.md`](50-operations/release-process.md), which still
+required a PyPI environment reviewer other than the dispatcher. That rule was stale after
+pylxpweb PR #306 and is impossible in a repository with one human maintainer. The current
+contract intentionally requires zero reviewers and locks that decision with
+`test_binding_releases_merged_pr_with_zero_reviews`; release safety remains enforced by CI,
+tag-bound protected environments, disabled admin bypass, OIDC scoping and terminal artifact
+verification. GitHub branch protection and environments already required zero approvals, so no
+repository setting was weakened.
