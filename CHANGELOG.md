@@ -5,6 +5,25 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.1-beta.12] - 2026-08-28
+
+Requires **[pylxpweb==0.10.0b4](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b4)** — the first release on the 0.10.x library line, carrying both halves of the #587 fix.
+
+### Fixed
+
+- **LOCAL/HYBRID poll interval no longer degrades over time** ([#587](https://github.com/joyfulhouse/eg4_web_monitor/issues/587)): the raised pylxpweb pin closes both mechanisms behind the creeping 5s → 10s → 30s effective poll interval. **Aging-session latency** (pylxpweb [#290](https://github.com/joyfulhouse/pylxpweb/pull/290)/[#295](https://github.com/joyfulhouse/pylxpweb/pull/295), in 0.10.0b3): the long-lived local Modbus session is now recycled proactively (~hourly with jitter) instead of only after 3 consecutive hard errors, so gradual gateway latency degradation no longer accumulates until an integration reload. **Dead-endpoint probe cost** (pylxpweb [#310](https://github.com/joyfulhouse/pylxpweb/pull/310), in 0.10.0b4): when a local endpoint goes deaf (TCP accepts but never answers — the wedged-dongle failure mode), each coordinator refresh no longer pays the transport's full read timeout chain (10s dongle / up to ~30s Modbus retries) as its link-down probe. Probes are now a single-attempt `check_link()` with a 2s budget on an exponentially backed-off window (4s → 60s, reset on any success), and the HTTP fallback keeps data flowing meanwhile. Home Assistant schedules `next poll = refresh duration + interval`, which is why both mechanisms presented as a growing poll interval.
+- **Bounded TCP reassembly overlap work** ([#585](https://github.com/joyfulhouse/eg4_web_monitor/pull/585)): caps the per-frame overlap scan in dongle stream reassembly so pathological fragment patterns cannot inflate refresh time.
+- **AC Charge switch on EG4_OFFGRID replaced with schedule-state controls** ([#563](https://github.com/joyfulhouse/eg4_web_monitor/issues/563), PR [#572](https://github.com/joyfulhouse/eg4_web_monitor/pull/572)): the previous switch was a no-op on the off-grid family; charging from AC is governed by the schedule state there, which the new controls expose honestly.
+- **Unverified off-grid writes route cloud-only** ([#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558), PR [#569](https://github.com/joyfulhouse/eg4_web_monitor/pull/569)): registers without hardware-proven local write evidence on EG4_OFFGRID no longer attempt the local path, and the doomed pure-LOCAL H233 quick-charge write is stopped instead of failing silently.
+- **Firmware update progress reports honest indeterminate state** ([#512](https://github.com/joyfulhouse/eg4_web_monitor/issues/512), PR [#567](https://github.com/joyfulhouse/eg4_web_monitor/pull/567)) instead of a fabricated percentage.
+- **Bogus `eps_apparent_power_l1/l2` suppressed on the hybrid family** ([#548](https://github.com/joyfulhouse/eg4_web_monitor/issues/548), PR [#568](https://github.com/joyfulhouse/eg4_web_monitor/pull/568)).
+- **Duplicate cloud identity Repair dismissed on successful migration** (PR [#584](https://github.com/joyfulhouse/eg4_web_monitor/pull/584)).
+
+### Added
+
+- **Endpoint-scoped local bus owner** (PR [#582](https://github.com/joyfulhouse/eg4_web_monitor/pull/582)): serialises local transport access per physical endpoint so multiple config entries sharing one gateway cannot interleave requests.
+- **Offline dongle capture sanitizer** (PR [#577](https://github.com/joyfulhouse/eg4_web_monitor/pull/577)) for scrubbing serials/identifiers from captured dongle traffic before sharing diagnostics.
+
 ## [3.5.1-beta.11] - 2026-08-12
 
 Requires **[pylxpweb>=0.9.39b11](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.9.39b11)** (pin raised): the library release carries the `FUNC_ON_GRID_ALWAYS_ON` → holding register 179 bit 15 mapping that the Grid Always On fix below writes through on the local path.
