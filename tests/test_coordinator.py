@@ -10102,3 +10102,123 @@ class TestFirmwarePollCarryForward:
         assert result["in_progress"] is True
         assert result["update_percentage"] == 42
         assert result["latest_version"] == "ccaa-1E1515"
+
+    async def test_stale_active_100_expires_after_staleness_window(
+        self, hass, mock_config_entry
+    ):
+        """#573 transition: active-100 row -> repeated refresh failures -> expires.
+
+        Carry-forward of a cached ACTIVE row (#353) is freshness-bounded:
+        within the window failures keep serving the cached state; once the
+        last successful refresh is older than the window, the row is
+        republished as not-installing with an unknown percentage so the
+        update entity releases in_progress and HA accepts new installs.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        device = self._cached_updating_device()
+        device.firmware_update_percentage = 100
+        window = coordinator._firmware_poll_staleness_window()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            # t0: a successful poll observes the active-100 row (anchors
+            # the freshness window).
+            monotonic.return_value = 1000.0
+            device.check_firmware_updates = AsyncMock()
+            device.get_firmware_update_progress = AsyncMock()
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 100
+
+            # Refresh calls start failing persistently.
+            device.check_firmware_updates = AsyncMock(side_effect=RuntimeError("down"))
+            device.get_firmware_update_progress = AsyncMock(
+                side_effect=RuntimeError("down")
+            )
+
+            # Within the window: cached active state carries forward (#353).
+            monotonic.return_value = 1000.0 + window - 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 100
+
+            # Past the window: the stale active row expires (#573). Version
+            # and availability fields survive so the entity stays meaningful.
+            monotonic.return_value = 1000.0 + window + 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
+            assert result["latest_version"] == "ccaa-1E1515"
+
+            # Recovery: a later successful poll that still reports an active
+            # update re-anchors the window and republishes it fresh.
+            device.check_firmware_updates = AsyncMock()
+            device.get_firmware_update_progress = AsyncMock()
+            monotonic.return_value = 1000.0 + window + 10.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+
+    async def test_stale_active_row_expires_even_when_coordinator_succeeds(
+        self, hass, mock_config_entry
+    ):
+        """#573 tribunal case: side-poll fails, coordinator update SUCCEEDS.
+
+        _poll_firmware_update_info swallows its refresh exceptions, so the
+        overall coordinator update keeps succeeding (last_update_success
+        stays True) and the entity stays AVAILABLE — the wedge renders as a
+        permanently visible indeterminate spinner, not as unavailability.
+        The stale active row must still expire after the window.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        assert coordinator.last_update_success is True
+        device = self._cached_updating_device()  # refresh raises; cache active
+        window = coordinator._firmware_poll_staleness_window()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            # First observed failure anchors the outage window; the cached
+            # active row still carries forward (no successful poll ever ran).
+            monotonic.return_value = 5000.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+
+            # Failures persist past the window: the row expires even though
+            # every poll cycle "succeeded" from the coordinator's viewpoint.
+            monotonic.return_value = 5000.0 + window + 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
+
+        # The swallowed exceptions never marked the coordinator failed.
+        assert coordinator.last_update_success is True
+
+    async def test_first_failure_on_fresh_boot_carries_forward(
+        self, hass, mock_config_entry
+    ):
+        """d66cc92 fresh-boot class: monotonic is host uptime on Linux.
+
+        With monotonic barely past boot, the first-ever failed poll must
+        anchor the window at that failure and carry the cached active row
+        forward — a 0.0 "never ran" default would read as window-expired
+        and blank the cached state immediately, regressing #353.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        device = self._cached_updating_device()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            monotonic.return_value = 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+
+        assert result is not None
+        assert result["in_progress"] is True
+        assert result["update_percentage"] == 42

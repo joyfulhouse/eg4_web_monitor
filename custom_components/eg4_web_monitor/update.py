@@ -191,12 +191,12 @@ class EG4FirmwareUpdateEntity(
         ``FirmwareUpdateMixin.start_firmware_update``), and an active 100%
         was observed on a 6000XP (asserted-unverified: issues #353/#512).
 
-        Known limitation (pre-existing): a cached ``in_progress=True`` row at
-        0/100 that survives persistent refresh failures keeps this entity
-        busy (``in_progress`` True) and Home Assistant rejects new installs.
-        This PR only changes how that wedged state renders (was Installing
-        100%; now indeterminate). Freshness-bounded clearing of stale active
-        rows is out of scope for #512.
+        A cached ``in_progress=True`` row cannot survive persistent refresh
+        failures indefinitely: the coordinator bounds that carry-forward
+        (#573, ``_expire_stale_firmware_activity``) and republishes the row
+        as not-installing with an unknown percentage once the staleness
+        window is spent, so this entity releases ``in_progress`` and Home
+        Assistant accepts new installs again.
         """
         # HA-initiated chain: never publish current-row percentages as chain progress.
         if self._install_lock.locked():
