@@ -176,7 +176,7 @@ def _cloud_frame(
     identity: bytes = OUTER_IDENTITY,
 ) -> bytes:
     body = bytes((1, function)) + identity + payload
-    return b"\xa1\x1a\x00\x01" + len(body).to_bytes(2, "little") + body
+    return b"\xa1\x1a\x01\x00" + len(body).to_bytes(2, "little") + body
 
 
 def _read_request(
@@ -434,7 +434,7 @@ def test_stream_decoder_rejects_oversize_before_body_buffering() -> None:
     advertised_body = (507).to_bytes(2, "little")
 
     with pytest.raises(CaptureError) as caught:
-        decoder.feed(b"\xa1\x1a\x00\x01" + advertised_body, captured_at=1.0)
+        decoder.feed(b"\xa1\x1a\x01\x00" + advertised_body, captured_at=1.0)
 
     assert caught.value.reason is FailureReason.OVERSIZE
     assert decoder.buffered_bytes <= 6
@@ -546,7 +546,8 @@ def test_sanitizer_accepts_baseline_protocol_frame() -> None:
 @pytest.mark.parametrize(
     "frame",
     [
-        b"\xa1\x1a\x01\x00" + _cloud_frame(0xC1, b"\x01")[4:],
+        b"\xa1\x1a\x02\x00" + _cloud_frame(0xC1, b"\x01")[4:],
+        b"\xa1\x1a\x00\x01" + _cloud_frame(0xC1, b"\x01")[4:],
         _cloud_frame(0xC1, b"\x01")[:6] + b"\x02" + _cloud_frame(0xC1, b"\x01")[7:],
         _cloud_frame(0xC1, b"\x01\x02"),
     ],
@@ -1361,7 +1362,7 @@ def test_fragmentation_buffers_have_charged_linear_resource_bounds() -> None:
         maximum_reassembled_bytes_per_flow=65535,
         maximum_aggregate_memory_bytes=256 * 1024,
     )
-    advertised = bytearray(b"\xa1\x1a\x00\x01\x00\x00")
+    advertised = bytearray(b"\xa1\x1a\x01\x00\x00\x00")
     advertised[4:6] = (policy.maximum_frame_bytes - 6).to_bytes(2, "little")
     incomplete = bytes(advertised) + bytes(policy.maximum_frame_bytes - 7)
 

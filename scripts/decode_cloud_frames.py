@@ -846,10 +846,10 @@ def _sanitize_frame(
 ) -> dict[str, Any]:
     if len(frame) < 19 or 6 + int.from_bytes(frame[4:6], "little") != len(frame):
         raise CaptureError(FailureReason.MALFORMED)
-    # Phase A1 capture evidence contains only protocol version 0x0001 and
-    # address 1. Unknown variants are rejected rather than redacted into a
-    # known-looking record.
-    if frame[2:4] != b"\x00\x01" or frame[6] != 1:
+    # Phase A1 capture evidence contains only protocol version 0x0001
+    # (little-endian on the wire, so bytes 01 00) and address 1. Unknown
+    # variants are rejected rather than redacted into a known-looking record.
+    if frame[2:4] != b"\x01\x00" or frame[6] != 1:
         raise CaptureError(FailureReason.PROTOCOL)
     session.outer_identity = _bind_identity(session.outer_identity, frame[8:18])
     base: dict[str, Any] = {
