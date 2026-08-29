@@ -157,26 +157,31 @@ async def _read_device_info_from_transport(
         except Exception as err:
             _LOGGER.debug("Could not read runtime data: %s", err)
 
-    # Read parallel group configuration from input register 113
+    # Read parallel group configuration from input register 113 (skip for
+    # GridBOSS: on MID devices input registers 112-113 hold the
+    # ac_couple3_energy_total_l1 lifetime energy counter, not parallel
+    # config, so decoding it would fabricate a parallel role/phase/group
+    # once the counter crosses 6553.6 kWh — issue #596).
     parallel_number = 0
     parallel_master_slave = 0
     parallel_phase = 0
-    try:
-        reg113_raw = await transport.read_parallel_config()
-        if reg113_raw > 0:
-            parallel_master_slave = reg113_raw & 0x03
-            parallel_phase = (reg113_raw >> 2) & 0x03
-            parallel_number = (reg113_raw >> 8) & 0xFF
-            _LOGGER.debug(
-                "Parallel config for %s: raw=0x%04X, role=%d, phase=%d, group=%d",
-                serial,
-                reg113_raw,
-                parallel_master_slave,
-                parallel_phase,
-                parallel_number,
-            )
-    except Exception as err:
-        _LOGGER.debug("Could not read parallel config: %s", err)
+    if not is_gridboss:
+        try:
+            reg113_raw = await transport.read_parallel_config()
+            if reg113_raw > 0:
+                parallel_master_slave = reg113_raw & 0x03
+                parallel_phase = (reg113_raw >> 2) & 0x03
+                parallel_number = (reg113_raw >> 8) & 0xFF
+                _LOGGER.debug(
+                    "Parallel config for %s: raw=0x%04X, role=%d, phase=%d, group=%d",
+                    serial,
+                    reg113_raw,
+                    parallel_master_slave,
+                    parallel_phase,
+                    parallel_number,
+                )
+        except Exception as err:
+            _LOGGER.debug("Could not read parallel config: %s", err)
 
     return DiscoveredDevice(
         serial=serial,

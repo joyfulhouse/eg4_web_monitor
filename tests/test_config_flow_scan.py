@@ -342,3 +342,40 @@ class TestDiscoveryModelInfo:
 
         assert device.model == "GridBOSS"
         assert device.is_gridboss is True
+
+    async def test_gridboss_skips_parallel_config_read(self):
+        """Discovery never reads input register 113 on GridBOSS (issue #596).
+
+        On MID devices input registers 112-113 hold the
+        ac_couple3_energy_total_l1 lifetime counter; decoding it as
+        parallel config fabricates a slave role once the counter
+        exceeds 6553.6 kWh. GridBOSS must report standalone defaults.
+        """
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            _read_device_info_from_transport,
+        )
+
+        transport = self._make_transport(device_type_code=50, power_rating=0)
+        # Energy counter high word nonzero — would decode as role=slave.
+        transport.read_parallel_config = AsyncMock(return_value=0x0001)
+        device = await _read_device_info_from_transport(transport, "5012345678")
+
+        transport.read_parallel_config.assert_not_called()
+        assert device.parallel_number == 0
+        assert device.parallel_master_slave == 0
+        assert device.parallel_phase == 0
+
+    async def test_inverter_reads_parallel_config(self):
+        """Discovery still reads and decodes parallel config for inverters."""
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            _read_device_info_from_transport,
+        )
+
+        transport = self._make_transport(device_type_code=10284, power_rating=8)
+        transport.read_parallel_config = AsyncMock(return_value=0x0205)
+        device = await _read_device_info_from_transport(transport, "SYNTH10000")
+
+        transport.read_parallel_config.assert_awaited_once()
+        assert device.parallel_number == 2
+        assert device.parallel_master_slave == 1  # master
+        assert device.parallel_phase == 1
