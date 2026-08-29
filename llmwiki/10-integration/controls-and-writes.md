@@ -20,14 +20,19 @@ sources:
   - memory/issue-476-green-mode-bit14.md
   - memory/battery-control-mode-soc-vs-voltage.md
   - eg4_web_monitor issues #310, #328, #362, #476, #485
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against:
   # Mainline SHAs, re-pinned at the 2026-08-12 release cut from the #559
   # PR-branch heads (eg4 PR #562 branch 0e2366f → merged as e146d91;
   # pylxpweb PR #270 branch aafc4e3 → merged as 9c10a07, contained in the
-  # 0.9.39b11 release commit ab87902).
+  # 0.9.39b11 release commit ab87902). The router (§1) and §2.4 were
+  # falsified by PR #569 and re-verified at e9853eb for the #570 sweep
+  # ingest — those sections carry their pin inline; other sections stand at
+  # e146d91.
   eg4_web_monitor: e146d91
   pylxpweb: ab87902
-last-verified: 2026-08-12
+last-verified: 2026-08-29
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -148,6 +153,12 @@ and the direct `client.api.control.*` writers in `ACCoupleSOCNumberBase` (`numbe
 Location: `utils.py:185-270`. Evidence for this whole section: `verified-against-code`.
 
 ```
+local_write_blocked_reason set?  (PR #569, #570 — protected-register cloud-only routing)
+├── yes → the local path is NEVER attempted
+│      → cloud_write() if a cloud client exists (then the local-raw cache seed below)
+│      → no cloud client: raise HomeAssistantError(reason)  [pure-LOCAL fail-closed]
+└── no → fall through to the transport decision:
+
 local transport attached?  (coordinator.has_local_transport(serial))
 ├── yes, and link believed UP
 │      → await local_write()
@@ -167,6 +178,7 @@ after a cloud write while a local transport is attached:
 | `local_write` | Coroutine factory performing the local register write |
 | `cloud_write` | Coroutine factory for the equivalent cloud write, or `None` when the action has no cloud path (raw-register-only controls) — then local errors propagate unchanged |
 | `local_values` | The written parameters **in the LOCAL-RAW representation** the attached-transport cache uses. Merged into the parameter cache when the write landed via cloud |
+| `local_write_blocked_reason` | When not `None`, routes the write CLOUD-ONLY (tree above). Supplied by `number.py` → `_offgrid_cloud_only_reason`, which **fails closed**: EG4_OFFGRID, a missing family and UNKNOWN all block the local path; only `is_positively_non_offgrid_family` permits it. The #570 evidence sweep applies it to every scalar register the number platform writes (66, 158–161, 74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22) — derivation and blind spots in that helper's docstring; per-register evidence grades are the keeper's ([`40-hardware/registers.md`](../40-hardware/registers.md)). It is a hand-maintained list: no mechanism consults ledger grades, and bit-level switch/select writes, schedule `write_register` calls and direct library calls are outside it |
 
 ### 1.1 Why a known-down link skips local entirely
 
@@ -385,14 +397,13 @@ Running §2.3 surfaces a write that a coordinator-primitive grep cannot see:
 
 | Fact | Grade |
 |---|---|
-| In pure-LOCAL on an `EG4_OFFGRID` family, `EG4QuickChargeSwitch` attempts a **local H233 write** | `verified-against-code` — `switch.py` → `_prefers_cloud_control` returns `is_offgrid_family(...) and self.coordinator.has_http_api()`; with no cloud client that is False, so `enable_method` stays the transport-first `"enable_quick_charge"` |
-| That is the write the same file's docstring describes as firmware-rejected on this family | `verified-against-code` — `_prefers_cloud_control`'s docstring: register 233 is rejected "(ILLEGAL DATA ADDRESS, #296)", and the mitigation is scoped — "Go straight to the cloud start/stop endpoints **when a cloud client is configured**" |
-| The keeper marks the H233 off-grid access boundary **unresolved** | grade owned by [`40-hardware/registers.md`](../40-hardware/registers.md#h233-off-grid-access-boundary) — read it there |
+| Historical (pre-#569): in pure-LOCAL on an `EG4_OFFGRID` family, `EG4QuickChargeSwitch` attempted a **local H233 write** — `_prefers_cloud_control` requires a cloud client, so without one the transport-first `"enable_quick_charge"` method stayed in place | was `verified-against-code` at the pins this page carried before 2026-08-13; superseded |
+| Shipped (PR #569, merged 2026-08-13, "Fixes #558"): the switch **fails closed** — only a positively resolved non-off-grid family keeps the local H233 route; pure-LOCAL off-grid/unresolved entries get an unavailable switch and a forced service call raises before pylxpweb is reached | `verified-against-code` at `e9853eb` — `switch.py` → `_offgrid_without_cloud` / `is_positively_non_offgrid_family`; availability row in [`entities-identity-availability.md`](entities-identity-availability.md) |
+| The keeper's H233 off-grid access boundary is now lineage-scoped: CEAA rejection `firmware-proven`, CCAA address implemented but bit-0 semantics unproven | grades owned by [`40-hardware/registers.md`](../40-hardware/registers.md#h233-off-grid-access-boundary) — read them there |
 
-**This is a scope gap in a mitigation, not a bug report.** The cloud-preference path was built for
-#296 and works wherever a cloud client exists; pure-LOCAL off-grid is the configuration it does
-not cover. Tracked on issue **#558**. Changing the routing is a code change and is out of scope
-for documentation.
+**The durable lesson stands unchanged:** this write was invisible to a coordinator-primitive
+grep, which is why §2's derivation exists. The scope gap itself was closed by #569, and the
+evidence sweep that derived the full protected set is issue **#570**.
 
 ## 3. Coordinator write primitives
 

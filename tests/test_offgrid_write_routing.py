@@ -16,6 +16,13 @@ power (reg 66) shares the protected-register routing — no write evidence
 is recorded for H66; its `portal-correlated` grade rests on read/scaling
 evidence only.
 
+#570 evidence sweep — the protected set is derived, not enumerated: EVERY
+scalar holding register the number platform writes through the local-first
+router lacks a local off-grid delta-test in the llmwiki ledger, so all of
+them (74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22) share the
+cloud-only routing on EG4_OFFGRID/unresolved families; see
+TestSweepExtendedProtectedRouting.
+
 Task B — the Quick Charge switch has NO working route on pure-LOCAL
 off-grid: per the firmware verification posted on PR #569
 (fw-verify-offgrid-writes), CEAA (12000XP lineage) rejects the H233
@@ -37,7 +44,15 @@ from custom_components.eg4_web_monitor.number import (
     ACChargeEndBatterySOCNumber,
     ACChargePowerNumber,
     ACChargeStartBatterySOCNumber,
+    BatteryChargeCurrentNumber,
+    BatteryDischargeCurrentNumber,
     EG4VoltageNumber,
+    OffGridSOCCutoffNumber,
+    OnGridSOCCutoffNumber,
+    PVChargePowerNumber,
+    StopDischargeVoltageNumber,
+    SystemChargeSOCLimitNumber,
+    SystemChargeVoltLimitNumber,
     VOLTAGE_NUMBER_SPECS,
 )
 from custom_components.eg4_web_monitor.switch import EG4QuickChargeSwitch
@@ -71,6 +86,7 @@ def _mock_coordinator(
     coordinator.async_request_refresh = AsyncMock()
     coordinator.async_refresh_device_parameters = AsyncMock(return_value=True)
     coordinator.write_named_parameter = AsyncMock()
+    coordinator.write_raw_parameter = AsyncMock()
     coordinator.note_parameters_written = MagicMock()
     coordinator._quick_charge_minutes = {}
     coordinator.get_device_info = MagicMock(return_value=None)
@@ -90,6 +106,12 @@ def _mock_coordinator(
     mock_inverter.enable_quick_charge = AsyncMock(return_value=True)
     mock_inverter.disable_quick_charge = AsyncMock(return_value=True)
     mock_inverter.set_ac_charge_power = AsyncMock(return_value=True)
+    # Cloud methods for the #570-extended protected scalars
+    mock_inverter.set_pv_charge_power = AsyncMock(return_value=True)
+    mock_inverter.set_battery_charge_current = AsyncMock(return_value=True)
+    mock_inverter.set_battery_discharge_current = AsyncMock(return_value=True)
+    mock_inverter.set_battery_soc_limits = AsyncMock(return_value=True)
+    mock_inverter.set_stop_discharge_voltage = AsyncMock(return_value=True)
     mock_inverter.transport = object() if has_local else None
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
@@ -105,6 +127,7 @@ def _mock_coordinator(
         )
         client.api.control.start_quick_charge = AsyncMock(return_value=ok)
         client.api.control.stop_quick_charge = AsyncMock(return_value=ok)
+        client.api.control.set_system_charge_soc_limit = AsyncMock(return_value=ok)
         coordinator.client = client
     else:
         coordinator.client = None
@@ -372,9 +395,10 @@ class TestOffgridACChargeVoltageCloudOnlyRouting:
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_offgrid_cutoff_voltage_keeps_local_first(self):
-        """The gate is spec-scoped: other voltage registers (e.g. the
-        off-grid cutoff, reg 100) keep the local-first route on off-grid."""
+    async def test_offgrid_cutoff_voltage_routes_cloud(self):
+        """#570 sweep (inverts the pre-sweep pin): the off-grid cutoff
+        (reg 100, `lineage-inferred`, no off-grid write evidence) now shares
+        the protected routing — cloud raw-register write, never local."""
         coordinator = _mock_coordinator(
             has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
         )
@@ -384,10 +408,10 @@ class TestOffgridACChargeVoltageCloudOnlyRouting:
 
         await entity.async_set_native_value(44.0)
 
-        coordinator.write_named_parameter.assert_awaited_once_with(
-            spec.param_key, 440, serial=SERIAL
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameters.assert_awaited_once_with(
+            SERIAL, {100: 440}
         )
-        coordinator.client.api.control.write_parameters.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_hybrid_family_voltage_write_keeps_local_first(self):
@@ -478,6 +502,218 @@ class TestACChargePowerProtectedRouting:
         )
         inverter = coordinator.get_inverter_object(SERIAL)
         inverter.set_ac_charge_power.assert_not_awaited()
+
+
+# ── #570 sweep: every remaining router-driven scalar joins the set ──────
+
+
+class TestSweepExtendedProtectedRouting:
+    """#570 evidence sweep: the protected set is DERIVED, not enumerated.
+
+    Every scalar holding register the number platform writes through the
+    local-first router lacks a local off-grid delta-test in the llmwiki
+    ledger, so on EG4_OFFGRID/unresolved families they ALL route
+    cloud-only: PV charge power (74), battery charge/discharge current
+    (101/102), SOC cutoffs (105/125), stop-discharge voltage (202), system
+    charge SOC/voltage limits (227/228), cutoff voltages (169/100) and PV
+    start voltage (22 — no ledger row at all).
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("entity_cls", "value", "cloud_method", "cloud_kwargs"),
+        [
+            (PVChargePowerNumber, 5, "set_pv_charge_power", {"power_kw": 5}),
+            (
+                BatteryChargeCurrentNumber,
+                100,
+                "set_battery_charge_current",
+                {"current_amps": 100},
+            ),
+            (
+                BatteryDischargeCurrentNumber,
+                100,
+                "set_battery_discharge_current",
+                {"current_amps": 100},
+            ),
+            (
+                OnGridSOCCutoffNumber,
+                20,
+                "set_battery_soc_limits",
+                {"on_grid_limit": 20},
+            ),
+            (
+                OffGridSOCCutoffNumber,
+                20,
+                "set_battery_soc_limits",
+                {"off_grid_limit": 20},
+            ),
+            (
+                StopDischargeVoltageNumber,
+                41.5,
+                "set_stop_discharge_voltage",
+                {"voltage": 41.5},
+            ),
+        ],
+        ids=["pv-74", "chg-cur-101", "dischg-cur-102", "soc-105", "soc-125", "v-202"],
+    )
+    async def test_offgrid_scalar_write_goes_cloud_never_local(
+        self, entity_cls, value, cloud_method, cloud_kwargs
+    ):
+        """Off-grid + local transport + cloud: the inverter cloud method
+        runs and the local named write never fires."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = entity_cls(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        getattr(inverter, cloud_method).assert_awaited_once_with(**cloud_kwargs)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("entity_cls", "value", "register"),
+        [
+            (PVChargePowerNumber, 5, 74),
+            (BatteryChargeCurrentNumber, 100, 101),
+            (BatteryDischargeCurrentNumber, 100, 102),
+            (OnGridSOCCutoffNumber, 20, 105),
+            (OffGridSOCCutoffNumber, 20, 125),
+            (StopDischargeVoltageNumber, 41.5, 202),
+            (SystemChargeSOCLimitNumber, 90, 227),
+            (SystemChargeVoltLimitNumber, 56.0, 228),
+        ],
+        ids=["74", "101", "102", "105", "125", "202", "227", "228"],
+    )
+    async def test_offgrid_pure_local_scalar_write_raises(
+        self, entity_cls, value, register
+    ):
+        """Pure-LOCAL off-grid: the unverified write is refused with the
+        actionable cloud-only error, and no local write fires."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=False,
+            local_only=True,
+            device_data=dict(OFFGRID_FEATURES),
+        )
+        entity = entity_cls(coordinator, SERIAL)
+        _prep(entity)
+
+        with pytest.raises(
+            HomeAssistantError, match=rf"register {register}.*cloud API only.*558"
+        ):
+            await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.write_raw_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_offgrid_system_charge_soc_goes_cloud(self):
+        """Reg 227's inline 3-way write shares the routing: the cloud API
+        branch runs and the local named write never fires on off-grid."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = SystemChargeSOCLimitNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(90)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.set_system_charge_soc_limit.assert_awaited_once_with(
+            SERIAL, 90
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("spec_key", "value", "register", "raw"),
+        [
+            ("on_grid_cutoff_voltage", 48.0, 169, 480),
+            ("off_grid_cutoff_voltage", 44.0, 100, 440),
+        ],
+    )
+    async def test_offgrid_cutoff_voltage_specs_go_cloud(
+        self, spec_key, value, register, raw
+    ):
+        """The remaining voltage specs share the 158/159 routing on
+        off-grid: cloud raw-register write, never the local named write."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = EG4VoltageNumber(coordinator, SERIAL, _VOLTAGE_SPECS_BY_KEY[spec_key])
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameters.assert_awaited_once_with(
+            SERIAL, {register: raw}
+        )
+
+    @pytest.mark.asyncio
+    async def test_offgrid_pv_start_voltage_goes_cloud_named_volts(self):
+        """Reg 22 (no ledger row at all) routes through its verified cloud
+        route — the named-volts write — and never the local named write."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        spec = _VOLTAGE_SPECS_BY_KEY["pv_start_voltage"]
+        entity = EG4VoltageNumber(coordinator, SERIAL, spec)
+        _prep(entity)
+
+        await entity.async_set_native_value(150)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            SERIAL, spec.param_key, "150"
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("entity_cls", "value", "param", "local_value"),
+        [
+            (PVChargePowerNumber, 5, "HOLD_FORCED_CHG_POWER_CMD", 50),
+            (SystemChargeSOCLimitNumber, 90, "HOLD_SYSTEM_CHARGE_SOC_LIMIT", 90),
+        ],
+        ids=["pv-74", "soc-227"],
+    )
+    async def test_resolved_hybrid_family_keeps_local_first(
+        self, entity_cls, value, param, local_value
+    ):
+        """Regression guard: a positively resolved non-off-grid family keeps
+        the local-first route for the sweep-extended registers too."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = entity_cls(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            param, local_value, serial=SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_unresolved_family_fails_closed_to_cloud(self):
+        """Tribunal round 1 polarity holds for the extended set: a missing
+        family degrades a sweep-extended register to the cloud route."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True, device_data={})
+        entity = BatteryChargeCurrentNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(100)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_battery_charge_current.assert_awaited_once_with(current_amps=100)
 
 
 # ── Task B: pure-LOCAL off-grid Quick Charge has no working route ───────

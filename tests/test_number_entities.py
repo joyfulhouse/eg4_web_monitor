@@ -773,6 +773,11 @@ class TestPVChargePowerNativeValue:
     async def test_write_local_targets_reg74_in_100w_units(self):
         """Local write of 1 kW resolves to reg 74 param with raw 10 (1 kW)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 74 (#570 sweep) so the 100W-unit conversion is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = PVChargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -991,6 +996,11 @@ class TestHybridCloudFallback:
     async def test_system_charge_soc_local_failure_falls_back_to_cloud(self):
         """Inline 3-way site (system charge SOC): cloud API branch used."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
+        # Resolved non-off-grid family keeps the local-first route for
+        # protected reg 227 (#570 sweep) so the fallback is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -1053,6 +1063,11 @@ class TestBatteryCurrentWrite:
     async def test_discharge_current_no_integer_check(self):
         """BatteryDischargeCurrent intentionally skips fraction check."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 102 (#570 sweep) so the local named write is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = BatteryDischargeCurrentNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1068,6 +1083,11 @@ class TestSystemChargeSOCWrite:
     async def test_write_local(self):
         """Local transport writes named parameter."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 227 (#570 sweep) so the local named write is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1112,6 +1132,10 @@ class TestSystemChargeSOCWrite:
     async def test_write_range_101_allowed(self):
         """101% (top balancing) is within valid range."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 sweep).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -2055,6 +2079,11 @@ class TestStopDischargeVoltageNumber:
     async def test_write_local_decivolts(self):
         """Local transport writes raw decivolts by name (41.5 V -> 415)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 202 (#570 sweep) so the decivolt conversion is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = StopDischargeVoltageNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -2101,6 +2130,10 @@ class TestStopDischargeVoltageNumber:
         float artifacts are accepted (codex r1 LOW): 56.0000001 -> 56.0 is
         valid, and 41.55 (float 41.549999...) writes 415, not 416."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 sweep).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = StopDischargeVoltageNumber(coordinator, "1234567890")
         _prep(entity)
 

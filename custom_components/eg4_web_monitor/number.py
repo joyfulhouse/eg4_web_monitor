@@ -306,23 +306,39 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         hardware-confirmed; on a pure-LOCAL install the returned reason is
         raised instead of silently writing an unverified register.
 
-        HOW THE PROTECTED SET {66, 158, 159, 160, 161} WAS DERIVED — and
-        its blind spot. Derivation: a register is protected when the
-        llmwiki ledger (``llmwiki/40-hardware/registers.md``) records NO
-        local off-grid delta-test for it — its write evidence is
-        cloud-path only (the #331 holdParam trail, the 158 cloud
-        delta-test) or absent altogether (H66 and H159: H159's ledger row
-        states the durable record lacks an equivalent write tuple, and
-        both ``portal-correlated`` grades rest on read/scaling evidence
-        only).
-        Blind spot: only the AC-charge window (SOC 160/161, voltage
-        158/159) and AC charge power (66) have been audited against that
-        criterion; other off-grid-writable registers — e.g. PV charge
-        power (reg 74), battery charge/discharge current — have NOT yet
-        been swept and may share the same evidence gap. The full evidence
-        sweep is tracked in issue #570
-        (https://github.com/joyfulhouse/eg4_web_monitor/issues/570); do
-        not treat this set as complete until that sweep closes.
+        HOW THE PROTECTED SET WAS DERIVED — and its blind spots.
+        Criterion (unchanged since the #558 tribunal): a register is
+        protected when the llmwiki ledger
+        (``llmwiki/40-hardware/registers.md``) records NO local off-grid
+        delta-test for it — its write evidence is cloud-path only (the
+        #331 holdParam trail, the H158 cloud delta-test, the #570 cloud
+        toggle sweep) or absent altogether. The #570 evidence sweep
+        applied that criterion to EVERY scalar holding register this
+        platform writes through the local-first router on EG4_OFFGRID,
+        and every one of them fails it: no register in the ledger carries
+        a local off-grid write proof. The protected set is therefore ALL
+        of them — the original five {66, 158, 159, 160, 161} plus PV
+        charge power 74, battery charge/discharge current 101/102,
+        on-/off-grid SOC cutoffs 105/125, stop-discharge voltage 202,
+        system charge SOC/voltage limits 227/228, cutoff voltages
+        169/100, and PV start voltage 22 (no ledger row at all). The
+        firmware verification recorded on #570 proves H158–H161 are
+        correctly MAPPED on the CEAA/CCAA off-grid images, which
+        discharges the wrong-address risk there but is deliberately NOT
+        acted on here: a version-gated local-write upgrade is a separate,
+        explicitly-out-of-scope change (#570), and cloud-only remains
+        safe.
+        Blind spots (mechanisms this helper cannot reach, recorded in the
+        #570 audit): (1) bit-level function writes on the switch/select
+        platforms (H110/H179/H21 bits, H179 b9/b10 regime selects, H20 PV
+        input mode) route through ``_execute_switch_action`` /
+        ``write_named_parameter``, not this router — their per-bit risk
+        is tracked in the llmwiki keeper and C7; (2) schedule time
+        entities write packed registers via ``write_register``; (3)
+        ``QuickChargeDurationNumber``'s live reg-234 adjust runs only
+        when a fresh local H233 b0 read reports a charge active, which
+        the recorded off-grid boundary itself rejects. Do not treat this
+        docstring as an inventory of those surfaces.
         """
         if is_positively_non_offgrid_family(self._device_data):
             return None
@@ -930,6 +946,13 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
                 local_write=_local_write,
                 cloud_write=_cloud_write,
                 local_values={PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: int_value},
+                # #570 sweep: H227's toggle proof is scoped to one tested
+                # 18kPV (cross-family write risk unresolved in the ledger);
+                # no off-grid write evidence exists — cloud-only off the
+                # non-off-grid gate.
+                local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                    227, "system charge SOC limit"
+                ),
             )
             write.refresh_ok = await self._refresh_related_entities()
 
@@ -1254,6 +1277,12 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
             cloud_method="set_pv_charge_power",
             cloud_kwargs={"power_kw": int_value},
             label=f"PV charge power to {int_value} kW",
+            # #570 sweep: H74's ledger grade rests on read/scaling evidence
+            # only — no off-grid write evidence — so the write routes
+            # cloud-only unless the family is positively non-off-grid.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                74, "PV charge power"
+            ),
         )
 
 
@@ -2613,6 +2642,11 @@ class StopDischargeVoltageNumber(EG4BaseNumberEntity):
             )
         await self._write_parameter(
             value,
+            # #570 sweep: no off-grid write evidence for H202 (grid-tied
+            # scope in the ledger) — cloud-only off the non-off-grid gate.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                202, "stop discharge voltage"
+            ),
             local_param=PARAM_HOLD_STOP_DISCHARGE_VOLTAGE,
             local_value=int(round(value * 10)),
             cloud_method="set_stop_discharge_voltage",
@@ -2664,6 +2698,11 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
             cloud_method="set_battery_soc_limits",
             cloud_kwargs={"on_grid_limit": int_value},
             label=f"on-grid SOC cutoff to {int_value}%",
+            # #570 sweep: H105 is `lineage-inferred` with no off-grid write
+            # evidence — cloud-only off the non-off-grid gate.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                105, "on-grid SOC cutoff"
+            ),
         )
 
 
@@ -2710,6 +2749,11 @@ class OffGridSOCCutoffNumber(EG4BaseNumberEntity):
             cloud_method="set_battery_soc_limits",
             cloud_kwargs={"off_grid_limit": int_value},
             label=f"off-grid SOC cutoff to {int_value}%",
+            # #570 sweep: H125 is `lineage-inferred` with no off-grid write
+            # evidence — cloud-only off the non-off-grid gate.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                125, "off-grid SOC cutoff"
+            ),
         )
 
 
@@ -2755,6 +2799,12 @@ class BatteryChargeCurrentNumber(EG4BaseNumberEntity):
             cloud_method="set_battery_charge_current",
             cloud_kwargs={"current_amps": int_value},
             label=f"battery charge current to {int_value} A",
+            # #570 sweep: H101 is `lineage-inferred` — the most
+            # battery-safety-adjacent scalar shipped, with no off-grid
+            # write evidence — cloud-only off the non-off-grid gate.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                101, "battery charge current"
+            ),
         )
 
 
@@ -2798,6 +2848,11 @@ class BatteryDischargeCurrentNumber(EG4BaseNumberEntity):
             cloud_method="set_battery_discharge_current",
             cloud_kwargs={"current_amps": int_value},
             label=f"battery discharge current to {int_value} A",
+            # #570 sweep: H102 is `lineage-inferred` with no off-grid write
+            # evidence — cloud-only off the non-off-grid gate.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                102, "battery discharge current"
+            ),
         )
 
 
@@ -2852,6 +2907,12 @@ class SystemChargeVoltLimitNumber(EG4BaseNumberEntity):
             param_name=PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT,
             register=REG_SYSTEM_CHARGE_VOLT_LIMIT,
             label="System Charge Voltage Limit",
+            # #570 sweep: H228's action/restore record is scaled-values-only
+            # (no raw tuple) and there is no off-grid write evidence —
+            # cloud-only off the non-off-grid gate.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                REG_SYSTEM_CHARGE_VOLT_LIMIT, "system charge voltage limit"
+            ),
         )
 
 
@@ -2914,6 +2975,9 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         control_key="on_grid_cutoff_voltage",
         icon="mdi:battery-alert",
         related_group=("on_grid_cutoff_voltage", "off_grid_cutoff_voltage"),
+        # #570 sweep: H169 is `lineage-inferred` with no off-grid write
+        # evidence — EG4_OFFGRID/unresolved routes cloud-only (#558).
+        offgrid_local_write_unverified=True,
     ),
     VoltageNumberSpec(
         key="off_grid_cutoff_voltage",
@@ -2930,6 +2994,9 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         control_key="off_grid_cutoff_voltage",
         icon="mdi:battery-outline",
         related_group=("on_grid_cutoff_voltage", "off_grid_cutoff_voltage"),
+        # #570 sweep: H100 is `lineage-inferred` with no off-grid write
+        # evidence — EG4_OFFGRID/unresolved routes cloud-only (#558).
+        offgrid_local_write_unverified=True,
     ),
     VoltageNumberSpec(
         key="ac_charge_start_voltage",
@@ -3004,6 +3071,10 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         cloud_write_volts_named=True,
         # Integer state ("140"), matching the retired dedicated class.
         read_as_float=False,
+        # #570 sweep: register 22 has NO llmwiki ledger row at all — the
+        # weakest evidence class shipped — so EG4_OFFGRID/unresolved
+        # routes through the verified named-volts cloud write only (#558).
+        offgrid_local_write_unverified=True,
     ),
 )
 

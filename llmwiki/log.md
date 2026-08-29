@@ -519,3 +519,38 @@ contract intentionally requires zero reviewers and locks that decision with
 tag-bound protected environments, disabled admin bypass, OIDC scoping and terminal artifact
 verification. GitHub branch protection and environments already required zero approvals, so no
 repository setting was weakened.
+
+## [2026-08-29] ingest | #570 off-grid write-evidence sweep — grades, H161 anomaly, protected-set derivation
+
+Ingested the issue #570 evidence artifacts into the keeper
+([`40-hardware/registers.md`](40-hardware/registers.md)): the `fw-verify-offgrid-writes`
+firmware verdicts (2026-08-12, CEAA 12000XP + CCAA 6000XP ARM+DSP images — H158–H161
+mapping/range checks `firmware-proven`; H66 writable 0..100 but semantics NOT verifiable;
+H21 b7 `firmware-proven` inert; H233 CEAA rejection `firmware-proven`, CCAA partial) and
+the 2026-08-13 live cloud toggle/restore sweep (FlexBOSS21 + 18kPV: H158/H159/H160
+`hardware-toggle-proven` on the tested units; H161 write-inert on a second grid-tied unit
+— resolved as the pre-documented family quirk, strengthening C6, not a write-path fault).
+Accounting moved 336→345 counted claims, 32→41 proven. Recorded both pylxpweb range
+conflicts (H160 min 1 not 0; H66 raw ≤100) as filed (#271/#272) and fixed (pylxpweb PR
+#273, merged). Grade rules honored: the toggle proofs are scoped to the tested units
+(firmware unrecorded); the firmware proofs are mapping/range proofs and did NOT promote
+H66's semantic row or license a local-write upgrade for H158–H161 (recorded as a
+version-gated candidate on #570 only).
+
+Falsification sweep: PR #569's shipped cloud-only routing had invalidated the pre-#569
+"local-first, ungated" narratives in
+[`10-integration/data-semantics.md`](10-integration/data-semantics.md),
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) §1/§2.4,
+the keeper's H233 boundary and H227 shipped-path notes, README's keeper cache, and
+[C7](60-history/open-contradictions.md) ("not routed cloud-only") — all updated to the
+shipped fail-closed routing, with the pre-#569 exposure preserved as history. C6/C7 stay
+open pending a live off-grid H161 write.
+
+Code half of the audit (same change set, tracked on #570): the protected set is now
+derived, not enumerated — every scalar holding register the number platform writes through
+the local-first router lacks a local off-grid delta-test, so all of them (74, 101, 102,
+105, 125, 202, 227, 228, 169, 100, 22, joining 66/158–161) route cloud-only on
+EG4_OFFGRID/unresolved families. Blind spots recorded in `_offgrid_cloud_only_reason`'s
+docstring: bit-level switch/select writes, schedule `write_register` calls, direct library
+calls, and the QuickChargeDuration live-adjust remain outside the gate, with per-bit risk
+held by the keeper and C7.

@@ -11,8 +11,12 @@ sources:
   - PR #557 (documentation-defect corrections)
   - issue #549
   - memory/issue-476-green-mode-bit14.md
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+# The hand-maintained keeper cache in "Registers the keeper marks unresolved"
+# was reconciled 2026-08-29 for the #570 sweep; the derivation/legend sections
+# stand at the 9f6d6e2 verification pass.
+last-verified: 2026-08-29
 ---
 
 # llmwiki
@@ -298,7 +302,7 @@ reproduced: it is the keeper's to hold, and counting it here would recreate the 
 this section exists to avoid. Reading the criterion as condition 1 alone predicts a far
 larger table than this one, which is the reconciliation a reader needs.
 
-**This table is a hand-maintained cache of the keeper, last reconciled 2026-08-09.** An
+**This table is a hand-maintained cache of the keeper, last reconciled 2026-08-29 (#570 sweep).** An
 earlier revision called it a "projection" that "moves when the keeper's rows move." That was
 wrong in the way that matters: **nothing generates it and nothing checks it.** No tooling
 compares it against the keeper, so it moves only when a person edits it — and it has already
@@ -310,11 +314,11 @@ keeper; this section reports, it does not award.
 | Register | Entity that writes it | What the keeper marks unresolved |
 |---|---|---|
 | H179 b11 | AC Couple switch | `lineage-inferred`; status "current; live write risk unresolved" |
-| H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`; status "current; write unresolved" |
+| H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`; status "current; write unresolved". Mapping now separately `firmware-proven` on the decoded CEAA/CCAA images (#570); since PR #569 the entity's write routes cloud-only on off-grid/unresolved families |
 | H110 b14 | Off-Grid / Green Mode switch | Proven on the tested 18kPV, but the switch is created for *every* family and the 12000XP/6000XP row is `lineage-inferred`, status **unresolved** |
-| H227 | System Charge SOC Limit number | `hardware-toggle-proven`, but **scoped to the one tested 18kPV**; status "current on tested unit; **cross-family write risk unresolved**". Created in the always-on block for every inverter that reaches it, with no family gate |
+| H227 | System Charge SOC Limit number | `hardware-toggle-proven`, but **scoped to the one tested 18kPV**; status "current on tested unit; **cross-family write risk unresolved**". Created in the always-on block for every inverter that reaches it, with no family gate; since the #570 sweep its **write** routes cloud-only on off-grid/unresolved families (creation remains ungated) |
 | H117 | Start Charge Power Threshold number | `asserted-unverified`, status **unresolved** — the keeper records "no cloud name or validated behavior" |
-| H233 b0 | Quick Charge switch | `portal-correlated` — "paired start/stop observed, but a complete raw before/after and restoration record is absent" — and the keeper's separate **off-grid access boundary** is unresolved and family-gated |
+| H233 b0 | Quick Charge switch | `portal-correlated` — "paired start/stop observed, but a complete raw before/after and restoration record is absent". The keeper's separate **off-grid access boundary** is now lineage-scoped (#570): CEAA rejection `firmware-proven`, CCAA implements the address but b0 semantics unproven; since PR #569 the switch fails closed on cloud-less off-grid/unresolved entries |
 
 Two of these deserve singling out.
 
