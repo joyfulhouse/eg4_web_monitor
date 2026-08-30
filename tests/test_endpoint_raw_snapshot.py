@@ -1376,7 +1376,7 @@ async def test_terminal_close_failure_stays_retained_and_detach_retries() -> Non
             raise RuntimeError("synthetic terminal failure")
         await original_disconnect()
 
-    raws[0].disconnect = failing_disconnect  # type: ignore[method-assign]
+    raws[0].disconnect = failing_disconnect
     with pytest.raises(BaseExceptionGroup, match="shutdown"):
         await registry.async_shutdown_capabilities((capability,))
     assert capability in registry._failed_shutdown_capabilities
@@ -1714,3 +1714,52 @@ async def test_publish_blocked_until_all_configured_endpoints_resolve(
     }
     _, availability = await _run_coordinator_refresh(owner, monkeypatch)
     assert capability.latest_complete_snapshot is not None
+
+
+@pytest.mark.asyncio
+async def test_unload_force_releases_capability_after_failed_terminal_close() -> None:
+    """Unload force-releases a capability whose terminal close failed.
+
+    RED without the force-release (codex round-3 MED): the containment in
+    _disconnect_all_transports swallowed the terminal-close failure while
+    the capability stayed retained-for-retry — but after unload nothing
+    re-drives the registry retry (it runs only when the same endpoint is
+    set up again), so the owner stayed tombstoned in the HA-scoped registry
+    with the raw transport (possibly-open socket) retained indefinitely,
+    and a later setup of the same endpoint was blocked by the tombstone.
+    Retention-for-retry remains the registry-level contract while an entry
+    stays loaded (test_terminal_close_failure_stays_retained_and_detach_retries).
+    """
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+
+    async def failing_disconnect() -> None:
+        raise RuntimeError("synthetic terminal failure")
+
+    raws[0].disconnect = failing_disconnect
+
+    owner = SimpleNamespace(
+        _endpoint_bus_registry=registry,
+        _bus_capabilities={capability},
+        _inverter_cache={},
+        _mid_device_cache={},
+        station=None,
+        _prune_bus_capability_tracking=lambda: None,
+    )
+
+    await coordinator_mixins.BackgroundTaskMixin._disconnect_all_transports(owner)
+
+    assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
+    assert capability not in registry._failed_shutdown_capabilities
+    assert not registry.is_retained_capability(capability)
+    assert registry.snapshot_store_count == 0
+
+    # A fresh setup on the same endpoint is no longer blocked by a tombstone.
+    recreated = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    await recreated.async_shutdown()
+    assert registry.owner_count == 0

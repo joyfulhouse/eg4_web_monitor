@@ -1195,6 +1195,45 @@ class EndpointBusRegistry:
         if failures:
             raise BaseExceptionGroup("Endpoint shutdown failures", failures)
 
+    def force_release_capabilities(
+        self, capabilities: Collection[EndpointBusCapability]
+    ) -> None:
+        """Unconditionally drop records retained by a failed terminal close.
+
+        UNLOAD-scoped last resort (codex round-3 MED): retention-for-retry
+        is only coherent while something will later re-drive the retry —
+        ``async_retry_failed_shutdowns`` runs only when the same endpoint is
+        set up again.  After unload nothing does, so a failed terminal close
+        would tombstone the owner in this HA-scoped registry with its raw
+        transport (and a possibly open socket) retained indefinitely.  The
+        terminal close was already attempted best-effort before this is
+        called; dropping the record and owner releases every reference — a
+        stale observer callback on the dropped raw is inert (``observe()``
+        returns on a missing record) and the abandoned transport's socket is
+        closed when the object is garbage collected.  Capabilities whose
+        shutdown succeeded are no-ops here.
+        """
+        for capability in capabilities:
+            self._failed_shutdown_capabilities.discard(capability)
+            owner = capability._owner
+            record = owner._records.pop(capability._token, None)
+            if record is None:
+                continue
+            _LOGGER.warning(
+                "Force-releasing endpoint capability after failed terminal close"
+            )
+            try:
+                owner._remove_snapshot_state(record)
+            except Exception:
+                _LOGGER.debug(
+                    "Observer detach rejected during force release; "
+                    "dropped raw left with inert callback",
+                    exc_info=True,
+                )
+            if not owner._records:
+                owner._state = _OwnerState.CLOSED
+                owner._terminal_callback()
+
     async def async_retry_failed_shutdowns(
         self, configs: Collection[TransportConfig]
     ) -> None:

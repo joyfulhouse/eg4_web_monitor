@@ -4747,16 +4747,27 @@ class BackgroundTaskMixin(_MixinBase):
                 BackgroundTaskMixin._disconnect_all_transports_work(self)
             )
         except BaseExceptionGroup:
-            # A failed terminal closure retains its capability in the
-            # registry's failed-shutdown set; async_retry_failed_shutdowns
-            # re-drives it on the next attach to the same endpoint.
-            # Cancellation is NOT swallowed: _async_drain_teardown re-raises
-            # caller CancelledError, which this handler does not match.
+            # A failed terminal closure must not stay tombstoned in the
+            # HA-scoped registry after unload: nothing re-drives the registry
+            # retry once the entry is gone (async_retry_failed_shutdowns runs
+            # only when the same endpoint is set up again), so retention
+            # would leak the owner and raw transport — possibly with an open
+            # socket — indefinitely (codex round-3 MED).  The close was
+            # already attempted best-effort above; force-release every
+            # registry record so no owner lookup outlives the entry.
+            # Retention-for-retry remains the registry-level contract for
+            # paths where the entry stays loaded.  Cancellation is NOT
+            # swallowed: _async_drain_teardown re-raises caller
+            # CancelledError, which this handler does not match.
             _LOGGER.warning(
-                "Terminal endpoint shutdown failed; capabilities retained "
-                "for registry retry",
+                "Terminal endpoint shutdown failed; force-releasing retained "
+                "endpoint capabilities",
                 exc_info=True,
             )
+            self._endpoint_bus_registry.force_release_capabilities(
+                self._bus_capabilities
+            )
+            self._prune_bus_capability_tracking()
 
     async def _disconnect_all_transports_work(self) -> None:
         """Settle device detachment and terminal capability closure."""
