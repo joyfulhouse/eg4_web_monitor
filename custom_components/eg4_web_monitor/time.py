@@ -21,8 +21,12 @@ suffix schemes and family gates all come from the declarative
 default (opt-in advanced feature).
 
 Write paths:
-- LOCAL / HYBRID with an attached transport: one packed register write (FC06)
-  via :meth:`EG4DataUpdateCoordinator.write_register` (uniform across families).
+- LOCAL / HYBRID with an attached transport, on a POSITIVELY RESOLVED
+  non-off-grid family: one packed register write (FC06) via
+  :meth:`EG4DataUpdateCoordinator.write_register`.
+- Off-grid/unresolved families (#570 r5): the local packed write is blocked
+  fail-closed — the write routes through the cloud paths below (with the
+  local-raw cache seeded), and a pure-LOCAL install raises.
 - CLOUD: writeTime families use the atomic ``write_time_parameter``; classic
   families use the portal's separate ``*_HOUR`` + ``*_MINUTE`` writes.
 
@@ -64,6 +68,7 @@ from .utils import (
     flag_offgrid_control_suppression,
     is_hybrid_family,
     is_offgrid_family,
+    is_positively_non_offgrid_family,
     is_supported_control_model,
 )
 
@@ -528,12 +533,48 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
                     self._register, packed, serial=self.serial
                 )
 
+            # #570 r5 derivation pass: local packed FC06 schedule writes
+            # have no off-grid write evidence (the schedule rows are all
+            # `portal-correlated` from CLOUD probes), and the clear-schedule
+            # button already declares local off-grid schedule writes
+            # unsanctioned (#563) — so the entity write shares the
+            # fail-closed family routing: off-grid/unresolved go through
+            # this schedule's own cloud write path in _async_write_cloud
+            # (r10: writeTime families — Generator/Off-Grid/Peak Shaving,
+            # which is what an off-grid inverter's Generator Charge
+            # schedule uses — take the atomic write_time_parameter call;
+            # only the classic families take the per-field hour/minute
+            # writes); resolved non-off-grid families keep local-first.
+            device_data: dict[str, Any] = (
+                (self.coordinator.data or {}).get("devices", {}).get(self.serial, {})
+            )
+            blocked_reason: str | None = None
+            if not is_positively_non_offgrid_family(device_data):
+                blocked_reason = (
+                    f"Cannot set {self._spec.key} schedule time: local Modbus "
+                    f"writes to register {self._register} are not "
+                    "hardware-verified on this inverter family (or the family "
+                    "could not be positively identified), so this control "
+                    "writes through the EG4 cloud API only (issue #558) — add "
+                    "cloud credentials to this integration entry to use it"
+                )
             await async_write_with_cloud_fallback(
                 self.coordinator,
                 self.serial,
                 f"{self._spec.key} schedule time",
                 local_write=_local_write,
                 cloud_write=lambda: self._async_write_cloud(boundary_value),
+                # #570 r6: when the write lands via the cloud (the blocked
+                # off-grid/unresolved route, or a HYBRID fallback), seed the
+                # local-raw parameter cache under every alias the decoder
+                # reads — otherwise the post-write refresh can re-read the
+                # not-yet-propagated packed register, report success, clear
+                # the optimistic value, and visibly revert the entity until
+                # a later poll.
+                local_values={
+                    key: packed for key in self._spec.local_param_keys[self._register]
+                },
+                local_write_blocked_reason=blocked_reason,
             )
             write_ok = True
             if self.coordinator.is_transport_link_down(self.serial):

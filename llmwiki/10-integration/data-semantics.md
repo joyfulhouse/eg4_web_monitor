@@ -31,10 +31,22 @@ sources:
   - memory/consumption-energy-sources.md
   - memory/queue-cleanup-2026-07-26.md
   - eg4_web_monitor issues #170, #256, #258, #261, #300, #367, #378, #380, #490, #511, #516
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against:
+  # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
+  # Quick Charge/H233) were falsified by PR #569 and re-verified at e9853eb
+  # for the #570 sweep ingest — those sections carry their pin inline.
+  # Claims describing the PR #600 change set itself (the sweep-extended
+  # protected set, the quick-charge fail-closed predicates, the schedule
+  # and QuickChargeDuration family gates) are licensed PER CLAIM by their
+  # inline PR #600 / issue #570 citations — the pin itself stays
+  # commit-only per _conventions.md. REQUIRED POST-MERGE ACTION (recorded
+  # in log.md): re-pin to the mainline merge SHA at the release cut
+  # (#559 precedent).
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
-last-verified: 2026-08-09
+last-verified: 2026-08-29
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -236,8 +248,8 @@ If an echoed grade disagrees with the ledger, the ledger is right and this table
 |---|---|---|
 | AC Charge SOC Limit is gated off `EG4_OFFGRID` with a one-shot Repairs issue | H67 is the AC-charge stop SOC on **grid-tied only**; off-grid rejects the control | `portal-correlated` — [H67 row](../40-hardware/registers.md) |
 | AC Charge Start Battery SOC exists as the off-grid equivalent | H160, AC-charge start SOC, off-grid plus hybrid read scope | `portal-correlated` — [H160 row](../40-hardware/registers.md) |
-| AC Charge End Battery SOC is created on `EG4_OFFGRID` and **its writes are attempted local-first** — see the safety note below, this is an un-discharged risk | H161 mapping is known; **LOCAL writability is unresolved** and family behaviour conflicts across the tested grid-tied and off-grid paths. The owner says explicitly: do not treat H161 as a safe local write | `portal-correlated`, write unresolved — [H161 row](../40-hardware/registers.md); conflict preserved as [C6/C7](../60-history/open-contradictions.md) |
-| Quick Charge status **and** control are cloud-routed on off-grid families — but **only on cloud-capable entries (CLOUD/HYBRID)**. In pure-LOCAL the cloud preference cannot engage and the switch attempts the local H233 write instead; see the note below | LOCAL FC03/FC06 access to H233 is **reported to return ILLEGAL DATA ADDRESS on the off-grid units tested**. No raw request/exception-response capture was preserved, so this is not a proof-grade claim and **not** a family-wide one | `asserted-unverified` — [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
+| AC Charge End Battery SOC is created on `EG4_OFFGRID`; since PR #569 its write is **routed cloud-only** there and on unresolved families (pure-LOCAL raises) — see the routing note below | H161 mapping is `firmware-proven` on the decoded CEAA/CCAA images (#570); **LOCAL writability is still unresolved** — no live off-grid write exists, and both tested grid-tied hybrids are inert. The owner says explicitly: do not treat H161 as a safe local write | Owner rows: [H161](../40-hardware/registers.md); conflict preserved as [C6/C7](../60-history/open-contradictions.md) |
+| Quick Charge status **and** control are cloud-routed on off-grid families; since PR #569 the switch **fails closed** — pure-LOCAL off-grid/unresolved entries get an unavailable switch instead of the doomed local H233 write; see the note below | H233 is rejected on the decoded CEAA image (`firmware-proven`, jump H229→H234 → ILLEGAL DATA ADDRESS); CCAA implements the address but has **no traced bit-0 consumer**; the live #296/#308 rejection reports remain `asserted-unverified` (no preserved capture) | Owner rows: [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
 | Generator Power and its two siblings are suppressed on `EG4_OFFGRID` (purged, with a Repairs issue) and kept on `EG4_HYBRID` | The owner splits I123 **by decoded image, not by family**: on the decoded 12000XP off-grid image it is an ARM-initialization counter, not generator power; on the decoded 18kPV/FlexBOSS hybrid image it is genuine GEN-port power; on **6000XP the meaning is unresolved** with no validated image | `firmware-proven` (12000XP off-grid), `firmware-proven` (hybrid), `asserted-unverified` (6000XP) — [I123 rows](../40-hardware/registers.md) |
 | The Off-Grid/green switch writes bit 14 of H110 | H110 b14 is Green/Off-Grid Mode on the **tested 18kPV hybrid unit**; for 12000XP/6000XP it is a layout inference awaiting a family-specific capture. H110 b8 is **UNKNOWN** and was the wrong bit (#476) | `hardware-toggle-proven` (tested 18kPV), `lineage-inferred` (12000XP/6000XP) — [H110 rows](../40-hardware/registers.md); refutation recorded as **S2** in [../60-history/superseded-claims.md](../60-history/superseded-claims.md) |
 
@@ -245,39 +257,43 @@ Grades for the **left** column — that these gates, purges and routings exist i
 `verified-against-code`: `sensor.py` → `_should_create_sensor`, `utils.py` →
 `flag_offgrid_control_suppression`, plus the control platforms `switch.py`, `number.py`, `time.py`.
 
-> ### ⚠ H161 has a shipped local write path, and the risk on it is live
+> ### ⚠ H161 routing: cloud-only since PR #569 — but the gate is a list, not a mechanism
 >
 > **A register the ledger marks "writability unresolved" is not thereby un-writable in this code.**
 > Those are independent facts: the ledger records what has been *proven about the hardware*, the
-> router decides what the integration *attempts*. Nothing links them — there is no mechanism by
-> which an unresolved ledger status suppresses a local write. Assuming otherwise is the dangerous
-> direction to be wrong in, because a reader who believes a gate exists stops looking for one.
+> router decides what the integration *attempts*. Nothing links them — there is STILL no mechanism
+> by which a ledger grade suppresses a write. What changed is that a **hand-maintained gate** now
+> exists for the number platform's scalar registers.
 >
-> **What actually ships today**, on LOCAL and HYBRID:
+> **What actually ships** (since PR #569, merged 2026-08-13; extended by the #570 evidence sweep;
+> `verified-against-code` at `e9853eb` for the #569 half, this change set for the extension):
 >
-> | Step | Site | Grade |
-> |---|---|---|
-> | `ACChargeEndBatterySOCNumber` is defined | `number.py:1436` | `verified-against-code` |
-> | It is created for `EG4_OFFGRID` devices | `number.py:660` | `verified-against-code` |
-> | Its write passes `local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC` | `number.py:1489` | `verified-against-code` |
-> | `_write_parameter` routes through the shared router with that `local_param` | `number.py` → `_write_parameter` | `verified-against-code` |
-> | The router attempts the **local** write FIRST whenever a transport is attached and the link is believed up | `utils.py:185` → `async_write_with_cloud_fallback` | `verified-against-code` |
+> | Step | Site |
+> |---|---|
+> | `ACChargeEndBatterySOCNumber` passes `local_write_blocked_reason` from `_offgrid_cloud_only_reason` | `number.py` → `ACChargeEndBatterySOCNumber.async_set_native_value` |
+> | The gate FAILS CLOSED: EG4_OFFGRID, a missing family, and UNKNOWN all block the local path; only a positively resolved non-off-grid family keeps local-first | `number.py` → `_offgrid_cloud_only_reason`, `utils.py` → `is_positively_non_offgrid_family` |
+> | With the reason set, the router never attempts the local write; it goes cloud, or raises a clear error on a pure-LOCAL install | `utils.py` → `async_write_with_cloud_fallback` |
+> | The #570 sweep extended the same gate to **every** scalar register the number platform can write on a possibly-off-grid unit: the off-grid-created set (74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22 — alongside the original 66, 158–161) plus, after review round 5, the fail-open-created grid-tied scalars reachable before family resolution (67, 82, 83, 103, 116; the RAW 117 write is refused outright — no cloud path exists) and the schedule time entities' packed `write_register` path in `time.py` | `number.py` — derivation recorded in `_offgrid_cloud_only_reason`'s docstring |
 >
-> So a user changing this number on an off-grid unit with a local transport issues a **local named
-> write to register 161**, on a mapping whose local writability the register ledger records as
-> **unresolved**.
+> **Limits of the gate — do not read more into it than it is.** (1) It is a curated per-entity
+> list; a new entity gets no protection automatically, and no lint compares the list against the
+> ledger. (2) Bit-level switch/select writes (H110/H179 bits, H179 b9/b10 regime selects, H20)
+> and direct `inverter.<method>()` calls remain outside it — their per-bit risk stays recorded
+> in the keeper and [C7](../60-history/open-contradictions.md) — with one exception: the grid
+> peak-shaving direct call (H206) is family-gated at its entity since round 6, because
+> pylxpweb's method is transport-first (an earlier "cloud-only by construction" claim the
+> pinned wheel falsified). Since round 5 the schedule time
+> entities' packed `write_register` path carries an equivalent inline fail-closed gate in
+> `time.py`, and the Quick Charge Duration live reg-234 adjust carries its own at the entity
+> (#570 adversarial round 1: on off-grid the live-active check is cloud-routed per #296, so no
+> local H233 rejection ever gated that write). (3) On resolved non-off-grid
+> families the local-first write still runs on mappings whose proof is scoped to one or two
+> tested units. **The readback still does not cover any of this** — storage and transport only,
+> the #476 mechanism.
 >
-> **The readback does not cover this.** The cloud leg passes `verify_register=161` and the local leg
-> sleeps then refreshes, but a readback confirms **storage and transport only** — it cannot detect a
-> write that landed on the wrong target, because the wrong target reads back exactly what was
-> written. This is the #476 failure mode, and it is why the ledger's "do not treat H161 as a safe
-> local write" is not satisfied by the verification the code performs.
->
-> **Status: un-discharged risk, live in production.** It is *not* gated, *not* reviewed-and-accepted,
-> and *not* known-safe. This page does not recommend the local write and does not bless it; it
-> records what ships. Tracked as issue **#558**; the family conflict stays OPEN as **C7** in
-> [../60-history/open-contradictions.md](../60-history/open-contradictions.md). Changing the routing
-> is a code change and is out of scope for documentation — do not "fix" it by editing this page.
+> **Status:** the off-grid local-write exposure that #558 filed is discharged by routing; the
+> underlying writability question stays OPEN as **C6/C7**. History (pre-#569 local-first
+> exposure) is preserved in C7's entry, not here.
 >
 > **H161 is not the only register in this shape, and this page does not enumerate the others.**
 > That set is not a list anyone maintains — it is a consequence of tables in the code. README owns
@@ -299,21 +315,16 @@ Grades for the **left** column — that these gates, purges and routings exist i
 > [controls-and-writes.md §0](controls-and-writes.md#0-the-write-surface-is-not-reliably-enumerable-from-documentation) for the procedure
 > that derives the routing, and the README table above for the register-side criterion.
 
-> **The off-grid Quick Charge cloud routing is conditional on a cloud client.**
+> **The off-grid Quick Charge scope gap is closed (PR #569, merged 2026-08-13).**
 >
 > | Fact | Grade |
 > |---|---|
-> | The gate is `is_offgrid_family(self._device_data) and self.coordinator.has_http_api()` | `verified-against-code` — `switch.py` → `EG4QuickChargeSwitch._prefers_cloud_control` |
-> | In pure-LOCAL there is no HTTP API, so the gate is False even on off-grid, and `enable_method` stays the string `"enable_quick_charge"` — pylxpweb's **transport-first** path, i.e. the local H233 write | `verified-against-code` — `switch.py:620-626`; routing policy at pylxpweb `204b95d`, `devices/inverters/base.py:4011` |
-> | The mitigation scopes itself in its own docstring: "Go straight to the cloud start/stop endpoints **when a cloud client is configured**" | `verified-against-code` — same docstring that records the ILLEGAL DATA ADDRESS rejection (#296) |
+> | With a cloud client, off-grid AND unresolved families go cloud-direct: `_prefers_cloud_control` is `not is_positively_non_offgrid_family(...) and has_http_api()` (#570 audit review round 4, this change set — the earlier positive-off-grid-only gate left unresolved families on pylxpweb's local-first path, unsafe on CCAA where the H233 write is silently accepted) | part of the PR #600 change set — `switch.py` → `EG4QuickChargeSwitch._prefers_cloud_control` |
+> | Without a cloud client the switch **fails closed**: only a positively resolved non-off-grid family keeps the local H233 route; off-grid/unresolved entries get an unavailable switch, and a forced service call raises before pylxpweb is reached | `verified-against-code` at `e9853eb` — `switch.py` → `_offgrid_without_cloud` availability gate and `is_positively_non_offgrid_family` |
+> | The firmware basis is lineage-scoped: CEAA rejects the H233 address outright; CCAA implements it but no bit-0 quick-charge consumer was traced — neither lineage has a proven local route | grades owned by the [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
 >
-> So on a pure-LOCAL off-grid entry the switch attempts precisely the write the same docstring
-> calls firmware-rejected. This is a **scope gap in a mitigation**, not a defect in it: the
-> cloud-preference path was built for #296 and covers every configuration that has a cloud client.
-> Tracked on issue **#558**. This page records the routing; it does not propose a code change.
->
-> Mechanism detail — including why this write is invisible to a grep of the coordinator's write
-> primitives — is in
+> The pre-#569 exposure — pure-LOCAL off-grid attempting the firmware-rejected write — is
+> history; it is preserved in the keeper's boundary section and
 > [controls-and-writes.md §2.4](controls-and-writes.md#24-the-h233-exposure-this-makes-visible).
 
 > **The H233 rejection is a tested-scope observation, not a family property.**
@@ -535,6 +546,9 @@ What this page owns is the **behavioural consequence** for the integration:
 | **Per-field** seed timestamps | A later write to one store key must not renew an older key's seed, or an in-flight read of a legitimate portal change gets clobbered | `verified-against-code` — `coordinator.py:1304-1310` |
 | A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started | Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state | `verified-against-code` — `coordinator.py` → the seed-supersede predicate |
 | A seed expires on its own TTL, with a shorter grace window once the write is confirmed | Bounds how long an acknowledged write can override a genuine read. Values live in `coordinator.py` — read them there rather than copying them | `verified-against-code` — `coordinator.py` → the write-seed TTL and confirmed-grace constants |
+| A fresh read that **disagrees** with a seed inside the per-key **settle window** does NOT retire it | Cloud-ACKed writes take seconds to propagate portal → dongle → register, so the post-write refresh can observe the pre-write value — "confirming" it reverted the entity. Each key runs on its own write stamp and retires on its own confirmation; a sibling write never re-arms it. An **agreeing** read confirms immediately; past the window, disagreement is authoritative device truth again | part of the PR #600 change set (#570 reviews r7/r8) — `coordinator.py` → `_reconcile_parameter_read` and the `PARAMETER_WRITE_SEED_SETTLE` constant |
+| A retained disagreement schedules a **one-shot targeted recheck** at that key's settle expiry | Without it a never-propagating cloud write (or an immediate external change) showed the seeded value until the hourly parameter poll. Deduplicated per serial, reusing the existing targeted per-device refresh — no new polling loop | part of the PR #600 change set (#570 review r9) — `coordinator.py` → `_schedule_seed_settle_recheck` |
+| While a seed is **active**, number reads behave **params-first** for that key | The default inverter-first read order let the pylxpweb attribute — refreshed from the same still-stale register — shadow the seeded cache value entirely, clearing optimism onto the pre-write value | part of the PR #600 change set (#570 review r7) — `coordinator.py` → `has_active_parameter_write_seed`, `number.py` → `_read_param_value`'s convergence gate |
 
 Write-then-refresh retention semantics and the data-object-identity check live in
 [controls-and-writes.md](controls-and-writes.md) §4–5.

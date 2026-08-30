@@ -194,6 +194,10 @@ async def test_direct_cloud_method_performs_one_narrow_post_write_fetch() -> Non
         parameters={PARAM_FUNC_GRID_PEAK_SHAVING: True},
     )
     inverter = _track_one_targeted_parameter_fetch(coordinator)
+    # Resolved non-off-grid family keeps the library-method path (#570 r6).
+    coordinator.data["devices"]["1234567890"]["features"] = {
+        "inverter_family": "EG4_HYBRID"
+    }
     entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
     _prep(entity)
 
@@ -655,6 +659,11 @@ class TestReadParamValueFloat:
             parameters={PARAM_HOLD_AC_CHARGE_POWER: 12},
             inverter_attrs={"ac_charge_power_limit": 12.0, "transport": None},
         )
+        # Resolved non-off-grid family keeps the 15 kW ceiling so the 12 kW
+        # read stays inside the plausibility window (#570 review round 4).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ACChargePowerNumber(coordinator, "1234567890")
         assert entity.native_value == 12.0
 
@@ -773,6 +782,11 @@ class TestPVChargePowerNativeValue:
     async def test_write_local_targets_reg74_in_100w_units(self):
         """Local write of 1 kW resolves to reg 74 param with raw 10 (1 kW)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 74 (#570 sweep) so the 100W-unit conversion is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = PVChargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -806,6 +820,10 @@ class TestWriteParameter:
     async def test_write_local(self):
         """Local transport writes named parameter."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -887,6 +905,10 @@ class TestHybridCloudFallback:
     async def test_write_parameter_local_failure_falls_back_to_cloud(self):
         """_write_parameter: local raises -> inverter cloud method used."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
+        # Resolved non-off-grid family keeps the local-first route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -903,6 +925,10 @@ class TestHybridCloudFallback:
     async def test_write_parameter_local_only_failure_still_raises(self):
         """LOCAL-only: no cloud client -> the local error propagates."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -962,6 +988,13 @@ class TestHybridCloudFallback:
         write also seeds the local-raw cache so a failed follow-up local
         read cannot revert the entity (#282 carry-forward keeps the seed)."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
+        # Resolved non-off-grid family keeps the local-first route (#570
+        # r5) — without it the unresolved family takes the cloud-only
+        # route and the mocked local failure below is never exercised
+        # (r13: this test was inert against the fallback path).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -970,6 +1003,8 @@ class TestHybridCloudFallback:
 
         await entity.async_set_native_value(80.0)
 
+        # The local attempt really ran and failed before the cloud leg.
+        coordinator.write_named_parameter.assert_awaited_once()
         coordinator.note_parameters_written.assert_called_once()
         serial_arg, values = coordinator.note_parameters_written.call_args[0]
         assert serial_arg == "1234567890"
@@ -991,6 +1026,11 @@ class TestHybridCloudFallback:
     async def test_system_charge_soc_local_failure_falls_back_to_cloud(self):
         """Inline 3-way site (system charge SOC): cloud API branch used."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
+        # Resolved non-off-grid family keeps the local-first route for
+        # protected reg 227 (#570 sweep) so the fallback is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -1053,12 +1093,60 @@ class TestBatteryCurrentWrite:
     async def test_discharge_current_no_integer_check(self):
         """BatteryDischargeCurrent intentionally skips fraction check."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 102 (#570 sweep) so the local named write is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = BatteryDischargeCurrentNumber(coordinator, "1234567890")
         _prep(entity)
 
         # This should NOT raise — discharge current has no fraction check
         await entity.async_set_native_value(100.0)
         coordinator.write_named_parameter.assert_called_once()
+
+
+class TestActiveWriteSeedReadGate:
+    """#570 r7 convergence: an active acknowledged-write seed outranks the
+    inverter attribute. The pylxpweb object's attribute is refreshed from
+    the still-stale local register during the settle window, and the
+    shipped inverter-first read order let it shadow the seeded cache value
+    — clearing optimism onto the pre-write value (the H101/H102/H105/H125
+    snap-back). Without an active seed, the shipped order stands."""
+
+    @pytest.mark.asyncio
+    async def test_active_write_seed_outranks_stale_inverter_attr(self):
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_LEAD_ACID_CHARGE_RATE": 100},
+            inverter_attrs={"battery_charge_current_limit": 80},
+        )
+        entity = BatteryChargeCurrentNumber(coordinator, "1234567890")
+
+        # No active seed: the shipped inverter-first order stands.
+        coordinator.has_active_parameter_write_seed = MagicMock(return_value=False)
+        assert entity.native_value == 80
+
+        # Active seed: the seeded params-cache value wins for its key.
+        coordinator.has_active_parameter_write_seed = MagicMock(return_value=True)
+        assert entity.native_value == 100
+        coordinator.has_active_parameter_write_seed.assert_called_with(
+            "1234567890", "HOLD_LEAD_ACID_CHARGE_RATE"
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_mocked_coordinator_keeps_declared_order(self):
+        """The gate requires a strict boolean True — an auto-MagicMock
+        coordinator attribute (truthy but not True) must not flip every
+        test scaffold to params-first."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_LEAD_ACID_CHARGE_RATE": 100},
+            inverter_attrs={"battery_charge_current_limit": 80},
+        )
+        entity = BatteryChargeCurrentNumber(coordinator, "1234567890")
+        # coordinator.has_active_parameter_write_seed is an auto-MagicMock.
+        assert entity.native_value == 80
 
 
 class TestSystemChargeSOCWrite:
@@ -1068,6 +1156,11 @@ class TestSystemChargeSOCWrite:
     async def test_write_local(self):
         """Local transport writes named parameter."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 227 (#570 sweep) so the local named write is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1112,6 +1205,10 @@ class TestSystemChargeSOCWrite:
     async def test_write_range_101_allowed(self):
         """101% (top balancing) is within valid range."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 sweep).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1240,6 +1337,10 @@ class TestForcedDischargeNumbers:
     async def test_power_write_local(self):
         """Local transport writes the raw 100W value by name (2.5 kW -> 25)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ForcedDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1255,6 +1356,10 @@ class TestForcedDischargeNumbers:
         """kW->raw conversion rounds instead of truncating float artifacts
         (2.3 * 10 = 22.999... must write 23, not 22)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ForcedDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1280,6 +1385,10 @@ class TestForcedDischargeNumbers:
     async def test_soc_limit_write_local(self):
         """Local transport writes HOLD_FORCED_DISCHG_SOC_LIMIT by name."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1348,11 +1457,14 @@ class TestForcedDischargeNumbers:
 
 
 class TestGridPeakShavingPowerNumber:
-    """PS1 is cloud-write-only: the old local name-write path resolved to
-    register 231, which is NOT the peak shaving power register (the 2026-06-12
-    sweep pins PS1 at reg 206), so local writes were landing in an unknown
-    register. The raw encoding of reg 206 is unverified, so writes must go
-    through the cloud name-write until a write window proves the encoding."""
+    """PS1 (reg 206) never uses the local NAME map: the old map entry
+    resolved to register 231, an unknown register (2026-06-12 sweep pins
+    PS1 at reg 206). On a resolved non-off-grid family the write goes
+    through pylxpweb's transport-first raw-H206 method (hybrid-verified
+    deci-kW encoding); off-grid/unresolved families go cloud-named at the
+    entity (#570 r6 — pinned in tests/test_offgrid_write_routing.py). These
+    tests use resolved EG4_HYBRID scaffolds and pin the library-method path
+    plus the mode pre-check behavior."""
 
     @pytest.mark.asyncio
     async def test_write_routes_to_cloud_even_with_local_transport(self):
@@ -1360,6 +1472,11 @@ class TestGridPeakShavingPowerNumber:
         name-write, NEVER coordinator.write_named_parameter (which would
         target whatever register the installed pylxpweb maps the name to)."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1373,6 +1490,11 @@ class TestGridPeakShavingPowerNumber:
     async def test_write_cloud_mode(self):
         """Cloud-only mode writes float kW via the pylxpweb setter."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1388,6 +1510,11 @@ class TestGridPeakShavingPowerNumber:
         local register write."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
         coordinator.client = None
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1404,6 +1531,11 @@ class TestGridPeakShavingPowerNumber:
         coordinator = _mock_coordinator(has_local=False, has_http=True)
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.set_grid_peak_shaving_power = AsyncMock(return_value=False)
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1414,6 +1546,11 @@ class TestGridPeakShavingPowerNumber:
     async def test_write_validation(self):
         """Out-of-range kW raises before any write is attempted."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1447,6 +1584,11 @@ class TestGridPeakShavingPowerNumber:
         live_read = self._mock_live_mode_read(
             coordinator, {"FUNC_GRID_PEAK_SHAVING": False}
         )
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1469,6 +1611,11 @@ class TestGridPeakShavingPowerNumber:
             parameters={"FUNC_GRID_PEAK_SHAVING": 0},
         )
         self._mock_live_mode_read(coordinator, {"FUNC_GRID_PEAK_SHAVING": 0})
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1490,6 +1637,11 @@ class TestGridPeakShavingPowerNumber:
             parameters={"FUNC_GRID_PEAK_SHAVING": False},
         )
         self._mock_live_mode_read(coordinator, {"FUNC_GRID_PEAK_SHAVING": True})
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1513,6 +1665,11 @@ class TestGridPeakShavingPowerNumber:
         coordinator.client.api.control.read_parameters = AsyncMock(
             side_effect=TimeoutError("cloud read failed")
         )
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1532,6 +1689,11 @@ class TestGridPeakShavingPowerNumber:
             parameters={"FUNC_GRID_PEAK_SHAVING": False},
         )
         self._mock_live_mode_read(coordinator, {})
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1551,6 +1713,11 @@ class TestGridPeakShavingPowerNumber:
             parameters={"FUNC_GRID_PEAK_SHAVING": True},
         )
         live_read = self._mock_live_mode_read(coordinator, {})
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1566,6 +1733,11 @@ class TestGridPeakShavingPowerNumber:
         yet fetched) — proceed with the write rather than blocking on
         missing data (fail-open)."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1579,6 +1751,11 @@ class TestGridPeakShavingPowerNumber:
         coordinator = _mock_coordinator(
             inverter_attrs={"grid_peak_shaving_power_limit": 7.0},
         )
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         assert entity.native_value == 7.0
 
@@ -1587,6 +1764,11 @@ class TestGridPeakShavingPowerNumber:
         reads registers 231-232, so the value is unknown rather than a
         misread of an unrelated register."""
         coordinator = _mock_coordinator(has_local=True, local_only=True)
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         assert entity.native_value is None
 
@@ -1602,6 +1784,11 @@ class TestGridPeakShavingPowerNumber:
             parameters={"206": 55},
             inverter_attrs={"grid_peak_shaving_power_limit": None},
         )
+        # Resolved non-off-grid family keeps pylxpweb's transport-first
+        # library method (#570 r6: off-grid/unresolved go cloud-named).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridPeakShavingPowerNumber(coordinator, "1234567890")
         assert entity.native_value is None
 
@@ -1690,6 +1877,10 @@ class TestGridSellBackPowerNumber:
     async def test_write_local_named_parameter_raw(self):
         """Local transport writes the raw 100 W value (12.1 kW -> 121)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1821,6 +2012,10 @@ class TestStartDischargePowerNumber:
     async def test_write_local_named_parameter_w(self):
         """Local transport writes the watt value under the name-map key."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = StartDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1933,6 +2128,10 @@ class TestStartChargePowerNumber:
     async def test_write_local_raw_register_positive(self):
         """Positive watts write the raw register value as-is."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the raw H117 write (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_raw_parameter = AsyncMock(return_value=True)
         entity = StartChargePowerNumber(coordinator, "1234567890")
         _prep(entity)
@@ -1948,6 +2147,10 @@ class TestStartChargePowerNumber:
         """-50 W writes the two's-complement 65486 (W round-trip with the
         signed read decode above)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the raw H117 write (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_raw_parameter = AsyncMock(return_value=True)
         entity = StartChargePowerNumber(coordinator, "1234567890")
         _prep(entity)
@@ -2055,6 +2258,11 @@ class TestStopDischargeVoltageNumber:
     async def test_write_local_decivolts(self):
         """Local transport writes raw decivolts by name (41.5 V -> 415)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 202 (#570 sweep) so the decivolt conversion is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = StopDischargeVoltageNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -2101,6 +2309,10 @@ class TestStopDischargeVoltageNumber:
         float artifacts are accepted (codex r1 LOW): 56.0000001 -> 56.0 is
         valid, and 41.55 (float 41.549999...) writes 415, not 416."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 sweep).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = StopDischargeVoltageNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -2491,7 +2703,8 @@ class TestOffgridACChargeSOCWindow:
         coordinator.client.api.control.write_parameter.assert_awaited_once_with(
             "1234567890", "HOLD_AC_CHARGE_START_BATTERY_SOC", "90"
         )
-        with pytest.raises(HomeAssistantError, match="between 0-90"):
+        # Off-grid floor is 1 (#570 r4: CEAA/CCAA firmware rejects 0).
+        with pytest.raises(HomeAssistantError, match="between 1-90"):
             await entity.async_set_native_value(91)
 
     def test_missing_params_read_none(self):
@@ -2772,26 +2985,28 @@ class TestOffgridACChargeSOCWindow:
     # ── Range / integer validation ─────────────────────────────────────
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("bad_value", [-1, 91, 150])
+    @pytest.mark.parametrize("bad_value", [-1, 0, 91, 150])
     async def test_start_soc_rejects_out_of_range(self, bad_value):
-        """Start writes cap at 90 — pylxpweb's reg-160 definition and its
-        hybrid setter bound (PR #488 review item 3)."""
+        """Start writes cap at 90 (pylxpweb's reg-160 definition, PR #488
+        review item 3) and floor at 1 on off-grid (#570 r4: the CEAA/CCAA
+        firmware writer rejects 0 with exception 03)."""
         coordinator = self._offgrid_coordinator()
         entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match="between 0-90"):
+        with pytest.raises(HomeAssistantError, match="between 1-90"):
             await entity.async_set_native_value(bad_value)
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("bad_value", [-1, 101, 150])
+    @pytest.mark.parametrize("bad_value", [-1, 19, 101, 150])
     async def test_end_soc_rejects_out_of_range(self, bad_value):
+        # Off-grid floor is 20 (#570 r6: CEAA/CCAA firmware enforces 20..100).
         coordinator = self._offgrid_coordinator()
         entity = ACChargeEndBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match="between 0-100"):
+        with pytest.raises(HomeAssistantError, match="between 20-100"):
             await entity.async_set_native_value(bad_value)
         coordinator.write_named_parameter.assert_not_awaited()
 
@@ -2815,11 +3030,14 @@ class TestOffgridACChargeSOCWindow:
         assert start.unique_id == "1234567890_ac_charge_start_battery_soc"
         assert end.unique_id == "1234567890_ac_charge_end_battery_soc"
         # Start's WRITE cap is 90 (pylxpweb reg-160 definition); End keeps
-        # the full 0-100 portal range.
+        # the 100 ceiling. On this off-grid scaffold Start floors at 1
+        # (#570 r4) and End at 20 (#570 r6) — both CEAA/CCAA
+        # firmware-proven writer bounds.
         assert start.native_max_value == 90
         assert end.native_max_value == 100
+        assert start.native_min_value == 1
+        assert end.native_min_value == 20
         for entity in (start, end):
-            assert entity.native_min_value == 0
             assert entity.native_step == 1
             # ENABLED by default: the family's primary AC-charge SOC control
             # (the #331 reporter's automation target).
@@ -3791,6 +4009,11 @@ class TestQuickChargeDurationNumber:
         written live to extend/reduce the active charge. No cloud preference is
         stored — on local the entity mirrors the register, not a preference."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route
+        # (#570 adversarial round 1 gate).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)
@@ -3814,6 +4037,10 @@ class TestQuickChargeDurationNumber:
         preference — the write must seed the cache so native_value shows the
         accepted value (codex P2)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
         coordinator._quick_charge_minutes["1234567890"] = 60  # untouched pref
         coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
@@ -3840,6 +4067,10 @@ class TestQuickChargeDurationNumber:
         — otherwise native_value keeps publishing the untouched preference until
         the next successful poll (codex #8)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
         coordinator._quick_charge_minutes["1234567890"] = 60  # untouched pref
         # Prior status read failed — no quick_charge_status key at all.
@@ -3862,6 +4093,10 @@ class TestQuickChargeDurationNumber:
         (the reg 234 half of the paired-frame start) — no register write (a
         lone idle reg 234 write is firmware-rejected, #251)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         # is_quick_charge_active_live defaults to False (idle).
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)
@@ -3879,6 +4114,10 @@ class TestQuickChargeDurationNumber:
         firmware would reject right after auto-expiry — the live False routes
         the value to the start-preference store instead."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         # Cache says active, but the live read says the charge has ended.
         coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
             "hasUnclosedQuickChargeTask": True
@@ -3898,6 +4137,10 @@ class TestQuickChargeDurationNumber:
         silently storing the preference and reporting success — a failed live
         adjust must never look successful."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=None)
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)

@@ -22,6 +22,13 @@ PV_START_VOLTAGE_STEP = 1
 AC_CHARGE_POWER_MIN = 0.0
 AC_CHARGE_POWER_MAX = 15.0
 AC_CHARGE_POWER_STEP = 0.1
+# Off-grid ceiling for reg 66: the CEAA/CCAA firmware writer rejects raw >100
+# (10 kW) with exception 03 — firmware-proven (#570); pylxpweb PR #273 capped
+# the canonical definition to match. The 15 kW ceiling above is kept ONLY for
+# positively resolved non-off-grid families (shipped status quo, backed by
+# DATA_MAPPING's raw/UI examples 0-150 = 0-15 kW; not firmware-proven there).
+# Unresolved families fail closed to this firmware-proven bound.
+AC_CHARGE_POWER_OFFGRID_MAX = 10.0
 
 # =============================================================================
 # PV Charge Power (kW)
@@ -55,6 +62,15 @@ SOC_LIMIT_MIN = 0
 SOC_LIMIT_MAX = 100
 SOC_LIMIT_STEP = 1
 
+# On-grid discharge cutoff (reg 105). Narrower than the shared SOC_LIMIT_*:
+# the canonical H105 definition (pylxpweb inverter_holding.py, address 105)
+# and the cloud writer set_battery_soc_limits both enforce 10-90%, so the
+# entity must advertise the same range or off-grid cloud-only routes surface
+# a raw ValueError at the boundaries (#570 review round 2). The off-grid
+# cutoff (reg 125) is genuinely 0-100 and keeps SOC_LIMIT_*.
+ONGRID_SOC_CUTOFF_MIN = 10
+ONGRID_SOC_CUTOFF_MAX = 90
+
 # AC Charge SOC Limit (reg 67). Separate from the shared SOC_LIMIT_* (used by
 # the on-grid/off-grid discharge cutoffs) because the inverter accepts 101% =
 # "never stop AC charging" (the stop threshold is unreachable since SOC <= 100),
@@ -74,6 +90,19 @@ AC_CHARGE_SOC_LIMIT_STEP = 1
 AC_CHARGE_BATTERY_SOC_MIN = 0
 AC_CHARGE_BATTERY_SOC_MAX = 100
 AC_CHARGE_START_BATTERY_SOC_MAX = 90
+# Off-grid floor for reg 161: the CEAA/CCAA firmware writer enforces
+# 20..100 (and >= H160 — firmware-enforced, not validated entity-side for
+# the same stale-sibling reason as the voltage window). The 0 floor is kept
+# ONLY for positively resolved non-off-grid families (where reg 161 is
+# inert/read-only per the keeper anyway).
+AC_CHARGE_END_SOC_OFFGRID_MIN = 20
+# Off-grid floor for reg 160: the CEAA/CCAA firmware writer rejects 0 with
+# exception 03 — firmware-proven (#570; the sweep deliberately never wrote 0);
+# pylxpweb PR #273 set the canonical minimum to 1 to match. The 0 floor above
+# is kept ONLY for positively resolved non-off-grid families (shipped status
+# quo; 0's semantics there are unverified but nothing proves it invalid).
+# Unresolved families fail closed to this firmware-proven bound.
+AC_CHARGE_START_SOC_OFFGRID_MIN = 1
 AC_CHARGE_BATTERY_SOC_STEP = 1
 
 # AC Couple Start/End SOC window (GH #352): whole-percent thresholds for the
@@ -202,6 +231,22 @@ STOP_DISCHARGE_VOLTAGE_STEP = 0.1
 # AC charge start/stop voltage (regs 158 / 159) — whole volts only
 AC_CHARGE_VOLTAGE_MIN = 38
 AC_CHARGE_VOLTAGE_MAX = 60
+# Off-grid firmware bounds for the AC-charge voltage window (CEAA/CCAA
+# FC06/FC16 writer range checks, firmware-proven #570): H158 raw 384..570
+# (38.4-57.0 V); H159 raw 480..590 (48.0-59.0 V). The shared 38-60 V range
+# above is kept ONLY for positively resolved non-off-grid families. These
+# entities are whole-volt (require_whole, 1 V step), so the ADVERTISED
+# bounds are the whole-volt values inside the firmware windows — H158's
+# floor is 39, not 38.4: advertising 38.4 made HA accept a boundary the
+# whole-volt validation then rejected (#570 review round 7). Every
+# advertised boundary below is writable as-is.
+# The cross-register constraint (H158 <= H159, firmware-enforced) is
+# deliberately NOT validated entity-side: the sibling's cached value can
+# be stale, and a false rejection is worse than the writer's own error.
+AC_CHARGE_START_VOLTAGE_OFFGRID_MIN = 39
+AC_CHARGE_START_VOLTAGE_OFFGRID_MAX = 57
+AC_CHARGE_END_VOLTAGE_OFFGRID_MIN = 48
+AC_CHARGE_END_VOLTAGE_OFFGRID_MAX = 59
 AC_CHARGE_VOLTAGE_STEP = 1
 
 # =============================================================================

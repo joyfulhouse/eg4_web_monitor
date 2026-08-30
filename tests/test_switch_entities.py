@@ -569,6 +569,12 @@ class TestQuickChargeSwitch:
     async def test_turn_on(self):
         """Turn on calls enable_quick_charge with the default duration (60)."""
         coordinator = _mock_coordinator()
+        # Resolved non-off-grid family keeps pylxpweb's local-first quick
+        # charge methods (#570 review round 4: unresolved fails closed to
+        # the cloud endpoints).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
         await switch.async_turn_on()
@@ -580,6 +586,10 @@ class TestQuickChargeSwitch:
     async def test_turn_on_uses_stored_duration(self):
         """Turn on forwards the per-serial duration preference as minute."""
         coordinator = _mock_coordinator()
+        # Resolved non-off-grid family keeps the local-first route (#570 r4).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator._quick_charge_minutes["1234567890"] = 25
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
@@ -592,6 +602,10 @@ class TestQuickChargeSwitch:
     async def test_turn_off(self):
         """Turn off calls disable_quick_charge via cloud API (no minute)."""
         coordinator = _mock_coordinator()
+        # Resolved non-off-grid family keeps the local-first route (#570 r4).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")
         _prep(switch)
         await switch.async_turn_off()
@@ -914,6 +928,10 @@ class TestQuickChargeSwitchOptimisticRetention:
     async def test_failed_enable_does_not_arm_retention(self):
         """A failed enable raises and leaves no hold behind."""
         coordinator = _mock_coordinator()
+        # Resolved non-off-grid family keeps the local-first route (#570 r4).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         inverter = coordinator.get_inverter_object("1234567890")
         inverter.enable_quick_charge = AsyncMock(return_value=False)
         switch = EG4QuickChargeSwitch(coordinator, "1234567890")

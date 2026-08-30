@@ -31,7 +31,9 @@ ENTITY_CASES: "Sequence[ParameterSet]" = (
     ),
     pytest.param(
         ACChargeStartBatterySOCNumber,
-        0,
+        # Floor 1 on this family-less (unresolved → fail-closed) scaffold:
+        # the CEAA/CCAA firmware writer rejects H160=0 (#570 review round 4).
+        1,
         # Write cap is 90 (pylxpweb's reg-160 definition, PR #488 item 3).
         90,
         "AC charge start battery SOC",
@@ -39,7 +41,9 @@ ENTITY_CASES: "Sequence[ParameterSet]" = (
     ),
     pytest.param(
         ACChargeEndBatterySOCNumber,
-        0,
+        # Floor 20 on this family-less (unresolved → fail-closed) scaffold:
+        # the CEAA/CCAA firmware writer enforces 20..100 (#570 round 6).
+        20,
         100,
         "AC charge end battery SOC",
         id="ac-charge-end-battery-soc",
@@ -52,9 +56,11 @@ ENTITY_CASES: "Sequence[ParameterSet]" = (
         id="forced-discharge-soc-limit",
     ),
     pytest.param(
+        # 10-90: the canonical H105 range enforced by pylxpweb's definition
+        # and set_battery_soc_limits (#570 review round 2).
         OnGridSOCCutoffNumber,
-        0,
-        100,
+        10,
+        90,
         "On-grid SOC cutoff",
         id="on-grid-soc-cutoff",
     ),

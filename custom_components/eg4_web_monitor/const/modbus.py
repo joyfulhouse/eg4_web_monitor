@@ -171,9 +171,13 @@ PARAM_SNA_QUICK_CHARGE_MINUTE = "SNA_HOLD_QUICK_CHARGE_MINUTE"
 # (eg4-gfu5: single-register cloud reads on an 18kPV and a FlexBOSS21 name PS1
 # at (206,1); (231,1) names nothing — the old pylxpweb 231 mapping was wrong,
 # so historical local name-writes landed in unrelated register 231). Cloud
-# read/write uses float kW [0, 25.5]; the RAW register encoding is presumed
-# deci-kW but unverified, so this control is cloud-write-only — never write it
-# through the local transport name map.
+# read/write uses float kW [0, 25.5]; the RAW register encoding is deci-kW,
+# verified on hybrid hardware (pylxpweb#158 raw 41 -> 4.1 kW). Writes are
+# family-scoped (#570 r6/r10): a positively resolved non-off-grid family goes
+# through pylxpweb's transport-first raw-H206 method (cloud named fallback);
+# off-grid/unresolved families are cloud-named-parameter-only (no off-grid
+# H206 write evidence). Either way, never write it through the local
+# transport name map.
 PARAM_HOLD_GRID_PEAK_SHAVING_POWER = "_12K_HOLD_GRID_PEAK_SHAVING_POWER"
 
 # =============================================================================

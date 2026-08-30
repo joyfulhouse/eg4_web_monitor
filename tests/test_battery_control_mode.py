@@ -230,6 +230,11 @@ class TestEffectiveness:
         coordinator = _mock_coordinator(
             has_local=True, live=(CONTROL_MODE_SOC, CONTROL_MODE_SOC)
         )
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 228 (#570 sweep) so the local named write is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         volt = SystemChargeVoltLimitNumber(coordinator, "1234567890")
         _prep(volt)
 
@@ -247,6 +252,10 @@ class TestEffectiveness:
         coordinator = _mock_coordinator(
             has_local=True, live=(CONTROL_MODE_VOLTAGE, CONTROL_MODE_SOC)
         )
+        # Resolved non-off-grid family keeps the local route (#570 sweep).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         volt = SystemChargeVoltLimitNumber(coordinator, "1234567890")
         _prep(volt)
 
@@ -289,6 +298,11 @@ class TestVoltageNumberEntities:
     @pytest.mark.asyncio
     async def test_write_local_uses_named_parameter(self) -> None:
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route for protected
+        # reg 169 (#570 sweep) so the decivolt conversion is observable.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         volt = _voltage_number(coordinator, "on_grid_cutoff_voltage")
         _prep(volt)
 

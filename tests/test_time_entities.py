@@ -27,6 +27,7 @@ entity is registry-disabled by default (opt-in advanced feature).
 
 import asyncio
 from datetime import time
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -62,8 +63,14 @@ def _mock_coordinator(
     has_client: bool = True,
     local_only: bool = False,
     parameters: dict | None = None,
+    family: str | None = None,
 ) -> MagicMock:
-    """Build a mock coordinator for time entity tests."""
+    """Build a mock coordinator for time entity tests.
+
+    ``family`` seeds ``features.inverter_family``; None leaves the device
+    featureless (an UNRESOLVED family, which since #570 r5 routes schedule
+    writes cloud-only — local-write tests must pass a resolved family).
+    """
     coordinator = MagicMock()
     coordinator.has_local_transport = MagicMock(return_value=has_local)
     coordinator.has_http_api = MagicMock(return_value=has_client)
@@ -82,6 +89,8 @@ def _mock_coordinator(
         "device_info": {serial: {"deviceTypeText4APP": model}},
         "parameters": {serial: parameters or {}},
     }
+    if family is not None:
+        coordinator.data["devices"][serial]["features"] = {"inverter_family": family}
 
     mock_inverter = MagicMock()
     mock_inverter.refresh = AsyncMock()
@@ -886,7 +895,7 @@ class TestWritePaths:
         self, schedule, window, is_end, register
     ):
         """LOCAL: one packed write to the window's register."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
         _prep(entity)
 
@@ -1108,7 +1117,7 @@ class TestWritePaths:
         """HYBRID: transport attached but the register write fails (e.g.
         transport_link_down Modbus timeout) -> the cloud named-parameter
         branch is used and the service call succeeds (switch parity)."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         coordinator.write_register = AsyncMock(
             side_effect=HomeAssistantError("Failed to write register 68: timeout")
         )
@@ -1131,7 +1140,7 @@ class TestWritePaths:
     async def test_local_only_write_failure_still_raises(self):
         """LOCAL-only: no cloud to fall back to -> the local error propagates."""
         coordinator = _mock_coordinator(
-            has_local=True, has_client=False, local_only=True
+            has_local=True, has_client=False, local_only=True, family="EG4_HYBRID"
         )
         coordinator.write_register = AsyncMock(
             side_effect=HomeAssistantError("Failed to write register 68: timeout")
@@ -1147,8 +1156,12 @@ class TestWritePaths:
     @pytest.mark.asyncio
     async def test_hybrid_known_link_down_prefers_cloud_immediately(self):
         """HYBRID with pylxpweb reporting transport_link_down: the doomed
-        local write is skipped entirely and the cloud is used directly."""
-        coordinator = _mock_coordinator(has_local=True)
+        local write is skipped entirely and the cloud is used directly.
+
+        Scaffolded on a RESOLVED non-off-grid family (r13): an unresolved
+        family takes the blocked-local cloud route regardless of link
+        state, which made this short-circuit test inert."""
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         coordinator.is_transport_link_down = MagicMock(return_value=True)
         entity = _entity(coordinator, window=1, is_end=False)
         _prep(entity)
@@ -1190,6 +1203,7 @@ class TestWritePaths:
         coordinator = _mock_coordinator(
             has_local=True,
             parameters={str(spec.base_register): _pack(20, 0)},
+            family="EG4_HYBRID",
         )
         end_entity = _entity(coordinator, schedule=schedule, window=1, is_end=True)
         _prep(end_entity)
@@ -1203,7 +1217,7 @@ class TestWritePaths:
     @pytest.mark.asyncio
     async def test_optimistic_value_during_write(self):
         """The UI shows the target value while the write is in flight."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, window=1, is_end=False)
         _prep(entity)
 
@@ -1224,7 +1238,7 @@ class TestWritePaths:
     @pytest.mark.asyncio
     async def test_seconds_are_dropped(self):
         """Registers store hour/minute only; seconds must not leak into packing."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, window=1, is_end=False)
         _prep(entity)
 
@@ -1469,6 +1483,7 @@ class TestWriteFailureConvergence:
         coordinator = _mock_coordinator(
             has_local=True,
             parameters={str(spec.base_register): _pack(8, 0)},
+            family="EG4_HYBRID",
         )
         # The real coordinator method catches its own exceptions and reports
         # failure by returning False (#362, coordinator_mixins.py), so this
@@ -1501,6 +1516,7 @@ class TestWriteFailureConvergence:
         coordinator = _mock_coordinator(
             has_local=True,
             parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+            family="EG4_HYBRID",
         )
         coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
 
@@ -1616,6 +1632,136 @@ class TestWriteFailureConvergence:
 # ── writeTime families (Generator / Off-Grid / Peak Shaving) ──────────
 
 
+class TestOffgridScheduleWriteRouting:
+    """#570 review round 5: schedule writes share the fail-closed routing.
+
+    Local packed FC06 schedule writes have no off-grid write evidence (the
+    ledger's schedule rows are all `portal-correlated` from CLOUD probes),
+    and the clear-schedule button already declares local off-grid schedule
+    writes unsanctioned (#563) — so off-grid AND unresolved families route
+    the entity write through that schedule's own cloud write path (classic
+    families: per-field hour/minute writes; writeTime families such as the
+    off-grid Generator Charge schedule: the atomic ``write_time_parameter``
+    call — r10/r13); resolved non-off-grid families keep local-first
+    (pinned by the local-write tests above via their EG4_HYBRID scaffolds).
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "family",
+        ["EG4_OFFGRID", "UNKNOWN", None],
+        ids=["offgrid", "unknown-family", "no-features"],
+    )
+    async def test_offgrid_or_unresolved_write_routes_cloud(self, family):
+        """Off-grid/unresolved + local transport + cloud: the classic cloud
+        hour/minute field writes run and the local packed register write
+        never fires."""
+        coordinator = _mock_coordinator(has_local=True, family=family)
+        entity = _entity(coordinator, schedule="ac_charge", window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+        assert coordinator.client.api.control.write_parameter.await_count == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "family",
+        ["EG4_OFFGRID", "UNKNOWN"],
+        ids=["offgrid", "unknown-family"],
+    )
+    async def test_offgrid_gen_charge_routes_atomic_cloud_write(self, family):
+        """r13: the writeTime leg of the fail-closed routing — an off-grid
+        (or unresolved) Generator Charge write must never issue the local
+        packed FC06 to H256 and must take the ATOMIC write_time_parameter
+        cloud call, not the classic per-field hour/minute writes."""
+        coordinator = _mock_coordinator(has_local=True, family=family)
+        entity = _entity(coordinator, schedule="gen_charge", window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+        coordinator.client.api.control.write_time_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_GEN_START_TIME_1", 6, 30
+        )
+        coordinator.client.api.control.write_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_offgrid_cloud_write_seeds_local_cache_no_revert(self):
+        """r6 (Grok/Codex MED): the cloud-routed schedule write must seed the
+        local-raw parameter cache under the register's alias keys — without
+        the seed, the post-write refresh re-reads the not-yet-propagated
+        packed register, reports success, clears the optimistic value, and
+        the entity visibly reverts to the stale time until a later poll."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            family="EG4_OFFGRID",
+            # Stale local register: still holds 08:00 when the cloud ACKs.
+            parameters={"68": _pack(8, 0)},
+        )
+        # Merge write-seeds into the same cache the decoder reads, like the
+        # real coordinator does, and remember them for the refresh below.
+        seeded: dict[str, Any] = {}
+
+        def _note(serial: str, values: dict) -> None:
+            seeded.update(values)
+            coordinator.data["parameters"][serial].update(values)
+
+        coordinator.note_parameters_written = MagicMock(side_effect=_note)
+
+        # Emission-faithful refresh (#570 r7, codex MED): the post-write
+        # refresh SUCCEEDS and observes the not-yet-propagated register —
+        # it writes the STALE packed value into the cache. The real
+        # coordinator's settle-window reconciliation then keeps the seed
+        # over the disagreeing observation (pinned on the real code by
+        # TestParameterSeedSettleWindow in test_coordinator_local.py);
+        # this double replays exactly that outcome. Without local_values
+        # seeding, `seeded` is empty, the stale value survives, and the
+        # native_value assertion below goes RED.
+        async def _stale_then_reconciled_refresh(serial: str) -> bool:
+            coordinator.data["parameters"][serial]["68"] = _pack(8, 0)
+            coordinator.data["parameters"][serial].update(seeded)
+            return True
+
+        coordinator.async_refresh_device_parameters = AsyncMock(
+            side_effect=_stale_then_reconciled_refresh
+        )
+        entity = _entity(coordinator, schedule="ac_charge", window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+        # The seed carried the packed value under the register's aliases...
+        assert seeded.get("68") == _pack(6, 30)
+        # ...so after the successful-but-stale refresh cleared the
+        # optimistic value, the entity shows the WRITTEN time, not 08:00.
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(6, 30)
+
+    @pytest.mark.asyncio
+    async def test_offgrid_pure_local_write_raises_clear_error(self):
+        """Pure-LOCAL off-grid: the unverified schedule write is refused
+        with the actionable cloud-only error and no register write fires."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_client=False,
+            local_only=True,
+            family="EG4_OFFGRID",
+        )
+        entity = _entity(coordinator, schedule="ac_charge", window=1, is_end=False)
+        _prep(entity)
+
+        with pytest.raises(
+            HomeAssistantError, match=r"register 68.*cloud API only.*558"
+        ):
+            await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+
+
 class TestWriteTimeFamilies:
     """The Generator/Off-Grid/Peak Shaving families: atomic writeTime cloud
     writes, uniform local packed writes, and the LSP cloud read for Peak
@@ -1637,7 +1783,7 @@ class TestWriteTimeFamilies:
         self, schedule, window, is_end, register
     ):
         """LOCAL packed write is uniform across families: base + window*2."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
         _prep(entity)
 

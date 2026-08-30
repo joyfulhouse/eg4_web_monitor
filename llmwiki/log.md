@@ -519,3 +519,348 @@ contract intentionally requires zero reviewers and locks that decision with
 tag-bound protected environments, disabled admin bypass, OIDC scoping and terminal artifact
 verification. GitHub branch protection and environments already required zero approvals, so no
 repository setting was weakened.
+
+## [2026-08-29] ingest | #570 off-grid write-evidence sweep — grades, H161 anomaly, protected-set derivation
+
+Ingested the issue #570 evidence artifacts into the keeper
+([`40-hardware/registers.md`](40-hardware/registers.md)): the `fw-verify-offgrid-writes`
+firmware verdicts (2026-08-12, CEAA 12000XP + CCAA 6000XP ARM+DSP images — H158–H161
+mapping/range checks `firmware-proven`; H66 writable 0..100 but semantics NOT verifiable;
+H21 b7 `firmware-proven` inert; H233 CEAA rejection `firmware-proven`, CCAA partial) and
+the 2026-08-13 live cloud toggle/restore sweep (FlexBOSS21 + 18kPV: H158/H159/H160
+`hardware-toggle-proven` on the tested units; H161 write-inert on a second grid-tied unit
+— resolved as the pre-documented family quirk, strengthening C6, not a write-path fault).
+Accounting moved 336→345 counted claims, 32→41 proven. Recorded both pylxpweb range
+conflicts (H160 min 1 not 0; H66 raw ≤100) as filed (#271/#272) and fixed (pylxpweb PR
+#273, merged). Grade rules honored: the toggle proofs are scoped to the tested units
+(firmware unrecorded); the firmware proofs are mapping/range proofs and did NOT promote
+H66's semantic row or license a local-write upgrade for H158–H161 (recorded as a
+version-gated candidate on #570 only).
+
+Falsification sweep: PR #569's shipped cloud-only routing had invalidated the pre-#569
+"local-first, ungated" narratives in
+[`10-integration/data-semantics.md`](10-integration/data-semantics.md),
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) §1/§2.4,
+the keeper's H233 boundary and H227 shipped-path notes, README's keeper cache, and
+[C7](60-history/open-contradictions.md) ("not routed cloud-only") — all updated to the
+shipped fail-closed routing, with the pre-#569 exposure preserved as history. C6/C7 stay
+open pending a live off-grid H161 write.
+
+Code half of the audit (same change set, tracked on #570): the protected set is now
+derived, not enumerated — every scalar holding register the number platform writes through
+the local-first router lacks a local off-grid delta-test, so all of them (74, 101, 102,
+105, 125, 202, 227, 228, 169, 100, 22, joining 66/158–161) route cloud-only on
+EG4_OFFGRID/unresolved families. Blind spots recorded in `_offgrid_cloud_only_reason`'s
+docstring: bit-level switch/select writes, schedule `write_register` calls, direct library
+calls, and the QuickChargeDuration live-adjust remain outside the gate, with per-bit risk
+held by the keeper and C7.
+
+## [2026-08-29] lint | QuickChargeDuration blind-spot rationale corrected — reg-234 local write was reachable on off-grid
+
+The previous entry (and the `_offgrid_cloud_only_reason` docstring it described) claimed the
+QuickChargeDuration live reg-234 adjust could not run on off-grid because it is "gated on a
+live local H233 b0 read, which the recorded off-grid boundary itself rejects." A PR #600
+adversarial-review finding (Kimi, MED) exposed that as wrong, and code adjudication confirmed
+it — wrong twice: (1) on EG4_OFFGRID + HYBRID the active check is **cloud-routed**
+(`coordinator_mixins.py` → `_quick_charge_prefers_cloud`, the #296 mitigation), so a
+cloud-started charge reports active without any local H233 read standing in the way; (2) the
+H233 rejection is CEAA-scoped anyway — the keeper's own CCAA row in this same change set says
+the address is implemented there. The local reg-234 write on off-grid HYBRID was therefore
+reachable **by design** ("#296 round 2":
+`coordinator_mixins.py` → `_read_offgrid_quick_charge_minute` deliberately mirrors reg 234
+locally so the number's read and write sides agree), on a register with no off-grid write
+evidence (H234 `portal-correlated`). The failure mechanism was the classic one: a
+lineage-scoped negative claim quietly generalized to the family.
+
+Fix (same change set): the live-adjust branch now requires
+`is_positively_non_offgrid_family`; off-grid/unresolved families take the CLOUD-branch
+behavior (store the start preference, applied as the next cloud start's `minute` parameter).
+Regression tests in `tests/test_offgrid_write_routing.py`
+(`TestQuickChargeDurationOffgridLiveAdjust`). Pages updated: the keeper's H234 row,
+[`10-integration/data-semantics.md`](10-integration/data-semantics.md) gate-limits note, and
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) router
+parameter row. The local reg-234 **read** (off-grid HYBRID mirroring) is unchanged — reads
+carry no wrong-write hazard.
+
+## [2026-08-29] lint | Review round 2 — H22 ledger gap closed, H105 range mismatch, stale evidence claims, change-set pins
+
+Corrections from PR #600 adversarial round 2 (Codex + Grok), all landed in the PR branch
+commit `1f39ad1`:
+
+- **H22 was a shipped control with no keeper row** — a violation of the every-claim-graded
+  rule that the sweep's own frame derivation used ("no ledger row at all") without filing
+  the row it implied. Added the H22 row (`portal-correlated`: canonical pylxpweb definition
+  at `ab87902` + the PR #359 verified named-volts cloud route; the reg-22-carries-LSP-bits
+  note and the 140 V firmware floor recorded `asserted-unverified`). Accounting 345→346
+  counted claims, 41 proven (11.8%). The README partial-inventory line and the code/test
+  comments that said "no ledger row" were updated — that phrasing was a fact about a gap,
+  not a permanent property.
+- **H105 range mismatch surfaced by the sweep routing**: the entity advertised 0–100 while
+  the canonical H105 definition and pylxpweb's `set_battery_soc_limits` enforce 10–90, so
+  the new off-grid cloud-only route raised a raw ValueError at the boundaries. The entity
+  (the outlier) now advertises/validates/reads 10–90; H125 is 0–100 everywhere and
+  unchanged. The keeper needed no change — the canonical definition was already right.
+- **Stale evidence claims**: `_offgrid_cloud_only_reason`'s rationale still carried the
+  pre-sweep H158/H159/H66 wording this same change set's keeper rows had superseded;
+  README's write-surface worked example still said pure-LOCAL off-grid drives the local
+  H233 path (closed by PR #569); controls-and-writes §1.3 still described the
+  QuickChargeDuration error contract without the family gate. All updated — same defect
+  class as the round-1 finding: a page or docstring asserting what a sibling document said
+  before the same change set falsified it.
+- **Change-set pins**: claims describing this PR's own routing were pinned only to
+  pre-PR commits. Following the #559 precedent, the affected pages' front matter now
+  names the PR #600 branch commit `1f39ad1` for those claims, to be re-pinned to the
+  mainline merge SHA at the release cut.
+
+## [2026-08-29] lint | Review round 4 — quick-charge switch fails closed on unresolved families; firmware bounds reach the entities
+
+Corrections from PR #600 adversarial round 4 (Codex 3 MED + 2 LOW, Grok corroborating):
+
+- **Quick Charge switch, unresolved families**: `_prefers_cloud_control` gated on
+  *positive off-grid identification*, so an UNKNOWN/missing family with cloud + local
+  transport still ran pylxpweb's local-first paired H233/H234 write. #569's recorded
+  rationale ("the fallback works") predates the CCAA firmware verdict: on CCAA the H233
+  write is silently ACCEPTED with unproven bit-0 semantics, and a silent ACK never
+  triggers a fallback — the #476 mechanism. The predicate now fails closed
+  (`not is_positively_non_offgrid_family(...) and has_http_api()`); resolved non-off-grid
+  families keep local-first. Keeper H233 boundary row, data-semantics and
+  controls-and-writes §2.4 updated to the new routing.
+- **Firmware-proven bounds now reach the entities, family-scoped because the evidence
+  is**: AC Charge Power (H66) advertises/accepts at most 10 kW on off-grid/unresolved
+  (CEAA/CCAA writer rejects raw >100 — the 15 kW ceiling survives only on positively
+  resolved non-off-grid families, where it is shipped status quo without firmware proof
+  either way); AC Charge Start SOC (H160) floors at 1 on off-grid/unresolved (0 →
+  exception 03 — resolved non-off-grid keeps the shipped 0 floor, unverified but not
+  disproven). Read windows track the same bounds so out-of-window values read unknown
+  instead of tripping HA's out-of-range state error. Boundary tests added both sides.
+- **Docstring falsifications**: the QuickChargeDuration class docstring still described
+  an unqualified LOCAL/HYBRID live reg-234 adjust, and
+  `_read_offgrid_quick_charge_minute` still said the setter "writes reg 234 whenever a
+  local transport is configured" — the exact sentence a future "restore read/write
+  symmetry" fix would cite to reopen the gated write. Both now state the fail-closed
+  family gate explicitly, and the mirror-read helper carries a do-not-restore-symmetry
+  warning naming what the symmetry claim would reopen.
+
+## [2026-08-29] lint | Review round 5 — one derivation pass over every fail-open `is_offgrid_family` site
+
+Rounds 4 and 5 found the same defect class three times (switch write gate, coordinator
+status gate, fail-open creation branch), so this round ran ONE derivation pass over every
+`is_offgrid_family(` call site instead of fixing the reported instances alone. Result,
+landed in the PR #600 branch:
+
+- **Creation/suppression gates stay fail-open by design** (`number.py`, `switch.py`,
+  `time.py` gate table, Repairs flags, off-grid read blocks, off-grid-only
+  sensors/buttons): suppression needs positive identification (#259/#219), and the
+  off-grid-only surfaces are conservative when they fail open (absence, or read-only).
+- **Every write or routing decision now fails closed on
+  `is_positively_non_offgrid_family`**: the coordinator's `_quick_charge_prefers_cloud`
+  (Grok MED — round 4 moved unresolved-family WRITES to the cloud while the READ side
+  still sent the next status poll to the local H233/H234 detail read, reintroducing the
+  #296 invisibility bug on exactly the protected population); the fail-open-CREATED
+  grid-tied number setters reachable in the first-run window before family resolution
+  (Codex MED — H67/H82/H83/H103/H116 route cloud-only, and the RAW H117 write, having no
+  cloud path, is refused outright); and the schedule time entities' packed
+  `write_register` path (found by the pass, not by a reviewer — the clear-schedule
+  button had already declared local off-grid schedule writes unsanctioned while the
+  entities still wrote local-first).
+- Pages updated: the keeper's schedule-write-boundary row, README's H117 cells,
+  controls-and-writes router-parameter row, data-semantics gate table and limits note.
+- The remaining fail-open-adjacent write surfaces are the bit-level switch/select
+  writes and direct library calls — recorded in `_offgrid_cloud_only_reason`'s
+  docstring and C7, deliberately not converted (per-bit mappings, different mechanism,
+  tracked risk).
+
+## [2026-08-29] lint | Review round 6 — a "needs no gate" claim must be wheel-verified, not docstring-trusted
+
+The round-5 derivation classified H206 as "cloud-only by construction" by reading the
+ENTITY's docstring ("cloud-write-only ... local transport name-writes are never used"),
+which the pinned pylxpweb wheel falsifies: `set_grid_peak_shaving_power` is
+TRANSPORT-FIRST onto raw H206 (deci-kW) whenever a transport is attached — this wiki's
+own README partial inventory had recorded exactly that ("pylxpweb drives
+set_grid_peak_shaving_power local-first") while the derivation trusted the code comment
+instead. The classic failure: a claim's citation (the entity docstring) did not support
+it, and the primary source (the wheel) was one grep away. Fixed by gating the entity
+(off-grid/unresolved write the cloud named parameter directly; resolved non-off-grid
+keeps the hybrid-verified transport-first method), and the round re-verified EVERY cloud
+path the number/time gates rely on against the wheel: `set_battery_soc_limits`, both
+battery-current setters, every `_write_named_parameter` consumer (66/74/67/82/83/202),
+`set_feed_in_grid_power_kw` and `set_system_charge_soc_limit` go straight to
+`client.api.control` — H206's method was the only transport-first one.
+
+Also landed this round: the cloud-routed schedule write now seeds the local-raw cache
+under the register's alias keys (without it the post-write refresh re-read the stale
+packed register and visibly reverted the entity); firmware bounds reached the remaining
+entities family-scoped (H158 38.4–57.0 V, H159 48.0–59.0 V, H161 floor 20 on
+off-grid/unresolved; resolved non-off-grid keeps the shipped ranges — cross-register
+constraints H158≤H159 and H161≥H160 stay firmware-enforced only, because validating
+against a stale cached sibling would produce false rejections); the H117 error no longer
+promises a cloud route that does not exist (it names family resolution as the remedy);
+and the change-set pin comments switched to branch-head language after two successive
+pinned SHAs staled within the review train.
+
+## [2026-08-29] lint | Review round 7 — cloud-routed writes must CONVERGE, not just route
+
+Three MEDs were one class: every write this PR re-routed through the cloud races the
+post-write refresh against portal→dongle→register propagation, and three gaps let the
+stale register win — (1) `_reconcile_parameter_read` "confirmed" a seeded key at a
+disagreeing fresh observation, so the successful refresh retired the seed at the
+PRE-write value and cleared optimism onto it (schedules and every seeded number
+reverted for a poll cycle); (2) the number platform's default inverter-first read order
+let the pylxpweb attribute (refreshed from the same stale register) shadow the seeded
+cache value entirely (the H101/H102/H105/H125 snap-back); (3)
+`GridPeakShavingPowerNumber`'s round-6 cloud-named branch never seeded convergence at
+all. Fixed as one mechanism, not spot fixes: a new
+`PARAMETER_WRITE_SEED_SETTLE` window in the coordinator keeps a seed over a
+DISAGREEING fresh observation (agreement still confirms immediately; past the window
+fresh reads are authoritative again — pinned RED→GREEN on the real coordinator);
+`_read_param_value` now behaves params-first for any key with an active seed
+(`has_active_parameter_write_seed`, strict-True so auto-mocked scaffolds keep their
+declared order); the H206 cloud branch seeds its acknowledged kW value. The routing
+tests now assert `native_value` AFTER every cloud-routed write (grok's point: routing
+tests passed without convergence), against an emission-faithful mock that replays the
+coordinator contract. The whole rerouted set was swept against the mechanism:
+66/74/101/102/105/125/158/159/160/161/169/100/22/202/227/228 and the r5 additions
+67/82/83/103/116 ride the router's `local_values` seeding; H206 seeds at its entity;
+schedule times seed their alias keys; H117 and QuickChargeDuration write nothing
+cloud-side to converge.
+
+Also: H158's advertised off-grid floor is now 39 V (advertising the firmware's 38.4 V
+on a whole-volt entity made HA accept a boundary the validation then rejected — every
+advertised boundary is writable as-is, boundary-tested both ends for
+H66/H158/H159/H160/H161); the last H234 read/write-symmetry comment was corrected
+(`_read_quick_charge_status`), completing the r4 sweep; and the change-set pin
+comments now cite **PR #600** as the durable artifact (a deleted branch keeps the PR
+diff; branch-head language was not durable).
+
+**REQUIRED POST-MERGE ACTION (release cut):** re-pin the PR #600 change-set claims in
+`40-hardware/registers.md`, `10-integration/controls-and-writes.md`,
+`10-integration/data-semantics.md` and `README.md` front matter to the mainline merge
+SHA (#559 precedent). This entry is the tracking record for that action.
+
+## [2026-08-29] lint | Review round 8 — settle window keyed per parameter; the pin defect was in the front matter too
+
+Two corrections. (1) The round-7 settle window used the serial-wide NEWEST-write stamp:
+writing H102 re-armed H101's stale-read protection, masking a fresh external H101 change,
+and repeated sibling writes could extend the mask indefinitely. Each seeded key now runs
+on its OWN write stamp, retires on its OWN confirmation (an agreeing observation ends the
+protection, so a confirmed key's later external changes stay visible even mid-sibling-
+writes), and expires on its own 30 s window — pinned by two new tests (sibling-write
+masking and window-extension) alongside the r7 convergence pins, all green. (2) The r7
+durable-pin fix landed only in the front-matter COMMENTS while the `verified-against:`
+values still named pre-PR commits — the exact citation-does-not-support-claim defect,
+one level up. The four edited pages' `verified-against:` values now carry the compound
+pin ("<pre-PR SHA> + PR #600 (change-set claims; re-pin to the merge SHA at the release
+cut)"), so the machine-read pin itself licenses the PR-#600 claims; the release re-pin
+remains tracked by the round-7 entry above.
+
+## [2026-08-29] lint | Review round 9 — settle recheck; the compound pin violated the schema it tried to satisfy
+
+Three corrections. (1) A disagreeing post-write read retained the seed but scheduled NO
+follow-up read, so a never-propagating cloud write (or an immediate external change)
+showed the seeded value until the default HOURLY parameter poll. The retained
+disagreement now schedules a one-shot targeted per-device refresh at that key's settle
+expiry (`_schedule_seed_settle_recheck` — deduplicated per serial, reusing the existing
+targeted refresh, cancelled on shutdown, no new polling loop); the refresh's own
+authoritative observation resolves the seed to device truth within ~one settle window,
+pinned by a deferred-timer test with no manual reconciliation calls. (2) The
+round-8 compound `verified-against:` value ("SHA + PR #600 …") violated
+`_conventions.md`'s commit-only front-matter form — machine tooling passes the pin to
+`git show` — a fix for a citation defect that itself broke the citation schema. The
+four pages' pins are back to bare pre-PR commits; the in-flight change-set claims are
+licensed PER CLAIM by their inline PR #600 / issue #570 citations (the r7 form, which
+`_conventions.md` permits), and the front-matter comments say exactly that. The
+release-cut re-pin stays tracked by the round-7 REQUIRED POST-MERGE ACTION. (3) The
+canonical parameter-seeding section (`data-semantics.md` §7) now documents the settle
+window, the per-key stamps/confirmation, the settle-expiry recheck, and the
+params-first override for active seeds — the convergence contract had lived only in
+code comments and the log.
+
+## [2026-08-29] lint | Review round 10 — earliest-deadline recheck dedup; two stale comment claims corrected against the code they sit beside
+
+Four corrections from the round-10 adversarial pass (Codex gpt-5.6-sol; grok crashed,
+kimi pending). (1) The round-9 settle-recheck dedup keyed on the serial alone and kept
+whichever deadline scheduled FIRST — so when a later-expiring key's disagreement
+scheduled before an earlier-expiring key's, the earlier key's retained seed masked a
+genuine external change until the later window ran out. The dedup now keeps the
+EARLIEST per-key deadline (`_parameter_seed_recheck_at`; a later-deadline pending
+recheck is cancelled and pulled forward), pinned by a staggered-two-key deferred-timer
+test. Test-construction note recorded there: patching `time.monotonic` warps asyncio's
+loop clock too, so the test backdates the write stamps instead of warping "now".
+(2) The HA stop path (`_async_handle_shutdown`) never cancelled the recheck timers —
+only `async_shutdown` did — so a pending recheck could fire its targeted refresh after
+the transports and cloud session shut down; both teardown paths now share
+`_cancel_seed_settle_rechecks()`. (3) The `time.py` local-block routing comment and
+this wiki's schedule-write routing row (`40-hardware/registers.md`) both said
+off-grid/unresolved schedule writes route through "the classic cloud field writes" —
+false for the writeTime families (Generator/Off-Grid/Peak Shaving, which is exactly
+what an off-grid inverter's Generator Charge schedule uses): those take the atomic
+`write_time_parameter` portal call, and only the classic families (AC Charge/First,
+Forced Charge/Discharge) take the per-field hour/minute writes. Both statements now
+describe the per-schedule routing. (4) `const/modbus.py`'s H206 keeper comment still
+called the raw encoding "presumed deci-kW but unverified … cloud-write-only",
+contradicting the family-scoped split the same change set ships (transport-first raw
+H206 — hybrid-verified deci-kW, pylxpweb#158 — on resolved non-off-grid families;
+cloud-named-parameter-only on off-grid/unresolved). The comment now states the split;
+the "never via the local transport name map" clause survives — that part was and is
+true (the old name map pointed at reg 231). Citations: PR #600 (issue #570).
+
+## [2026-08-29] lint | Review round 11 — teardown latch for the settle recheck; a false name-map rationale corrected against the wheel
+
+Two LOW corrections (Codex gpt-5.6-sol; grok unavailable this round). (1) Both teardown
+paths cancel the settle-recheck timers BEFORE awaiting the base-class teardown and
+`_schedule_seed_settle_recheck` had no shutdown guard, so an in-flight reconciliation
+completing during that await could re-arm a timer whose refresh would then run against
+closed transports/cloud session. `_cancel_seed_settle_rechecks()` now also latches
+scheduling closed one-way (`_parameter_seed_recheck_closed`; both callers are terminal
+for the instance), pinned by a RED-verified test that re-arms mid-`async_shutdown` and
+asserts no timer survives and no refresh fires. (2) `number.py`'s H206 cloud-branch
+seeding comment justified the kW seed unit with "the local name map never carries this
+key" — falsified against the pinned wheel: `constants/registers.py` maps
+`206: ["_12K_HOLD_GRID_PEAK_SHAVING_POWER"]` and the transport decode divides by 10
+(`LOCAL_PARAM_SCALE_DIV10`), so a local read surfaces kW, same as the cloud string. The
+seed VALUE was already correct — kW is what the cache carries on every path — but the
+false rationale could have motivated a "fix" seeding raw deci-kW, a 10× state defect.
+The comment now states the actual mapping/decode and why kW is the invariant unit. No
+wiki page repeated the falsehood (`40-hardware/registers.md` H206 rows already say
+0.1 kW raw); no wiki content change this round. Citations: PR #600 (issue #570).
+
+## [2026-08-29] lint | Review round 12 — a fired recheck must stay coordinator-owned
+
+One MED (Codex gpt-5.6-sol; kimi quota-died again). The fired settle-recheck callback
+popped its only coordinator-owned cancel handle and then awaited the targeted refresh
+unowned — a timer firing just before reload/shutdown left parameter I/O running against
+detached transports or a closing cloud session, racing the replacement coordinator. Two
+changes, both inside `_schedule_seed_settle_recheck`: the fired callback re-checks the
+round-11 closed latch (plus `_background_scheduling_stopped`) AFTER the fire and before
+starting any I/O, and the refresh itself now runs through the existing
+`BackgroundTaskMixin` ownership convention (`hass.async_create_task` +
+`_background_tasks` + `_remove_task_from_set`/`_log_task_exception` done callbacks), so
+`_cancel_background_tasks` — which both teardown paths already run AFTER the latch is
+set — cancels and awaits it. Two RED-verified tests: a shutdown starting while the
+fired refresh is blocked in flight cancels and awaits it (CancelledError observed, task
+set drained), and a fired callback that outraces teardown's cancel starts nothing once
+the latch is set. Citations: PR #600 (issue #570).
+
+## [2026-08-30] lint | Review round 13 — two stale routing docstrings, two inert regression tests, one missing writeTime routing pin
+
+Five LOW corrections, no behavior changes (Codex gpt-5.6-sol). (1)
+`_read_quick_charge_status`'s docstring still described the pre-r5 gate ("EG4_OFFGRID +
+HYBRID", H233 "firmware-rejected" family-wide); it now states the fail-closed
+unresolved-inclusive predicate (`_quick_charge_prefers_cloud`) and the CEAA-scoped H233
+rejection (CCAA implements the register with unproven semantics). (2) `number.py`'s
+H160 `verify_register` rationale called grid-tied cloud writes "otherwise untested" —
+stale since the #570 live sweep hardware-toggle-proved the named cloud path on
+FlexBOSS21 and 18kPV (raw 5→6→5, scope limited to the tested units); the readback
+stays justified by sibling H161's acknowledged-but-inert signature on the same units.
+(3+4) Two regression tests had gone INERT when round 5's fail-closed routing landed:
+their featureless scaffolds resolve as UNKNOWN family, which takes the blocked-local
+cloud route, so the mocked local failure / link-down short-circuit they claimed to pin
+was never exercised. Both re-scaffolded on EG4_HYBRID and MUTATION-VERIFIED: neutering
+the cloud fallback and the link-down short-circuit in
+`utils.py::async_write_with_cloud_fallback` turns exactly these tests RED. Lesson: a
+routing change that adds an earlier branch can silently strand downstream tests on the
+new branch — passing green while pinning nothing. (5) The off-grid schedule routing
+class only pinned the classic (ac_charge) cloud leg; a gen_charge case now pins the
+writeTime leg — no local FC06 to H256, the atomic `write_time_parameter` call, and no
+classic per-field writes — and the class docstring drops the same "classic cloud field
+writes" overstatement r10 corrected elsewhere. Citations: PR #600 (issue #570).

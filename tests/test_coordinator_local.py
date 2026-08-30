@@ -28,7 +28,10 @@ from pylxpweb.transports.data import (
     InverterRuntimeData,
     MidboxRuntimeData,
 )
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
@@ -635,6 +638,411 @@ class TestReadModbusParameters:
 # ── #282 sticky parameters: carry-forward + throttle re-arm ─────────
 
 
+class TestParameterSeedSettleWindow:
+    """#570 review round 7: the seed must survive a pre-propagation re-read.
+
+    A cloud-ACKed write takes seconds to reach the register (portal ->
+    dongle -> device), so the post-write refresh — a fresh read that STARTS
+    after the write — can observe the pre-write value. Before this round the
+    reconciliation "confirmed" the seed at that stale observation and the
+    entity visibly reverted (optimism cleared onto the pre-write value).
+    Within PARAMETER_WRITE_SEED_SETTLE a disagreeing observation keeps the
+    seed; an agreeing one confirms it; past the window fresh reads are
+    authoritative again.
+    """
+
+    SERIAL = "INV001"
+
+    def _coordinator(self, hass, local_config_entry) -> EG4DataUpdateCoordinator:
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.async_update_listeners = MagicMock()
+        coordinator.data = {
+            "devices": {self.SERIAL: {"type": "inverter"}},
+            "parameters": {self.SERIAL: {}},
+        }
+        return coordinator
+
+    def _seeded(self, coordinator: EG4DataUpdateCoordinator) -> None:
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+            )
+
+    async def test_disagreeing_read_within_settle_keeps_seed(
+        self, hass, local_config_entry
+    ):
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+        assert (
+            coordinator.has_active_parameter_write_seed(
+                self.SERIAL, "HOLD_LEAD_ACID_CHARGE_RATE"
+            )
+            is True
+        )
+
+        # A fresh, complete read that started after the write observes the
+        # not-yet-propagated pre-write value.
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 90  # seed wins
+        assert (
+            coordinator.has_active_parameter_write_seed(
+                self.SERIAL, "HOLD_LEAD_ACID_CHARGE_RATE"
+            )
+            is True
+        )
+
+    async def test_agreeing_read_confirms_seed(self, hass, local_config_entry):
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 90},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 90
+        # Confirmed: the grace clock is running for this key.
+        assert (
+            self.SERIAL,
+            "HOLD_LEAD_ACID_CHARGE_RATE",
+        ) in coordinator._parameter_seed_confirmed
+
+    async def test_disagreeing_read_after_settle_is_authoritative(
+        self, hass, local_config_entry, monkeypatch
+    ):
+        from custom_components.eg4_web_monitor import coordinator as coordinator_module
+
+        monkeypatch.setattr(coordinator_module, "PARAMETER_WRITE_SEED_SETTLE", 0.0)
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        # Past the settle window, fresh device data wins again.
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 60
+
+    async def test_sibling_write_does_not_mask_confirmed_key(
+        self, hass, local_config_entry
+    ):
+        """r8 (Codex MED, case a): H101 confirmed, then H102 written — a
+        fresh external H101 change is visible immediately. The settle
+        window is per key and retires on that key's own confirmation; a
+        sibling write must not re-arm it."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+            )
+            # Agreeing read confirms H101 — its settle protection retires.
+            coordinator._reconcile_parameter_read(
+                self.SERIAL,
+                {"HOLD_LEAD_ACID_CHARGE_RATE": 90},
+                read_complete=True,
+                read_generation=coordinator._parameter_write_generation,
+            )
+            # Sibling write (H102): must NOT re-arm H101's window.
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_DISCHARGE_RATE": 120}
+            )
+
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {
+                "HOLD_LEAD_ACID_CHARGE_RATE": 70,  # external change
+                "HOLD_LEAD_ACID_DISCHARGE_RATE": 100,  # stale pre-write
+            },
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        # External H101 change visible immediately; H102 (unconfirmed,
+        # inside its OWN fresh window) keeps its seed.
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 70
+        assert reconciled["HOLD_LEAD_ACID_DISCHARGE_RATE"] == 120
+
+    async def test_repeated_sibling_writes_do_not_extend_own_window(
+        self, hass, local_config_entry
+    ):
+        """r8 (Codex MED, case b): repeated sibling writes cannot extend
+        H101's mask past its OWN 30s window — each key runs on its own
+        write stamp, never the serial-wide newest."""
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        coordinator = self._coordinator(hass, local_config_entry)
+        base = time.monotonic()
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+            )
+            # H101's own window expires while sibling writes keep landing.
+            with patch.object(
+                coord_mod.time,
+                "monotonic",
+                return_value=base + coord_mod.PARAMETER_WRITE_SEED_SETTLE + 1,
+            ):
+                coordinator.note_parameters_written(
+                    self.SERIAL, {"HOLD_LEAD_ACID_DISCHARGE_RATE": 120}
+                )
+                reconciled = coordinator._reconcile_parameter_read(
+                    self.SERIAL,
+                    {
+                        "HOLD_LEAD_ACID_CHARGE_RATE": 70,
+                        "HOLD_LEAD_ACID_DISCHARGE_RATE": 100,
+                    },
+                    read_complete=True,
+                    read_generation=coordinator._parameter_write_generation,
+                )
+
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 70  # own window over
+        assert reconciled["HOLD_LEAD_ACID_DISCHARGE_RATE"] == 120  # own window fresh
+
+    async def test_disagreement_schedules_recheck_that_resolves_seed(
+        self, hass, local_config_entry
+    ):
+        """r9 (Codex MED): a disagreeing read inside the window retains the
+        seed AND schedules a one-shot targeted refresh at settle expiry —
+        without it, a never-propagating cloud write (or an immediate
+        external change) showed the seeded value until the hourly poll.
+        The deferred refresh's own authoritative observation then resolves
+        the seed against device truth, with no manual reconciliation."""
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        # Disagreeing post-write read inside the window: seed retained,
+        # recheck scheduled.
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 90
+        assert self.SERIAL in coordinator._parameter_seed_recheck_unsub
+
+        # Production: the deferred targeted refresh re-reads the device and
+        # reconciles through the normal pipeline. Replay that inside the
+        # refresh double — by firing time the settle window has expired, so
+        # the still-stale register value is authoritative.
+        async def _authoritative_refresh(target: str) -> bool:
+            values = coordinator._reconcile_parameter_read(
+                target,
+                {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+                read_complete=True,
+                read_generation=coordinator._parameter_write_generation,
+            )
+            coordinator.data["parameters"][target] = values
+            return True
+
+        refresh = AsyncMock(side_effect=_authoritative_refresh)
+        with (
+            patch.object(coordinator, "async_refresh_device_parameters", refresh),
+            patch.object(coord_mod, "PARAMETER_WRITE_SEED_SETTLE", 0.0),
+        ):
+            # The recheck was scheduled for the key's remaining window + 1s
+            # (~31s); fire comfortably past it.
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+            await hass.async_block_till_done()
+
+        refresh.assert_awaited_once_with(self.SERIAL)
+        assert self.SERIAL not in coordinator._parameter_seed_recheck_unsub
+        # The seed resolved to device truth (retirement is grace-deferred at
+        # the observed value, so the cache and any params-first read now
+        # show the authoritative 60 — the pre-write 90 is gone).
+        assert (
+            coordinator.data["parameters"][self.SERIAL]["HOLD_LEAD_ACID_CHARGE_RATE"]
+            == 60
+        )
+        seeds = coordinator._parameter_write_seeds.get(self.SERIAL, {})
+        assert seeds.get("HOLD_LEAD_ACID_CHARGE_RATE", (None,))[0] == 60
+
+    async def test_recheck_dedup_keeps_earliest_key_deadline(
+        self, hass, local_config_entry
+    ):
+        """r10 (Codex MED): the per-serial recheck dedup must keep the
+        EARLIEST per-key settle deadline. When a later-expiring key's
+        disagreement schedules the recheck first, an earlier-expiring
+        key's disagreement must pull the shot forward — otherwise the
+        earlier key's retained seed masks a genuine external change for
+        the remainder of the later key's window."""
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        coordinator = self._coordinator(hass, local_config_entry)
+        # Backdate the write stamps instead of warping "now" during the
+        # reconcile: patching time.monotonic patches asyncio's loop clock
+        # too, which would skew the very async_call_later delay under test.
+        # H101 written 25s ago (window expires ~base+5), H102 written 5s
+        # ago (window expires ~base+25).
+        base = time.monotonic()
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            with patch.object(coord_mod.time, "monotonic", return_value=base - 25):
+                coordinator.note_parameters_written(
+                    self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+                )
+            with patch.object(coord_mod.time, "monotonic", return_value=base - 5):
+                coordinator.note_parameters_written(
+                    self.SERIAL, {"HOLD_LEAD_ACID_DISCHARGE_RATE": 120}
+                )
+
+        # Two partial reads disagree — the LATER-expiring key first, so its
+        # recheck (deadline ~base+26) is already pending when the
+        # EARLIER-expiring key (deadline ~base+6) disagrees.
+        coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_DISCHARGE_RATE": 100},
+            read_complete=False,
+            read_generation=coordinator._parameter_write_generation,
+            observed_keys={"HOLD_LEAD_ACID_DISCHARGE_RATE"},
+        )
+        assert coordinator._parameter_seed_recheck_at[self.SERIAL] == pytest.approx(
+            base + 26, abs=1.0
+        )
+        coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=False,
+            read_generation=coordinator._parameter_write_generation,
+            observed_keys={"HOLD_LEAD_ACID_CHARGE_RATE"},
+        )
+        # The pending recheck was pulled forward to the earlier expiry.
+        assert coordinator._parameter_seed_recheck_at[self.SERIAL] == pytest.approx(
+            base + 6, abs=1.0
+        )
+
+        # The recheck fires at the EARLIER key's expiry (~6s out), not the
+        # later key's (~26s) — fire between the two.
+        refresh = AsyncMock(return_value=True)
+        with patch.object(coordinator, "async_refresh_device_parameters", refresh):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+            await hass.async_block_till_done()
+
+        refresh.assert_awaited_once_with(self.SERIAL)
+        assert self.SERIAL not in coordinator._parameter_seed_recheck_unsub
+        assert self.SERIAL not in coordinator._parameter_seed_recheck_at
+
+    async def test_shutdown_latch_blocks_rearm_during_teardown(
+        self, hass, local_config_entry
+    ):
+        """r11 (Codex LOW): the recheck timers are cancelled BEFORE the
+        awaited teardown, so an in-flight reconciliation completing
+        DURING that await could re-arm one — and later refresh against
+        closed transports/cloud session. The cancel now latches
+        scheduling closed for the rest of the coordinator's life."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        async def _rearm_during_teardown() -> None:
+            # An in-flight post-write read lands mid-teardown (the cloud
+            # session close is the last awaited step of async_shutdown,
+            # well after _cancel_seed_settle_rechecks ran) and disagrees
+            # inside the settle window.
+            coordinator._reconcile_parameter_read(
+                self.SERIAL,
+                {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+                read_complete=True,
+                read_generation=coordinator._parameter_write_generation,
+            )
+
+        with patch.object(
+            coordinator,
+            "_async_close_cloud_session",
+            AsyncMock(side_effect=_rearm_during_teardown),
+        ):
+            await coordinator.async_shutdown()
+
+        # No timer survived the teardown and none can be armed anymore.
+        assert not coordinator._parameter_seed_recheck_unsub
+        assert not coordinator._parameter_seed_recheck_at
+
+        refresh = AsyncMock(return_value=True)
+        with patch.object(coordinator, "async_refresh_device_parameters", refresh):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=120))
+            await hass.async_block_till_done()
+        refresh.assert_not_awaited()
+
+    def _armed_recheck(self, coordinator: EG4DataUpdateCoordinator) -> None:
+        """Seed, then disagree inside the window so a recheck timer is armed."""
+        self._seeded(coordinator)
+        coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+        assert self.SERIAL in coordinator._parameter_seed_recheck_unsub
+
+    async def test_fired_recheck_refresh_cancelled_by_shutdown(
+        self, hass, local_config_entry
+    ):
+        """r12 (Codex MED): a FIRED recheck consumed its only
+        coordinator-owned cancel handle before awaiting the refresh, so a
+        shutdown starting while the refresh was in flight left the
+        parameter I/O running against detached transports / a closing
+        cloud session. The fired refresh now runs as a tracked background
+        task that teardown cancels and awaits."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._armed_recheck(coordinator)
+
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def _blocked_refresh(target: str) -> bool:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            return True
+
+        with patch.object(
+            coordinator,
+            "async_refresh_device_parameters",
+            AsyncMock(side_effect=_blocked_refresh),
+        ):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+            await asyncio.wait_for(started.wait(), timeout=5)
+            # The in-flight refresh is coordinator-owned, so teardown can
+            # cancel and await it.
+            assert coordinator._background_tasks
+            await coordinator.async_shutdown()
+
+        assert cancelled.is_set()
+        assert not coordinator._background_tasks
+
+    async def test_fired_recheck_respects_closed_latch(self, hass, local_config_entry):
+        """r12: the closed latch is re-checked AFTER the timer fires — a
+        callback that outraces teardown's cancel must not start a
+        refresh against a coordinator whose teardown has begun."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._armed_recheck(coordinator)
+        # Teardown has begun but its cancel has not reached this timer yet.
+        coordinator._parameter_seed_recheck_closed = True
+
+        refresh = AsyncMock(return_value=True)
+        with patch.object(coordinator, "async_refresh_device_parameters", refresh):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+            await hass.async_block_till_done()
+
+        refresh.assert_not_awaited()
+        assert not coordinator._background_tasks
+
+
 class TestStickyParameterCarryForward:
     """A partial parameter read must not blank known values or arm the throttle.
 
@@ -826,7 +1234,13 @@ class TestStickyParameterCarryForward:
         )
 
         # A later complete read that begins after the write is authoritative
-        # and retires the retained write seed.
+        # and retires the retained write seed — but only past the settle
+        # window (#570 r7): inside it a DISAGREEING fresh read is treated as
+        # pre-propagation stale data and keeps the seed
+        # (TestParameterSeedSettleWindow pins that half). Expire the window
+        # so this phase exercises eventual convergence.
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
         coordinator.data = partial
         coordinator._last_parameter_refresh = None
         coordinator._last_parameter_attempt = None
@@ -839,6 +1253,7 @@ class TestStickyParameterCarryForward:
             return {"HOLD_CHG_POWER_PERCENT_CMD": 75}, True
 
         with (
+            patch.object(coord_mod, "PARAMETER_WRITE_SEED_SETTLE", 0.0),
             patch.object(coordinator, "_should_poll_transport", return_value=True),
             patch.object(
                 coordinator, "_read_modbus_parameters", side_effect=post_write_read
@@ -3925,13 +4340,18 @@ class TestLinkDownParameterRefreshGate:
         }
         assert "INV1" in coordinator._parameter_write_seeds
 
-        # A complete post-write read finally converges and retires the seed.
+        # A complete post-write read finally converges and retires the seed
+        # — past the settle window (#570 r7: inside it a disagreeing fresh
+        # read keeps the seed; expire the window for the convergence phase).
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
         async def complete_refresh(**_kwargs: Any) -> None:
             inverter.parameters = {"HOLD_CHG_POWER_PERCENT_CMD": 75}
             inverter.parameters_complete = True
 
         inverter._fetch_parameters = AsyncMock(side_effect=complete_refresh)
-        assert await coordinator._refresh_device_parameters("INV1") is True
+        with patch.object(coord_mod, "PARAMETER_WRITE_SEED_SETTLE", 0.0):
+            assert await coordinator._refresh_device_parameters("INV1") is True
         assert coordinator.data["parameters"]["INV1"] == {
             "HOLD_CHG_POWER_PERCENT_CMD": 75
         }

@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 if TYPE_CHECKING:
@@ -138,6 +139,20 @@ PARAMETER_WRITE_SEED_TTL = 1800.0  # seconds
 # confirmed value) for this grace window so an OLDER update cycle still in
 # flight cannot publish its pre-write snapshot after retirement (codex P1).
 PARAMETER_SEED_CONFIRMED_GRACE = 120.0  # seconds
+
+# A cloud-ACKed write takes seconds to propagate portal -> dongle -> register,
+# so a fresh local read inside this window that DISAGREES with a seeded key is
+# treated as pre-propagation stale data and does NOT retire the seed — the
+# post-write refresh otherwise "confirmed" the pre-write value, cleared the
+# optimistic state onto it, and visibly reverted the entity (#570 review
+# round 7; the cloud-only off-grid/unresolved routes made the race the
+# common path). A read that AGREES with the seed confirms it immediately
+# (grace above); once this window passes, fresh reads are authoritative
+# again regardless of agreement. The window is PER PARAMETER (#570 round
+# 8): each seeded key runs on its own write stamp and retires on its own
+# confirmation — a sibling write must not re-arm another key's protection
+# or mask a fresh external change to it.
+PARAMETER_WRITE_SEED_SETTLE = 30.0  # seconds
 
 # Reload-safe logical-control locks, keyed (serial, control). Survives the
 # coordinator across config-entry reloads so a mid-write reload cannot let a
@@ -496,8 +511,32 @@ class EG4DataUpdateCoordinator(
         # overlaying a possibly raw-scaled value onto cloud-fed publishes
         # forever (#527 review). Per-serial monotonic stamp of the newest seed.
         self._parameter_write_seed_stamps: dict[str, float] = {}
+        # (serial, key) -> monotonic stamp of THAT key's own write. The
+        # settle window is PER PARAMETER (#570 review round 8): keying it on
+        # the serial-wide newest write let a sibling write (H102) re-arm
+        # another key's (H101) stale-read protection, masking a fresh
+        # external H101 change — and repeated sibling writes could extend
+        # the masking indefinitely.
+        self._parameter_write_seed_key_stamps: dict[tuple[str, str], float] = {}
         # (serial, key) -> monotonic stamp of the confirming observation.
         self._parameter_seed_confirmed: dict[tuple[str, str], float] = {}
+        # Per-serial cancel handles for the one-shot settle-expiry recheck
+        # (#570 review round 9): a disagreeing post-write read retains the
+        # seed, so a follow-up targeted refresh is scheduled at settle
+        # expiry — otherwise a never-propagating cloud write (or an
+        # immediate external change) showed the seeded value until the
+        # next HOURLY parameter poll. The companion deadline map (round 10)
+        # keeps the EARLIEST per-key settle expiry: dedup by serial alone
+        # let a later-expiring key's pending recheck mask an
+        # earlier-expiring key's genuine external change for the rest of
+        # the later window.
+        self._parameter_seed_recheck_unsub: dict[str, CALLBACK_TYPE] = {}
+        self._parameter_seed_recheck_at: dict[str, float] = {}
+        # One-way latch (round 11): both teardown paths cancel the timers
+        # BEFORE awaiting the base-class teardown, so an in-flight
+        # reconciliation landing during that await could re-arm one; the
+        # latch makes scheduling a no-op once teardown has begun.
+        self._parameter_seed_recheck_closed = False
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -1079,8 +1118,27 @@ class EG4DataUpdateCoordinator(
         self._cloud_session = None
         await async_close_client_session(self.client, cloud_session)
 
+    def _cancel_seed_settle_rechecks(self) -> None:
+        """Cancel every pending seed-settle recheck timer (round 10).
+
+        Shared by both teardown paths: HA's base ``_async_handle_shutdown``
+        does not cancel our timers, so without this a pending recheck could
+        fire its targeted refresh after the transports and cloud session
+        were already shut down. Also latches scheduling closed (round 11):
+        the cancel runs before the awaited base-class teardown, so an
+        in-flight reconciliation completing during that await must not
+        re-arm a timer. The latch is one-way — both callers are terminal
+        for this coordinator instance.
+        """
+        self._parameter_seed_recheck_closed = True
+        for cancel_recheck in self._parameter_seed_recheck_unsub.values():
+            cancel_recheck()
+        self._parameter_seed_recheck_unsub.clear()
+        self._parameter_seed_recheck_at.clear()
+
     async def _async_handle_shutdown(self, event: Any) -> None:
         """Release the cloud wrapper when Home Assistant stops without unload."""
+        self._cancel_seed_settle_rechecks()
         try:
             await super()._async_handle_shutdown(event)
         finally:
@@ -1089,6 +1147,7 @@ class EG4DataUpdateCoordinator(
     async def async_shutdown(self) -> None:
         """Shut down the coordinator and release its cookie-bearing session."""
         try:
+            self._cancel_seed_settle_rechecks()
             await super().async_shutdown()
         finally:
             await self._async_close_cloud_session()
@@ -1159,10 +1218,14 @@ class EG4DataUpdateCoordinator(
             self._parameter_write_generation += 1
             generation = self._parameter_write_generation
             seeds = self._parameter_write_seeds.setdefault(serial, {})
+            now = time.monotonic()
             for key, value in values.items():
                 seeds[key] = (value, generation)
                 self._parameter_seed_confirmed.pop((serial, key), None)
-            self._parameter_write_seed_stamps[serial] = time.monotonic()
+                # Per-key settle stamp (#570 r8): only THIS key's window
+                # re-arms; sibling keys keep their own clocks.
+                self._parameter_write_seed_key_stamps[(serial, key)] = now
+            self._parameter_write_seed_stamps[serial] = now
         params = self.data.setdefault("parameters", {}).setdefault(serial, {})
         params.update(values)
         self._pending_listener_contexts = {
@@ -1170,6 +1233,91 @@ class EG4DataUpdateCoordinator(
             DISCOVERY_LISTENER_CONTEXT,
         }
         self.async_update_listeners()
+
+    def _schedule_seed_settle_recheck(
+        self, serial: str, stamp: float, now: float
+    ) -> None:
+        """One-shot targeted refresh once the settle window expires (#570 r9).
+
+        A disagreeing post-write read retains the seed but previously
+        scheduled NO follow-up, so a never-propagating cloud write (or an
+        immediate external change) left schedules and params-first numbers
+        showing the seeded value until the default hourly parameter poll.
+        Reuses the existing targeted per-device refresh
+        (``async_refresh_device_parameters``) as a single deferred shot,
+        deduplicated per serial — no new polling loop, at most one extra
+        read per disagreement episode, respecting the read-budget
+        conventions. The refresh reconciles through the normal pipeline:
+        past the window an authoritative observation retires the seed to
+        device truth (and the entity's optimistic/seeded value corrects);
+        keys still inside their own windows re-arm this recheck naturally
+        from that refresh's own reconciliation.
+
+        The per-serial dedup keeps the EARLIEST deadline (round 10): the
+        windows are per key, so when a later-expiring key's recheck is
+        already pending, an earlier-expiring key's disagreement must pull
+        the shot forward — otherwise that key's retained seed masks a
+        genuine external change until the later window runs out.
+
+        No-op once teardown has begun (round 11): a reconciliation still in
+        flight during the awaited base-class teardown must not re-arm a
+        timer that would refresh against closed transports. Once the timer
+        FIRES (round 12) the latch is re-checked and the refresh runs as a
+        coordinator-owned background task, so teardown starting mid-refresh
+        cancels and awaits it instead of leaving unowned parameter I/O.
+        """
+        if self._parameter_seed_recheck_closed:
+            return
+        deadline = max(stamp + PARAMETER_WRITE_SEED_SETTLE, now) + 1.0
+        pending_at = self._parameter_seed_recheck_at.get(serial)
+        if pending_at is not None:
+            if pending_at <= deadline:
+                return
+            cancel_pending = self._parameter_seed_recheck_unsub.pop(serial, None)
+            if cancel_pending is not None:
+                cancel_pending()
+
+        async def _recheck_refresh() -> None:
+            await self.async_refresh_device_parameters(serial)
+
+        @callback
+        def _recheck(_fire_time: datetime) -> None:
+            self._parameter_seed_recheck_unsub.pop(serial, None)
+            self._parameter_seed_recheck_at.pop(serial, None)
+            # Fire-vs-teardown race (round 12): firing consumed the only
+            # coordinator-owned cancel handle, so an unowned refresh here
+            # would keep doing parameter I/O against detached transports /
+            # a closing cloud session. Re-check the latch AFTER the fire,
+            # and run the refresh as a tracked background task so
+            # _cancel_background_tasks cancels and awaits it on teardown.
+            if (
+                self._parameter_seed_recheck_closed
+                or self._background_scheduling_stopped
+            ):
+                return
+            task = self.hass.async_create_task(_recheck_refresh())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._remove_task_from_set)
+            task.add_done_callback(self._log_task_exception)
+
+        self._parameter_seed_recheck_at[serial] = deadline
+        self._parameter_seed_recheck_unsub[serial] = async_call_later(
+            self.hass, deadline - now, _recheck
+        )
+
+    def has_active_parameter_write_seed(self, serial: str, key: str) -> bool:
+        """True while an acknowledged-write seed overlays ``key`` for ``serial``.
+
+        The read side of the #570 r7 convergence contract: while a seed is
+        live (armed by :meth:`note_parameters_written`, retired by
+        confirmation/settle/TTL in ``_reconcile_parameter_read`` /
+        ``_overlay_parameter_write_seeds``), inverter-attribute-first number
+        reads must prefer the seeded params-cache value — the pylxpweb
+        object's attribute is refreshed from the still-stale local register
+        and would otherwise shadow the acknowledged write.
+        """
+        seeds = self._parameter_write_seeds.get(serial)
+        return bool(seeds and key in seeds)
 
     def _reconcile_parameter_read(
         self,
@@ -1200,18 +1348,46 @@ class EG4DataUpdateCoordinator(
                 observed_keys is not None and key in observed_keys
             )
             if seed_generation <= read_generation and observed_by_read:
+                observed_value = values.get(key, seed_value)
+                if (
+                    observed_value != seed_value
+                    and (serial, key) not in self._parameter_seed_confirmed
+                ):
+                    # #570 r7: a fresh read that DISAGREES with the seed
+                    # inside the settle window is pre-propagation stale
+                    # data (the cloud ACKed the write; the register has
+                    # not caught up) — keep the seed instead of
+                    # "confirming" the pre-write value and reverting the
+                    # entity. After the window, disagreement is
+                    # authoritative device truth again.
+                    # r8: the window is PER KEY — this key's own write
+                    # stamp, never the serial-wide newest (a sibling write
+                    # must not re-arm it) — and a key already CONFIRMED by
+                    # an agreeing observation is exempt: its protection
+                    # retired with the confirmation, so a later external
+                    # change stays visible while siblings are written.
+                    stamp = self._parameter_write_seed_key_stamps.get((serial, key))
+                    if stamp is not None and now - stamp <= PARAMETER_WRITE_SEED_SETTLE:
+                        # r9: the retained seed must resolve against
+                        # reality within ~one settle window, not at the
+                        # next hourly poll — schedule the one-shot
+                        # targeted recheck at this key's settle expiry.
+                        self._schedule_seed_settle_recheck(serial, stamp, now)
+                        reconciled[key] = seed_value
+                        remaining[key] = (seed_value, seed_generation)
+                        continue
                 # Confirmed by an authoritative observation — but an OLDER
                 # update cycle may still hold a pre-write snapshot it has not
                 # published yet. Keep the seed at the freshly observed value
                 # for a grace window so the final overlay repairs that
                 # publication too, then let it expire.
-                observed_value = values.get(key, seed_value)
                 confirmed_key = (serial, key)
                 confirmed_at = self._parameter_seed_confirmed.setdefault(
                     confirmed_key, now
                 )
                 if now - confirmed_at > PARAMETER_SEED_CONFIRMED_GRACE:
                     self._parameter_seed_confirmed.pop(confirmed_key, None)
+                    self._parameter_write_seed_key_stamps.pop(confirmed_key, None)
                     continue
                 reconciled[key] = observed_value
                 remaining[key] = (observed_value, seed_generation)
@@ -1219,6 +1395,9 @@ class EG4DataUpdateCoordinator(
             reconciled[key] = seed_value
             remaining[key] = (seed_value, seed_generation)
 
+        for key in seeds:
+            if key not in remaining:
+                self._parameter_write_seed_key_stamps.pop((serial, key), None)
         if remaining:
             self._parameter_write_seeds[serial] = remaining
         else:
@@ -1238,6 +1417,8 @@ class EG4DataUpdateCoordinator(
         for serial in list(self._parameter_write_seeds):
             stamp = self._parameter_write_seed_stamps.get(serial)
             if stamp is None or now - stamp > PARAMETER_WRITE_SEED_TTL:
+                for key in self._parameter_write_seeds.get(serial, {}):
+                    self._parameter_write_seed_key_stamps.pop((serial, key), None)
                 self._parameter_write_seeds.pop(serial, None)
                 self._parameter_write_seed_stamps.pop(serial, None)
                 continue
@@ -1250,6 +1431,7 @@ class EG4DataUpdateCoordinator(
                 ):
                     seeds.pop(key, None)
                     self._parameter_seed_confirmed.pop((serial, key), None)
+                    self._parameter_write_seed_key_stamps.pop((serial, key), None)
             if not seeds:
                 self._parameter_write_seeds.pop(serial, None)
                 self._parameter_write_seed_stamps.pop(serial, None)

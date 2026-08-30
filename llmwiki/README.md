@@ -11,8 +11,16 @@ sources:
   - PR #557 (documentation-defect corrections)
   - issue #549
   - memory/issue-476-green-mode-bit14.md
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+# The hand-maintained keeper cache in "Registers the keeper marks unresolved"
+# was reconciled 2026-08-29 for the #570 sweep; the derivation/legend sections
+# stand at the 9f6d6e2 verification pass. Cache cells describing the #570
+# routing are licensed per claim by their inline PR #600 / issue #570
+# citations — the pin above stays commit-only per _conventions.md.
+# REQUIRED POST-MERGE ACTION, recorded in log.md: re-pin to the mainline
+# merge SHA at the release cut. The keeper stays authoritative.
+last-verified: 2026-08-29
 ---
 
 # llmwiki
@@ -250,7 +258,7 @@ finding a write the then-current method could not see.
 
 | Blind spot | Why the scan misses it | Worked example |
 |---|---|---|
-| **A coordinator-primitive grep cannot see library-mediated writes** | `base_entity.py` → `_execute_switch_action` resolves a pylxpweb method by name and awaits it. The write happens inside the library; no coordinator primitive is touched | `EG4QuickChargeSwitch` passes the string `"enable_quick_charge"` unless `_prefers_cloud_control()` swaps in a cloud callable — so pure-LOCAL off-grid drives the local H233 path |
+| **A coordinator-primitive grep cannot see library-mediated writes** | `base_entity.py` → `_execute_switch_action` resolves a pylxpweb method by name and awaits it. The write happens inside the library; no coordinator primitive is touched | `EG4QuickChargeSwitch` passes the string `"enable_quick_charge"` unless `_prefers_cloud_control()` swaps in a cloud callable — on a positively resolved non-off-grid family that string drives pylxpweb's local H233 path, invisible to any coordinator grep. (Historically pure-LOCAL off-grid drove that path too — the exposure PR #569 closed with the fail-closed `_offgrid_without_cloud` availability gate; the blind-spot lesson is unchanged) |
 | **An `_execute_switch_action` grep cannot see direct `inverter.<method>()` calls** | Some entities call a device method straight from `async_set_native_value` / `async_select_option`, with neither the router nor the switch-action helper in the chain | `select.py` → `inverter.set_operating_mode(...)`; `number.py` → `inverter.set_grid_peak_shaving_power(power_kw=…)`, which pylxpweb drives **local-first** onto **H206** |
 | **Checking `base.py` cannot see runtime subclass overrides** | Dispatch resolves against the concrete device class, not the base. A base-class reading of a method can be the opposite of what runs | pylxpweb `hybrid.py` → `HybridInverter.enable_pv_sell_to_grid` overrides the base and is explicitly "transport-first" onto register 179 bit 3. **Resolve the actual class before concluding anything** |
 | **Entity-scoped searches cannot see background writes** | Coordinator-owned tasks write with no entity involved, so every entity-first method is blind to them | `coordinator_mixins.py` → `_perform_dst_sync` writes a station setting hourly, enabled by default (`CONF_DST_SYNC` defaults to `True`) |
@@ -298,7 +306,7 @@ reproduced: it is the keeper's to hold, and counting it here would recreate the 
 this section exists to avoid. Reading the criterion as condition 1 alone predicts a far
 larger table than this one, which is the reconciliation a reader needs.
 
-**This table is a hand-maintained cache of the keeper, last reconciled 2026-08-09.** An
+**This table is a hand-maintained cache of the keeper, last reconciled 2026-08-29 (#570 sweep).** An
 earlier revision called it a "projection" that "moves when the keeper's rows move." That was
 wrong in the way that matters: **nothing generates it and nothing checks it.** No tooling
 compares it against the keeper, so it moves only when a person edits it — and it has already
@@ -310,11 +318,11 @@ keeper; this section reports, it does not award.
 | Register | Entity that writes it | What the keeper marks unresolved |
 |---|---|---|
 | H179 b11 | AC Couple switch | `lineage-inferred`; status "current; live write risk unresolved" |
-| H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`; status "current; write unresolved" |
+| H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`; status "current; write unresolved". Mapping now separately `firmware-proven` on the decoded CEAA/CCAA images (#570); since PR #569 the entity's write routes cloud-only on off-grid/unresolved families |
 | H110 b14 | Off-Grid / Green Mode switch | Proven on the tested 18kPV, but the switch is created for *every* family and the 12000XP/6000XP row is `lineage-inferred`, status **unresolved** |
-| H227 | System Charge SOC Limit number | `hardware-toggle-proven`, but **scoped to the one tested 18kPV**; status "current on tested unit; **cross-family write risk unresolved**". Created in the always-on block for every inverter that reaches it, with no family gate |
-| H117 | Start Charge Power Threshold number | `asserted-unverified`, status **unresolved** — the keeper records "no cloud name or validated behavior" |
-| H233 b0 | Quick Charge switch | `portal-correlated` — "paired start/stop observed, but a complete raw before/after and restoration record is absent" — and the keeper's separate **off-grid access boundary** is unresolved and family-gated |
+| H227 | System Charge SOC Limit number | `hardware-toggle-proven`, but **scoped to the one tested 18kPV**; status "current on tested unit; **cross-family write risk unresolved**". Created in the always-on block for every inverter that reaches it, with no family gate; since the #570 sweep its **write** routes cloud-only on off-grid/unresolved families (creation remains ungated) |
+| H117 | Start Charge Power Threshold number | `asserted-unverified`, status **unresolved** — the keeper records "no cloud name or validated behavior". Since the #570 sweep (review round 5) the raw write is refused outright on off-grid/unresolved families (no cloud path exists to route to); resolved non-off-grid families keep it |
+| H233 b0 | Quick Charge switch | `portal-correlated` — "paired start/stop observed, but a complete raw before/after and restoration record is absent". The keeper's separate **off-grid access boundary** is now lineage-scoped (#570): CEAA rejection `firmware-proven`, CCAA implements the address but b0 semantics unproven; since PR #569 the switch fails closed on cloud-less off-grid/unresolved entries |
 
 Two of these deserve singling out.
 
@@ -326,12 +334,14 @@ analogy to it.
 **H117 is the sharpest single case here.** It is a **raw** register write —
 `coordinator.write_raw_parameter(REG_PTOUSER_START_CHARGE, …)`, bypassing the router
 entirely, so it gets none of the router's fallback, cache-seeding or error handling — to a
-register with no validated behaviour and no cloud name to check it against. Two things
+register with no validated behaviour and no cloud name to check it against. Three things
 narrow the exposure without touching the risk: the entity is **disabled by default**
-(`_attr_entity_registry_enabled_default = False`), and it is only created where a local
-register path exists (`has_local_register_path`). Fewer installations have it live; for
-any that enable it, the write is exactly as unproven. `verified-against-code`
-(`number.py` → `StartChargePowerNumber`).
+(`_attr_entity_registry_enabled_default = False`), it is only created where a local
+register path exists (`has_local_register_path`), and — since the #570 sweep's review
+round 5 (PR #600 change set) — the write is **refused outright on off-grid/unresolved
+families** (fail-closed, with no cloud path to route to). Fewer installations have it
+live; for a resolved non-off-grid family that enables it, the write is exactly as
+unproven. `verified-against-code` (`number.py` → `StartChargePowerNumber`).
 
 **A register's absence from this table is not a clearance.** It means only that the keeper
 has not flagged it, or that nothing writes it yet. A mapping proven on one tested unit and
@@ -363,7 +373,7 @@ direction of travel, and this inventory is where a register waits until then.
 | Working-mode bits | H110 b3 (Share Battery), b4 (Charge Last) | `lineage-inferred` |
 | Battery current + SOC cutoffs | H101, H102, H105, H125 | `lineage-inferred`, always-on block — the most battery-safety-adjacent scalars shipped |
 | Voltage cutoffs | H100, H169 | `lineage-inferred` |
-| No ledger row at all | reg 22 (PV start voltage), H20 (PV input mode) | Not graded anywhere |
+| No ledger row at all | H20 (PV input mode) | Not graded anywhere. (Reg 22 sat here until the #570 sweep's review round added its keeper row, graded `portal-correlated`) |
 | Function word without a per-bit map | H21 b0, b7, b10, b11, b15 | Word graded `lineage-inferred`; b9 is a further candidate |
 | Reached by direct library call | **H206** (grid peak-shaving power) | Keeper grades it `portal-correlated`; pylxpweb drives `set_grid_peak_shaving_power` **local-first**. Found only once direct `inverter.<method>()` calls came into scope |
 

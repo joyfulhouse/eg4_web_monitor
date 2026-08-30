@@ -12,10 +12,14 @@ sources:
   - memory/consumption-energy-sources.md
   - memory/soc-charge-limit-101-top-balance.md
   - memory/release-3.4.0-beta.18-status.md
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
 verified-against:
-  eg4_web_monitor: 9798ccc
+  # eg4 pin moved for the C6/C7 refresh (#569 cloud-only routing shipped;
+  # #570 sweep evidence ingested); C7's quoted pre-#569 exposure is history.
+  eg4_web_monitor: e9853eb
   pylxpweb: 204b95d
-last-verified: 2026-08-13
+last-verified: 2026-08-29
 see-also:
   - superseded-claims.md
   - bug-postmortems.md
@@ -139,6 +143,17 @@ no evidence, and each writer had a successful write to point at.
 portal-derived expectation; and later work (#331) does ship a register-161-backed
 entity on off-grid. What a human must decide: whether "inert" is family-specific.
 
+**2026-08-13 second-unit confirmation (strengthens, does not resolve).** The #570 live
+sweep reproduced the identical inert signature on a FlexBOSS21 — cloud write success=True,
+raw H161 stayed 0 on `valueFrame` readback, original confirmed — and the same firmware
+session proved the H161 mapping (range 20..100, ≥H160) **on the CEAA/CCAA off-grid
+images**, where no live write has ever been run. Both grid-tied hybrids tested are now
+inert; the off-grid half of the question has firmware proof but no live test, so this
+stays formally open pending off-grid hardware. Sweep and resolution:
+[#570 sweep comment](https://github.com/joyfulhouse/eg4_web_monitor/issues/570#issuecomment-5287046586),
+[#570 resolution comment](https://github.com/joyfulhouse/eg4_web_monitor/issues/570#issuecomment-5287056672);
+graded rows in [`40-hardware/registers.md`](../40-hardware/registers.md).
+
 ---
 
 ## C7 — Register 161 writability: "read-only on FlexBOSS" versus a shipped off-grid write entity
@@ -154,13 +169,20 @@ entity for that register is nevertheless shipped on off-grid. What a human must 
 whether the off-grid LOCAL write is validated, and whether a shipped control may stand on
 a write path nothing has confirmed.
 
-**What actually ships, so that nobody reads a gate into this.** The unverified local write
-is **not** suppressed, routed cloud-only, or gated. In LOCAL and HYBRID the entity writes
-**local-first with cloud fallback** — `verified-against-code`
-(`number.py` → `ACChargeEndBatterySOCNumber.async_set_native_value` → `_write_parameter`,
-whose contract is "the local write is attempted first when a transport is attached";
-`utils.py` → `async_write_with_cloud_fallback`). The risk is live in production and
-**undischarged**. It is filed as **#558**, and this entry stays open until that is resolved.
+**What actually ships (updated 2026-08-29).** Since PR #569 (merged 2026-08-13, "Fixes
+#558") the reg-161 write is **routed cloud-only** on EG4_OFFGRID and on any unresolved/
+UNKNOWN family — `verified-against-code` at `e9853eb`
+(`number.py` → `ACChargeEndBatterySOCNumber.async_set_native_value` passes
+`local_write_blocked_reason` from `_offgrid_cloud_only_reason`; `utils.py` →
+`async_write_with_cloud_fallback` never attempts the local path and raises on a
+pure-LOCAL install). The #570 evidence sweep then derived the protected set over every
+scalar register the number platform writes. An earlier revision of this entry recorded
+the pre-#569 local-first exposure; that is history now, not the shipped state. What
+remains open is the *underlying* writability question: the #570 firmware session proved
+the H161 **mapping** on the CEAA/CCAA off-grid images, but no live off-grid write has
+ever been run (targeted retest deferred on #570), and the tested grid-tied hybrids are
+inert (two units, see C6). This entry stays open until a live off-grid H161 write lands
+or the control is withdrawn.
 
 **The durable trap:** the code's stated mitigation is a post-write parameter readback.
 Readback proves storage and transport only — never that the firmware acted on the value —

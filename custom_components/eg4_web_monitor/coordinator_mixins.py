@@ -76,7 +76,7 @@ from .coordinator_mappings import (
 from .utils import (
     _resolve_chart_day_timezone,
     clean_battery_display_name,
-    is_offgrid_family,
+    is_positively_non_offgrid_family,
     normalize_event_row,
 )
 
@@ -1300,20 +1300,30 @@ class DeviceProcessingMixin(_MixinBase):
     ) -> bool:
         """True when quick charge state/control must come from the cloud API.
 
-        The EG4_OFFGRID family (12000XP/6000XP) firmware rejects holding
-        register 233 with ILLEGAL DATA ADDRESS (issue #296) — the register
-        pylxpweb's transport-preferring quick-charge paths read and write.
-        A quick charge started via the cloud endpoint (the local-write
-        fallback, and what the EG4 app reflects) is therefore invisible to
-        the local read. When such a device has a transport attached AND a
-        cloud client is available (HYBRID), bypass the transport and use the
-        cloud getStatusInfo/start/stop endpoints directly. Fails closed
-        (False) for every other family, cloud-only devices (whose pylxpweb
-        paths already use the cloud), and LOCAL-only installs (no cloud to
-        prefer).
+        The EG4_OFFGRID family (12000XP/6000XP) has no proven local H233
+        route — CEAA rejects the address with ILLEGAL DATA ADDRESS (#296),
+        CCAA implements it with unproven semantics — and a quick charge
+        started via the cloud endpoint is invisible to the local read. When
+        a transport is attached AND a cloud client is available (HYBRID),
+        bypass the transport and use the cloud getStatusInfo/start/stop
+        endpoints directly.
+
+        FAILS CLOSED on the family (#570 review round 5, aligning with the
+        switch's ``_prefers_cloud_control``): only a positively resolved
+        non-off-grid family keeps the local status/detail read. An earlier
+        revision gated on positive off-grid identification, which split the
+        routing for unresolved families — round 4 moved their WRITES to the
+        cloud endpoints while this read-side predicate still sent the next
+        status poll to the local H233/H234 detail read: on CEAA that read
+        fails (ILLEGAL DATA ADDRESS), on CCAA it returns unproven bit-0
+        data, and after the switch's pending-state TTL the cloud-started
+        charge went invisible — the #296 bug reintroduced on exactly the
+        population round 4 protected. Returns False for cloud-only devices
+        (whose pylxpweb paths already use the cloud) and LOCAL-only
+        installs (no cloud to prefer).
         """
         return (
-            is_offgrid_family(device_data)
+            not is_positively_non_offgrid_family(device_data)
             and self.client is not None
             and getattr(inverter, "transport", None) is not None
         )
@@ -1324,14 +1334,20 @@ class DeviceProcessingMixin(_MixinBase):
         """Best-effort local read of holding reg 234 (minutes) for offgrid HYBRID.
 
         The offgrid cloud-status route (#296) bypasses pylxpweb's reg 233+234
-        detail read, but the Quick Charge Duration number mirrors — and its
-        setter writes — reg 234 whenever a local transport is configured. So
-        the register read is kept local here to keep the number's read and
-        write sides pointing at the same truth. Only reg 233 is proven
-        firmware-rejected on the XP; if reg 234 turns out equally unsupported
-        this read fails and returns None, and the number falls back to the
-        stored cloud-start preference (the setter's reg-234 write would then
-        surface its own error).
+        detail read, so the register read is kept local here to let the Quick
+        Charge Duration number MIRROR the live countdown. This read is
+        MIRROR-ONLY: since the #570 audit the number's setter does NOT write
+        reg 234 on off-grid/unresolved families — the live-adjust branch is
+        gated on ``is_positively_non_offgrid_family`` and those families
+        store the start preference instead (see
+        ``QuickChargeDurationNumber.async_set_native_value``). Do NOT
+        "restore" read/write symmetry by pointing the setter back at this
+        register — that reopens the ungated off-grid local write the #570
+        review closed (H234 has no off-grid write evidence; the off-grid
+        rejection evidence is CEAA-scoped and never covered H234 anyway).
+        Only reg 233 is proven firmware-rejected on the CEAA lineage; if reg
+        234 turns out equally unsupported this read fails and returns None,
+        and the number falls back to the stored cloud-start preference.
 
         Skipped while the transport link is down: a raw ``read_parameters``
         on an attached-but-dead link is the multi-minute pymodbus hang class
@@ -1377,9 +1393,14 @@ class DeviceProcessingMixin(_MixinBase):
         """Read the live quick-charge status into the coordinator dict shape.
 
         Transport-aware via pylxpweb (cloud getStatusInfo; LOCAL/HYBRID
-        registers 233/234), except for EG4_OFFGRID + HYBRID where register
-        233 is firmware-rejected and the cloud endpoint is authoritative
-        (#296). ``fetched_at`` (monotonic) records when the data was actually
+        registers 233/234), except when ``_quick_charge_prefers_cloud`` is
+        True — a HYBRID whose family is NOT positively resolved non-off-grid
+        (fail-closed, so off-grid AND unresolved alike, #570 r5) — where the
+        cloud endpoint is authoritative: within EG4_OFFGRID the H233
+        rejection is CEAA-scoped (ILLEGAL DATA ADDRESS, #296) while CCAA
+        implements the register with unproven semantics, and either way a
+        cloud-started charge is invisible to the local read.
+        ``fetched_at`` (monotonic) records when the data was actually
         read so consumers can distinguish a fresh read from a carried-forward
         one. Returns None when the installed pylxpweb exposes no read method.
         """
@@ -1397,8 +1418,12 @@ class DeviceProcessingMixin(_MixinBase):
                 client.api.control.get_quick_charge_status(inverter.serial_number),
                 timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
             )
-            # Active flag from the cloud, duration register read locally so
-            # the Duration number's read and write sides agree (#296 round 2).
+            # Active flag from the cloud; duration register MIRROR-read
+            # locally so the Duration number displays the live countdown
+            # (#296 round 2). Read-only: since #570 the setter does NOT
+            # write reg 234 on off-grid/unresolved families — do not read
+            # this comment as write symmetry (see
+            # _read_offgrid_quick_charge_minute's warning).
             quick_charge_minute = await self._read_offgrid_quick_charge_minute(inverter)
         elif hasattr(inverter, "get_quick_charge_detail"):
             # Prefer the full detail (remaining time + task metadata);

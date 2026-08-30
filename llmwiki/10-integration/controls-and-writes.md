@@ -20,14 +20,24 @@ sources:
   - memory/issue-476-green-mode-bit14.md
   - memory/battery-control-mode-soc-vs-voltage.md
   - eg4_web_monitor issues #310, #328, #362, #476, #485
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against:
   # Mainline SHAs, re-pinned at the 2026-08-12 release cut from the #559
   # PR-branch heads (eg4 PR #562 branch 0e2366f → merged as e146d91;
   # pylxpweb PR #270 branch aafc4e3 → merged as 9c10a07, contained in the
-  # 0.9.39b11 release commit ab87902).
+  # 0.9.39b11 release commit ab87902). The router (§1) and §2.4 were
+  # falsified by PR #569 and re-verified at e9853eb for the #570 sweep
+  # ingest — those sections carry their pin inline; other sections stand at
+  # e146d91. Claims describing the PR #600 change set itself (the
+  # local_write_blocked_reason protected-set row in §1, the §1.3/§2.4/§6
+  # family gates) are licensed PER CLAIM by their inline PR #600 / issue
+  # #570 citations — the pin itself stays commit-only per _conventions.md.
+  # REQUIRED POST-MERGE ACTION (recorded in log.md): re-pin to the
+  # mainline merge SHA at the release cut (#559 precedent).
   eg4_web_monitor: e146d91
   pylxpweb: ab87902
-last-verified: 2026-08-12
+last-verified: 2026-08-29
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -126,7 +136,7 @@ as the answer.
 | `StartChargePowerNumber` | router bypass | `write_raw_parameter` (raw) | H117 |
 | `EG4QuickChargeSwitch` | switch action | `enable_quick_charge` / `disable_quick_charge` — transport-first | H233 |
 | `EG4WorkingModeSwitch` (`FUNC_PV_SELL_TO_GRID_EN`) | router; reaches the switch-action branch only via the legacy version guard (§2.2) | `BaseInverter.enable_pv_sell_to_grid` — client-first **per instance**. The `HybridInverter` transport-first override is never constructed | H179 b3 |
-| `GridPeakShavingPowerNumber` | direct library call | `set_grid_peak_shaving_power` — transport-first with internal cloud fallback | H206 |
+| `GridPeakShavingPowerNumber` | direct library call | `set_grid_peak_shaving_power` — transport-first with internal cloud fallback. Since #570 r6 (PR #600 change set) the entity reaches it only on a positively resolved non-off-grid family; off-grid/unresolved write the cloud named parameter directly | H206 |
 | `EG4OperatingModeSelect` | direct library call | `set_operating_mode` → `set_standby_mode` | — |
 | DST reconciliation | background | `station.sync_dst_setting()` | cloud-side |
 
@@ -148,6 +158,12 @@ and the direct `client.api.control.*` writers in `ACCoupleSOCNumberBase` (`numbe
 Location: `utils.py:185-270`. Evidence for this whole section: `verified-against-code`.
 
 ```
+local_write_blocked_reason set?  (PR #569, #570 — protected-register cloud-only routing)
+├── yes → the local path is NEVER attempted
+│      → cloud_write() if a cloud client exists (then the local-raw cache seed below)
+│      → no cloud client: raise HomeAssistantError(reason)  [pure-LOCAL fail-closed]
+└── no → fall through to the transport decision:
+
 local transport attached?  (coordinator.has_local_transport(serial))
 ├── yes, and link believed UP
 │      → await local_write()
@@ -167,6 +183,7 @@ after a cloud write while a local transport is attached:
 | `local_write` | Coroutine factory performing the local register write |
 | `cloud_write` | Coroutine factory for the equivalent cloud write, or `None` when the action has no cloud path (raw-register-only controls) — then local errors propagate unchanged |
 | `local_values` | The written parameters **in the LOCAL-RAW representation** the attached-transport cache uses. Merged into the parameter cache when the write landed via cloud |
+| `local_write_blocked_reason` | When not `None`, routes the write CLOUD-ONLY (tree above). Supplied by `number.py` → `_offgrid_cloud_only_reason` and (r5) an equivalent inline check in `time.py`, both of which **fail closed**: EG4_OFFGRID, a missing family and UNKNOWN all block the local path; only `is_positively_non_offgrid_family` permits it. The #570 evidence sweep applies it to every scalar register the number platform can write on a possibly-off-grid unit — the off-grid-created set (66, 158–161, 74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22) plus (r5) the fail-open-created grid-tied scalars reachable before family resolution (67, 82, 83, 103, 116; raw 117 is refused outright, having no cloud path) — and (r5) to the schedule time entities' packed `write_register` path. Derivation and blind spots live in `_offgrid_cloud_only_reason`'s docstring; per-register evidence grades are the keeper's ([`40-hardware/registers.md`](../40-hardware/registers.md)). It is a hand-maintained list: no mechanism consults ledger grades, and bit-level switch/select writes and direct library calls remain outside it. The Quick Charge Duration live reg-234 adjust is also outside this router but carries its own fail-closed `is_positively_non_offgrid_family` gate at the entity (#570 adversarial round 1 — on off-grid the live-active check is cloud-routed, so no local H233 rejection gated it) |
 
 ### 1.1 Why a known-down link skips local entirely
 
@@ -211,15 +228,17 @@ that is what a reader must not assume.
 |---|---|---|
 | Bypass site | `number.py:1004` | `number.py:2279` |
 | Primitive | `coordinator.write_named_parameter` (H234) | `coordinator.write_raw_parameter` (**raw H117**) |
-| Why not the router | There is no cloud equivalent of the live H234 write: on CLOUD the value is stored as a start *preference*, not written. A firmware-rejected lone idle write is guarded by a live enable-bit read first (#251) | LOCAL/HYBRID only by construction — H117 has no cloud parameter name, so there is no `cloud_write` to fall back to |
+| Why not the router | There is no cloud equivalent of the live H234 write: on CLOUD the value is stored as a start *preference*, not written. A firmware-rejected lone idle write is guarded by a live enable-bit read first (#251). Since the #570 audit the whole live-adjust branch is additionally gated on `is_positively_non_offgrid_family` — off-grid/unresolved families never reach it (the live check is cloud-routed there per #296, so nothing local would have rejected the write) and store the start preference instead, the CLOUD-branch behavior | LOCAL/HYBRID only by construction — H117 has no cloud parameter name, so there is no `cloud_write` to fall back to |
 | **Loses: cloud fallback** | n/a — no cloud write exists | n/a — no cloud write exists |
 | **Loses: link-down short-circuit** | Yes. `has_local_transport()` stays `True` through an outage, so a known-down link is not detected and the write waits out the Modbus timeout | Yes, same |
 | **Loses: `local_values` cache seeding** | Yes — it hand-seeds `quick_charge_status` instead, a different cache | Yes — nothing is seeded |
 | **Loses: optimistic envelope** | Yes — no `optimistic_value_context`; it writes, seeds, then calls `async_write_ha_state()` directly, so §5's retention and TTL escape do not apply | No — it runs inside `optimistic_value_context`, so retention applies |
-| Error contract | Raises `HomeAssistantError` when the live state read returns `None`, rather than the router's no-path error | Raises `HomeAssistantError` naming the missing cloud path when no local transport is attached |
+| Error contract | On a positively resolved non-off-grid family: raises `HomeAssistantError` when the live state read returns `None`, rather than the router's no-path error. Off-grid/unresolved families never call the live check — they take the preference-store branch silently, exactly like a CLOUD-mode entry (#570) | Raises `HomeAssistantError` naming the missing cloud path when no local transport is attached |
 
 Whole table: `verified-against-code` — `number.py` → `QuickChargeDurationNumber.async_set_native_value`
-and `StartChargePowerNumber.async_set_native_value` at `9f6d6e2`.
+and `StartChargePowerNumber.async_set_native_value` at `9f6d6e2`, except the
+`QuickChargeDurationNumber` family-gate rows, which are part of the #570 audit change set
+(pin in the front matter).
 
 > **H117 is the one to watch.** It is written **raw**, and the keeper grades the mapping
 > `asserted-unverified`, status **unresolved**, with "no cloud name or validated behavior"
@@ -315,7 +334,7 @@ population as exhaustive and both were wrong (§0.3 **b** and **c**).
 |---|---|---|---|---|
 | `EG4QuickChargeSwitch._async_set_quick_charge` | `switch.py:628` | switch action | `enable_quick_charge` / `disable_quick_charge` | **Yes** — transport-first, targets **H233** (§2.4) |
 | `EG4WorkingModeSwitch._execute_working_mode` | `switch.py:1516` | switch action, on the `elif self.coordinator.has_http_api() and methods:` branch | one of `_WORKING_MODE_METHODS` | **Not through the override.** All seven resolve to `base.py` — eg4 never holds a `HybridInverter`, so its transport-first `enable_pv_sell_to_grid` never runs. The base method is client-first *per instance* and reaches H179 b3 locally only on a **clientless** inverter (below) |
-| `GridPeakShavingPowerNumber.async_set_native_value` | `number.py:1291` | direct library call | `set_grid_peak_shaving_power` | **Yes** — transport-first with internal cloud fallback, targets **H206** |
+| `GridPeakShavingPowerNumber.async_set_native_value` | `number.py:1291` | direct library call | `set_grid_peak_shaving_power` | **Yes** — transport-first with internal cloud fallback, targets **H206**. Family-gated at the entity since #570 r6 (PR #600 change set): only a positively resolved non-off-grid family reaches the library method |
 | `EG4OperatingModeSelect.async_select_option` | `select.py:266` | direct library call | `set_operating_mode` → `set_standby_mode` | Read the runtime class per §2.1 |
 
 `verified-against-code` — call sites and guards at `9f6d6e2`; routing policies and the
@@ -385,14 +404,14 @@ Running §2.3 surfaces a write that a coordinator-primitive grep cannot see:
 
 | Fact | Grade |
 |---|---|
-| In pure-LOCAL on an `EG4_OFFGRID` family, `EG4QuickChargeSwitch` attempts a **local H233 write** | `verified-against-code` — `switch.py` → `_prefers_cloud_control` returns `is_offgrid_family(...) and self.coordinator.has_http_api()`; with no cloud client that is False, so `enable_method` stays the transport-first `"enable_quick_charge"` |
-| That is the write the same file's docstring describes as firmware-rejected on this family | `verified-against-code` — `_prefers_cloud_control`'s docstring: register 233 is rejected "(ILLEGAL DATA ADDRESS, #296)", and the mitigation is scoped — "Go straight to the cloud start/stop endpoints **when a cloud client is configured**" |
-| The keeper marks the H233 off-grid access boundary **unresolved** | grade owned by [`40-hardware/registers.md`](../40-hardware/registers.md#h233-off-grid-access-boundary) — read it there |
+| Historical (pre-#569): in pure-LOCAL on an `EG4_OFFGRID` family, `EG4QuickChargeSwitch` attempted a **local H233 write** — `_prefers_cloud_control` requires a cloud client, so without one the transport-first `"enable_quick_charge"` method stayed in place | was `verified-against-code` at the pins this page carried before 2026-08-13; superseded |
+| Shipped (PR #569, merged 2026-08-13, "Fixes #558"): the switch **fails closed** — only a positively resolved non-off-grid family keeps the local H233 route; pure-LOCAL off-grid/unresolved entries get an unavailable switch and a forced service call raises before pylxpweb is reached | `verified-against-code` at `e9853eb` — `switch.py` → `_offgrid_without_cloud` / `is_positively_non_offgrid_family`; availability row in [`entities-identity-availability.md`](entities-identity-availability.md) |
+| Extended (#570 audit review round 4, part of the PR #600 change set): with a cloud client, off-grid AND unresolved families go cloud-direct — `_prefers_cloud_control` is now `not is_positively_non_offgrid_family(...) and has_http_api()`, closing the unresolved-family local-first path that was unsafe on CCAA (silently accepted H233 write, unproven bit-0 semantics — no fallback fires on a silent ACK) | part of the PR #600 change set — `switch.py` → `_prefers_cloud_control` (pin in the front matter) |
+| The keeper's H233 off-grid access boundary is now lineage-scoped: CEAA rejection `firmware-proven`, CCAA address implemented but bit-0 semantics unproven | grades owned by [`40-hardware/registers.md`](../40-hardware/registers.md#h233-off-grid-access-boundary) — read them there |
 
-**This is a scope gap in a mitigation, not a bug report.** The cloud-preference path was built for
-#296 and works wherever a cloud client exists; pure-LOCAL off-grid is the configuration it does
-not cover. Tracked on issue **#558**. Changing the routing is a code change and is out of scope
-for documentation.
+**The durable lesson stands unchanged:** this write was invisible to a coordinator-primitive
+grep, which is why §2's derivation exists. The scope gap itself was closed by #569, and the
+evidence sweep that derived the full protected set is issue **#570**.
 
 ## 3. Coordinator write primitives
 
@@ -526,7 +545,7 @@ All rows: `verified-against-code`.
 |---|---|---|---|
 | **Number** | `optimistic_value_context()` publishes the optimistic value; the body sets `write.refresh_ok`; the exit either clears or arms retention | `_write_parameter` and `_write_voltage_register` both go through the shared router with `local_values=` seeding. `_refresh_related_entities()` returns a bool and **never raises** | `base_entity.py:984-1026`; `number.py:438-489`, `:491-536`, `:538-555` |
 | **Voltage registers** | Local writes by **name**; cloud writes by **raw register address** | Asymmetric on purpose | `number.py:513-525` |
-| **Time** | **Explicit** optimistic management — no `finally`-clearing context manager | Because a successful write with a failed refresh must **retain**. LOCAL/HYBRID write one packed FC06 register; CLOUD uses `write_time_parameter` (writeTime families) or separate `*_HOUR` + `*_MINUTE` writes | `base_entity.py:1109-1114`; `time.py:23-33` |
+| **Time** | **Explicit** optimistic management — no `finally`-clearing context manager | Because a successful write with a failed refresh must **retain**. LOCAL/HYBRID on a positively resolved non-off-grid family write one packed FC06 register; off-grid/unresolved families are blocked fail-closed onto the cloud paths with the local-raw cache seeded under the register's alias keys (#570 r5/r6, PR #600 change set); CLOUD uses `write_time_parameter` (writeTime families) or separate `*_HOUR` + `*_MINUTE` writes | `base_entity.py:1109-1114`; `time.py` module docstring |
 | **Select** | `EG4BaseSelect._cache_state()` masks the optimistic option **synchronously** | | `base_entity.py:1220-1233` |
 | **Switch** | Full envelope, §4 | | `base_entity.py:1440-1541` |
 
