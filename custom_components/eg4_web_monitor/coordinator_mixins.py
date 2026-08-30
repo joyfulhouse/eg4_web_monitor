@@ -1373,9 +1373,14 @@ class DeviceProcessingMixin(_MixinBase):
         """Read the live quick-charge status into the coordinator dict shape.
 
         Transport-aware via pylxpweb (cloud getStatusInfo; LOCAL/HYBRID
-        registers 233/234), except for EG4_OFFGRID + HYBRID where register
-        233 is firmware-rejected and the cloud endpoint is authoritative
-        (#296). ``fetched_at`` (monotonic) records when the data was actually
+        registers 233/234), except when ``_quick_charge_prefers_cloud`` is
+        True — a HYBRID whose family is NOT positively resolved non-off-grid
+        (fail-closed, so off-grid AND unresolved alike, #570 r5) — where the
+        cloud endpoint is authoritative: within EG4_OFFGRID the H233
+        rejection is CEAA-scoped (ILLEGAL DATA ADDRESS, #296) while CCAA
+        implements the register with unproven semantics, and either way a
+        cloud-started charge is invisible to the local read.
+        ``fetched_at`` (monotonic) records when the data was actually
         read so consumers can distinguish a fresh read from a carried-forward
         one. Returns None when the installed pylxpweb exposes no read method.
         """

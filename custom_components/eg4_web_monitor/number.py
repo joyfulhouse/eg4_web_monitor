@@ -1733,9 +1733,13 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
             local_param=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
             # The named-param cloud writer is BOTH the cloud-mode path and
             # the HYBRID local-failure fallback — the portal's own
-            # holdParam write (GH #331). verify_register: grid-tied cloud
-            # writes of this register are otherwise untested, so an
-            # acknowledged-but-unapplied write must not surface as success.
+            # holdParam write (GH #331). verify_register: the H160 named
+            # cloud write is hardware-toggle-proven on two grid-tied units
+            # (#570 live sweep 2026-08-13, FlexBOSS21 + 18kPV raw 5→6→5;
+            # scope limited to the tested units), but the readback stays —
+            # sibling H161 returned success while raw stayed 0 on the same
+            # units, so an acknowledged-but-unapplied write must not
+            # surface as success.
             cloud_write=lambda: _write_cloud_named_parameter(
                 self,
                 PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,

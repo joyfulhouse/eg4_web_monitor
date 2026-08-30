@@ -988,6 +988,13 @@ class TestHybridCloudFallback:
         write also seeds the local-raw cache so a failed follow-up local
         read cannot revert the entity (#282 carry-forward keeps the seed)."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
+        # Resolved non-off-grid family keeps the local-first route (#570
+        # r5) — without it the unresolved family takes the cloud-only
+        # route and the mocked local failure below is never exercised
+        # (r13: this test was inert against the fallback path).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -996,6 +1003,8 @@ class TestHybridCloudFallback:
 
         await entity.async_set_native_value(80.0)
 
+        # The local attempt really ran and failed before the cloud leg.
+        coordinator.write_named_parameter.assert_awaited_once()
         coordinator.note_parameters_written.assert_called_once()
         serial_arg, values = coordinator.note_parameters_written.call_args[0]
         assert serial_arg == "1234567890"

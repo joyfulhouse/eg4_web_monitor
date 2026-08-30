@@ -840,3 +840,27 @@ set — cancels and awaits it. Two RED-verified tests: a shutdown starting while
 fired refresh is blocked in flight cancels and awaits it (CancelledError observed, task
 set drained), and a fired callback that outraces teardown's cancel starts nothing once
 the latch is set. Citations: PR #600 (issue #570).
+
+## [2026-08-30] lint | Review round 13 — two stale routing docstrings, two inert regression tests, one missing writeTime routing pin
+
+Five LOW corrections, no behavior changes (Codex gpt-5.6-sol). (1)
+`_read_quick_charge_status`'s docstring still described the pre-r5 gate ("EG4_OFFGRID +
+HYBRID", H233 "firmware-rejected" family-wide); it now states the fail-closed
+unresolved-inclusive predicate (`_quick_charge_prefers_cloud`) and the CEAA-scoped H233
+rejection (CCAA implements the register with unproven semantics). (2) `number.py`'s
+H160 `verify_register` rationale called grid-tied cloud writes "otherwise untested" —
+stale since the #570 live sweep hardware-toggle-proved the named cloud path on
+FlexBOSS21 and 18kPV (raw 5→6→5, scope limited to the tested units); the readback
+stays justified by sibling H161's acknowledged-but-inert signature on the same units.
+(3+4) Two regression tests had gone INERT when round 5's fail-closed routing landed:
+their featureless scaffolds resolve as UNKNOWN family, which takes the blocked-local
+cloud route, so the mocked local failure / link-down short-circuit they claimed to pin
+was never exercised. Both re-scaffolded on EG4_HYBRID and MUTATION-VERIFIED: neutering
+the cloud fallback and the link-down short-circuit in
+`utils.py::async_write_with_cloud_fallback` turns exactly these tests RED. Lesson: a
+routing change that adds an earlier branch can silently strand downstream tests on the
+new branch — passing green while pinning nothing. (5) The off-grid schedule routing
+class only pinned the classic (ac_charge) cloud leg; a gen_charge case now pins the
+writeTime leg — no local FC06 to H256, the atomic `write_time_parameter` call, and no
+classic per-field writes — and the class docstring drops the same "classic cloud field
+writes" overstatement r10 corrected elsewhere. Citations: PR #600 (issue #570).

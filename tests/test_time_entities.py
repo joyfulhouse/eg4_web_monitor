@@ -1156,8 +1156,12 @@ class TestWritePaths:
     @pytest.mark.asyncio
     async def test_hybrid_known_link_down_prefers_cloud_immediately(self):
         """HYBRID with pylxpweb reporting transport_link_down: the doomed
-        local write is skipped entirely and the cloud is used directly."""
-        coordinator = _mock_coordinator(has_local=True)
+        local write is skipped entirely and the cloud is used directly.
+
+        Scaffolded on a RESOLVED non-off-grid family (r13): an unresolved
+        family takes the blocked-local cloud route regardless of link
+        state, which made this short-circuit test inert."""
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         coordinator.is_transport_link_down = MagicMock(return_value=True)
         entity = _entity(coordinator, window=1, is_end=False)
         _prep(entity)
@@ -1635,9 +1639,11 @@ class TestOffgridScheduleWriteRouting:
     ledger's schedule rows are all `portal-correlated` from CLOUD probes),
     and the clear-schedule button already declares local off-grid schedule
     writes unsanctioned (#563) — so off-grid AND unresolved families route
-    the entity write through the classic cloud field writes; resolved
-    non-off-grid families keep local-first (pinned by the local-write tests
-    above via their EG4_HYBRID scaffolds).
+    the entity write through that schedule's own cloud write path (classic
+    families: per-field hour/minute writes; writeTime families such as the
+    off-grid Generator Charge schedule: the atomic ``write_time_parameter``
+    call — r10/r13); resolved non-off-grid families keep local-first
+    (pinned by the local-write tests above via their EG4_HYBRID scaffolds).
     """
 
     @pytest.mark.asyncio
@@ -1658,6 +1664,29 @@ class TestOffgridScheduleWriteRouting:
 
         coordinator.write_register.assert_not_awaited()
         assert coordinator.client.api.control.write_parameter.await_count == 2
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "family",
+        ["EG4_OFFGRID", "UNKNOWN"],
+        ids=["offgrid", "unknown-family"],
+    )
+    async def test_offgrid_gen_charge_routes_atomic_cloud_write(self, family):
+        """r13: the writeTime leg of the fail-closed routing — an off-grid
+        (or unresolved) Generator Charge write must never issue the local
+        packed FC06 to H256 and must take the ATOMIC write_time_parameter
+        cloud call, not the classic per-field hour/minute writes."""
+        coordinator = _mock_coordinator(has_local=True, family=family)
+        entity = _entity(coordinator, schedule="gen_charge", window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+        coordinator.client.api.control.write_time_parameter.assert_awaited_once_with(
+            "1234567890", "HOLD_GEN_START_TIME_1", 6, 30
+        )
+        coordinator.client.api.control.write_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_offgrid_cloud_write_seeds_local_cache_no_revert(self):
