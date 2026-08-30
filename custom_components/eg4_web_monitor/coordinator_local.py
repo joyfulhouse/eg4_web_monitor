@@ -6,6 +6,7 @@ aggregation, and static entity creation.
 """
 
 import asyncio
+from builtins import BaseExceptionGroup
 import logging
 import time
 from datetime import datetime
@@ -1617,7 +1618,12 @@ class LocalTransportMixin(_MixinBase):
         finally:
             try:
                 if snapshot_context is not None and snapshot_capability is not None:
-                    if not snapshot_succeeded:
+                    # Coverage gate at publish time (issue #583 review): a
+                    # sibling endpoint declared link-down DURING this cycle
+                    # must block this endpoint's publish; the end-of-cycle
+                    # recompute alone would leave a readable fresh frame in
+                    # a known-ineligible entry until the cycle finishes.
+                    if not snapshot_succeeded or self._snapshot_coverage_known_lost():
                         snapshot_capability.abort_snapshot_refresh()
                     await snapshot_context.__aexit__(None, None, None)
             finally:
@@ -2805,6 +2811,51 @@ class LocalTransportMixin(_MixinBase):
                 int(_PARAMETER_RETRY_INTERVAL.total_seconds() // 60),
             )
 
+    def _tracked_local_devices(self) -> dict[str, Any]:
+        """Return serial → device for every station- or cache-tracked device."""
+        devices: dict[str, Any] = {}
+        if self.station is not None:
+            # HYBRID: the station owns all devices (caches mirror it).
+            for inv in self.station.all_inverters:
+                devices[str(inv.serial_number)] = inv
+            for mid in self.station.all_mid_devices:
+                devices[str(mid.serial_number)] = mid
+        else:
+            # LOCAL: devices live in the coordinator caches.
+            devices.update(self._inverter_cache)
+            devices.update(self._mid_device_cache)
+        return devices
+
+    def _snapshot_coverage_known_lost(self) -> bool:
+        """Whether direct coverage is already known broken at publish time.
+
+        Evaluated at snapshot-context exit (issue #583 review): the entry-wide
+        coverage recompute (``_sync_transport_link_state`` →
+        ``set_snapshot_coverage``) runs only at the END of an update cycle, so
+        without this gate a healthy endpoint could publish a fresh frame in
+        the window between a sibling endpoint's link-down declaration and that
+        recompute — violating "transport/coverage remained valid" atomicity.
+
+        Deliberately weaker than ``evaluate_bus_owner_eligibility``: a
+        configured device that has not been created/attached YET (first-cycle
+        boot ordering, concurrent endpoint groups) carries no adverse
+        knowledge and does not block publication; the end-of-cycle recompute
+        remains the authoritative fail-closed check. Only positively known
+        degradation — a tracked device with no transport, or a declared
+        link-down — aborts the publish.
+        """
+        devices = self._tracked_local_devices()
+        for config in self._local_transport_configs:
+            serial = str(config.get("serial") or "")
+            device = devices.get(serial) if serial else None
+            if device is None:
+                continue
+            if getattr(device, "transport", None) is None or is_transport_link_down(
+                device
+            ):
+                return True
+        return False
+
     def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
         """Sync Repairs issues and device error keys with transport link state.
 
@@ -2833,17 +2884,7 @@ class LocalTransportMixin(_MixinBase):
         healthy-path delete is an idempotent registry no-op, which also
         clears stale issues left behind by a restart mid-outage.
         """
-        devices: dict[str, Any] = {}
-        if self.station is not None:
-            # HYBRID: the station owns all devices (caches mirror it).
-            for inv in self.station.all_inverters:
-                devices[str(inv.serial_number)] = inv
-            for mid in self.station.all_mid_devices:
-                devices[str(mid.serial_number)] = mid
-        else:
-            # LOCAL: devices live in the coordinator caches.
-            devices.update(self._inverter_cache)
-            devices.update(self._mid_device_cache)
+        devices = self._tracked_local_devices()
 
         for serial, device in devices.items():
             transport = getattr(device, "transport", None)
@@ -2894,10 +2935,22 @@ class LocalTransportMixin(_MixinBase):
             local_transports=self._local_transport_configs,
             available_serials=available_serials,
         )
-        self._endpoint_bus_registry.set_snapshot_coverage(
-            self._bus_capabilities,
-            enabled=bool(getattr(self._bus_owner_eligibility, "eligible", False)),
-        )
+        try:
+            self._endpoint_bus_registry.set_snapshot_coverage(
+                self._bus_capabilities,
+                enabled=bool(getattr(self._bus_owner_eligibility, "eligible", False)),
+            )
+        except BaseExceptionGroup:
+            # A rejected coverage-loss observer detach must not abort the
+            # whole update cycle (kimi round-1): the owner already dropped
+            # the retained store/lookup before the detach attempt, and the
+            # pending-detach marker retries on the next coverage change or
+            # shutdown.  Unreachable with the pinned wheel (its
+            # set_register_observer cannot raise) — consistency hardening.
+            _LOGGER.debug(
+                "Snapshot coverage sync detach rejected; retry pending",
+                exc_info=True,
+            )
 
     def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:
         """Error-mark carried-forward parallel groups on a full-outage cycle.

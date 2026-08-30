@@ -26,7 +26,12 @@ from custom_components.eg4_web_monitor.bus_eligibility import (
     BusOwnerEligibility,
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
-from custom_components.eg4_web_monitor import coordinator_local, endpoint_bus
+from custom_components.eg4_web_monitor import (
+    coordinator_http,
+    coordinator_local,
+    coordinator_mixins,
+    endpoint_bus,
+)
 from custom_components.eg4_web_monitor.endpoint_bus import (
     EndpointBusRegistry,
     EndpointCapabilityClosedError,
@@ -57,6 +62,7 @@ class _ObservedRawTransport:
         self.extra_segment = False
         self.fail = False
         self.battery_result_none = False
+        self.battery_none_emits = True
         self.observation_override: object | None = None
         self.fail_attach = False
         self.fail_detach = False
@@ -104,8 +110,17 @@ class _ObservedRawTransport:
 
     async def read_battery(self) -> Any:
         if self.battery_result_none:
-            self._operations.append(("read_battery", (40, 3)))
-            await self.block.wait()
+            # Emission-faithful to pylxpweb 0.10.0b4 _register_data
+            # .read_battery: the battery-less SUCCESS path reads real
+            # registers, notifies the observer, then returns None
+            # (battery_none_emits=True, the common case); only its
+            # swallowed-failure path returns None WITHOUT emitting
+            # (battery_none_emits=False).
+            if self.battery_none_emits:
+                await self._read("read_battery", 40, (41, 42, 43))
+            else:
+                self._operations.append(("read_battery", (40, 3)))
+                await self.block.wait()
             return None
         return await self._read("read_battery", 40, (41, 42, 43))
 
@@ -212,6 +227,7 @@ def _coordinator_refresh_owner(
         _filter_unused_smart_port_sensors=lambda sensors, device: None,
         _calculate_gridboss_aggregates=lambda sensors: None,
         _prune_bus_capability_tracking=lambda: None,
+        _snapshot_coverage_known_lost=lambda: False,
     )
 
 
@@ -244,7 +260,7 @@ def _link_state_coordinator(
     registry: EndpointBusRegistry, *, connection_type: str
 ) -> SimpleNamespace:
     """Namespace covering both capability creation and link-state sync seams."""
-    return SimpleNamespace(
+    namespace = SimpleNamespace(
         connection_type=connection_type,
         _endpoint_bus_registry=registry,
         _bus_capabilities=set(),
@@ -260,6 +276,10 @@ def _link_state_coordinator(
         _mid_device_cache={},
         _link_down_notified=set(),
     )
+    namespace._tracked_local_devices = lambda: (
+        coordinator_local.LocalTransportMixin._tracked_local_devices(namespace)
+    )
+    return namespace
 
 
 @pytest.mark.asyncio
@@ -425,12 +445,22 @@ async def test_store_enabled_and_disabled_have_identical_read_order() -> None:
 
 @pytest.mark.asyncio
 async def test_zero_observation_battery_none_does_not_hide_complete_reads() -> None:
+    """Both wheel None-paths of read_battery keep complete reads publishable.
+
+    RED for the first block without the superset completeness fix (kimi
+    round-1 HIGH): the pinned wheel's battery-less SUCCESS path emits its
+    observed segments and THEN returns None, so the strict set-equality
+    check saw a not-required-yet-observed invocation and suppressed every
+    poll of a battery-less LOCAL inverter — no frame ever published.
+    """
     registry, raws, _ = _registry()
     capability = registry.create_capability(
         _config(), snapshot_enabled=True, poll_interval_seconds=5.0
     )
     raws[0].battery_result_none = True
 
+    # Wheel success path: registers observed, result None — publish BOTH
+    # blocks (they are exact terminal-winning raw reads).
     async with capability.complete_snapshot_refresh():
         await capability.read_runtime()
         assert await capability.read_battery() is None
@@ -438,13 +468,31 @@ async def test_zero_observation_battery_none_does_not_hide_complete_reads() -> N
     frame = capability.latest_complete_snapshot
     assert frame is not None
     assert [(block.start_address, block.words) for block in frame.blocks] == [
+        (0, (11, 12)),
+        (40, (41, 42, 43)),
+    ]
+    assert capability.snapshot_health.suppressed_incomplete == 0
+
+    # Wheel swallowed-failure path: None WITHOUT observations — the battery
+    # invocation is not required and must not block the other reads.
+    raws[0].battery_none_emits = False
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+        assert await capability.read_battery() is None
+
+    second = capability.latest_complete_snapshot
+    assert second is not None
+    assert second is not frame
+    assert [(block.start_address, block.words) for block in second.blocks] == [
         (0, (11, 12))
     ]
+    assert capability.snapshot_health.suppressed_incomplete == 0
 
+    # A REQUIRED read that observes nothing still suppresses.
     raws[0].emit = False
     async with capability.complete_snapshot_refresh():
         await capability.read_runtime()
-    assert capability.latest_complete_snapshot is frame
+    assert capability.latest_complete_snapshot is second
     assert capability.snapshot_health.suppressed_incomplete == 1
 
 
@@ -1057,6 +1105,9 @@ def test_snapshot_coverage_sync_fails_closed_without_eligibility(
         ),
         _bus_capabilities=set(),
     )
+    owner._tracked_local_devices = lambda: (
+        coordinator_local.LocalTransportMixin._tracked_local_devices(owner)
+    )
     monkeypatch.setattr(
         coordinator_local, "evaluate_bus_owner_eligibility", lambda **kwargs: None
     )
@@ -1149,15 +1200,22 @@ async def test_failed_observer_attach_during_add_retains_no_record_or_state() ->
             _config(), snapshot_enabled=True, poll_interval_seconds=5.0
         )
 
-    owner = next(iter(registry._owners.values()))
-    assert not owner._records
+    # The newly created empty owner is removed with the failure (codex
+    # round-1 LOW): no capability could ever shut a record-less owner down,
+    # so its stale endpoint key would block config-flow discovery
+    # (EndpointOwnerInUseError) until Home Assistant restarts.
+    assert registry.owner_count == 0
     assert raws[0]._observer is None
     assert registry.snapshot_store_count == 0
+
+    discovery = registry.create_discovery_capability(_config())
+    await discovery.async_shutdown()
+    assert registry.owner_count == 0
 
     recovered = registry.create_capability(
         _config(serial="SYNTH00002"), snapshot_enabled=True, poll_interval_seconds=5.0
     )
-    assert raws[1]._observer is not None
+    assert raws[2]._observer is not None
     async with recovered.complete_snapshot_refresh():
         await recovered.read_runtime()
     assert recovered.latest_complete_snapshot is not None
@@ -1350,3 +1408,219 @@ async def test_retired_snapshot_identity_stays_bounded_across_units() -> None:
     assert frame.generation == 4
     assert frame.poll_cycle == 2
     assert (frame.owner_epoch, frame.generation) not in identities
+
+
+# ── Codex adversarial round 1 regressions (PR #586 head fdcb58ed) ──
+
+
+class _HybridDevice:
+    """Station device shape consumed by the HYBRID sequential refresh path."""
+
+    def __init__(self, capability: Any, refresh: Any, serial: str) -> None:
+        self.transport = capability
+        self.serial_number = serial
+        self.refresh = refresh
+        self.transport_link_down = False
+
+
+def _hybrid_refresh_owner(devices: list[Any]) -> SimpleNamespace:
+    """Namespace exercising HTTPUpdateMixin._refresh_station_devices."""
+    configs = [
+        {
+            "serial": device.serial_number,
+            "transport_type": "modbus_tcp",
+            "host": "gateway.example.invalid",
+            "port": 1502,
+        }
+        for device in devices
+    ]
+    owner = SimpleNamespace(
+        station=SimpleNamespace(all_inverters=devices, all_mid_devices=[]),
+        client=None,
+        _local_transports_attached=True,
+        _local_transport_configs=configs,
+        _last_degraded_cloud_refresh={},
+        _http_polling_interval=60,
+        _inverter_cache={},
+        _mid_device_cache={},
+    )
+    owner._tracked_local_devices = lambda: (
+        coordinator_local.LocalTransportMixin._tracked_local_devices(owner)
+    )
+    owner._snapshot_coverage_known_lost = lambda: (
+        coordinator_local.LocalTransportMixin._snapshot_coverage_known_lost(owner)
+    )
+    return owner
+
+
+@pytest.mark.asyncio
+async def test_hybrid_refresh_brackets_snapshot_and_publishes() -> None:
+    """HYBRID polling must publish complete frames (codex round-1 HIGH).
+
+    RED without the coordinator_http bracket: HYBRID is a snapshot-eligible
+    mode, but _refresh_station_devices ran device.refresh() outside any
+    complete_snapshot_refresh() context, so every observer callback was
+    discarded and latest_complete_snapshot stayed permanently None.
+    """
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+        assert capability.latest_complete_snapshot is None
+
+    device = _HybridDevice(capability, refresh, "SYNTH00001")
+    owner = _hybrid_refresh_owner([device])
+
+    await coordinator_http.HTTPUpdateMixin._refresh_station_devices(owner)
+
+    assert capability.latest_complete_snapshot is not None
+    assert capability.snapshot_health.suppressed_incomplete == 0
+
+
+@pytest.mark.asyncio
+async def test_hybrid_failed_refresh_aborts_and_retains_prior_complete() -> None:
+    """A failed HYBRID refresh must abort, not publish its partial reads.
+
+    RED with the bracket but without the explicit abort: the refresh
+    exception is contained inside the group loop, so the snapshot context
+    body always exits cleanly and a partially read cycle would publish.
+    """
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    async with capability.complete_snapshot_refresh():
+        await capability.read_energy()
+    prior = capability.latest_complete_snapshot
+    assert prior is not None
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+        raise RuntimeError("synthetic hybrid refresh failure")
+
+    device = _HybridDevice(capability, refresh, "SYNTH00001")
+    owner = _hybrid_refresh_owner([device])
+
+    await coordinator_http.HTTPUpdateMixin._refresh_station_devices(owner)
+
+    assert capability.latest_complete_snapshot is prior
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+
+@pytest.mark.asyncio
+async def test_local_publish_gated_when_sibling_endpoint_known_link_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sibling's declared link-down blocks a fresh publish (codex MED).
+
+    RED without the publish-time coverage gate: the entry-wide recompute
+    (_sync_transport_link_state -> set_snapshot_coverage) runs only at the
+    END of an update cycle, so a healthy endpoint published a readable
+    fresh frame while the entry was already known ineligible.
+    """
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+
+    owner = _coordinator_refresh_owner(registry, capability, refresh)
+    owner.station = None
+    owner._inverter_cache = {
+        "SYNTHB0002": SimpleNamespace(
+            transport=object(), transport_link_down=True, serial_number="SYNTHB0002"
+        )
+    }
+    owner._local_transport_configs = [
+        {
+            "serial": "SYNTH00001",
+            "transport_type": "modbus_tcp",
+            "host": "gateway.example.invalid",
+            "port": 1502,
+        },
+        {
+            "serial": "SYNTHB0002",
+            "transport_type": "modbus_tcp",
+            "host": "gateway2.example.invalid",
+            "port": 1502,
+        },
+    ]
+    owner._tracked_local_devices = lambda: (
+        coordinator_local.LocalTransportMixin._tracked_local_devices(owner)
+    )
+    owner._snapshot_coverage_known_lost = lambda: (
+        coordinator_local.LocalTransportMixin._snapshot_coverage_known_lost(owner)
+    )
+
+    _, availability = await _run_coordinator_refresh(owner, monkeypatch)
+
+    assert availability == {"SYNTH00001": True}
+    assert capability.latest_complete_snapshot is None
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+
+@pytest.mark.asyncio
+async def test_unload_survives_rejected_observer_detach_and_stays_retryable() -> None:
+    """A rejected observer detach must not abort unload (codex round-1 MED).
+
+    RED without the containment in _disconnect_all_transports:
+    begin_shutdown_capabilities raised BaseExceptionGroup straight out of
+    the unload path, skipping terminal disconnect, listener removal, and
+    background-task cleanup.
+    """
+    registry, raws, operations = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    raws[0].fail_detach = True
+
+    owner = SimpleNamespace(
+        _endpoint_bus_registry=registry,
+        _bus_capabilities={capability},
+        _inverter_cache={},
+        _mid_device_cache={},
+        station=None,
+        _prune_bus_capability_tracking=lambda: None,
+    )
+
+    await coordinator_mixins.BackgroundTaskMixin._disconnect_all_transports(owner)
+
+    # The persistently rejecting detach keeps the capability retained for
+    # the registry's bounded retry instead of tombstoning a live callback.
+    assert capability in registry._failed_shutdown_capabilities
+
+    raws[0].fail_detach = False
+    await registry.async_retry_failed_shutdowns((_config(),))
+
+    assert registry.owner_count == 0
+    assert ("disconnect", ()) in operations
+    assert raws[0]._observer is None
+
+
+def test_link_state_sync_contains_rejected_coverage_detach() -> None:
+    """A rejected coverage-loss detach must not abort the update cycle.
+
+    RED without the containment around set_snapshot_coverage in
+    _sync_transport_link_state (kimi round-1): the BaseExceptionGroup
+    propagated out of the end-of-cycle coverage recompute and failed the
+    whole coordinator refresh.  Unreachable with the pinned wheel —
+    consistency hardening; the data/lookup are already dropped before the
+    detach attempt and the pending marker stays retryable.
+    """
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    raws[0].fail_detach = True
+    coordinator = _link_state_coordinator(registry, connection_type="local")
+    coordinator._bus_capabilities = {capability}
+
+    coordinator_local.LocalTransportMixin._sync_transport_link_state(coordinator, None)
+
+    assert registry.snapshot_store_count == 0
+    assert capability.latest_complete_snapshot is None

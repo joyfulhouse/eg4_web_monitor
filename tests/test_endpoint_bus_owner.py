@@ -963,8 +963,13 @@ async def test_ha_registry_retries_failed_unload_after_coordinator_disposal() ->
         EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
 
-    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
-        await EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
+    # Terminal shutdown failures are contained (codex round-1 MED): the real
+    # unload caller (async_unload_entry -> coordinator.async_shutdown) runs
+    # bare, so a raise here would skip listener removal, background-task
+    # cancellation, and the HTTP-client close.  The failed capability is
+    # retained for the registry retry below instead.
+    await EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
+    assert capability in registry._failed_shutdown_capabilities
     del coordinator
 
     with pytest.raises(EndpointOwnerClosingError):

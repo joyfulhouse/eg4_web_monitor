@@ -10,6 +10,7 @@ final coordinator class inheriting all mixins together.
 """
 
 import asyncio
+from builtins import BaseExceptionGroup
 import logging
 import time
 from collections.abc import Awaitable, Callable, Collection, Coroutine
@@ -985,6 +986,8 @@ if TYPE_CHECKING:
         def _sync_transport_link_state(
             self, processed: dict[str, Any] | None
         ) -> None: ...
+        def _tracked_local_devices(self) -> dict[str, Any]: ...
+        def _snapshot_coverage_known_lost(self) -> bool: ...
         def _merge_round_robin_batteries(
             self,
             inverter_serial: str,
@@ -4716,11 +4719,44 @@ class BackgroundTaskMixin(_MixinBase):
         _LOGGER.debug("Coordinator shutdown complete, all background tasks cleaned up")
 
     async def _disconnect_all_transports(self) -> None:
-        """Detach devices and terminally close all coordinator capabilities."""
-        self._endpoint_bus_registry.begin_shutdown_capabilities(self._bus_capabilities)
-        await _async_drain_teardown(
-            BackgroundTaskMixin._disconnect_all_transports_work(self)
-        )
+        """Detach devices and terminally close all coordinator capabilities.
+
+        Endpoint shutdown failures are contained here (issue #583: unload
+        must leave no task/socket/callback under integration control), so a
+        rejected observer detach or failed terminal closure never aborts the
+        remaining unload steps — listener removal, background-task
+        cancellation, and the base-class shutdown still run.
+        """
+        try:
+            self._endpoint_bus_registry.begin_shutdown_capabilities(
+                self._bus_capabilities
+            )
+        except BaseExceptionGroup:
+            # Admission is already closed per capability (begin_shutdown is
+            # best-effort across the set even when the group raises), and the
+            # terminal shutdown below retries every pending observer detach —
+            # its per-capability outcomes are authoritative.  This mirrors the
+            # containment inside async_shutdown_capabilities.
+            _LOGGER.debug(
+                "Observer detach rejected while closing admission; "
+                "terminal shutdown retries it",
+                exc_info=True,
+            )
+        try:
+            await _async_drain_teardown(
+                BackgroundTaskMixin._disconnect_all_transports_work(self)
+            )
+        except BaseExceptionGroup:
+            # A failed terminal closure retains its capability in the
+            # registry's failed-shutdown set; async_retry_failed_shutdowns
+            # re-drives it on the next attach to the same endpoint.
+            # Cancellation is NOT swallowed: _async_drain_teardown re-raises
+            # caller CancelledError, which this handler does not match.
+            _LOGGER.warning(
+                "Terminal endpoint shutdown failed; capabilities retained "
+                "for registry retry",
+                exc_info=True,
+            )
 
     async def _disconnect_all_transports_work(self) -> None:
         """Settle device detachment and terminal capability closure."""

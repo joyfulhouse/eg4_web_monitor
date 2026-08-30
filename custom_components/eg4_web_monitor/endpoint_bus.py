@@ -524,12 +524,21 @@ class _EndpointBusOwner:
             getattr(record.raw, "register_observation_error_count", 0)
         )
         observer_error = observer_errors_after != attempt.observer_errors_before
+        # Every REQUIRED invocation must have contributed an observation.  A
+        # not-required invocation (read_battery returning None) may appear in
+        # ``observed`` too: the pinned wheel's battery-less SUCCESS path reads
+        # real registers, notifies the observer, then returns None — only its
+        # swallowed-failure path returns None without emitting (pylxpweb
+        # 0.10.0b4 ``_register_data.read_battery``).  Requiring set EQUALITY
+        # here suppressed every poll of a battery-less LOCAL inverter (kimi
+        # round-1 HIGH).  ``observed`` can hold no other extras — observe()
+        # only stages invocations this attempt issued.
         complete = (
             succeeded
             and bool(attempt.invocations)
             and None not in attempt.invocations.values()
             and set(attempt.observed)
-            == {
+            >= {
                 invocation
                 for invocation, required in attempt.invocations.items()
                 if required
@@ -1064,17 +1073,23 @@ class EndpointBusRegistry:
 
         try:
             raw = self._raw_transport_factory(config)
+            return owner.add(
+                raw,
+                snapshot_enabled=snapshot_enabled,
+                snapshot_direct_eligible=snapshot_direct_eligible,
+                poll_interval_seconds=poll_interval_seconds,
+                unit=config.unit_id,
+            )
         except Exception:
-            if created_owner and self._owners.get(key) is owner:
+            # A failed factory OR a rejected add (observer attach) must not
+            # strand a newly created empty owner: no capability can ever
+            # shut it down, so its stale endpoint key would block config-flow
+            # discovery (EndpointOwnerInUseError) until Home Assistant
+            # restarts.  An owner that pre-existed with live records is
+            # untouched.
+            if created_owner and self._owners.get(key) is owner and not owner._records:
                 self._owners.pop(key, None)
             raise
-        return owner.add(
-            raw,
-            snapshot_enabled=snapshot_enabled,
-            snapshot_direct_eligible=snapshot_direct_eligible,
-            poll_interval_seconds=poll_interval_seconds,
-            unit=config.unit_id,
-        )
 
     def create_discovery_capability(
         self, config: TransportConfig

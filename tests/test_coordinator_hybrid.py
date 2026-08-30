@@ -1065,6 +1065,17 @@ class TestTransportLinkDown:
         transport.status = MagicMock(owner_identity=1)
         return transport
 
+    @staticmethod
+    def _bind_tracked_devices(mock_self: MagicMock) -> None:
+        """Bind the real device-map helper the link-state sync now calls."""
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        mock_self._tracked_local_devices = lambda: (
+            EG4DataUpdateCoordinator._tracked_local_devices(mock_self)
+        )
+
     @classmethod
     def _device(
         cls, serial: str, link_down: bool, transport: MagicMock | None = None
@@ -1372,6 +1383,7 @@ class TestTransportLinkDown:
         mock_self._inverter_cache = {"1111111111": device}
         mock_self._mid_device_cache = {}
         mock_self._link_down_notified = set()
+        self._bind_tracked_devices(mock_self)
 
         processed = {"devices": {"1111111111": {"type": "inverter", "sensors": {}}}}
         with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
@@ -1406,6 +1418,7 @@ class TestTransportLinkDown:
         mock_self.station.all_inverters = []
         mock_self.station.all_mid_devices = [device]
         mock_self._link_down_notified = set()
+        self._bind_tracked_devices(mock_self)
 
         with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
             EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, None)
@@ -1427,6 +1440,7 @@ class TestTransportLinkDown:
         mock_self._inverter_cache = {"1111111111": device}
         mock_self._mid_device_cache = {}
         mock_self._link_down_notified = {"1111111111"}
+        self._bind_tracked_devices(mock_self)
 
         processed = {"devices": {"1111111111": {"type": "inverter", "sensors": {}}}}
         with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
@@ -1454,6 +1468,7 @@ class TestTransportLinkDown:
         mock_self._inverter_cache = {"1111111111": device}
         mock_self._mid_device_cache = {}
         mock_self._link_down_notified = set()
+        self._bind_tracked_devices(mock_self)
 
         processed = {"devices": {"1111111111": {"type": "inverter", "sensors": {}}}}
         with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
@@ -1480,6 +1495,7 @@ class TestTransportLinkDown:
         mock_self._inverter_cache = {"1111111111": device}
         mock_self._mid_device_cache = {}
         mock_self._link_down_notified = set()
+        self._bind_tracked_devices(mock_self)
 
         with patch("custom_components.eg4_web_monitor.coordinator_local.ir") as mock_ir:
             EG4DataUpdateCoordinator._sync_transport_link_state(mock_self, None)

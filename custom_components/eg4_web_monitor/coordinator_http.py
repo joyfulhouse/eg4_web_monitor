@@ -50,6 +50,7 @@ from .coordinator_mixins import (
     compute_total_inverter_power_kw,
     is_transport_link_down,
 )
+from .endpoint_bus import EndpointBusCapability
 from .utils import battery_row_is_absent, cloud_battery_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -256,9 +257,27 @@ class HTTPUpdateMixin(_MixinBase):
             pylxpweb.  Its per-device cloud caches are busted (throttled to
             the HTTP interval) so the fallback serves moving values instead
             of interval-aligned stale cache.
+
+            Each owner-issued capability refresh is bracketed by the raw
+            snapshot lifecycle (issue #583 phase A3): HYBRID is a
+            snapshot-eligible mode, so without this bracket every observer
+            callback would be discarded and no frame could ever publish. A
+            complete local refresh publishes atomically; a failure, a
+            cloud-fallback cycle, or known coverage loss aborts instead and
+            retains the prior complete frame.
             """
             for device in devices:
+                transport = getattr(device, "transport", None)
+                capability = (
+                    transport if isinstance(transport, EndpointBusCapability) else None
+                )
+                snapshot_context: Any | None = None
+                snapshot_succeeded = False
                 try:
+                    if capability is not None:
+                        entered_context = capability.complete_snapshot_refresh()
+                        await entered_context.__aenter__()
+                        snapshot_context = entered_context
                     if is_transport_link_down(device):
                         _maybe_bust_degraded_cloud_cache(
                             self.client,
@@ -267,12 +286,25 @@ class HTTPUpdateMixin(_MixinBase):
                             str(getattr(device, "serial_number", "?")),
                         )
                     await device.refresh()
+                    snapshot_succeeded = True
                 except Exception as exc:
                     _LOGGER.debug(
                         "Device %s refresh failed: %s",
                         getattr(device, "serial_number", "?"),
                         exc,
                     )
+                finally:
+                    if snapshot_context is not None and capability is not None:
+                        # The refresh exception is contained above, so the
+                        # context body always exits cleanly — the explicit
+                        # abort is what keeps a failed or coverage-broken
+                        # cycle from publishing (mirrors the LOCAL path).
+                        if (
+                            not snapshot_succeeded
+                            or self._snapshot_coverage_known_lost()
+                        ):
+                            capability.abort_snapshot_refresh()
+                        await snapshot_context.__aexit__(None, None, None)
 
         # Build concurrent coroutines:
         #  - Each endpoint group is one sequential coroutine
