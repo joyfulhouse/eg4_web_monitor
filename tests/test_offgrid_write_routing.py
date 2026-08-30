@@ -50,6 +50,7 @@ from custom_components.eg4_web_monitor.number import (
     OffGridSOCCutoffNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
+    QuickChargeDurationNumber,
     StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
     SystemChargeVoltLimitNumber,
@@ -89,6 +90,9 @@ def _mock_coordinator(
     coordinator.write_raw_parameter = AsyncMock()
     coordinator.note_parameters_written = MagicMock()
     coordinator._quick_charge_minutes = {}
+    # Live H233-b0 active check (cloud-routed on off-grid HYBRID, #296).
+    # Default idle; the duration live-adjust tests override it.
+    coordinator.is_quick_charge_active_live = AsyncMock(return_value=False)
     coordinator.get_device_info = MagicMock(return_value=None)
     # Battery control regime helpers (regime-gated voltage controls)
     coordinator.get_configured_control_modes = MagicMock(return_value=("soc", "soc"))
@@ -714,6 +718,64 @@ class TestSweepExtendedProtectedRouting:
         coordinator.write_named_parameter.assert_not_awaited()
         inverter = coordinator.get_inverter_object(SERIAL)
         inverter.set_battery_charge_current.assert_awaited_once_with(current_amps=100)
+
+
+class TestQuickChargeDurationOffgridLiveAdjust:
+    """#570 adversarial round 1: the live reg-234 adjust is family-gated.
+
+    On EG4_OFFGRID + HYBRID the live active check is CLOUD-routed
+    (``_quick_charge_prefers_cloud``, #296), so a cloud-started charge
+    reports active WITHOUT any local H233 read standing in the way — the
+    H233 rejection is CEAA-scoped and gates nothing here. H234 carries no
+    off-grid write evidence, so off-grid/unresolved families must never
+    reach the local reg-234 write: they store the start preference instead
+    (the shipped CLOUD-mode behavior for the same situation).
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "device_data",
+        [dict(OFFGRID_FEATURES), {"features": {"inverter_family": "UNKNOWN"}}, {}],
+        ids=["offgrid", "unknown-family", "no-features"],
+    )
+    async def test_offgrid_active_charge_never_writes_reg234_locally(
+        self, device_data
+    ):
+        """Off-grid/unresolved + local transport + cloud-visible ACTIVE
+        charge: no local write fires, no live check runs (the gate
+        short-circuits before it), and the preference is stored."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=device_data
+        )
+        coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
+        entity = QuickChargeDurationNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.is_quick_charge_active_live.assert_not_awaited()
+        assert coordinator._quick_charge_minutes[SERIAL] == 45
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_active_charge_keeps_live_reg234_write(self):
+        """Regression guard: a positively resolved non-off-grid family keeps
+        the live reg-234 adjust."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
+        entity = QuickChargeDurationNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(45)
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "SNA_HOLD_QUICK_CHARGE_MINUTE", 45, serial=SERIAL
+        )
 
 
 # ── Task B: pure-LOCAL off-grid Quick Charge has no working route ───────

@@ -273,7 +273,10 @@ Grades for the **left** column — that these gates, purges and routings exist i
 > ledger. (2) It covers the number platform's router only: bit-level switch/select writes
 > (H110/H179 bits, H179 b9/b10 regime selects, H20), schedule time entities (`write_register`),
 > and direct `inverter.<method>()` calls are outside it — their per-bit risk stays recorded in
-> the keeper and [C7](../60-history/open-contradictions.md). (3) On resolved non-off-grid
+> the keeper and [C7](../60-history/open-contradictions.md). The Quick Charge Duration live
+> reg-234 adjust is outside the router too but carries its own fail-closed family gate at the
+> entity (#570 adversarial round 1: on off-grid the live-active check is cloud-routed per #296,
+> so no local H233 rejection ever gated that write). (3) On resolved non-off-grid
 > families the local-first write still runs on mappings whose proof is scoped to one or two
 > tested units. **The readback still does not cover any of this** — storage and transport only,
 > the #476 mechanism.

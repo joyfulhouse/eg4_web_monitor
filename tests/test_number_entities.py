@@ -3824,6 +3824,11 @@ class TestQuickChargeDurationNumber:
         written live to extend/reduce the active charge. No cloud preference is
         stored — on local the entity mirrors the register, not a preference."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route
+        # (#570 adversarial round 1 gate).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)
@@ -3847,6 +3852,10 @@ class TestQuickChargeDurationNumber:
         preference — the write must seed the cache so native_value shows the
         accepted value (codex P2)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
         coordinator._quick_charge_minutes["1234567890"] = 60  # untouched pref
         coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
@@ -3873,6 +3882,10 @@ class TestQuickChargeDurationNumber:
         — otherwise native_value keeps publishing the untouched preference until
         the next successful poll (codex #8)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=True)
         coordinator._quick_charge_minutes["1234567890"] = 60  # untouched pref
         # Prior status read failed — no quick_charge_status key at all.
@@ -3895,6 +3908,10 @@ class TestQuickChargeDurationNumber:
         (the reg 234 half of the paired-frame start) — no register write (a
         lone idle reg 234 write is firmware-rejected, #251)."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         # is_quick_charge_active_live defaults to False (idle).
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)
@@ -3912,6 +3929,10 @@ class TestQuickChargeDurationNumber:
         firmware would reject right after auto-expiry — the live False routes
         the value to the start-preference store instead."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         # Cache says active, but the live read says the charge has ended.
         coordinator.data["devices"]["1234567890"]["quick_charge_status"] = {
             "hasUnclosedQuickChargeTask": True
@@ -3931,6 +3952,10 @@ class TestQuickChargeDurationNumber:
         silently storing the preference and reporting success — a failed live
         adjust must never look successful."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the live-adjust local route.
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.is_quick_charge_active_live = AsyncMock(return_value=None)
         entity = QuickChargeDurationNumber(coordinator, "1234567890")
         _prep(entity)

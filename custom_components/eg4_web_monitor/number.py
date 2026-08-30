@@ -334,11 +334,16 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         input mode) route through ``_execute_switch_action`` /
         ``write_named_parameter``, not this router — their per-bit risk
         is tracked in the llmwiki keeper and C7; (2) schedule time
-        entities write packed registers via ``write_register``; (3)
-        ``QuickChargeDurationNumber``'s live reg-234 adjust runs only
-        when a fresh local H233 b0 read reports a charge active, which
-        the recorded off-grid boundary itself rejects. Do not treat this
-        docstring as an inventory of those surfaces.
+        entities write packed registers via ``write_register``.
+        ``QuickChargeDurationNumber``'s live reg-234 adjust is also
+        outside this router but carries its own fail-closed
+        ``is_positively_non_offgrid_family`` gate (#570 adversarial round
+        1) — an earlier revision of this docstring wrongly claimed the
+        off-grid H233 rejection gated it: on EG4_OFFGRID the active check
+        is CLOUD-routed (#296), so no local read rejects the path, and
+        the H233 rejection is CEAA-scoped anyway (CCAA implements the
+        address). Do not treat this docstring as an inventory of those
+        surfaces.
         """
         if is_positively_non_offgrid_family(self._device_data):
             return None
@@ -1089,6 +1094,16 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
 
         On CLOUD there is no register, so the value is stored as the
         per-serial preference applied as the ``minute`` start parameter.
+
+        FAMILY GATE (#570 adversarial round 1): the live-adjust branch runs
+        only for a positively resolved non-off-grid family. On EG4_OFFGRID
+        the active check is cloud-routed (#296), so it would report a
+        cloud-started charge active without any local H233 read standing in
+        the way — and the local reg-234 write has no off-grid hardware
+        evidence (the H233 rejection is CEAA-scoped; CCAA implements the
+        address; neither proves anything about writing H234). Off-grid and
+        unresolved families therefore take the CLOUD branch: the preference
+        is stored and applied at the next cloud start.
         """
         if not self._is_valid_duration(value):
             raise HomeAssistantError(
@@ -1097,7 +1112,21 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
                 f"got {value}"
             )
         minutes = int(value)
-        if self.coordinator.has_local_transport(self.serial):
+        # #570 adversarial round 1: the live-adjust local reg-234 write is
+        # gated on the same fail-closed family predicate as the protected
+        # scalars. On EG4_OFFGRID the active check below is CLOUD-routed
+        # (_quick_charge_prefers_cloud, #296), so a cloud-started charge
+        # makes it True WITHOUT any local H233 read — nothing local rejects
+        # the path (and the H233 rejection is CEAA-scoped anyway; CCAA
+        # implements the address). H234 carries no off-grid write evidence
+        # (ledger grade `portal-correlated`), so off-grid and unresolved
+        # families skip the local live-adjust entirely and store the start
+        # preference instead — exactly the shipped CLOUD-mode behavior for
+        # the same situation (the preference is applied as the `minute`
+        # parameter of the next cloud start).
+        if self.coordinator.has_local_transport(
+            self.serial
+        ) and is_positively_non_offgrid_family(self._device_data):
             active = await self.coordinator.is_quick_charge_active_live(self.serial)
             if active is None:
                 raise HomeAssistantError(
@@ -1138,10 +1167,13 @@ class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
                     minutes,
                 )
         else:
-            # Cloud: no live register — store the preference used at start.
+            # Cloud (no live register), or an off-grid/unresolved family
+            # whose local reg-234 write is not hardware-verified (#570):
+            # store the preference used at the next start.
             self.coordinator._quick_charge_minutes[self.serial] = minutes
             _LOGGER.debug(
-                "Quick Charge duration preference for %s stored as %d min (cloud)",
+                "Quick Charge duration preference for %s stored as %d min "
+                "(cloud, or local write not verified for this family)",
                 self.serial,
                 minutes,
             )

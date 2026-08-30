@@ -554,3 +554,30 @@ EG4_OFFGRID/unresolved families. Blind spots recorded in `_offgrid_cloud_only_re
 docstring: bit-level switch/select writes, schedule `write_register` calls, direct library
 calls, and the QuickChargeDuration live-adjust remain outside the gate, with per-bit risk
 held by the keeper and C7.
+
+## [2026-08-29] lint | QuickChargeDuration blind-spot rationale corrected — reg-234 local write was reachable on off-grid
+
+The previous entry (and the `_offgrid_cloud_only_reason` docstring it described) claimed the
+QuickChargeDuration live reg-234 adjust could not run on off-grid because it is "gated on a
+live local H233 b0 read, which the recorded off-grid boundary itself rejects." A PR #600
+adversarial-review finding (Kimi, MED) exposed that as wrong, and code adjudication confirmed
+it — wrong twice: (1) on EG4_OFFGRID + HYBRID the active check is **cloud-routed**
+(`coordinator_mixins.py` → `_quick_charge_prefers_cloud`, the #296 mitigation), so a
+cloud-started charge reports active without any local H233 read standing in the way; (2) the
+H233 rejection is CEAA-scoped anyway — the keeper's own CCAA row in this same change set says
+the address is implemented there. The local reg-234 write on off-grid HYBRID was therefore
+reachable **by design** ("#296 round 2":
+`coordinator_mixins.py` → `_read_offgrid_quick_charge_minute` deliberately mirrors reg 234
+locally so the number's read and write sides agree), on a register with no off-grid write
+evidence (H234 `portal-correlated`). The failure mechanism was the classic one: a
+lineage-scoped negative claim quietly generalized to the family.
+
+Fix (same change set): the live-adjust branch now requires
+`is_positively_non_offgrid_family`; off-grid/unresolved families take the CLOUD-branch
+behavior (store the start preference, applied as the next cloud start's `minute` parameter).
+Regression tests in `tests/test_offgrid_write_routing.py`
+(`TestQuickChargeDurationOffgridLiveAdjust`). Pages updated: the keeper's H234 row,
+[`10-integration/data-semantics.md`](10-integration/data-semantics.md) gate-limits note, and
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) router
+parameter row. The local reg-234 **read** (off-grid HYBRID mirroring) is unchanged — reads
+carry no wrong-write hazard.
