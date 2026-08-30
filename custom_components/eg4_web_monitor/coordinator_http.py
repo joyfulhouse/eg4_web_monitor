@@ -301,7 +301,7 @@ class HTTPUpdateMixin(_MixinBase):
                         # cycle from publishing (mirrors the LOCAL path).
                         if (
                             not snapshot_succeeded
-                            or self._snapshot_coverage_known_lost()
+                            or self._snapshot_coverage_unresolved()
                         ):
                             capability.abort_snapshot_refresh()
                         await snapshot_context.__aexit__(None, None, None)

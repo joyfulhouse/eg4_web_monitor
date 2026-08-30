@@ -227,7 +227,7 @@ def _coordinator_refresh_owner(
         _filter_unused_smart_port_sensors=lambda sensors, device: None,
         _calculate_gridboss_aggregates=lambda sensors: None,
         _prune_bus_capability_tracking=lambda: None,
-        _snapshot_coverage_known_lost=lambda: False,
+        _snapshot_coverage_unresolved=lambda: False,
     )
 
 
@@ -444,14 +444,20 @@ async def test_store_enabled_and_disabled_have_identical_read_order() -> None:
 
 
 @pytest.mark.asyncio
-async def test_zero_observation_battery_none_does_not_hide_complete_reads() -> None:
-    """Both wheel None-paths of read_battery keep complete reads publishable.
+async def test_battery_none_paths_split_by_emission_publish_vs_suppress() -> None:
+    """The wheel's two read_battery None paths split on emission, not result.
 
-    RED for the first block without the superset completeness fix (kimi
-    round-1 HIGH): the pinned wheel's battery-less SUCCESS path emits its
-    observed segments and THEN returns None, so the strict set-equality
-    check saw a not-required-yet-observed invocation and suppressed every
-    poll of a battery-less LOCAL inverter — no frame ever published.
+    Emission-faithful to pylxpweb 0.10.0b4 ``_register_data.read_battery``:
+    the battery-less SUCCESS path notifies its observed segments and THEN
+    returns None; the swallowed-failure (BMS timeout/short) path returns
+    None BEFORE the notify.
+
+    RED for the first block under the original set-equality check (kimi
+    round-1 HIGH: battery-less inverters never published).  RED for the
+    second block under the round-1 result-based non-required marking (codex
+    round-2 HIGH: a zero-emission failed battery read published the other
+    observations as a fresh "complete" frame despite one invoked read
+    contributing nothing).
     """
     registry, raws, _ = _registry()
     capability = registry.create_capability(
@@ -459,8 +465,8 @@ async def test_zero_observation_battery_none_does_not_hide_complete_reads() -> N
     )
     raws[0].battery_result_none = True
 
-    # Wheel success path: registers observed, result None — publish BOTH
-    # blocks (they are exact terminal-winning raw reads).
+    # Success path: registers observed, result None — the invocation
+    # contributed, publish BOTH blocks (exact terminal-winning raw reads).
     async with capability.complete_snapshot_refresh():
         await capability.read_runtime()
         assert await capability.read_battery() is None
@@ -473,27 +479,24 @@ async def test_zero_observation_battery_none_does_not_hide_complete_reads() -> N
     ]
     assert capability.snapshot_health.suppressed_incomplete == 0
 
-    # Wheel swallowed-failure path: None WITHOUT observations — the battery
-    # invocation is not required and must not block the other reads.
+    # Swallowed-failure path: None WITHOUT observations — one invoked read
+    # contributed nothing, so the cycle is degraded: suppress and retain
+    # the prior complete frame.
     raws[0].battery_none_emits = False
     async with capability.complete_snapshot_refresh():
         await capability.read_runtime()
         assert await capability.read_battery() is None
 
-    second = capability.latest_complete_snapshot
-    assert second is not None
-    assert second is not frame
-    assert [(block.start_address, block.words) for block in second.blocks] == [
-        (0, (11, 12))
-    ]
-    assert capability.snapshot_health.suppressed_incomplete == 0
+    assert capability.latest_complete_snapshot is frame
+    assert capability.snapshot_health.suppressed_incomplete == 1
 
-    # A REQUIRED read that observes nothing still suppresses.
+    # A non-battery read that observes nothing suppresses identically.
+    raws[0].battery_result_none = False
     raws[0].emit = False
     async with capability.complete_snapshot_refresh():
         await capability.read_runtime()
-    assert capability.latest_complete_snapshot is second
-    assert capability.snapshot_health.suppressed_incomplete == 1
+    assert capability.latest_complete_snapshot is frame
+    assert capability.snapshot_health.suppressed_incomplete == 2
 
 
 @pytest.mark.asyncio
@@ -1309,9 +1312,17 @@ async def test_failed_detach_still_releases_remaining_capabilities() -> None:
 
 
 @pytest.mark.asyncio
-async def test_failed_detach_during_shutdown_is_best_effort_and_retryable() -> None:
-    """A rejected detach must not skip later capabilities or terminal retries."""
-    registry, raws, _ = _registry()
+async def test_failed_detach_during_shutdown_still_releases_every_capability() -> None:
+    """A rejected detach must not block any capability's terminal release.
+
+    RED before codex round-2 MED: a persistently rejecting detach raised out
+    of begin_shutdown before the terminal close, so the capability stayed
+    retained with its raw transport (socket) and callback alive until the
+    endpoint happened to be re-attached.  Terminal shutdown now releases
+    the resources and swallows the detach failure — the stale callback on
+    the dropped raw is inert (observe() drops missing-record callbacks).
+    """
+    registry, raws, operations = _registry()
     first = registry.create_capability(
         _config(serial="SYNTH00001", unit=1),
         snapshot_enabled=True,
@@ -1324,29 +1335,31 @@ async def test_failed_detach_during_shutdown_is_best_effort_and_retryable() -> N
     )
 
     raws[0].fail_detach = True
-    with pytest.raises(BaseExceptionGroup, match="shutdown"):
-        await registry.async_shutdown_capabilities((first, second))
+    await registry.async_shutdown_capabilities((first, second))
 
-    # Later capabilities were still processed best-effort to terminal close.
-    assert raws[1]._observer is None
-    assert not registry.is_retained_capability(second)
-    # The failed capability stays retained, closing, and still observed.
-    assert raws[0]._observer is not None
-    assert registry.is_retained_capability(first)
-    assert registry.tombstone_count == 1
-
-    raws[0].fail_detach = False
-    await registry.async_retry_failed_shutdowns((_config(serial="SYNTH00001"),))
-    assert raws[0]._observer is None
+    assert ("disconnect", ()) in operations
     assert not registry.is_retained_capability(first)
+    assert not registry.is_retained_capability(second)
+    assert first not in registry._failed_shutdown_capabilities
     assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
     assert registry.snapshot_store_count == 0
+    # The cleanly detaching sibling is fully released; the rejecting raw is
+    # dropped with its stale (inert) callback still attached.
+    assert raws[1]._observer is None
+    assert raws[0]._observer is not None
 
 
 @pytest.mark.asyncio
-async def test_terminal_completion_waits_for_successful_observer_detach() -> None:
-    """Terminal shutdown must not complete while the observer stays attached."""
-    registry, raws, _ = _registry()
+async def test_terminal_close_failure_stays_retained_and_detach_retries() -> None:
+    """A FAILED terminal close (not a detach rejection) still retries.
+
+    The retained-for-retry contract now belongs exclusively to terminal
+    close failures: the socket may genuinely still be open, so the
+    capability stays retained, the owner stays tombstoned, and the registry
+    retry re-drives detach + terminal close together.
+    """
+    registry, raws, operations = _registry()
     capability = registry.create_capability(
         _config(), snapshot_enabled=True, poll_interval_seconds=5.0
     )
@@ -1355,15 +1368,28 @@ async def test_terminal_completion_waits_for_successful_observer_detach() -> Non
     assert capability.latest_complete_snapshot is not None
 
     raws[0].fail_detach = True
+    original_disconnect = raws[0].disconnect
+    disconnect_fails = True
+
+    async def failing_disconnect() -> None:
+        if disconnect_fails:
+            raise RuntimeError("synthetic terminal failure")
+        await original_disconnect()
+
+    raws[0].disconnect = failing_disconnect  # type: ignore[method-assign]
     with pytest.raises(BaseExceptionGroup, match="shutdown"):
         await registry.async_shutdown_capabilities((capability,))
-    assert raws[0]._observer is not None
-    assert registry.is_retained_capability(capability)
+    assert capability in registry._failed_shutdown_capabilities
     assert registry.owner_count == 1
+    assert registry.tombstone_count == 1
+    # The store was already quarantined at admission close.
+    assert registry.snapshot_store_count == 0
 
     raws[0].fail_detach = False
+    disconnect_fails = False
     await registry.async_retry_failed_shutdowns((_config(),))
     assert raws[0]._observer is None
+    assert ("disconnect", ()) in operations
     assert not registry.is_retained_capability(capability)
     assert registry.owner_count == 0
     assert registry.snapshot_store_count == 0
@@ -1447,8 +1473,8 @@ def _hybrid_refresh_owner(devices: list[Any]) -> SimpleNamespace:
     owner._tracked_local_devices = lambda: (
         coordinator_local.LocalTransportMixin._tracked_local_devices(owner)
     )
-    owner._snapshot_coverage_known_lost = lambda: (
-        coordinator_local.LocalTransportMixin._snapshot_coverage_known_lost(owner)
+    owner._snapshot_coverage_unresolved = lambda: (
+        coordinator_local.LocalTransportMixin._snapshot_coverage_unresolved(owner)
     )
     return owner
 
@@ -1553,8 +1579,8 @@ async def test_local_publish_gated_when_sibling_endpoint_known_link_down(
     owner._tracked_local_devices = lambda: (
         coordinator_local.LocalTransportMixin._tracked_local_devices(owner)
     )
-    owner._snapshot_coverage_known_lost = lambda: (
-        coordinator_local.LocalTransportMixin._snapshot_coverage_known_lost(owner)
+    owner._snapshot_coverage_unresolved = lambda: (
+        coordinator_local.LocalTransportMixin._snapshot_coverage_unresolved(owner)
     )
 
     _, availability = await _run_coordinator_refresh(owner, monkeypatch)
@@ -1565,13 +1591,18 @@ async def test_local_publish_gated_when_sibling_endpoint_known_link_down(
 
 
 @pytest.mark.asyncio
-async def test_unload_survives_rejected_observer_detach_and_stays_retryable() -> None:
-    """A rejected observer detach must not abort unload (codex round-1 MED).
+async def test_unload_survives_rejected_observer_detach_and_releases_resources() -> (
+    None
+):
+    """A rejected observer detach must not abort unload (codex rounds 1-2).
 
-    RED without the containment in _disconnect_all_transports:
+    RED without the round-1 containment in _disconnect_all_transports:
     begin_shutdown_capabilities raised BaseExceptionGroup straight out of
     the unload path, skipping terminal disconnect, listener removal, and
-    background-task cleanup.
+    background-task cleanup.  RED without the round-2 terminal-release fix:
+    the detach rejection re-raised inside owner.shutdown before the terminal
+    close, so unload returned with the raw transport (socket) and callback
+    retained indefinitely.
     """
     registry, raws, operations = _registry()
     capability = registry.create_capability(
@@ -1590,16 +1621,15 @@ async def test_unload_survives_rejected_observer_detach_and_stays_retryable() ->
 
     await coordinator_mixins.BackgroundTaskMixin._disconnect_all_transports(owner)
 
-    # The persistently rejecting detach keeps the capability retained for
-    # the registry's bounded retry instead of tombstoning a live callback.
-    assert capability in registry._failed_shutdown_capabilities
-
-    raws[0].fail_detach = False
-    await registry.async_retry_failed_shutdowns((_config(),))
-
-    assert registry.owner_count == 0
+    # Round-2 (codex MED): the rejected detach is swallowed only AFTER the
+    # terminal close released the resources — unload leaves no socket, no
+    # retained capability, and no owner, in one pass, with the stale
+    # callback left inert on the dropped raw.
     assert ("disconnect", ()) in operations
-    assert raws[0]._observer is None
+    assert capability not in registry._failed_shutdown_capabilities
+    assert not registry.is_retained_capability(capability)
+    assert registry.owner_count == 0
+    assert registry.snapshot_store_count == 0
 
 
 def test_link_state_sync_contains_rejected_coverage_detach() -> None:
@@ -1624,3 +1654,63 @@ def test_link_state_sync_contains_rejected_coverage_detach() -> None:
 
     assert registry.snapshot_store_count == 0
     assert capability.latest_complete_snapshot is None
+
+
+@pytest.mark.asyncio
+async def test_publish_blocked_until_all_configured_endpoints_resolve(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A configured-but-uncreated sibling blocks publication (codex round-2).
+
+    RED under the round-1 gate, which ignored configured serials with no
+    tracked device: during the FIRST LOCAL poll a healthy endpoint could
+    publish while a sibling's connection ultimately failed, exposing a
+    frame for an entry whose coverage never resolved.  Coverage is now
+    unresolved until every configured direct endpoint is tracked and
+    attached; the same entry publishes once the sibling exists.
+    """
+    registry, _, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+
+    async def refresh() -> None:
+        await capability.read_runtime()
+
+    owner = _coordinator_refresh_owner(registry, capability, refresh)
+    owner.station = None
+    owner._local_transport_configs = [
+        {
+            "serial": "SYNTH00001",
+            "transport_type": "modbus_tcp",
+            "host": "gateway.example.invalid",
+            "port": 1502,
+        },
+        {
+            "serial": "SYNTHB0002",
+            "transport_type": "modbus_tcp",
+            "host": "gateway2.example.invalid",
+            "port": 1502,
+        },
+    ]
+    owner._tracked_local_devices = lambda: (
+        coordinator_local.LocalTransportMixin._tracked_local_devices(owner)
+    )
+    owner._snapshot_coverage_unresolved = lambda: (
+        coordinator_local.LocalTransportMixin._snapshot_coverage_unresolved(owner)
+    )
+
+    # First cycle: the sibling is configured but not yet created — block.
+    _, availability = await _run_coordinator_refresh(owner, monkeypatch)
+    assert availability == {"SYNTH00001": True}
+    assert capability.latest_complete_snapshot is None
+    assert capability.snapshot_health.suppressed_incomplete == 1
+
+    # Sibling resolves (tracked, attached, link up): the entry publishes.
+    owner._inverter_cache = {
+        "SYNTHB0002": SimpleNamespace(
+            transport=object(), transport_link_down=False, serial_number="SYNTHB0002"
+        )
+    }
+    _, availability = await _run_coordinator_refresh(owner, monkeypatch)
+    assert capability.latest_complete_snapshot is not None

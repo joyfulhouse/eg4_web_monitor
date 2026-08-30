@@ -9,6 +9,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from enum import StrEnum
+import logging
 import time
 from typing import Any, Protocol, cast
 from uuid import uuid4
@@ -35,6 +36,8 @@ from .raw_snapshot import (
     SnapshotMetrics,
     SnapshotValidationState,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class EndpointOwnerClosingError(RuntimeError):
@@ -524,25 +527,24 @@ class _EndpointBusOwner:
             getattr(record.raw, "register_observation_error_count", 0)
         )
         observer_error = observer_errors_after != attempt.observer_errors_before
-        # Every REQUIRED invocation must have contributed an observation.  A
-        # not-required invocation (read_battery returning None) may appear in
-        # ``observed`` too: the pinned wheel's battery-less SUCCESS path reads
-        # real registers, notifies the observer, then returns None — only its
-        # swallowed-failure path returns None without emitting (pylxpweb
-        # 0.10.0b4 ``_register_data.read_battery``).  Requiring set EQUALITY
-        # here suppressed every poll of a battery-less LOCAL inverter (kimi
-        # round-1 HIGH).  ``observed`` can hold no other extras — observe()
-        # only stages invocations this attempt issued.
+        # EVERY completed invocation must have contributed observations
+        # ("every invoked read contributed", issue #583).  Emission is what
+        # distinguishes the pinned wheel's two read_battery None paths
+        # (pylxpweb 0.10.0b4 ``_register_data.read_battery``): the
+        # battery-less SUCCESS path reads real registers, notifies the
+        # observer, then returns None — it contributed and publishes; the
+        # swallowed-failure (BMS timeout/short) path returns None BEFORE the
+        # notify — zero observations, a degraded cycle, suppress.  Result
+        # values cannot make that distinction (kimi round-1 HIGH fixed the
+        # false suppression of the first path; codex round-2 HIGH fixed the
+        # false publication of the second).  Every capability read method
+        # notifies on success in the wheel, so no other read can complete
+        # unobserved.
         complete = (
             succeeded
             and bool(attempt.invocations)
             and None not in attempt.invocations.values()
-            and set(attempt.observed)
-            >= {
-                invocation
-                for invocation, required in attempt.invocations.items()
-                if required
-            }
+            and set(attempt.observed) == set(attempt.invocations)
             and all(attempt.observed.values())
             and not observer_error
             and not attempt.aborted
@@ -751,9 +753,11 @@ class _EndpointBusOwner:
             self._gate.hold_for_wire_task(wire_task)
             result = await asyncio.shield(wire_task)
             if read_context_token is not None and attempt is not None:
-                attempt.invocations[invocation] = not (
-                    method == "read_battery" and result is None
-                )
+                # Mark the invocation completed; whether it CONTRIBUTED is
+                # judged by its observations at publish time (codex round-2
+                # HIGH).  The result value cannot distinguish the wheel's two
+                # read_battery None paths — emission can.
+                attempt.invocations[invocation] = True
             if method == "read_firmware_version":
                 record.firmware_scope = str(result) if result else None
             return result
@@ -787,8 +791,24 @@ class _EndpointBusOwner:
         self._remove_snapshot_state(record)
 
     async def shutdown(self, token: int) -> None:
-        """Interrupt and terminally close one capability."""
-        self.begin_shutdown(token)
+        """Interrupt and terminally close one capability.
+
+        A rejected observer detach is captured, not fatal (codex round-2
+        MED): terminal shutdown must still release the raw transport
+        (socket) and every retained record — otherwise a persistently
+        rejecting detach would leave callback and socket alive until the
+        endpoint happens to be re-attached.  Once the terminal close has
+        released the resources the detach failure is logged and swallowed:
+        the raw object is disconnected and dropped, and a stale callback
+        firing into a removed record is inert (``observe()`` returns on a
+        missing record).  A FAILED terminal close still propagates and keeps
+        the capability retained for the registry retry.
+        """
+        detach_failure: Exception | None = None
+        try:
+            self.begin_shutdown(token)
+        except Exception as error:
+            detach_failure = error
         record = self._records.get(token)
         if record is None:
             return
@@ -832,6 +852,12 @@ class _EndpointBusOwner:
                     )
             else:
                 self._state = _OwnerState.CLOSING
+        if detach_failure is not None:
+            _LOGGER.warning(
+                "Observer detach stayed rejected through terminal shutdown; "
+                "raw transport released with the stale callback left inert: %s",
+                detach_failure,
+            )
 
     async def wait_idle(self) -> None:
         """Wait for detached wire tasks without cancelling them."""
@@ -959,7 +985,18 @@ class EndpointBusCapability:
 
     async def async_shutdown(self) -> None:
         if self._shutdown_task is None:
-            self._owner.begin_shutdown(self._token)
+            try:
+                self._owner.begin_shutdown(self._token)
+            except Exception:
+                # Admission is already closed for this record (begin_shutdown
+                # marks closing before the detach attempt); owner.shutdown
+                # re-runs the detach and releases the resources even when it
+                # keeps failing (codex round-2 MED).
+                _LOGGER.debug(
+                    "Observer detach rejected at admission close; "
+                    "terminal shutdown proceeds",
+                    exc_info=True,
+                )
             self._shutdown_task = asyncio.create_task(self._owner.shutdown(self._token))
         cancellation = await _await_settled(self._shutdown_task)
         failure: BaseException | None = None

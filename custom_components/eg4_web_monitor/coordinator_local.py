@@ -1619,11 +1619,12 @@ class LocalTransportMixin(_MixinBase):
             try:
                 if snapshot_context is not None and snapshot_capability is not None:
                     # Coverage gate at publish time (issue #583 review): a
-                    # sibling endpoint declared link-down DURING this cycle
-                    # must block this endpoint's publish; the end-of-cycle
-                    # recompute alone would leave a readable fresh frame in
-                    # a known-ineligible entry until the cycle finishes.
-                    if not snapshot_succeeded or self._snapshot_coverage_known_lost():
+                    # sibling endpoint declared link-down — or a configured
+                    # sibling not yet created (first-cycle) — must block this
+                    # endpoint's publish; the end-of-cycle recompute alone
+                    # would leave a readable fresh frame in an ineligible
+                    # entry until the cycle finishes.
+                    if not snapshot_succeeded or self._snapshot_coverage_unresolved():
                         snapshot_capability.abort_snapshot_refresh()
                     await snapshot_context.__aexit__(None, None, None)
             finally:
@@ -2826,30 +2827,35 @@ class LocalTransportMixin(_MixinBase):
             devices.update(self._mid_device_cache)
         return devices
 
-    def _snapshot_coverage_known_lost(self) -> bool:
-        """Whether direct coverage is already known broken at publish time.
+    def _snapshot_coverage_unresolved(self) -> bool:
+        """Whether entry-wide direct coverage is not positively intact.
 
-        Evaluated at snapshot-context exit (issue #583 review): the entry-wide
-        coverage recompute (``_sync_transport_link_state`` →
-        ``set_snapshot_coverage``) runs only at the END of an update cycle, so
-        without this gate a healthy endpoint could publish a fresh frame in
-        the window between a sibling endpoint's link-down declaration and that
-        recompute — violating "transport/coverage remained valid" atomicity.
+        Evaluated at snapshot-context exit (issue #583 review rounds 1-2):
+        the entry-wide coverage recompute (``_sync_transport_link_state`` →
+        ``set_snapshot_coverage``) runs only at the END of an update cycle,
+        so without this gate a healthy endpoint could publish a fresh frame
+        while the entry was already ineligible — violating
+        "transport/coverage remained valid" atomicity.
 
-        Deliberately weaker than ``evaluate_bus_owner_eligibility``: a
-        configured device that has not been created/attached YET (first-cycle
-        boot ordering, concurrent endpoint groups) carries no adverse
-        knowledge and does not block publication; the end-of-cycle recompute
-        remains the authoritative fail-closed check. Only positively known
-        degradation — a tracked device with no transport, or a declared
-        link-down — aborts the publish.
+        A frame publishes only while EVERY configured direct serial is
+        tracked, transport-attached, and not link-down.  A configured device
+        that has not been created/attached yet blocks publication too (codex
+        round-2 MED): during the FIRST poll a sibling connection can still
+        fail, so coverage is unresolved until all configured endpoints
+        resolve — multi-endpoint entries publish from the first cycle where
+        every device exists, at the cost of at most the boot cycle's frames.
+        Single-endpoint entries are unaffected (the device is cached before
+        its own context exits).  The end-of-cycle eligibility recompute
+        remains the authoritative fail-closed check.
         """
         devices = self._tracked_local_devices()
         for config in self._local_transport_configs:
             serial = str(config.get("serial") or "")
-            device = devices.get(serial) if serial else None
-            if device is None:
+            if not serial:
                 continue
+            device = devices.get(serial)
+            if device is None:
+                return True
             if getattr(device, "transport", None) is None or is_transport_link_down(
                 device
             ):
