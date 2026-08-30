@@ -1190,11 +1190,14 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
     """Number entity for AC Charge Power control (stored as 100W units).
 
     WRITE ROUTING (#558 tribunal round 1): reg 66 is a protected register —
-    no local write evidence is recorded for H66 (its llmwiki
-    ``portal-correlated`` grade rests on read/scaling evidence only), so on
-    EG4_OFFGRID and unresolved/UNKNOWN families the write is CLOUD-ONLY
-    (pure-LOCAL raises a clear error). Positively resolved non-off-grid
-    families keep the local-first route. Local READS stay on everywhere.
+    no write tuple is recorded for H66 at all (its ``portal-correlated``
+    semantic grade rests on read/scaling evidence; the #570 firmware
+    verification proved raw 0..100 WRITABLE on the CEAA/CCAA images but
+    could trace no charge-power consumer, so the semantics stay
+    unverifiable), so on EG4_OFFGRID and unresolved/UNKNOWN families the
+    write is CLOUD-ONLY (pure-LOCAL raises a clear error). Positively
+    resolved non-off-grid families keep the local-first route. Local READS
+    stay on everywhere.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1522,9 +1525,11 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
 
     On EG4_HYBRID the register is equally live and MORE dangerous for being
     invisible: a FlexBOSS21 exercise recorded in CHANGELOG.md (fw
-    FAAB-2727, local dongle Modbus, read+write — not yet ingested/graded
-    in the register ledger, which keeps H160 ``portal-correlated`` pending
-    the #570 evidence sweep) showed reg 160 initiating AC charging
+    FAAB-2727, local dongle Modbus, read+write — the ledger now grades the
+    H160 WRITE PATH ``hardware-toggle-proven`` on the tested hybrids from
+    the #570 cloud sweep, while this exercise's charge-start SEMANTICS
+    remain a CHANGELOG-recorded observation) showed reg 160 initiating AC
+    charging
     whenever battery SOC is below it, regardless of the reg-120
     ACChargeType selector and of the AC-charge time windows — charges start
     out-of-window at SOC < value, and no window charge starts at
@@ -1540,17 +1545,19 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
     keep the tolerant 0-100 window so an out-of-spec register value still
     displays rather than blanking.
 
-    WRITE ROUTING (#558): on EG4_OFFGRID the write is CLOUD-ONLY — local
-    reg 160 writes are hardware-unverified there (all #331 write evidence
-    is the cloud holdParam path) and no readback can prove a wrong
-    name→register mapping didn't land elsewhere (#476), so the local path
-    is not attempted; a pure-LOCAL off-grid install gets a clear error
-    instead. On EG4_HYBRID the write keeps the normal local-first route
-    per shipped behavior: a FlexBOSS21 (fw FAAB-2727) read+write exercise
-    is recorded in CHANGELOG.md but not yet ingested/graded in the
-    register ledger, which still grades H160 ``portal-correlated`` (see
-    #570 for the evidence sweep). Local READS stay on for both families —
-    reads are harmless and reg 160 reads are verified.
+    WRITE ROUTING (#558): on EG4_OFFGRID the write is CLOUD-ONLY — every
+    H160 write proof is CLOUD-path (the #331 holdParam trail, and the
+    #570 sweep's cloud named toggle/restore, ``hardware-toggle-proven``
+    on the tested FlexBOSS21/18kPV hybrids), no LOCAL off-grid delta-test
+    exists, and no readback can prove a wrong name→register mapping
+    didn't land elsewhere (#476), so the local path is not attempted; a
+    pure-LOCAL off-grid install gets a clear error instead. The #570
+    firmware verification proved the mapping on the CEAA/CCAA off-grid
+    images (and that raw 0 is invalid — min is 1); a version-gated local
+    upgrade is a recorded candidate on #570 only. On EG4_HYBRID the write
+    keeps the normal local-first route per shipped behavior. Local READS
+    stay on for both families — reads are harmless and reg 160 reads are
+    verified.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1632,11 +1639,14 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
 
     WRITE ROUTING (#558, superseding the PR #332 review note): LOCAL
     Modbus writes to reg 161 are hardware-UNVERIFIED on the off-grid
-    family — all #331 write evidence is the cloud holdParam path — and a
-    post-write readback CANNOT discharge that risk: a wrong-but-writable
-    register is firmware-ACKed and reads back exactly the value written
-    (#476), so the readback reports success on precisely the failure it
-    was cited against. The write is therefore CLOUD-ONLY on this entity
+    family — all #331 write evidence is the cloud holdParam path, the
+    #570 firmware verification proved only the MAPPING on the CEAA/CCAA
+    images (no live off-grid write exists), and the #570 sweep confirmed
+    the register write-INERT on a second grid-tied hybrid (cloud success,
+    raw unchanged) — and a post-write readback CANNOT discharge the
+    off-grid risk: a wrong-but-writable register is firmware-ACKed and
+    reads back exactly the value written (#476), so the readback reports
+    success on precisely the failure it was cited against. The write is therefore CLOUD-ONLY on this entity
     (created for EG4_OFFGRID only), matching the #471/#472 precedent for
     unpinned writes; a pure-LOCAL install gets a clear error instead of an
     unverified local write. Local READS stay on — reads are harmless and
@@ -3066,9 +3076,11 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         control_key="ac_charge_start_voltage",
         icon="mdi:battery-charging-low",
         related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
-        # Reg 158's only write evidence is a cloud-path delta-test
-        # (`portal-correlated`, family unrecorded) — no local off-grid
-        # write proof exists, so EG4_OFFGRID routes cloud-only (#558).
+        # All H158 write evidence is CLOUD-path (the #570 sweep's cloud
+        # named toggle/restore, `hardware-toggle-proven` on the tested
+        # FlexBOSS21/18kPV hybrids; earlier delta-test scaled-values-only)
+        # — no local off-grid write proof exists, so EG4_OFFGRID routes
+        # cloud-only (#558/#570).
         offgrid_local_write_unverified=True,
     ),
     VoltageNumberSpec(
@@ -3086,9 +3098,10 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         control_key="ac_charge_end_voltage",
         icon="mdi:battery-charging-high",
         related_group=("ac_charge_start_voltage", "ac_charge_end_voltage"),
-        # Reg 159 mirrors 158's routing, but unlike 158 no write evidence
-        # is recorded for H159 at all — its grade rests on read/scaling
-        # evidence only (#558).
+        # Reg 159 mirrors 158's routing and evidence shape: the #570
+        # sweep's cloud toggle/restore made it `hardware-toggle-proven`
+        # on the same tested hybrids — still cloud-path only, with no
+        # local off-grid write proof (#558/#570).
         offgrid_local_write_unverified=True,
     ),
     VoltageNumberSpec(

@@ -10,11 +10,12 @@ HomeAssistantError instead of an unverified local write. The routing gate
 FAILS CLOSED (tribunal round 1): a missing/UNKNOWN family degrades to the
 cloud-only route too — only a positively resolved non-off-grid family
 keeps the local write. EG4_HYBRID keeps the local-first route for reg 160
-per shipped behavior (FlexBOSS21 read+write exercise recorded in
-CHANGELOG.md; ledger grade still `portal-correlated`, see #570). AC charge
-power (reg 66) shares the protected-register routing — no write evidence
-is recorded for H66; its `portal-correlated` grade rests on read/scaling
-evidence only.
+per shipped behavior (the #570 sweep made H160 `hardware-toggle-proven`
+on the tested FlexBOSS21/18kPV hybrids — via the CLOUD named path, so it
+licenses no local write anywhere). AC charge power (reg 66) shares the
+protected-register routing — no write tuple is recorded for H66 (the
+#570 firmware verification proved raw 0..100 writable on CEAA/CCAA but
+its charge-power semantics remain unverifiable).
 
 #570 evidence sweep — the protected set is derived, not enumerated: EVERY
 scalar holding register the number platform writes through the local-first
@@ -239,9 +240,9 @@ class TestOffgridACChargeSOCCloudOnlyRouting:
     @pytest.mark.asyncio
     async def test_hybrid_family_keeps_local_first_route(self):
         """EG4_HYBRID reg 160 keeps the local-first route per shipped
-        behavior (FlexBOSS21 fw FAAB-2727 read+write exercise recorded in
-        CHANGELOG.md, not yet graded in the register ledger — see #570);
-        the #558 gate is a family gate, not a blanket change."""
+        behavior (H160 is now `hardware-toggle-proven` on the tested
+        hybrids — via the cloud named path, #570 sweep); the #558 gate is
+        a family gate, not a blanket change."""
         coordinator = _mock_coordinator(
             has_local=True,
             has_http=True,
@@ -332,11 +333,11 @@ _VOLTAGE_SPECS_BY_KEY = {spec.key: spec for spec in VOLTAGE_NUMBER_SPECS}
 class TestOffgridACChargeVoltageCloudOnlyRouting:
     """Regs 158/159 share the 160/161 situation and the same routing (#558).
 
-    H158's write evidence is a cloud-path delta-test (target family
-    unrecorded); no write evidence is recorded for H159 at all (both
-    llmwiki grades are `portal-correlated`, H159's resting on read/scaling
-    evidence only) — there is no local off-grid write proof for either, so
-    EG4_OFFGRID routes them cloud-only too.
+    Every H158/H159 write proof is CLOUD-path (the #570 sweep's cloud
+    named toggle/restore, `hardware-toggle-proven` on the tested
+    FlexBOSS21/18kPV hybrids; the earlier H158 delta-test was
+    scaled-values-only) — there is no local off-grid write proof for
+    either, so EG4_OFFGRID routes them cloud-only too.
     """
 
     @pytest.mark.asyncio
@@ -795,9 +796,7 @@ class TestQuickChargeDurationOffgridLiveAdjust:
         [dict(OFFGRID_FEATURES), {"features": {"inverter_family": "UNKNOWN"}}, {}],
         ids=["offgrid", "unknown-family", "no-features"],
     )
-    async def test_offgrid_active_charge_never_writes_reg234_locally(
-        self, device_data
-    ):
+    async def test_offgrid_active_charge_never_writes_reg234_locally(self, device_data):
         """Off-grid/unresolved + local transport + cloud-visible ACTIVE
         charge: no local write fires, no live check runs (the gate
         short-circuits before it), and the preference is stored."""
