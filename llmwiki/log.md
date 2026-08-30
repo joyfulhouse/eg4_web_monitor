@@ -774,3 +774,32 @@ canonical parameter-seeding section (`data-semantics.md` §7) now documents the 
 window, the per-key stamps/confirmation, the settle-expiry recheck, and the
 params-first override for active seeds — the convergence contract had lived only in
 code comments and the log.
+
+## [2026-08-29] lint | Review round 10 — earliest-deadline recheck dedup; two stale comment claims corrected against the code they sit beside
+
+Four corrections from the round-10 adversarial pass (Codex gpt-5.6-sol; grok crashed,
+kimi pending). (1) The round-9 settle-recheck dedup keyed on the serial alone and kept
+whichever deadline scheduled FIRST — so when a later-expiring key's disagreement
+scheduled before an earlier-expiring key's, the earlier key's retained seed masked a
+genuine external change until the later window ran out. The dedup now keeps the
+EARLIEST per-key deadline (`_parameter_seed_recheck_at`; a later-deadline pending
+recheck is cancelled and pulled forward), pinned by a staggered-two-key deferred-timer
+test. Test-construction note recorded there: patching `time.monotonic` warps asyncio's
+loop clock too, so the test backdates the write stamps instead of warping "now".
+(2) The HA stop path (`_async_handle_shutdown`) never cancelled the recheck timers —
+only `async_shutdown` did — so a pending recheck could fire its targeted refresh after
+the transports and cloud session shut down; both teardown paths now share
+`_cancel_seed_settle_rechecks()`. (3) The `time.py` local-block routing comment and
+this wiki's schedule-write routing row (`40-hardware/registers.md`) both said
+off-grid/unresolved schedule writes route through "the classic cloud field writes" —
+false for the writeTime families (Generator/Off-Grid/Peak Shaving, which is exactly
+what an off-grid inverter's Generator Charge schedule uses): those take the atomic
+`write_time_parameter` portal call, and only the classic families (AC Charge/First,
+Forced Charge/Discharge) take the per-field hour/minute writes. Both statements now
+describe the per-schedule routing. (4) `const/modbus.py`'s H206 keeper comment still
+called the raw encoding "presumed deci-kW but unverified … cloud-write-only",
+contradicting the family-scoped split the same change set ships (transport-first raw
+H206 — hybrid-verified deci-kW, pylxpweb#158 — on resolved non-off-grid families;
+cloud-named-parameter-only on off-grid/unresolved). The comment now states the split;
+the "never via the local transport name map" clause survives — that part was and is
+true (the old name map pointed at reg 231). Citations: PR #600 (issue #570).

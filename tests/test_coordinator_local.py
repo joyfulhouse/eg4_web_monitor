@@ -871,6 +871,70 @@ class TestParameterSeedSettleWindow:
         seeds = coordinator._parameter_write_seeds.get(self.SERIAL, {})
         assert seeds.get("HOLD_LEAD_ACID_CHARGE_RATE", (None,))[0] == 60
 
+    async def test_recheck_dedup_keeps_earliest_key_deadline(
+        self, hass, local_config_entry
+    ):
+        """r10 (Codex MED): the per-serial recheck dedup must keep the
+        EARLIEST per-key settle deadline. When a later-expiring key's
+        disagreement schedules the recheck first, an earlier-expiring
+        key's disagreement must pull the shot forward — otherwise the
+        earlier key's retained seed masks a genuine external change for
+        the remainder of the later key's window."""
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        coordinator = self._coordinator(hass, local_config_entry)
+        # Backdate the write stamps instead of warping "now" during the
+        # reconcile: patching time.monotonic patches asyncio's loop clock
+        # too, which would skew the very async_call_later delay under test.
+        # H101 written 25s ago (window expires ~base+5), H102 written 5s
+        # ago (window expires ~base+25).
+        base = time.monotonic()
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            with patch.object(coord_mod.time, "monotonic", return_value=base - 25):
+                coordinator.note_parameters_written(
+                    self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+                )
+            with patch.object(coord_mod.time, "monotonic", return_value=base - 5):
+                coordinator.note_parameters_written(
+                    self.SERIAL, {"HOLD_LEAD_ACID_DISCHARGE_RATE": 120}
+                )
+
+        # Two partial reads disagree — the LATER-expiring key first, so its
+        # recheck (deadline ~base+26) is already pending when the
+        # EARLIER-expiring key (deadline ~base+6) disagrees.
+        coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_DISCHARGE_RATE": 100},
+            read_complete=False,
+            read_generation=coordinator._parameter_write_generation,
+            observed_keys={"HOLD_LEAD_ACID_DISCHARGE_RATE"},
+        )
+        assert coordinator._parameter_seed_recheck_at[self.SERIAL] == pytest.approx(
+            base + 26, abs=1.0
+        )
+        coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=False,
+            read_generation=coordinator._parameter_write_generation,
+            observed_keys={"HOLD_LEAD_ACID_CHARGE_RATE"},
+        )
+        # The pending recheck was pulled forward to the earlier expiry.
+        assert coordinator._parameter_seed_recheck_at[self.SERIAL] == pytest.approx(
+            base + 6, abs=1.0
+        )
+
+        # The recheck fires at the EARLIER key's expiry (~6s out), not the
+        # later key's (~26s) — fire between the two.
+        refresh = AsyncMock(return_value=True)
+        with patch.object(coordinator, "async_refresh_device_parameters", refresh):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=10))
+            await hass.async_block_till_done()
+
+        refresh.assert_awaited_once_with(self.SERIAL)
+        assert self.SERIAL not in coordinator._parameter_seed_recheck_unsub
+        assert self.SERIAL not in coordinator._parameter_seed_recheck_at
+
 
 class TestStickyParameterCarryForward:
     """A partial parameter read must not blank known values or arm the throttle.

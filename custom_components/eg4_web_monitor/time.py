@@ -539,8 +539,12 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
             # button already declares local off-grid schedule writes
             # unsanctioned (#563) — so the entity write shares the
             # fail-closed family routing: off-grid/unresolved go through
-            # the classic cloud field writes; resolved non-off-grid
-            # families keep local-first.
+            # this schedule's own cloud write path in _async_write_cloud
+            # (r10: writeTime families — Generator/Off-Grid/Peak Shaving,
+            # which is what an off-grid inverter's Generator Charge
+            # schedule uses — take the atomic write_time_parameter call;
+            # only the classic families take the per-field hour/minute
+            # writes); resolved non-off-grid families keep local-first.
             device_data: dict[str, Any] = (
                 (self.coordinator.data or {}).get("devices", {}).get(self.serial, {})
             )

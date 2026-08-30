@@ -525,8 +525,13 @@ class EG4DataUpdateCoordinator(
         # seed, so a follow-up targeted refresh is scheduled at settle
         # expiry — otherwise a never-propagating cloud write (or an
         # immediate external change) showed the seeded value until the
-        # next HOURLY parameter poll.
+        # next HOURLY parameter poll. The companion deadline map (round 10)
+        # keeps the EARLIEST per-key settle expiry: dedup by serial alone
+        # let a later-expiring key's pending recheck mask an
+        # earlier-expiring key's genuine external change for the rest of
+        # the later window.
         self._parameter_seed_recheck_unsub: dict[str, CALLBACK_TYPE] = {}
+        self._parameter_seed_recheck_at: dict[str, float] = {}
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -1104,8 +1109,22 @@ class EG4DataUpdateCoordinator(
         self._cloud_session = None
         await async_close_client_session(self.client, cloud_session)
 
+    def _cancel_seed_settle_rechecks(self) -> None:
+        """Cancel every pending seed-settle recheck timer (round 10).
+
+        Shared by both teardown paths: HA's base ``_async_handle_shutdown``
+        does not cancel our timers, so without this a pending recheck could
+        fire its targeted refresh after the transports and cloud session
+        were already shut down.
+        """
+        for cancel_recheck in self._parameter_seed_recheck_unsub.values():
+            cancel_recheck()
+        self._parameter_seed_recheck_unsub.clear()
+        self._parameter_seed_recheck_at.clear()
+
     async def _async_handle_shutdown(self, event: Any) -> None:
         """Release the cloud wrapper when Home Assistant stops without unload."""
+        self._cancel_seed_settle_rechecks()
         try:
             await super()._async_handle_shutdown(event)
         finally:
@@ -1114,9 +1133,7 @@ class EG4DataUpdateCoordinator(
     async def async_shutdown(self) -> None:
         """Shut down the coordinator and release its cookie-bearing session."""
         try:
-            for cancel_recheck in self._parameter_seed_recheck_unsub.values():
-                cancel_recheck()
-            self._parameter_seed_recheck_unsub.clear()
+            self._cancel_seed_settle_rechecks()
             await super().async_shutdown()
         finally:
             await self._async_close_cloud_session()
@@ -1221,17 +1238,30 @@ class EG4DataUpdateCoordinator(
         device truth (and the entity's optimistic/seeded value corrects);
         keys still inside their own windows re-arm this recheck naturally
         from that refresh's own reconciliation.
+
+        The per-serial dedup keeps the EARLIEST deadline (round 10): the
+        windows are per key, so when a later-expiring key's recheck is
+        already pending, an earlier-expiring key's disagreement must pull
+        the shot forward — otherwise that key's retained seed masks a
+        genuine external change until the later window runs out.
         """
-        if serial in self._parameter_seed_recheck_unsub:
-            return
-        delay = max(PARAMETER_WRITE_SEED_SETTLE - (now - stamp), 0.0) + 1.0
+        deadline = max(stamp + PARAMETER_WRITE_SEED_SETTLE, now) + 1.0
+        pending_at = self._parameter_seed_recheck_at.get(serial)
+        if pending_at is not None:
+            if pending_at <= deadline:
+                return
+            cancel_pending = self._parameter_seed_recheck_unsub.pop(serial, None)
+            if cancel_pending is not None:
+                cancel_pending()
 
         async def _recheck(_fire_time: datetime) -> None:
             self._parameter_seed_recheck_unsub.pop(serial, None)
+            self._parameter_seed_recheck_at.pop(serial, None)
             await self.async_refresh_device_parameters(serial)
 
+        self._parameter_seed_recheck_at[serial] = deadline
         self._parameter_seed_recheck_unsub[serial] = async_call_later(
-            self.hass, delay, _recheck
+            self.hass, deadline - now, _recheck
         )
 
     def has_active_parameter_write_seed(self, serial: str, key: str) -> bool:
