@@ -655,6 +655,11 @@ class TestReadParamValueFloat:
             parameters={PARAM_HOLD_AC_CHARGE_POWER: 12},
             inverter_attrs={"ac_charge_power_limit": 12.0, "transport": None},
         )
+        # Resolved non-off-grid family keeps the 15 kW ceiling so the 12 kW
+        # read stays inside the plausibility window (#570 review round 4).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ACChargePowerNumber(coordinator, "1234567890")
         assert entity.native_value == 12.0
 
@@ -2524,7 +2529,8 @@ class TestOffgridACChargeSOCWindow:
         coordinator.client.api.control.write_parameter.assert_awaited_once_with(
             "1234567890", "HOLD_AC_CHARGE_START_BATTERY_SOC", "90"
         )
-        with pytest.raises(HomeAssistantError, match="between 0-90"):
+        # Off-grid floor is 1 (#570 r4: CEAA/CCAA firmware rejects 0).
+        with pytest.raises(HomeAssistantError, match="between 1-90"):
             await entity.async_set_native_value(91)
 
     def test_missing_params_read_none(self):
@@ -2805,15 +2811,16 @@ class TestOffgridACChargeSOCWindow:
     # ── Range / integer validation ─────────────────────────────────────
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("bad_value", [-1, 91, 150])
+    @pytest.mark.parametrize("bad_value", [-1, 0, 91, 150])
     async def test_start_soc_rejects_out_of_range(self, bad_value):
-        """Start writes cap at 90 — pylxpweb's reg-160 definition and its
-        hybrid setter bound (PR #488 review item 3)."""
+        """Start writes cap at 90 (pylxpweb's reg-160 definition, PR #488
+        review item 3) and floor at 1 on off-grid (#570 r4: the CEAA/CCAA
+        firmware writer rejects 0 with exception 03)."""
         coordinator = self._offgrid_coordinator()
         entity = ACChargeStartBatterySOCNumber(coordinator, "1234567890")
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match="between 0-90"):
+        with pytest.raises(HomeAssistantError, match="between 1-90"):
             await entity.async_set_native_value(bad_value)
         coordinator.write_named_parameter.assert_not_awaited()
 
@@ -2848,11 +2855,13 @@ class TestOffgridACChargeSOCWindow:
         assert start.unique_id == "1234567890_ac_charge_start_battery_soc"
         assert end.unique_id == "1234567890_ac_charge_end_battery_soc"
         # Start's WRITE cap is 90 (pylxpweb reg-160 definition); End keeps
-        # the full 0-100 portal range.
+        # the full 0-100 portal range. Start's floor is 1 on this off-grid
+        # scaffold (#570 r4: CEAA/CCAA firmware rejects 0); End keeps 0.
         assert start.native_max_value == 90
         assert end.native_max_value == 100
+        assert start.native_min_value == 1
+        assert end.native_min_value == 0
         for entity in (start, end):
-            assert entity.native_min_value == 0
             assert entity.native_step == 1
             # ENABLED by default: the family's primary AC-charge SOC control
             # (the #331 reporter's automation target).

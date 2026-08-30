@@ -313,7 +313,7 @@ Grades for the **left** column — that these gates, purges and routings exist i
 >
 > | Fact | Grade |
 > |---|---|
-> | With a cloud client, an off-grid family goes cloud-direct: `_prefers_cloud_control` is `is_offgrid_family(...) and has_http_api()` | `verified-against-code` at `e9853eb` — `switch.py` → `EG4QuickChargeSwitch._prefers_cloud_control` |
+> | With a cloud client, off-grid AND unresolved families go cloud-direct: `_prefers_cloud_control` is `not is_positively_non_offgrid_family(...) and has_http_api()` (#570 audit review round 4, this change set — the earlier positive-off-grid-only gate left unresolved families on pylxpweb's local-first path, unsafe on CCAA where the H233 write is silently accepted) | part of the PR #600 change set — `switch.py` → `EG4QuickChargeSwitch._prefers_cloud_control` |
 > | Without a cloud client the switch **fails closed**: only a positively resolved non-off-grid family keeps the local H233 route; off-grid/unresolved entries get an unavailable switch, and a forced service call raises before pylxpweb is reached | `verified-against-code` at `e9853eb` — `switch.py` → `_offgrid_without_cloud` availability gate and `is_positively_non_offgrid_family` |
 > | The firmware basis is lineage-scoped: CEAA rejects the H233 address outright; CCAA implements it but no bit-0 quick-charge consumer was traced — neither lineage has a proven local route | grades owned by the [H233 off-grid access boundary](../40-hardware/registers.md#h233-off-grid-access-boundary) |
 >

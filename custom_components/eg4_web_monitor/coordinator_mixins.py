@@ -1304,14 +1304,20 @@ class DeviceProcessingMixin(_MixinBase):
         """Best-effort local read of holding reg 234 (minutes) for offgrid HYBRID.
 
         The offgrid cloud-status route (#296) bypasses pylxpweb's reg 233+234
-        detail read, but the Quick Charge Duration number mirrors — and its
-        setter writes — reg 234 whenever a local transport is configured. So
-        the register read is kept local here to keep the number's read and
-        write sides pointing at the same truth. Only reg 233 is proven
-        firmware-rejected on the XP; if reg 234 turns out equally unsupported
-        this read fails and returns None, and the number falls back to the
-        stored cloud-start preference (the setter's reg-234 write would then
-        surface its own error).
+        detail read, so the register read is kept local here to let the Quick
+        Charge Duration number MIRROR the live countdown. This read is
+        MIRROR-ONLY: since the #570 audit the number's setter does NOT write
+        reg 234 on off-grid/unresolved families — the live-adjust branch is
+        gated on ``is_positively_non_offgrid_family`` and those families
+        store the start preference instead (see
+        ``QuickChargeDurationNumber.async_set_native_value``). Do NOT
+        "restore" read/write symmetry by pointing the setter back at this
+        register — that reopens the ungated off-grid local write the #570
+        review closed (H234 has no off-grid write evidence; the off-grid
+        rejection evidence is CEAA-scoped and never covered H234 anyway).
+        Only reg 233 is proven firmware-rejected on the CEAA lineage; if reg
+        234 turns out equally unsupported this read fails and returns None,
+        and the number falls back to the stored cloud-start preference.
 
         Skipped while the transport link is down: a raw ``read_parameters``
         on an attached-but-dead link is the multi-minute pymodbus hang class

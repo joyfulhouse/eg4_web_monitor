@@ -634,6 +634,95 @@ class TestSweepExtendedProtectedRouting:
         )
 
     @pytest.mark.asyncio
+    async def test_offgrid_ac_charge_power_capped_at_firmware_10kw(self):
+        """#570 review round 4: the CEAA/CCAA firmware writer rejects raw
+        >100 (10 kW), so off-grid/unresolved families advertise and accept
+        at most 10 kW — 10.0 lands via the cloud writer, 10.1 fails at the
+        entity with a clear error before any writer runs."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = ACChargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        assert entity.native_max_value == 10.0
+
+        await entity.async_set_native_value(10.0)
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_ac_charge_power.assert_awaited_once_with(power_kw=10.0)
+
+        with pytest.raises(HomeAssistantError, match=r"0\.0-10\.0 kW"):
+            await entity.async_set_native_value(10.1)
+        inverter.set_ac_charge_power.assert_awaited_once()  # unchanged
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_ac_charge_power_keeps_15kw_ceiling(self):
+        """Regression guard: the 15 kW ceiling is family-scoped — a
+        positively resolved non-off-grid family keeps it (shipped status
+        quo; no firmware proof narrows it there)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = ACChargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        assert entity.native_max_value == 15.0
+
+        await entity.async_set_native_value(15.0)
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_AC_CHARGE_POWER_CMD", 150, serial=SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_offgrid_ac_charge_start_soc_floor_is_1(self):
+        """#570 review round 4: the CEAA/CCAA firmware writer rejects
+        H160=0 (exception 03), so off-grid/unresolved families accept a
+        minimum of 1 — 1 lands via the cloud holdParam write, 0 fails at
+        the entity before any writer runs."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        assert entity.native_min_value == 1
+
+        await entity.async_set_native_value(1)
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            SERIAL, "HOLD_AC_CHARGE_START_BATTERY_SOC", "1"
+        )
+
+        with pytest.raises(HomeAssistantError, match=r"1-90"):
+            await entity.async_set_native_value(0)
+        coordinator.client.api.control.write_parameter.assert_awaited_once()
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_ac_charge_start_soc_keeps_0_floor(self):
+        """Regression guard: the 0 floor is family-scoped — a positively
+        resolved non-off-grid family keeps it (shipped status quo; the
+        firmware proof of 0's invalidity is CEAA/CCAA-scoped)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = ACChargeStartBatterySOCNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        assert entity.native_min_value == 0
+
+        await entity.async_set_native_value(0)
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_AC_CHARGE_START_BATTERY_SOC", 0, serial=SERIAL
+        )
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("value", [10, 90], ids=["min-10", "max-90"])
     async def test_offgrid_ongrid_soc_cutoff_boundaries_write_cloud(self, value):
         """Review round 2 MED: the entity's advertised range now matches the
@@ -931,6 +1020,62 @@ class TestQuickChargePureLocalOffgrid:
         inverter.enable_quick_charge.assert_not_called()
         inverter.disable_quick_charge.assert_not_called()
         assert switch._pending_state is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "device_data",
+        [
+            dict(OFFGRID_FEATURES),
+            {"features": {"inverter_family": "UNKNOWN"}},
+            {},
+        ],
+        ids=["offgrid", "unknown-family", "no-features"],
+    )
+    async def test_offgrid_or_unresolved_with_cloud_toggles_cloud_direct(
+        self, device_data
+    ):
+        """#570 review round 4: with a cloud client, off-grid AND
+        unresolved families go cloud-direct — pylxpweb's local-first
+        paired H233/H234 write is never invoked. An unresolved family
+        might be a CCAA 6000XP, where the local H233 write is silently
+        ACCEPTED with unproven bit-0 semantics, so 'the fallback works'
+        was never a safety net there (#476 mechanism)."""
+        coordinator = _mock_coordinator(
+            has_http=True, has_local=True, device_data=device_data
+        )
+        switch = EG4QuickChargeSwitch(coordinator, SERIAL)
+        _prep(switch)
+
+        await switch.async_turn_on()
+        await switch.async_turn_off()
+
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.enable_quick_charge.assert_not_called()
+        inverter.disable_quick_charge.assert_not_called()
+        coordinator.client.api.control.start_quick_charge.assert_awaited_once()
+        coordinator.client.api.control.stop_quick_charge.assert_awaited_once_with(
+            SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_with_cloud_keeps_local_first_enable(self):
+        """Regression guard: a positively resolved non-off-grid family keeps
+        pylxpweb's local-first quick-charge methods even with a cloud
+        client configured."""
+        coordinator = _mock_coordinator(
+            has_http=True,
+            has_local=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        switch = EG4QuickChargeSwitch(coordinator, SERIAL)
+        _prep(switch)
+
+        await switch.async_turn_on()
+
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.enable_quick_charge.assert_called_once_with(minute=60)
+        coordinator.client.api.control.start_quick_charge.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_non_offgrid_without_cloud_local_enable_still_runs(self):

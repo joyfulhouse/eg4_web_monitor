@@ -30,7 +30,9 @@ from .base_entity import EG4BaseNumber, optimistic_value_context
 from .const import (
     AC_CHARGE_POWER_MAX,
     AC_CHARGE_POWER_MIN,
+    AC_CHARGE_POWER_OFFGRID_MAX,
     AC_CHARGE_POWER_STEP,
+    AC_CHARGE_START_SOC_OFFGRID_MIN,
     AC_CHARGE_VOLTAGE_MAX,
     AC_CHARGE_VOLTAGE_MIN,
     AC_CHARGE_VOLTAGE_STEP,
@@ -971,20 +973,27 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
 class QuickChargeDurationNumber(RestoreNumber, EG4BaseNumberEntity):
     """Number entity for the Quick Charge duration (start preference + live reg 234).
 
-    While a charge is RUNNING on LOCAL/HYBRID the entity mirrors holding
-    register 234 — the live remaining-minutes countdown — and setting it
-    writes reg 234 to extend/reduce the running charge (e.g. to keep cells
-    balancing).
+    While a charge is RUNNING on LOCAL/HYBRID **on a positively resolved
+    non-off-grid family** the entity mirrors holding register 234 — the
+    live remaining-minutes countdown — and setting it writes reg 234 to
+    extend/reduce the running charge (e.g. to keep cells balancing). The
+    live-adjust path FAILS CLOSED on the family (#570): EG4_OFFGRID and
+    unresolved/UNKNOWN families never write reg 234 locally — no off-grid
+    write evidence exists for H234, and on off-grid the active check is
+    cloud-routed (#296) so no local rejection would gate the write — and
+    instead store the start preference, exactly like a CLOUD entry.
 
     While IDLE (and always on CLOUD, which has no such register) the entity
     shows the per-serial start preference (stored on the coordinator,
     restored across restarts via RestoreNumber), and setting it stores that
     preference. The Quick Charge switch applies it when starting: as the
-    cloud ``minute`` parameter, or on LOCAL/HYBRID as the reg 234 value
-    written together with the reg 233 activation in one contiguous frame
-    (pylxpweb 0.9.38b3 paired-frame start, live-validated on FlexBOSS21
-    2026-07-12 — reg 234 alone is firmware-rejected while idle, #251).
-    Gated identically to the Quick Charge switch.
+    cloud ``minute`` parameter, or — on a resolved non-off-grid family with
+    LOCAL/HYBRID — as the reg 234 value written together with the reg 233
+    activation in one contiguous frame (pylxpweb 0.9.38b3 paired-frame
+    start, live-validated on FlexBOSS21 2026-07-12 — reg 234 alone is
+    firmware-rejected while idle, #251). Created under the same transport
+    gate as the Quick Charge switch; its write routing carries the same
+    fail-closed family polarity.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1198,6 +1207,17 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
     write is CLOUD-ONLY (pure-LOCAL raises a clear error). Positively
     resolved non-off-grid families keep the local-first route. Local READS
     stay on everywhere.
+
+    RANGE (#570 review round 4): the ceiling is family-scoped because the
+    evidence is. The CEAA/CCAA firmware writer rejects raw >100 (10 kW)
+    with exception 03 — firmware-proven — so off-grid AND unresolved
+    families advertise/accept at most 10 kW (fail closed; pylxpweb PR
+    #273 capped the canonical definition the same way). Positively
+    resolved non-off-grid families keep the shipped 15 kW ceiling
+    (DATA_MAPPING's raw/UI examples record 0-150 = 0-15 kW there; no
+    firmware proof either way — revisit if a hybrid image is decoded).
+    The read window tracks the same bound so an over-ceiling value reads
+    unknown instead of tripping HA's out-of-range state error.
     """
 
     def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
@@ -1206,11 +1226,17 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         self._attr_name = "AC Charge Power"
         self._attr_unique_id = self._stable_control_unique_id("ac_charge_power")
         self._attr_native_min_value = AC_CHARGE_POWER_MIN
-        self._attr_native_max_value = AC_CHARGE_POWER_MAX
         self._attr_native_step = AC_CHARGE_POWER_STEP
         self._attr_native_unit_of_measurement = "kW"
         self._attr_icon = "mdi:battery-charging-medium"
         self._attr_native_precision = 1
+
+    @property
+    def native_max_value(self) -> float:
+        """Family-scoped ceiling: 10 kW unless positively non-off-grid."""
+        if is_positively_non_offgrid_family(self._device_data):
+            return AC_CHARGE_POWER_MAX
+        return AC_CHARGE_POWER_OFFGRID_MAX
 
     @property
     def native_value(self) -> float | None:
@@ -1224,27 +1250,29 @@ class ACChargePowerNumber(EG4BaseNumberEntity):
         10x (GH #207: 0.7 kW showed 7 kW). Cloud-only installs read the
         property, which returns cloud-scaled kW.
         """
+        max_kw = self.native_max_value
         if self._params_are_local_raw():
             return self._read_param_value(
                 param_key=PARAM_HOLD_AC_CHARGE_POWER,
                 value_min=0,
-                value_max=15,
+                value_max=max_kw,
                 as_float=True,
                 param_transform=lambda v: float(v) / 10.0,
             )
         return self._read_param_value(
             param_key=PARAM_HOLD_AC_CHARGE_POWER,
             value_min=0,
-            value_max=15,
+            value_max=max_kw,
             inverter_attr="ac_charge_power_limit",
             as_float=True,
         )
 
     async def async_set_native_value(self, value: float) -> None:
         """Set the AC charge power (converts kW to 100W units for register)."""
-        if value < 0.0 or value > 15.0:
+        max_kw = self.native_max_value
+        if value < 0.0 or value > max_kw:
             raise HomeAssistantError(
-                f"AC charge power must be between 0.0-15.0 kW, got {value}"
+                f"AC charge power must be between 0.0-{max_kw:.1f} kW, got {value}"
             )
         await self._write_parameter(
             value,
@@ -1541,9 +1569,18 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
 
     Whole percent, SCALE_NONE on both paths; reg 160 is in pylxpweb's
     transport name map, so local named reads/writes work as-is. Writes cap
-    at 90% (pylxpweb's register definition and hybrid setter bound); reads
-    keep the tolerant 0-100 window so an out-of-spec register value still
-    displays rather than blanking.
+    at 90% (pylxpweb's register definition and hybrid setter bound).
+
+    RANGE FLOOR (#570 review round 4): family-scoped because the evidence
+    is. The CEAA/CCAA firmware writer rejects 0 with exception 03 —
+    firmware-proven — so off-grid AND unresolved families advertise/accept
+    a minimum of 1 (fail closed; pylxpweb PR #273 set the canonical
+    minimum to 1 the same way). Positively resolved non-off-grid families
+    keep the shipped 0 floor (0's semantics there are unverified, but
+    nothing proves it invalid — revisit if a hybrid image is decoded).
+    The read window tracks the same floor so a below-floor register value
+    reads unknown instead of tripping HA's out-of-range state error; the
+    ceiling read window stays the tolerant 100.
 
     WRITE ROUTING (#558): on EG4_OFFGRID the write is CLOUD-ONLY — every
     H160 write proof is CLOUD-path (the #331 holdParam trail, and the
@@ -1567,7 +1604,6 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         self._attr_unique_id = self._stable_control_unique_id(
             "ac_charge_start_battery_soc"
         )
-        self._attr_native_min_value = AC_CHARGE_BATTERY_SOC_MIN
         self._attr_native_max_value = AC_CHARGE_START_BATTERY_SOC_MAX
         self._attr_native_step = AC_CHARGE_BATTERY_SOC_STEP
         self._attr_native_unit_of_measurement = "%"
@@ -1575,11 +1611,18 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         self._attr_native_precision = 0
 
     @property
+    def native_min_value(self) -> float:
+        """Family-scoped floor: 1 unless positively non-off-grid (#570 r4)."""
+        if is_positively_non_offgrid_family(self._device_data):
+            return AC_CHARGE_BATTERY_SOC_MIN
+        return AC_CHARGE_START_SOC_OFFGRID_MIN
+
+    @property
     def native_value(self) -> float | None:
         """Return the SOC that starts AC charging (whole percent, both paths)."""
         return self._read_param_value(
             param_key=PARAM_HOLD_AC_CHARGE_START_BATTERY_SOC,
-            value_min=AC_CHARGE_BATTERY_SOC_MIN,
+            value_min=int(self.native_min_value),
             value_max=AC_CHARGE_BATTERY_SOC_MAX,
             params_first=True,
         )
@@ -1588,7 +1631,7 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
         """Set the SOC that starts AC charging (local named write or cloud)."""
         int_value = _coerce_int_in_range(
             value,
-            min_v=AC_CHARGE_BATTERY_SOC_MIN,
+            min_v=int(self.native_min_value),
             max_v=AC_CHARGE_START_BATTERY_SOC_MAX,
             label="AC charge start battery SOC",
             require_integer=True,

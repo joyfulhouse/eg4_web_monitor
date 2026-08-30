@@ -22,6 +22,13 @@ PV_START_VOLTAGE_STEP = 1
 AC_CHARGE_POWER_MIN = 0.0
 AC_CHARGE_POWER_MAX = 15.0
 AC_CHARGE_POWER_STEP = 0.1
+# Off-grid ceiling for reg 66: the CEAA/CCAA firmware writer rejects raw >100
+# (10 kW) with exception 03 — firmware-proven (#570); pylxpweb PR #273 capped
+# the canonical definition to match. The 15 kW ceiling above is kept ONLY for
+# positively resolved non-off-grid families (shipped status quo, backed by
+# DATA_MAPPING's raw/UI examples 0-150 = 0-15 kW; not firmware-proven there).
+# Unresolved families fail closed to this firmware-proven bound.
+AC_CHARGE_POWER_OFFGRID_MAX = 10.0
 
 # =============================================================================
 # PV Charge Power (kW)
@@ -83,6 +90,13 @@ AC_CHARGE_SOC_LIMIT_STEP = 1
 AC_CHARGE_BATTERY_SOC_MIN = 0
 AC_CHARGE_BATTERY_SOC_MAX = 100
 AC_CHARGE_START_BATTERY_SOC_MAX = 90
+# Off-grid floor for reg 160: the CEAA/CCAA firmware writer rejects 0 with
+# exception 03 — firmware-proven (#570; the sweep deliberately never wrote 0);
+# pylxpweb PR #273 set the canonical minimum to 1 to match. The 0 floor above
+# is kept ONLY for positively resolved non-off-grid families (shipped status
+# quo; 0's semantics there are unverified but nothing proves it invalid).
+# Unresolved families fail closed to this firmware-proven bound.
+AC_CHARGE_START_SOC_OFFGRID_MIN = 1
 AC_CHARGE_BATTERY_SOC_STEP = 1
 
 # AC Couple Start/End SOC window (GH #352): whole-percent thresholds for the

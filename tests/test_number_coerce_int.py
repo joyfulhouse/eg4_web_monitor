@@ -31,7 +31,9 @@ ENTITY_CASES: "Sequence[ParameterSet]" = (
     ),
     pytest.param(
         ACChargeStartBatterySOCNumber,
-        0,
+        # Floor 1 on this family-less (unresolved → fail-closed) scaffold:
+        # the CEAA/CCAA firmware writer rejects H160=0 (#570 review round 4).
+        1,
         # Write cap is 90 (pylxpweb's reg-160 definition, PR #488 item 3).
         90,
         "AC charge start battery SOC",

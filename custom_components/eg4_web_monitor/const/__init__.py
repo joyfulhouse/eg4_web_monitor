@@ -224,6 +224,8 @@ from .device_types import (
 # Number entity limits - extracted to limits.py
 from .limits import (
     AC_CHARGE_POWER_MAX,
+    AC_CHARGE_POWER_OFFGRID_MAX,
+    AC_CHARGE_START_SOC_OFFGRID_MIN,
     AC_CHARGE_POWER_MIN,
     AC_CHARGE_POWER_STEP,
     BATTERY_CURRENT_MAX,
@@ -503,6 +505,8 @@ __all__ = [
     "VOLT_WATT_SENSORS",
     # Number entity limits
     "AC_CHARGE_POWER_MAX",
+    "AC_CHARGE_POWER_OFFGRID_MAX",
+    "AC_CHARGE_START_SOC_OFFGRID_MIN",
     "AC_CHARGE_POWER_MIN",
     "AC_CHARGE_POWER_STEP",
     "BATTERY_CURRENT_MAX",

@@ -481,18 +481,28 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
 
         The EG4_OFFGRID family has no proven local quick-charge route (see
         the lineage-scoped H233 verdicts on ``_offgrid_without_cloud``), so
-        pylxpweb's local-first enable/disable burns a doomed-or-unproven
-        Modbus write + warning on every toggle before falling back to the
-        cloud (#296). Go straight to the cloud start/stop endpoints when a
-        cloud client is configured; other families keep the local-first
-        behavior (register 233 works there).
+        pylxpweb's local-first enable/disable must not run there. FAILS
+        CLOSED (#570 review round 4, extending the tribunal polarity):
+        only a positively resolved non-off-grid family keeps the local
+        route with a cloud client configured — a missing/UNKNOWN family
+        might be a 6000XP, and on the CCAA lineage the local H233 write is
+        ACCEPTED and stored with unproven bit-0 semantics, so "the cloud
+        fallback works" is no safety net: a silently-ACKed write never
+        falls back (#476 mechanism). An earlier revision gated on positive
+        off-grid identification only, which left unresolved families on
+        the local-first path; that predates the CCAA firmware verdict.
+        Resolved non-off-grid families keep the local-first behavior
+        (register 233 works there).
 
-        On a pure-LOCAL off-grid install there is NO working route at all
-        (no proven local H233 route, no cloud client), so the switch is
-        unavailable and toggles raise — see ``available`` and
+        On a cloud-less off-grid/unresolved install there is NO working
+        route at all (no proven local H233 route, no cloud client), so the
+        switch is unavailable and toggles raise — see ``available`` and
         ``_async_set_quick_charge`` (#558).
         """
-        return is_offgrid_family(self._device_data) and self.coordinator.has_http_api()
+        return (
+            not is_positively_non_offgrid_family(self._device_data)
+            and self.coordinator.has_http_api()
+        )
 
     def _offgrid_without_cloud(self) -> bool:
         """True when this device has no known-safe quick-charge route (#558).
@@ -512,9 +522,10 @@ class EG4QuickChargeSwitch(EG4BaseSwitch):
         FAILS CLOSED (tribunal round 1 on #558): a missing/UNKNOWN family
         might be a 12000XP/6000XP, so only a positively resolved
         non-off-grid family keeps the local H233 route on a cloud-less
-        install. With a cloud client the classification is moot — cloud
-        endpoints work on every family, and pylxpweb's local-first attempt
-        (non-off-grid path) has a working fallback.
+        install. With a cloud client, off-grid AND unresolved families go
+        cloud-direct (``_prefers_cloud_control``, #570 review round 4) —
+        "the local-first fallback works" was never a safety net on CCAA,
+        where the H233 write is silently ACCEPTED with unproven semantics.
         """
         return (
             not is_positively_non_offgrid_family(self._device_data)

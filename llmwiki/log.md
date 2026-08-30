@@ -611,3 +611,32 @@ commit `1f39ad1`:
   pre-PR commits. Following the #559 precedent, the affected pages' front matter now
   names the PR #600 branch commit `1f39ad1` for those claims, to be re-pinned to the
   mainline merge SHA at the release cut.
+
+## [2026-08-29] lint | Review round 4 — quick-charge switch fails closed on unresolved families; firmware bounds reach the entities
+
+Corrections from PR #600 adversarial round 4 (Codex 3 MED + 2 LOW, Grok corroborating):
+
+- **Quick Charge switch, unresolved families**: `_prefers_cloud_control` gated on
+  *positive off-grid identification*, so an UNKNOWN/missing family with cloud + local
+  transport still ran pylxpweb's local-first paired H233/H234 write. #569's recorded
+  rationale ("the fallback works") predates the CCAA firmware verdict: on CCAA the H233
+  write is silently ACCEPTED with unproven bit-0 semantics, and a silent ACK never
+  triggers a fallback — the #476 mechanism. The predicate now fails closed
+  (`not is_positively_non_offgrid_family(...) and has_http_api()`); resolved non-off-grid
+  families keep local-first. Keeper H233 boundary row, data-semantics and
+  controls-and-writes §2.4 updated to the new routing.
+- **Firmware-proven bounds now reach the entities, family-scoped because the evidence
+  is**: AC Charge Power (H66) advertises/accepts at most 10 kW on off-grid/unresolved
+  (CEAA/CCAA writer rejects raw >100 — the 15 kW ceiling survives only on positively
+  resolved non-off-grid families, where it is shipped status quo without firmware proof
+  either way); AC Charge Start SOC (H160) floors at 1 on off-grid/unresolved (0 →
+  exception 03 — resolved non-off-grid keeps the shipped 0 floor, unverified but not
+  disproven). Read windows track the same bounds so out-of-window values read unknown
+  instead of tripping HA's out-of-range state error. Boundary tests added both sides.
+- **Docstring falsifications**: the QuickChargeDuration class docstring still described
+  an unqualified LOCAL/HYBRID live reg-234 adjust, and
+  `_read_offgrid_quick_charge_minute` still said the setter "writes reg 234 whenever a
+  local transport is configured" — the exact sentence a future "restore read/write
+  symmetry" fix would cite to reopen the gated write. Both now state the fail-closed
+  family gate explicitly, and the mirror-read helper carries a do-not-restore-symmetry
+  warning naming what the symmetry claim would reopen.
