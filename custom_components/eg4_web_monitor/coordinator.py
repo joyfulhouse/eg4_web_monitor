@@ -532,6 +532,11 @@ class EG4DataUpdateCoordinator(
         # the later window.
         self._parameter_seed_recheck_unsub: dict[str, CALLBACK_TYPE] = {}
         self._parameter_seed_recheck_at: dict[str, float] = {}
+        # One-way latch (round 11): both teardown paths cancel the timers
+        # BEFORE awaiting the base-class teardown, so an in-flight
+        # reconciliation landing during that await could re-arm one; the
+        # latch makes scheduling a no-op once teardown has begun.
+        self._parameter_seed_recheck_closed = False
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -1115,8 +1120,13 @@ class EG4DataUpdateCoordinator(
         Shared by both teardown paths: HA's base ``_async_handle_shutdown``
         does not cancel our timers, so without this a pending recheck could
         fire its targeted refresh after the transports and cloud session
-        were already shut down.
+        were already shut down. Also latches scheduling closed (round 11):
+        the cancel runs before the awaited base-class teardown, so an
+        in-flight reconciliation completing during that await must not
+        re-arm a timer. The latch is one-way — both callers are terminal
+        for this coordinator instance.
         """
+        self._parameter_seed_recheck_closed = True
         for cancel_recheck in self._parameter_seed_recheck_unsub.values():
             cancel_recheck()
         self._parameter_seed_recheck_unsub.clear()
@@ -1244,7 +1254,13 @@ class EG4DataUpdateCoordinator(
         already pending, an earlier-expiring key's disagreement must pull
         the shot forward — otherwise that key's retained seed masks a
         genuine external change until the later window runs out.
+
+        No-op once teardown has begun (round 11): a reconciliation still in
+        flight during the awaited base-class teardown must not re-arm a
+        timer that would refresh against closed transports.
         """
+        if self._parameter_seed_recheck_closed:
+            return
         deadline = max(stamp + PARAMETER_WRITE_SEED_SETTLE, now) + 1.0
         pending_at = self._parameter_seed_recheck_at.get(serial)
         if pending_at is not None:

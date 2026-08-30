@@ -803,3 +803,23 @@ H206 — hybrid-verified deci-kW, pylxpweb#158 — on resolved non-off-grid fami
 cloud-named-parameter-only on off-grid/unresolved). The comment now states the split;
 the "never via the local transport name map" clause survives — that part was and is
 true (the old name map pointed at reg 231). Citations: PR #600 (issue #570).
+
+## [2026-08-29] lint | Review round 11 — teardown latch for the settle recheck; a false name-map rationale corrected against the wheel
+
+Two LOW corrections (Codex gpt-5.6-sol; grok unavailable this round). (1) Both teardown
+paths cancel the settle-recheck timers BEFORE awaiting the base-class teardown and
+`_schedule_seed_settle_recheck` had no shutdown guard, so an in-flight reconciliation
+completing during that await could re-arm a timer whose refresh would then run against
+closed transports/cloud session. `_cancel_seed_settle_rechecks()` now also latches
+scheduling closed one-way (`_parameter_seed_recheck_closed`; both callers are terminal
+for the instance), pinned by a RED-verified test that re-arms mid-`async_shutdown` and
+asserts no timer survives and no refresh fires. (2) `number.py`'s H206 cloud-branch
+seeding comment justified the kW seed unit with "the local name map never carries this
+key" — falsified against the pinned wheel: `constants/registers.py` maps
+`206: ["_12K_HOLD_GRID_PEAK_SHAVING_POWER"]` and the transport decode divides by 10
+(`LOCAL_PARAM_SCALE_DIV10`), so a local read surfaces kW, same as the cloud string. The
+seed VALUE was already correct — kW is what the cache carries on every path — but the
+false rationale could have motivated a "fix" seeding raw deci-kW, a 10× state defect.
+The comment now states the actual mapping/decode and why kW is the invariant unit. No
+wiki page repeated the falsehood (`40-hardware/registers.md` H206 rows already say
+0.1 kW raw); no wiki content change this round. Citations: PR #600 (issue #570).

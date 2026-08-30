@@ -1545,11 +1545,17 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                 )
                 success = bool(result.success)
                 if success:
-                    # #570 r7 convergence: seed the acknowledged value (kW —
-                    # this entity's read representation; the local name map
-                    # never carries this key, so no raw-deci-kW collision)
-                    # so the post-write refresh cannot clear optimism onto
-                    # the stale inverter attribute.
+                    # #570 r7 convergence: seed the acknowledged value in
+                    # kW, the unit the parameter cache carries for this key
+                    # on EVERY path (r11 correction — an earlier revision
+                    # claimed the local name map never carries it, which is
+                    # false): the cloud returns the engineering value in kW,
+                    # and the pinned pylxpweb maps reg 206 to this key with
+                    # a DIV_10 decode (LOCAL_PARAM_SCALE_DIV10), so a local
+                    # read also surfaces kW, not raw deci-kW. Seeding the
+                    # raw deci-kW value here would read back 10x. The seed
+                    # keeps the post-write refresh from clearing optimism
+                    # onto the stale inverter attribute.
                     self.coordinator.note_parameters_written(
                         self.serial,
                         {PARAM_HOLD_GRID_PEAK_SHAVING_POWER: value},

@@ -935,6 +935,46 @@ class TestParameterSeedSettleWindow:
         assert self.SERIAL not in coordinator._parameter_seed_recheck_unsub
         assert self.SERIAL not in coordinator._parameter_seed_recheck_at
 
+    async def test_shutdown_latch_blocks_rearm_during_teardown(
+        self, hass, local_config_entry
+    ):
+        """r11 (Codex LOW): the recheck timers are cancelled BEFORE the
+        awaited teardown, so an in-flight reconciliation completing
+        DURING that await could re-arm one — and later refresh against
+        closed transports/cloud session. The cancel now latches
+        scheduling closed for the rest of the coordinator's life."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        async def _rearm_during_teardown() -> None:
+            # An in-flight post-write read lands mid-teardown (the cloud
+            # session close is the last awaited step of async_shutdown,
+            # well after _cancel_seed_settle_rechecks ran) and disagrees
+            # inside the settle window.
+            coordinator._reconcile_parameter_read(
+                self.SERIAL,
+                {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+                read_complete=True,
+                read_generation=coordinator._parameter_write_generation,
+            )
+
+        with patch.object(
+            coordinator,
+            "_async_close_cloud_session",
+            AsyncMock(side_effect=_rearm_during_teardown),
+        ):
+            await coordinator.async_shutdown()
+
+        # No timer survived the teardown and none can be armed anymore.
+        assert not coordinator._parameter_seed_recheck_unsub
+        assert not coordinator._parameter_seed_recheck_at
+
+        refresh = AsyncMock(return_value=True)
+        with patch.object(coordinator, "async_refresh_device_parameters", refresh):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=120))
+            await hass.async_block_till_done()
+        refresh.assert_not_awaited()
+
 
 class TestStickyParameterCarryForward:
     """A partial parameter read must not blank known values or arm the throttle.
