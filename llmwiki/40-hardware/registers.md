@@ -46,7 +46,7 @@ last-verified: 2026-08-29
 
 # Register ground truth
 
-> **Audited result: 41 of 345 counted current register claims are proven: 33 `firmware-proven` + 8 `hardware-toggle-proven` = 41; 33 + 8 + 169 `portal-correlated` + 135 `lineage-inferred` = 345.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
+> **Audited result: 41 of 346 counted current register claims are proven: 33 `firmware-proven` + 8 `hardware-toggle-proven` = 41; 33 + 8 + 170 `portal-correlated` + 135 `lineage-inferred` = 346.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
@@ -59,12 +59,12 @@ The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.m
 | `firmware-proven` | 33 | yes |
 | `hardware-toggle-proven` | 8 | yes |
 | `app-write-path-proven` | 0 | no |
-| `portal-correlated` | 169 | no |
+| `portal-correlated` | 170 | no |
 | `lineage-inferred` | 135 | no |
 | `inferred` | 0 | no |
 | `verified-against-code` | 0 | no |
 | `asserted-unverified` | 0 | no; candidate rows are excluded |
-| **Current total** | **345** | **41 proven (11.9%)** |
+| **Current total** | **346** | **41 proven (11.8%)** |
 
 The `Claim count` column is the machine-checkable contribution. One separately named semantic is one claim; a U32 low/high pair is one; family-specific meanings are separate; a compound packed-word contract is one claim unless its bits are separately exposed as independent semantics. Structural-only, candidate, unknown, and `asserted-unverified` rows contribute zero. Refuted historic labels are outside the counted ledger. The markers around the ledger allow an `awk -F'|'` sum of column 7 to reproduce every subtotal.
 
@@ -198,6 +198,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H19 | Device-type code | inverter/MID/GridBOSS discovery | `portal-correlated` | current | 1 | Device-type/model table correlation. |
 | H21 | Function-enable bitmap | lineage-wide, feature-gated | `lineage-inferred` | current | 1 | `DATA_MAPPING.md` §3; peak shaving is not located here. |
 | H21 b7 | Stored and readback-visible but **never consumed — inert as the off-grid AC-charge gate**: the ARM→DSP function mapper enumerates bits 1, 4, 6, 9–13, 15, 16, 19, 23, 26, 30, 31 and skips b7; the charge decision combines the H68–H73 schedule evaluator (runtime bit 23) with battery-control mode, never b7 | decoded CEAA/CCAA off-grid images | `firmware-proven` | current | 1 | [`fw-verify-offgrid-writes` verdicts on #570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570#issuecomment-5273044579) (2026-08-12). A negative claim proven by disassembly (legend: negative claims). Confirms the #563 suppression of the off-grid AC Charge switch. Scope: these two lineages' decoded builds only. |
+| H22 | PV start voltage (MPPT activation floor), raw 0.1 V; cloud name `HOLD_START_PV_VOLT` returns/accepts already-scaled volts | supported inverters (shipped `pv_start_voltage` control) | `portal-correlated` | current | 1 | Canonical pylxpweb definition, [`inverter_holding.py` address 22 at `ab87902`](https://github.com/joyfulhouse/pylxpweb/blob/ab87902/src/pylxpweb/registers/inverter_holding.py#L167-L177) (90–500 V engineering bounds); the cloud named read/write route is the shipped verified route ([PR #359](https://github.com/joyfulhouse/eg4_web_monitor/pull/359), `CHANGELOG.md`: cloud read fixed, "its write keeps the verified named-parameter cloud route"). Two sub-claims stay `asserted-unverified`: the pylxpweb definition's note that "reg 22 also carries LSP function bits" (no per-family capture — a strong extra reason local scalar writes stay gated), and the shipped spec comment that firmware rejects values below 140 V with error code 3 (`number.py` `pv_start_voltage` spec; no preserved exchange). No write tuple (raw before/after/restore) and no off-grid write evidence exist; the #570 audit routes off-grid/unresolved writes through the named-volts cloud route only. Row added by the #570 sweep (review round 2 — the register was shipped but unledgered). |
 | H64 | Legacy charge-power-percent command | all | `lineage-inferred` | current | 1 | Canonical holding definition. H64 is not the PV-charge entity target; H74 is `portal-correlated`. |
 | H65 | Discharge power limit, 0-100% | all | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H66 | AC charge power: writable raw 0..100 (≥101 → exception 03) and DSP-propagated, but **no charge-power consumer traceable — semantics NOT verifiable from firmware** | decoded CEAA/CCAA off-grid images | `firmware-proven` | current; semantics unresolved | 1 | [`fw-verify-offgrid-writes` verdicts on #570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570#issuecomment-5273044579) (2026-08-12): writer accepts 0..100 only; staging word terminates in transport/default paths in the stripped DSP image. This proves writability and range, **never** the charge-power semantic — do not upgrade the semantic row below from it. pylxpweb permitted the equivalent of raw 0..150 — conflict filed as [pylxpweb #272](https://github.com/joyfulhouse/pylxpweb/issues/272), fixed by [pylxpweb PR #273](https://github.com/joyfulhouse/pylxpweb/pull/273) (max 10 kW, merged to pylxpweb main after `ab87902`). |
@@ -377,7 +378,7 @@ No raw wire evidence establishes a firmware-level FC16 rejection. The current in
 
 ## Must-not-regress register claims
 
-These historic claims are excluded from the 345-current-claim denominator. `refuted` is a status; **Evidence** grades the disproof.
+These historic claims are excluded from the 346-current-claim denominator. `refuted` is a status; **Evidence** grades the disproof.
 
 | Historic claim | Evidence | Status | Current bounded result | Durable basis |
 |---|---|---|---|---|

@@ -52,9 +52,11 @@ ENTITY_CASES: "Sequence[ParameterSet]" = (
         id="forced-discharge-soc-limit",
     ),
     pytest.param(
+        # 10-90: the canonical H105 range enforced by pylxpweb's definition
+        # and set_battery_soc_limits (#570 review round 2).
         OnGridSOCCutoffNumber,
-        0,
-        100,
+        10,
+        90,
         "On-grid SOC cutoff",
         id="on-grid-soc-cutoff",
     ),

@@ -254,7 +254,7 @@ finding a write the then-current method could not see.
 
 | Blind spot | Why the scan misses it | Worked example |
 |---|---|---|
-| **A coordinator-primitive grep cannot see library-mediated writes** | `base_entity.py` → `_execute_switch_action` resolves a pylxpweb method by name and awaits it. The write happens inside the library; no coordinator primitive is touched | `EG4QuickChargeSwitch` passes the string `"enable_quick_charge"` unless `_prefers_cloud_control()` swaps in a cloud callable — so pure-LOCAL off-grid drives the local H233 path |
+| **A coordinator-primitive grep cannot see library-mediated writes** | `base_entity.py` → `_execute_switch_action` resolves a pylxpweb method by name and awaits it. The write happens inside the library; no coordinator primitive is touched | `EG4QuickChargeSwitch` passes the string `"enable_quick_charge"` unless `_prefers_cloud_control()` swaps in a cloud callable — on a positively resolved non-off-grid family that string drives pylxpweb's local H233 path, invisible to any coordinator grep. (Historically pure-LOCAL off-grid drove that path too — the exposure PR #569 closed with the fail-closed `_offgrid_without_cloud` availability gate; the blind-spot lesson is unchanged) |
 | **An `_execute_switch_action` grep cannot see direct `inverter.<method>()` calls** | Some entities call a device method straight from `async_set_native_value` / `async_select_option`, with neither the router nor the switch-action helper in the chain | `select.py` → `inverter.set_operating_mode(...)`; `number.py` → `inverter.set_grid_peak_shaving_power(power_kw=…)`, which pylxpweb drives **local-first** onto **H206** |
 | **Checking `base.py` cannot see runtime subclass overrides** | Dispatch resolves against the concrete device class, not the base. A base-class reading of a method can be the opposite of what runs | pylxpweb `hybrid.py` → `HybridInverter.enable_pv_sell_to_grid` overrides the base and is explicitly "transport-first" onto register 179 bit 3. **Resolve the actual class before concluding anything** |
 | **Entity-scoped searches cannot see background writes** | Coordinator-owned tasks write with no entity involved, so every entity-first method is blind to them | `coordinator_mixins.py` → `_perform_dst_sync` writes a station setting hourly, enabled by default (`CONF_DST_SYNC` defaults to `True`) |
@@ -367,7 +367,7 @@ direction of travel, and this inventory is where a register waits until then.
 | Working-mode bits | H110 b3 (Share Battery), b4 (Charge Last) | `lineage-inferred` |
 | Battery current + SOC cutoffs | H101, H102, H105, H125 | `lineage-inferred`, always-on block — the most battery-safety-adjacent scalars shipped |
 | Voltage cutoffs | H100, H169 | `lineage-inferred` |
-| No ledger row at all | reg 22 (PV start voltage), H20 (PV input mode) | Not graded anywhere |
+| No ledger row at all | H20 (PV input mode) | Not graded anywhere. (Reg 22 sat here until the #570 sweep's review round added its keeper row, graded `portal-correlated`) |
 | Function word without a per-bit map | H21 b0, b7, b10, b11, b15 | Word graded `lineage-inferred`; b9 is a further candidate |
 | Reached by direct library call | **H206** (grid peak-shaving power) | Keeper grades it `portal-correlated`; pylxpweb drives `set_grid_peak_shaving_power` **local-first**. Found only once direct `inverter.<method>()` calls came into scope |
 

@@ -520,7 +520,7 @@ class TestSweepExtendedProtectedRouting:
     cloud-only: PV charge power (74), battery charge/discharge current
     (101/102), SOC cutoffs (105/125), stop-discharge voltage (202), system
     charge SOC/voltage limits (227/228), cutoff voltages (169/100) and PV
-    start voltage (22 — no ledger row at all).
+    start voltage (22 — `portal-correlated`, cloud named route only).
     """
 
     @pytest.mark.asyncio
@@ -633,6 +633,61 @@ class TestSweepExtendedProtectedRouting:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [10, 90], ids=["min-10", "max-90"])
+    async def test_offgrid_ongrid_soc_cutoff_boundaries_write_cloud(self, value):
+        """Review round 2 MED: the entity's advertised range now matches the
+        canonical H105 range (10-90) that pylxpweb's set_battery_soc_limits
+        enforces — both boundary values pass validation and land via the
+        cloud writer without a ValueError."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = OnGridSOCCutoffNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_battery_soc_limits.assert_awaited_once_with(on_grid_limit=value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [9, 91], ids=["below-min", "above-max"])
+    async def test_offgrid_ongrid_soc_cutoff_out_of_range_raises_clearly(self, value):
+        """Out-of-range values fail at the entity with a clear
+        HomeAssistantError BEFORE any writer runs — never pylxpweb's raw
+        ValueError (the pre-fix off-grid symptom, review round 2 MED)."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = OnGridSOCCutoffNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match=r"10-90"):
+            await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_battery_soc_limits.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [0, 100], ids=["min-0", "max-100"])
+    async def test_offgrid_offgrid_soc_cutoff_full_range_writes_cloud(self, value):
+        """Reg 125 is genuinely 0-100 everywhere (canonical definition and
+        set_battery_soc_limits agree) — the full advertised range passes."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = OffGridSOCCutoffNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_battery_soc_limits.assert_awaited_once_with(off_grid_limit=value)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("spec_key", "value", "register", "raw"),
         [
@@ -660,8 +715,10 @@ class TestSweepExtendedProtectedRouting:
 
     @pytest.mark.asyncio
     async def test_offgrid_pv_start_voltage_goes_cloud_named_volts(self):
-        """Reg 22 (no ledger row at all) routes through its verified cloud
-        route — the named-volts write — and never the local named write."""
+        """Reg 22 (`portal-correlated`, cloud named route only — and the
+        pylxpweb table notes it also carries LSP function bits) routes
+        through its verified cloud route — the named-volts write — and
+        never the local named write."""
         coordinator = _mock_coordinator(
             has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
         )

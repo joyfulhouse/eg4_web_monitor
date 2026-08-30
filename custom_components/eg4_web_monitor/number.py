@@ -116,6 +116,8 @@ from .const import (
     SMART_LOAD_VOLT_MAX,
     SMART_LOAD_VOLT_MIN,
     SMART_LOAD_VOLT_STEP,
+    ONGRID_SOC_CUTOFF_MAX,
+    ONGRID_SOC_CUTOFF_MIN,
     SOC_LIMIT_MAX,
     SOC_LIMIT_MIN,
     SOC_LIMIT_STEP,
@@ -289,22 +291,24 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         route must win (tribunal round 1 on #558).
 
         Passed to ``_write_parameter`` / ``_write_voltage_register`` the
-        reason disables the local write path: local Modbus writes to the
-        protected registers — AC-charge SOC window 160/161 (all #331 write
-        evidence is the cloud holdParam path), AC-charge voltage window
-        158/159 (H158's only write evidence is a cloud-path delta-test,
-        target family unrecorded; H159 has NO write evidence recorded at
-        all), and AC charge power 66 (no write evidence is recorded for
-        H66; its llmwiki ``portal-correlated`` grade rests on read/scaling
-        evidence only) — are
-        hardware-UNVERIFIED on the off-grid family, and a post-write
-        readback is structurally incapable of catching a wrong
-        name→register mapping there, because a wrong-but-writable register
-        is firmware-ACKed and reads back exactly the value written (#476,
-        #558). Matching the #471/#472 precedent for unpinned writes, the
-        write routes through the cloud until a local write is
-        hardware-confirmed; on a pure-LOCAL install the returned reason is
-        raised instead of silently writing an unverified register.
+        reason disables the local write path. Evidence state per the
+        llmwiki keeper after the #570 sweep: every write proof on record
+        is a CLOUD-path proof — the reg 160/161 #331 holdParam trail, and
+        the 2026-08-13 cloud named toggle/restore sweep that made
+        H158/H159/H160 ``hardware-toggle-proven`` on the tested
+        FlexBOSS21/18kPV hybrids; H66 is firmware-proven WRITABLE (raw
+        0..100) on the CEAA/CCAA images but its charge-power semantics
+        are not verifiable, and no write tuple exists for it at all. What
+        NO register in the set has is a local off-grid delta-test —
+        LOCAL Modbus writes remain hardware-UNVERIFIED on the off-grid
+        family, and a post-write readback is structurally incapable of
+        catching a wrong name→register mapping there, because a
+        wrong-but-writable register is firmware-ACKed and reads back
+        exactly the value written (#476, #558). Matching the #471/#472
+        precedent for unpinned writes, the write routes through the cloud
+        until a local write is hardware-confirmed; on a pure-LOCAL
+        install the returned reason is raised instead of silently writing
+        an unverified register.
 
         HOW THE PROTECTED SET WAS DERIVED — and its blind spots.
         Criterion (unchanged since the #558 tribunal): a register is
@@ -321,7 +325,9 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         charge power 74, battery charge/discharge current 101/102,
         on-/off-grid SOC cutoffs 105/125, stop-discharge voltage 202,
         system charge SOC/voltage limits 227/228, cutoff voltages
-        169/100, and PV start voltage 22 (no ledger row at all). The
+        169/100, and PV start voltage 22 (``portal-correlated``, with a
+        pylxpweb table note that reg 22 also carries LSP function bits —
+        an extra reason a scalar local write must stay gated). The
         firmware verification recorded on #570 proves H158–H161 are
         correctly MAPPED on the CEAA/CCAA off-grid images, which
         discharges the wrong-address risk there but is deliberately NOT
@@ -2688,7 +2694,17 @@ class StopDischargeVoltageNumber(EG4BaseNumberEntity):
 
 
 class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
-    """Number entity for On-Grid SOC Cut-Off control."""
+    """Number entity for On-Grid SOC Cut-Off control.
+
+    Range 10-90%: the canonical H105 definition (pylxpweb
+    ``inverter_holding.py`` address 105, min 10 / max 90) and the cloud
+    writer ``set_battery_soc_limits`` (ValueError outside 10..90) both
+    enforce it. The entity previously advertised 0-100, which the #570
+    cloud-only routing turned into a user-visible ValueError on off-grid
+    entries for 0-9/91-100 (review round 2 MED) — the entity was the
+    outlier, so its advertised range now matches the writers. H125
+    (off-grid cutoff) is 0-100 everywhere and keeps SOC_LIMIT_*.
+    """
 
     _control_key = "on_grid_soc_cutoff"
 
@@ -2697,8 +2713,8 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         super().__init__(coordinator, serial)
         self._attr_name = "On-Grid SOC Cut-Off"
         self._attr_unique_id = self._stable_control_unique_id("on_grid_soc_cutoff")
-        self._attr_native_min_value = SOC_LIMIT_MIN
-        self._attr_native_max_value = SOC_LIMIT_MAX
+        self._attr_native_min_value = ONGRID_SOC_CUTOFF_MIN
+        self._attr_native_max_value = ONGRID_SOC_CUTOFF_MAX
         self._attr_native_step = SOC_LIMIT_STEP
         self._attr_native_unit_of_measurement = "%"
         self._attr_icon = "mdi:battery-alert"
@@ -2706,21 +2722,26 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return the current on-grid SOC cutoff (reads from battery_soc_limits dict)."""
+        """Return the current on-grid SOC cutoff (reads from battery_soc_limits dict).
+
+        The plausibility window matches the advertised 10-90 range: a value
+        outside it reads as unknown rather than tripping HA's out-of-range
+        state error on the tightened bounds.
+        """
         return self._read_param_value(
             param_key="HOLD_DISCHG_CUT_OFF_SOC_EOD",
-            value_min=0,
-            value_max=100,
+            value_min=ONGRID_SOC_CUTOFF_MIN,
+            value_max=ONGRID_SOC_CUTOFF_MAX,
             inverter_dict_attr="battery_soc_limits",
             inverter_dict_key="on_grid_limit",
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the on-grid SOC cutoff."""
+        """Set the on-grid SOC cutoff (10-90%, the canonical H105 range)."""
         int_value = _coerce_int_in_range(
             value,
-            min_v=0,
-            max_v=100,
+            min_v=ONGRID_SOC_CUTOFF_MIN,
+            max_v=ONGRID_SOC_CUTOFF_MAX,
             label="On-grid SOC cutoff",
             require_integer=True,
         )
@@ -3103,8 +3124,9 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         cloud_write_volts_named=True,
         # Integer state ("140"), matching the retired dedicated class.
         read_as_float=False,
-        # #570 sweep: register 22 has NO llmwiki ledger row at all — the
-        # weakest evidence class shipped — so EG4_OFFGRID/unresolved
+        # #570 sweep: H22 is `portal-correlated` (cloud named route only;
+        # no write tuple), and pylxpweb's canonical table notes reg 22
+        # also carries LSP function bits — so EG4_OFFGRID/unresolved
         # routes through the verified named-volts cloud write only (#558).
         offgrid_local_write_unverified=True,
     ),

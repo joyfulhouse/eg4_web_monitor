@@ -223,15 +223,17 @@ that is what a reader must not assume.
 |---|---|---|
 | Bypass site | `number.py:1004` | `number.py:2279` |
 | Primitive | `coordinator.write_named_parameter` (H234) | `coordinator.write_raw_parameter` (**raw H117**) |
-| Why not the router | There is no cloud equivalent of the live H234 write: on CLOUD the value is stored as a start *preference*, not written. A firmware-rejected lone idle write is guarded by a live enable-bit read first (#251) | LOCAL/HYBRID only by construction — H117 has no cloud parameter name, so there is no `cloud_write` to fall back to |
+| Why not the router | There is no cloud equivalent of the live H234 write: on CLOUD the value is stored as a start *preference*, not written. A firmware-rejected lone idle write is guarded by a live enable-bit read first (#251). Since the #570 audit the whole live-adjust branch is additionally gated on `is_positively_non_offgrid_family` — off-grid/unresolved families never reach it (the live check is cloud-routed there per #296, so nothing local would have rejected the write) and store the start preference instead, the CLOUD-branch behavior | LOCAL/HYBRID only by construction — H117 has no cloud parameter name, so there is no `cloud_write` to fall back to |
 | **Loses: cloud fallback** | n/a — no cloud write exists | n/a — no cloud write exists |
 | **Loses: link-down short-circuit** | Yes. `has_local_transport()` stays `True` through an outage, so a known-down link is not detected and the write waits out the Modbus timeout | Yes, same |
 | **Loses: `local_values` cache seeding** | Yes — it hand-seeds `quick_charge_status` instead, a different cache | Yes — nothing is seeded |
 | **Loses: optimistic envelope** | Yes — no `optimistic_value_context`; it writes, seeds, then calls `async_write_ha_state()` directly, so §5's retention and TTL escape do not apply | No — it runs inside `optimistic_value_context`, so retention applies |
-| Error contract | Raises `HomeAssistantError` when the live state read returns `None`, rather than the router's no-path error | Raises `HomeAssistantError` naming the missing cloud path when no local transport is attached |
+| Error contract | On a positively resolved non-off-grid family: raises `HomeAssistantError` when the live state read returns `None`, rather than the router's no-path error. Off-grid/unresolved families never call the live check — they take the preference-store branch silently, exactly like a CLOUD-mode entry (#570) | Raises `HomeAssistantError` naming the missing cloud path when no local transport is attached |
 
 Whole table: `verified-against-code` — `number.py` → `QuickChargeDurationNumber.async_set_native_value`
-and `StartChargePowerNumber.async_set_native_value` at `9f6d6e2`.
+and `StartChargePowerNumber.async_set_native_value` at `9f6d6e2`, except the
+`QuickChargeDurationNumber` family-gate rows, which are part of the #570 audit change set
+(pin in the front matter).
 
 > **H117 is the one to watch.** It is written **raw**, and the keeper grades the mapping
 > `asserted-unverified`, status **unresolved**, with "no cloud name or validated behavior"

@@ -55,6 +55,15 @@ SOC_LIMIT_MIN = 0
 SOC_LIMIT_MAX = 100
 SOC_LIMIT_STEP = 1
 
+# On-grid discharge cutoff (reg 105). Narrower than the shared SOC_LIMIT_*:
+# the canonical H105 definition (pylxpweb inverter_holding.py, address 105)
+# and the cloud writer set_battery_soc_limits both enforce 10-90%, so the
+# entity must advertise the same range or off-grid cloud-only routes surface
+# a raw ValueError at the boundaries (#570 review round 2). The off-grid
+# cutoff (reg 125) is genuinely 0-100 and keeps SOC_LIMIT_*.
+ONGRID_SOC_CUTOFF_MIN = 10
+ONGRID_SOC_CUTOFF_MAX = 90
+
 # AC Charge SOC Limit (reg 67). Separate from the shared SOC_LIMIT_* (used by
 # the on-grid/off-grid discharge cutoffs) because the inverter accepts 101% =
 # "never stop AC charging" (the stop threshold is unreachable since SOC <= 100),
