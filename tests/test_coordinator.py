@@ -10200,25 +10200,51 @@ class TestFirmwarePollCarryForward:
         # The swallowed exceptions never marked the coordinator failed.
         assert coordinator.last_update_success is True
 
-    async def test_first_failure_on_fresh_boot_carries_forward(
+    async def test_long_uptime_first_failure_carries_forward_then_expires(
         self, hass, mock_config_entry
     ):
-        """d66cc92 fresh-boot class: monotonic is host uptime on Linux.
+        """#573's 0.0 never-ran hazard, pinned at LONG uptime (d66cc92 class).
 
-        With monotonic barely past boot, the first-ever failed poll must
-        anchor the window at that failure and carry the cached active row
-        forward — a 0.0 "never ran" default would read as window-expired
-        and blank the cached state immediately, regressing #353.
+        monotonic() is host uptime on Linux. If the None "never ran"
+        sentinel (missing dict key in ``_firmware_poll_fresh_at``) were
+        swapped for a 0.0 default, a long-running host (monotonic ~ 1e6)
+        whose FIRST-EVER firmware poll fails would compute
+        ``now - 0.0 >> window`` and instantly expire an active cached row
+        that was never successfully polled — regressing #353. Adjudicated
+        behavior: a failure with no recorded stamp anchors the window AT
+        that failure and carries the cached row forward.
+
+        A fresh-boot monotonic (e.g. 1.0) cannot pin this — ``1.0 - 0.0``
+        is inside the window, so a 0.0-default implementation passes it.
+        The large uptime below goes RED under a 0.0 default (verified by
+        mutation), and the final step goes RED if freshness-bounded expiry
+        is reverted entirely; this test subsumes the fresh-boot case.
         """
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         device = self._cached_updating_device()
+        window = coordinator._firmware_poll_staleness_window()
 
         with patch(
             "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
         ) as monotonic:
-            monotonic.return_value = 1.0
+            # First-ever poll fails at large uptime: must carry forward,
+            # not instantly expire.
+            monotonic.return_value = 1_000_000.0
             result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 42
 
-        assert result is not None
-        assert result["in_progress"] is True
-        assert result["update_percentage"] == 42
+            # Still inside the window measured from that first failure.
+            monotonic.return_value = 1_000_000.0 + window - 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 42
+
+            # The first failure was the anchor: past the window it expires.
+            monotonic.return_value = 1_000_000.0 + window + 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
