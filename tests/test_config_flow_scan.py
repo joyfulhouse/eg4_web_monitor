@@ -348,7 +348,7 @@ class TestDiscoveryModelInfo:
 
         On MID devices input registers 112-113 hold the
         ac_couple3_energy_total_l1 lifetime counter; decoding it as
-        parallel config fabricates a slave role once the counter
+        parallel config fabricates a parallel role once the counter
         exceeds 6553.6 kWh. GridBOSS must report standalone defaults.
         """
         from custom_components.eg4_web_monitor._config_flow.discovery import (
@@ -356,7 +356,8 @@ class TestDiscoveryModelInfo:
         )
 
         transport = self._make_transport(device_type_code=50, power_rating=0)
-        # Energy counter high word nonzero — would decode as role=slave.
+        # Energy counter high word nonzero — would decode as role=master
+        # (0x0001 & 0x03 = 1).
         transport.read_parallel_config = AsyncMock(return_value=0x0001)
         device = await _read_device_info_from_transport(transport, "5012345678")
 
