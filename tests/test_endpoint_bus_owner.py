@@ -963,13 +963,24 @@ async def test_ha_registry_retries_failed_unload_after_coordinator_disposal() ->
         EG4DataUpdateCoordinator._prune_bus_capability_tracking(coordinator)
     )
 
-    with pytest.raises(ExceptionGroup, match="Endpoint shutdown failures"):
-        await EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
+    # Terminal shutdown failures are contained (codex round-1 MED): the real
+    # unload caller (async_unload_entry -> coordinator.async_shutdown) runs
+    # bare, so a raise here would skip listener removal, background-task
+    # cancellation, and the HTTP-client close.  The failed capability is
+    # FORCE-RELEASED (codex round-3 MED): after unload nothing re-drives the
+    # registry retry, so retention would leak the tombstoned owner and raw
+    # transport in the HA-scoped registry indefinitely.
+    await EG4DataUpdateCoordinator._disconnect_all_transports(coordinator)
+    assert capability not in registry._failed_shutdown_capabilities
+    assert registry.owner_count == 0
+    assert registry.tombstone_count == 0
     del coordinator
 
-    with pytest.raises(EndpointOwnerClosingError):
-        registry.create_capability(_config("SYNTH00002"))
+    # No tombstone blocks a later setup on the same endpoint; the retained
+    # retry is an idle no-op.
+    replacement = registry.create_capability(_config("SYNTH00002"))
     await registry.async_retry_failed_shutdowns((config,))
+    await replacement.async_shutdown()
 
     assert attempts == 2
     assert registry.owner_count == 0

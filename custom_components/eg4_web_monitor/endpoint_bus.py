@@ -5,16 +5,39 @@ from __future__ import annotations
 import asyncio
 from builtins import BaseExceptionGroup
 from collections.abc import AsyncIterator, Callable, Collection, Coroutine
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from enum import StrEnum
+import logging
+import time
 from typing import Any, Protocol, cast
+from uuid import uuid4
 
-from pylxpweb.transports import create_transport_from_config
+from pylxpweb.transports import (
+    RegisterObservation,
+    RegisterObserver,
+    RegisterObserverControl,
+    RegisterSegment,
+    RegisterSpace,
+    create_transport_from_config,
+)
 from pylxpweb.transports.capabilities import TransportCapabilities
 from pylxpweb.transports.config import TransportConfig, TransportType
 
 from .bus_eligibility import LocalBusProvenance
+from .raw_snapshot import (
+    CrcValidationState,
+    FreshnessPolicy,
+    LatestCompleteRawSnapshotStore,
+    RawRegisterBlock,
+    RawSnapshotFrame,
+    SnapshotHealth,
+    SnapshotMetrics,
+    SnapshotValidationState,
+)
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class EndpointOwnerClosingError(RuntimeError):
@@ -69,6 +92,7 @@ class _RawLocalTransport(Protocol):
     split_phase: bool
     pv_string_count: int
     is_midbox_device: bool
+    register_observation_error_count: int
 
     async def connect(self) -> None: ...
 
@@ -98,11 +122,16 @@ class _RawLocalTransport(Protocol):
 
     async def read_midbox_runtime(self) -> Any: ...
 
+    def set_register_observer(self, observer: RegisterObserver | None) -> None: ...
+
 
 RawTransportFactory = Callable[[TransportConfig], _RawLocalTransport]
 ENDPOINT_BUS_REGISTRY_DATA = "eg4_web_monitor_endpoint_bus_registry"
 MAX_ENDPOINT_WAITERS = 64
 ENDPOINT_ACQUIRE_TIMEOUT_SECONDS = 10.0
+MAX_SNAPSHOT_STAGED_INVOCATIONS = 256
+MAX_SNAPSHOT_STAGED_BLOCKS = 256
+MAX_SNAPSHOT_STAGED_WORDS = 16_384
 
 
 async def _await_settled(
@@ -214,6 +243,48 @@ class _TaskReentrantGate:
 class _CapabilityRecord:
     raw: _RawLocalTransport
     closing: bool = False
+    snapshot_state: _UnitSnapshotState | None = None
+    snapshot_observer_capable: bool = False
+    snapshot_direct_eligible: bool = False
+    snapshot_enabled: bool = False
+    snapshot_detach_pending: bool = False
+    snapshot_poll_interval_seconds: float = 5.0
+    unit: int = 0
+    firmware_scope: str | None = None
+
+
+@dataclass(slots=True)
+class _UnitSnapshotState:
+    """The one retained latest-complete store for an endpoint/unit."""
+
+    store: LatestCompleteRawSnapshotStore
+    poll_cycle: int = 0
+    active_attempt: _SnapshotAttempt | None = None
+
+
+@dataclass(slots=True)
+class _SnapshotAttempt:
+    """Bounded mutable state visible only during one owner refresh."""
+
+    identity: int
+    started: float
+    observer_errors_before: int
+    invocations: dict[int, bool | None]
+    observed: dict[int, list[RegisterObservation]]
+    ended: float | None = None
+    aborted: bool = False
+    overflow: bool = False
+    invalid: bool = False
+    staged_blocks: int = 0
+    staged_words: int = 0
+
+
+_SNAPSHOT_REFRESH_CONTEXT: ContextVar[tuple[int, int, int] | None] = ContextVar(
+    "eg4_snapshot_refresh", default=None
+)
+_SNAPSHOT_READ_CONTEXT: ContextVar[int | None] = ContextVar(
+    "eg4_snapshot_read", default=None
+)
 
 
 class _EndpointBusOwner:
@@ -232,15 +303,391 @@ class _EndpointBusOwner:
         self._records: dict[int, _CapabilityRecord] = {}
         self._next_token = 0
         self._wire_tasks: dict[asyncio.Task[Any], int] = {}
+        self._epoch = uuid4()
+        self._snapshot_states: dict[int, _UnitSnapshotState] = {}
+        # Generation is allocated owner-globally once per successful
+        # publication so (owner_epoch, generation) never repeats within this
+        # epoch; per-unit poll cycles continue past the retired high-water
+        # mark so replacement unit states never reuse a retired identity.
+        self._snapshot_generation = 0
+        self._snapshot_poll_cycle_floor = 0
 
-    def add(self, raw: _RawLocalTransport) -> EndpointBusCapability:
+    def _snapshot_state_for(
+        self, unit: int, poll_interval_seconds: float
+    ) -> _UnitSnapshotState:
+        """Return the one retained latest-complete store for an endpoint/unit."""
+        state = self._snapshot_states.get(unit)
+        if state is None:
+            state = _UnitSnapshotState(
+                LatestCompleteRawSnapshotStore(
+                    freshness_policy=FreshnessPolicy.from_poll_interval(
+                        poll_interval_seconds
+                    )
+                ),
+                poll_cycle=self._snapshot_poll_cycle_floor,
+            )
+            self._snapshot_states[unit] = state
+        return state
+
+    def add(
+        self,
+        raw: _RawLocalTransport,
+        *,
+        snapshot_enabled: bool,
+        snapshot_direct_eligible: bool,
+        poll_interval_seconds: float,
+        unit: int,
+    ) -> EndpointBusCapability:
         """Retain a raw transport and issue its only public capability."""
         if self._state is not _OwnerState.OPEN:
             raise EndpointOwnerClosingError("Endpoint owner is closing")
         self._next_token += 1
         token = self._next_token
-        self._records[token] = _CapabilityRecord(raw)
+        observer_capable = isinstance(raw, RegisterObserverControl)
+        enabled = snapshot_enabled and snapshot_direct_eligible and observer_capable
+        snapshot_state = (
+            self._snapshot_state_for(unit, poll_interval_seconds) if enabled else None
+        )
+        record = _CapabilityRecord(
+            raw,
+            snapshot_state=snapshot_state,
+            snapshot_observer_capable=observer_capable,
+            snapshot_direct_eligible=snapshot_direct_eligible,
+            snapshot_enabled=enabled,
+            snapshot_poll_interval_seconds=poll_interval_seconds,
+            unit=unit,
+        )
+        if enabled:
+            self._attach_snapshot_observer(token, record)
+        self._records[token] = record
         return EndpointBusCapability(self, token, raw.serial)
+
+    def _attach_snapshot_observer(self, token: int, record: _CapabilityRecord) -> None:
+        """Attach the owner observation callback through the public control seam.
+
+        The attach is transactional: a rejected attach releases the record's
+        uncommitted snapshot state before the failure propagates.
+        """
+        try:
+            record.raw.set_register_observer(
+                lambda observations: self.observe(token, observations)
+            )
+        except Exception:
+            self._release_uncommitted_snapshot_state(record)
+            raise
+        record.snapshot_detach_pending = True
+
+    def _release_uncommitted_snapshot_state(self, record: _CapabilityRecord) -> None:
+        """Drop the unit state retained for a record that was never committed."""
+        state = record.snapshot_state
+        record.snapshot_state = None
+        if state is None:
+            return
+        if not any(
+            candidate.snapshot_state is state for candidate in self._records.values()
+        ):
+            self._snapshot_states.pop(record.unit, None)
+
+    @staticmethod
+    def _detach_snapshot_observer(record: _CapabilityRecord) -> None:
+        """Restore the truly unobserved polling path through the public seam.
+
+        A rejected detach leaves the pending marker set so closing-state
+        retries attempt the detach again instead of dropping it.
+        """
+        if record.snapshot_detach_pending:
+            record.raw.set_register_observer(None)
+            record.snapshot_detach_pending = False
+
+    @staticmethod
+    def _valid_observations(observations: object) -> bool:
+        if type(observations) is not tuple or not observations:
+            return False
+        for observation in observations:
+            if (
+                type(observation) is not RegisterObservation
+                or type(observation.register_space) is not RegisterSpace
+                or type(observation.segments) is not tuple
+                or not observation.segments
+            ):
+                return False
+            previous_end = -1
+            for segment in observation.segments:
+                if (
+                    type(segment) is not RegisterSegment
+                    or type(segment.start_address) is not int
+                    or segment.start_address < 0
+                    or type(segment.words) is not tuple
+                    or not segment.words
+                    or segment.start_address < previous_end
+                    or segment.start_address + len(segment.words) > 0x10000
+                    or any(
+                        type(word) is not int or not 0 <= word <= 0xFFFF
+                        for word in segment.words
+                    )
+                ):
+                    return False
+                previous_end = segment.start_address + len(segment.words)
+        return True
+
+    def observe(
+        self, token: int, observations: tuple[RegisterObservation, ...]
+    ) -> None:
+        """Stage one released observer callback for its exact public read."""
+        record = self._records.get(token)
+        context = _SNAPSHOT_REFRESH_CONTEXT.get()
+        invocation = _SNAPSHOT_READ_CONTEXT.get()
+        state = record.snapshot_state if record is not None else None
+        attempt = state.active_attempt if state is not None else None
+        if (
+            record is None
+            or attempt is None
+            or context != (id(self), token, attempt.identity)
+            or invocation is None
+            or invocation not in attempt.invocations
+        ):
+            return
+        if not self._valid_observations(observations):
+            attempt.invalid = True
+            attempt.observed.clear()
+            attempt.staged_blocks = 0
+            attempt.staged_words = 0
+            return
+        block_count = sum(len(observation.segments) for observation in observations)
+        word_count = sum(
+            len(segment.words)
+            for observation in observations
+            for segment in observation.segments
+        )
+        if (
+            attempt.staged_blocks + block_count > MAX_SNAPSHOT_STAGED_BLOCKS
+            or attempt.staged_words + word_count > MAX_SNAPSHOT_STAGED_WORDS
+        ):
+            attempt.overflow = True
+            attempt.observed.clear()
+            attempt.staged_blocks = 0
+            attempt.staged_words = 0
+            return
+        attempt.staged_blocks += block_count
+        attempt.staged_words += word_count
+        attempt.observed.setdefault(invocation, []).extend(observations)
+        attempt.ended = time.monotonic()
+
+    @asynccontextmanager
+    async def snapshot_refresh(self, token: int) -> AsyncIterator[None]:
+        """Bracket one coordinator refresh and publish only its complete reads."""
+        record = self._open_record(token)
+        if not record.snapshot_enabled or record.snapshot_state is None:
+            yield
+            return
+        state = record.snapshot_state
+        if state.active_attempt is not None:
+            raise RuntimeError("A snapshot refresh is already active")
+        state.poll_cycle += 1
+        attempt = _SnapshotAttempt(
+            identity=state.poll_cycle,
+            started=time.monotonic(),
+            observer_errors_before=int(
+                getattr(record.raw, "register_observation_error_count", 0)
+            ),
+            invocations={},
+            observed={},
+        )
+        state.active_attempt = attempt
+        context_token = _SNAPSHOT_REFRESH_CONTEXT.set(
+            (id(self), token, attempt.identity)
+        )
+        succeeded = False
+        try:
+            yield
+            succeeded = True
+        finally:
+            _SNAPSHOT_REFRESH_CONTEXT.reset(context_token)
+            try:
+                self._finish_snapshot_refresh(record, attempt, succeeded=succeeded)
+            except Exception:
+                if record.snapshot_state is state and record.snapshot_enabled:
+                    state.store.suppress_incomplete(observer_error=True)
+
+    def _finish_snapshot_refresh(
+        self,
+        record: _CapabilityRecord,
+        attempt: _SnapshotAttempt,
+        *,
+        succeeded: bool,
+    ) -> None:
+        state = record.snapshot_state
+        if state is None or state.active_attempt is not attempt:
+            return
+        state.active_attempt = None
+        if not record.snapshot_enabled:
+            return
+        store = state.store
+        observer_errors_after = int(
+            getattr(record.raw, "register_observation_error_count", 0)
+        )
+        observer_error = observer_errors_after != attempt.observer_errors_before
+        # EVERY completed invocation must have contributed observations
+        # ("every invoked read contributed", issue #583).  Emission is what
+        # distinguishes the pinned wheel's two read_battery None paths
+        # (pylxpweb 0.10.0b4 ``_register_data.read_battery``): the
+        # battery-less SUCCESS path reads real registers, notifies the
+        # observer, then returns None — it contributed and publishes; the
+        # swallowed-failure (BMS timeout/short) path returns None BEFORE the
+        # notify — zero observations, a degraded cycle, suppress.  Result
+        # values cannot make that distinction (kimi round-1 HIGH fixed the
+        # false suppression of the first path; codex round-2 HIGH fixed the
+        # false publication of the second).  Every capability read method
+        # notifies on success in the wheel, so no other read can complete
+        # unobserved.
+        complete = (
+            succeeded
+            and bool(attempt.invocations)
+            and None not in attempt.invocations.values()
+            and set(attempt.observed) == set(attempt.invocations)
+            and all(attempt.observed.values())
+            and not observer_error
+            and not attempt.aborted
+            and not attempt.overflow
+            and not attempt.invalid
+            and attempt.ended is not None
+        )
+        if not complete:
+            store.suppress_incomplete(observer_error=observer_error or attempt.invalid)
+            return
+
+        ended = attempt.ended
+        assert ended is not None
+        # Allocate the owner-global generation exactly once per successful
+        # publication; sibling units share the sequence, so per-unit
+        # generations may gap and never repeat within this owner epoch.
+        self._snapshot_generation += 1
+        generation = self._snapshot_generation
+        family = getattr(record.raw, "inverter_family", None)
+        family_scope = getattr(family, "value", family)
+        crc_state = (
+            CrcValidationState.VALID
+            if record.raw.transport_type == TransportType.MODBUS_SERIAL.value
+            else CrcValidationState.NOT_APPLICABLE
+        )
+        blocks = tuple(
+            RawRegisterBlock(
+                endpoint_key=f"owner-{self._identity}",
+                unit=record.unit,
+                family_scope=str(family_scope) if family_scope is not None else None,
+                firmware_scope=record.firmware_scope,
+                register_space=observation.register_space,
+                start_address=segment.start_address,
+                count=len(segment.words),
+                words=segment.words,
+                owner_epoch=self._epoch,
+                generation=generation,
+                poll_cycle=state.poll_cycle,
+                acquired_monotonic_start=attempt.started,
+                acquired_monotonic_end=ended,
+                validation_state=SnapshotValidationState.VALID,
+                crc_state=crc_state,
+            )
+            for invocation in sorted(attempt.observed)
+            for observation in attempt.observed[invocation]
+            for segment in observation.segments
+        )
+        if not blocks:
+            store.suppress_incomplete()
+            return
+        store.publish(
+            RawSnapshotFrame(
+                owner_epoch=self._epoch,
+                generation=generation,
+                poll_cycle=state.poll_cycle,
+                acquired_monotonic_start=attempt.started,
+                acquired_monotonic_end=ended,
+                blocks=blocks,
+            )
+        )
+
+    def latest_complete(self, token: int) -> RawSnapshotFrame | None:
+        record = self._open_record(token)
+        if not record.snapshot_enabled or record.snapshot_state is None:
+            return None
+        return record.snapshot_state.store.latest_complete
+
+    def snapshot_health(self, token: int) -> SnapshotHealth:
+        record = self._open_record(token)
+        if record.snapshot_state is None:
+            return SnapshotHealth(0, 0)
+        return record.snapshot_state.store.health
+
+    def snapshot_freshness_policy(self, token: int) -> FreshnessPolicy:
+        record = self._open_record(token)
+        if record.snapshot_state is None:
+            return FreshnessPolicy.from_poll_interval(5.0)
+        return record.snapshot_state.store.freshness_policy
+
+    def latest_fresh(
+        self, token: int, *, monotonic_now: float | None = None
+    ) -> RawSnapshotFrame | None:
+        record = self._open_record(token)
+        if not record.snapshot_enabled or record.snapshot_state is None:
+            return None
+        return record.snapshot_state.store.latest_fresh(monotonic_now=monotonic_now)
+
+    def snapshot_metrics(
+        self, token: int, *, monotonic_now: float | None = None
+    ) -> SnapshotMetrics:
+        record = self._open_record(token)
+        if record.snapshot_state is None:
+            return SnapshotMetrics(None, False, 0, 0)
+        return record.snapshot_state.store.metrics(monotonic_now=monotonic_now)
+
+    def abort_snapshot_refresh(self, token: int) -> None:
+        record = self._records.get(token)
+        state = record.snapshot_state if record is not None else None
+        if state is not None and state.active_attempt is not None:
+            state.active_attempt.aborted = True
+
+    def _remove_snapshot_state(self, record: _CapabilityRecord) -> None:
+        """Quarantine local state before the best-effort observer detach."""
+        state = record.snapshot_state
+        record.snapshot_state = None
+        if state is not None:
+            if state.active_attempt is not None:
+                state.store.suppress_incomplete()
+                state.active_attempt = None
+            if not any(
+                candidate.snapshot_state is state
+                for candidate in self._records.values()
+            ):
+                state.store.clear()
+                self._snapshot_states.pop(record.unit, None)
+                # Frame identity must never repeat within this owner epoch, so
+                # replacement states continue past this high-water mark.
+                self._snapshot_poll_cycle_floor = max(
+                    self._snapshot_poll_cycle_floor,
+                    state.poll_cycle,
+                )
+        self._detach_snapshot_observer(record)
+
+    def set_snapshot_coverage(self, token: int, *, enabled: bool) -> None:
+        record = self._records.get(token)
+        if record is None or record.closing:
+            return
+        should_enable = (
+            enabled
+            and record.snapshot_observer_capable
+            and record.snapshot_direct_eligible
+        )
+        if not should_enable:
+            record.snapshot_enabled = False
+            self._remove_snapshot_state(record)
+            return
+        if record.snapshot_enabled and record.snapshot_state is not None:
+            return
+        record.snapshot_state = self._snapshot_state_for(
+            record.unit, record.snapshot_poll_interval_seconds
+        )
+        self._attach_snapshot_observer(token, record)
+        record.snapshot_enabled = True
 
     def status(self) -> EndpointBusStatus:
         """Return bounded status without endpoint or identity material."""
@@ -281,11 +728,39 @@ class _EndpointBusOwner:
             operation = cast(
                 Callable[..., Coroutine[Any, Any, Any]], getattr(record.raw, method)
             )
-            wire_task = asyncio.create_task(operation(*args))
+            read_context_token: Token[int | None] | None = None
+            refresh_context = _SNAPSHOT_REFRESH_CONTEXT.get()
+            state = record.snapshot_state
+            attempt = state.active_attempt if state is not None else None
+            if (
+                method.startswith("read_")
+                and attempt is not None
+                and refresh_context == (id(self), token, attempt.identity)
+            ):
+                if len(attempt.invocations) >= MAX_SNAPSHOT_STAGED_INVOCATIONS:
+                    attempt.overflow = True
+                else:
+                    invocation = len(attempt.invocations) + 1
+                    attempt.invocations[invocation] = None
+                    read_context_token = _SNAPSHOT_READ_CONTEXT.set(invocation)
+            try:
+                wire_task = asyncio.create_task(operation(*args))
+            finally:
+                if read_context_token is not None:
+                    _SNAPSHOT_READ_CONTEXT.reset(read_context_token)
             self._wire_tasks[wire_task] = token
             wire_task.add_done_callback(self._wire_tasks.pop)
             self._gate.hold_for_wire_task(wire_task)
-            return await asyncio.shield(wire_task)
+            result = await asyncio.shield(wire_task)
+            if read_context_token is not None and attempt is not None:
+                # Mark the invocation completed; whether it CONTRIBUTED is
+                # judged by its observations at publish time (codex round-2
+                # HIGH).  The result value cannot distinguish the wheel's two
+                # read_battery None paths — emission can.
+                attempt.invocations[invocation] = True
+            if method == "read_firmware_version":
+                record.firmware_scope = str(result) if result else None
+            return result
         finally:
             self._gate.release()
 
@@ -301,18 +776,39 @@ class _EndpointBusOwner:
             self._gate.release()
 
     def begin_shutdown(self, token: int) -> None:
-        """Synchronously close admission for one capability."""
+        """Synchronously close admission for one capability.
+
+        Retries a pending observer detach while the record is closing so a
+        rejected detach never strands a stale callback behind a terminal
+        tombstone; the detach failure still propagates to the caller.
+        """
         record = self._records.get(token)
         if record is None:
             return
-        if not record.closing:
-            record.closing = True
-            if all(candidate.closing for candidate in self._records.values()):
-                self._state = _OwnerState.CLOSING
+        record.closing = True
+        if all(candidate.closing for candidate in self._records.values()):
+            self._state = _OwnerState.CLOSING
+        self._remove_snapshot_state(record)
 
     async def shutdown(self, token: int) -> None:
-        """Interrupt and terminally close one capability."""
-        self.begin_shutdown(token)
+        """Interrupt and terminally close one capability.
+
+        A rejected observer detach is captured, not fatal (codex round-2
+        MED): terminal shutdown must still release the raw transport
+        (socket) and every retained record — otherwise a persistently
+        rejecting detach would leave callback and socket alive until the
+        endpoint happens to be re-attached.  Once the terminal close has
+        released the resources the detach failure is logged and swallowed:
+        the raw object is disconnected and dropped, and a stale callback
+        firing into a removed record is inert (``observe()`` returns on a
+        missing record).  A FAILED terminal close still propagates and keeps
+        the capability retained for the registry retry.
+        """
+        detach_failure: Exception | None = None
+        try:
+            self.begin_shutdown(token)
+        except Exception as error:
+            detach_failure = error
         record = self._records.get(token)
         if record is None:
             return
@@ -356,6 +852,12 @@ class _EndpointBusOwner:
                     )
             else:
                 self._state = _OwnerState.CLOSING
+        if detach_failure is not None:
+            _LOGGER.warning(
+                "Observer detach stayed rejected through terminal shutdown; "
+                "raw transport released with the stale callback left inert: %s",
+                detach_failure,
+            )
 
     async def wait_idle(self) -> None:
         """Wait for detached wire tasks without cancelling them."""
@@ -395,6 +897,41 @@ class EndpointBusCapability:
     @property
     def status(self) -> EndpointBusStatus:
         return self._owner.status()
+
+    @property
+    def latest_complete_snapshot(self) -> RawSnapshotFrame | None:
+        """Return only the externally readable latest-complete frame."""
+        return self._owner.latest_complete(self._token)
+
+    @property
+    def snapshot_health(self) -> SnapshotHealth:
+        """Return bounded redacted snapshot health."""
+        return self._owner.snapshot_health(self._token)
+
+    @property
+    def snapshot_freshness_policy(self) -> FreshnessPolicy:
+        """Return the named freshness policy without endpoint identity."""
+        return self._owner.snapshot_freshness_policy(self._token)
+
+    def latest_fresh_snapshot(
+        self, *, monotonic_now: float | None = None
+    ) -> RawSnapshotFrame | None:
+        """Return the complete frame only while the named policy is fresh."""
+        return self._owner.latest_fresh(self._token, monotonic_now=monotonic_now)
+
+    def snapshot_metrics(
+        self, *, monotonic_now: float | None = None
+    ) -> SnapshotMetrics:
+        """Return identity-free freshness and bounded health metrics."""
+        return self._owner.snapshot_metrics(self._token, monotonic_now=monotonic_now)
+
+    def complete_snapshot_refresh(self) -> AbstractAsyncContextManager[None]:
+        """Return the owner lifecycle context for one complete refresh."""
+        return self._owner.snapshot_refresh(self._token)
+
+    def abort_snapshot_refresh(self) -> None:
+        """Mark the active coordinator lifecycle unsuccessful."""
+        self._owner.abort_snapshot_refresh(self._token)
 
     @property
     def is_connected(self) -> bool:
@@ -448,7 +985,18 @@ class EndpointBusCapability:
 
     async def async_shutdown(self) -> None:
         if self._shutdown_task is None:
-            self._owner.begin_shutdown(self._token)
+            try:
+                self._owner.begin_shutdown(self._token)
+            except Exception:
+                # Admission is already closed for this record (begin_shutdown
+                # marks closing before the detach attempt); owner.shutdown
+                # re-runs the detach and releases the resources even when it
+                # keeps failing (codex round-2 MED).
+                _LOGGER.debug(
+                    "Observer detach rejected at admission close; "
+                    "terminal shutdown proceeds",
+                    exc_info=True,
+                )
             self._shutdown_task = asyncio.create_task(self._owner.shutdown(self._token))
         cancellation = await _await_settled(self._shutdown_task)
         failure: BaseException | None = None
@@ -529,7 +1077,13 @@ class EndpointBusRegistry:
         self._failed_shutdown_capabilities: set[EndpointBusCapability] = set()
         self._next_identity = 0
 
-    def create_capability(self, config: TransportConfig) -> EndpointBusCapability:
+    def create_capability(
+        self,
+        config: TransportConfig,
+        *,
+        snapshot_enabled: bool = False,
+        poll_interval_seconds: float = 5.0,
+    ) -> EndpointBusCapability:
         """Create and retain raw transport behind the endpoint capability."""
         key = _endpoint_key(config)
         owner = self._owners.get(key)
@@ -549,13 +1103,30 @@ class EndpointBusRegistry:
                 terminal_callback=terminal_callback,
             )
             self._owners[key] = owner
+        snapshot_direct_eligible = config.transport_type in {
+            TransportType.MODBUS_TCP,
+            TransportType.MODBUS_SERIAL,
+        }
+
         try:
             raw = self._raw_transport_factory(config)
+            return owner.add(
+                raw,
+                snapshot_enabled=snapshot_enabled,
+                snapshot_direct_eligible=snapshot_direct_eligible,
+                poll_interval_seconds=poll_interval_seconds,
+                unit=config.unit_id,
+            )
         except Exception:
-            if created_owner and self._owners.get(key) is owner:
+            # A failed factory OR a rejected add (observer attach) must not
+            # strand a newly created empty owner: no capability can ever
+            # shut it down, so its stale endpoint key would block config-flow
+            # discovery (EndpointOwnerInUseError) until Home Assistant
+            # restarts.  An owner that pre-existed with live records is
+            # untouched.
+            if created_owner and self._owners.get(key) is owner and not owner._records:
                 self._owners.pop(key, None)
             raise
-        return owner.add(raw)
 
     def create_discovery_capability(
         self, config: TransportConfig
@@ -601,7 +1172,12 @@ class EndpointBusRegistry:
     ) -> None:
         """Mark a capability set closing before awaiting terminal shutdown."""
         closing = tuple(capabilities)
-        self.begin_shutdown_capabilities(closing)
+        try:
+            self.begin_shutdown_capabilities(closing)
+        except BaseExceptionGroup:
+            # Each capability's terminal shutdown below retries its pending
+            # observer detach; the per-capability outcomes are authoritative.
+            pass
         batch = asyncio.gather(
             *(capability.async_shutdown() for capability in closing),
             return_exceptions=True,
@@ -618,6 +1194,58 @@ class EndpointBusRegistry:
             failures.insert(0, cancellation)
         if failures:
             raise BaseExceptionGroup("Endpoint shutdown failures", failures)
+
+    def force_release_capabilities(
+        self, capabilities: Collection[EndpointBusCapability]
+    ) -> None:
+        """Unconditionally drop records retained by a failed terminal close.
+
+        UNLOAD-scoped last resort (codex round-3 MED): retention-for-retry
+        is only coherent while something will later re-drive the retry —
+        ``async_retry_failed_shutdowns`` runs only when the same endpoint is
+        set up again.  After unload nothing does, so a failed terminal close
+        would tombstone the owner in this HA-scoped registry with its raw
+        transport (and a possibly open socket) retained indefinitely.  The
+        terminal close was already attempted best-effort before this is
+        called; dropping the record and owner releases every reference — a
+        stale observer callback on the dropped raw is inert (``observe()``
+        returns on a missing record) and the abandoned transport's socket is
+        closed when the object is garbage collected.  Capabilities whose
+        shutdown succeeded are no-ops here.
+        """
+        for capability in capabilities:
+            self._failed_shutdown_capabilities.discard(capability)
+            owner = capability._owner
+            record = owner._records.pop(capability._token, None)
+            if record is None:
+                continue
+            _LOGGER.warning(
+                "Force-releasing endpoint capability after failed terminal close"
+            )
+            try:
+                owner._remove_snapshot_state(record)
+            except Exception:
+                _LOGGER.debug(
+                    "Observer detach rejected during force release; "
+                    "dropped raw left with inert callback",
+                    exc_info=True,
+                )
+            if not owner._records:
+                owner._state = _OwnerState.CLOSED
+                owner._terminal_callback()
+            else:
+                # The endpoint is shared: the failed terminal close flipped
+                # the owner to CLOSING, which would strand every surviving
+                # sharer behind EndpointOwnerClosingError with no retry path
+                # (codex round-4 MED).  Only the released record's raw was
+                # being closed — the survivors' raw transports were never
+                # touched — so recompute the state exactly like a successful
+                # per-record shutdown does.
+                owner._state = (
+                    _OwnerState.CLOSING
+                    if any(candidate.closing for candidate in owner._records.values())
+                    else _OwnerState.OPEN
+                )
 
     async def async_retry_failed_shutdowns(
         self, configs: Collection[TransportConfig]
@@ -639,9 +1267,37 @@ class EndpointBusRegistry:
     def begin_shutdown_capabilities(
         self, capabilities: Collection[EndpointBusCapability]
     ) -> None:
-        """Close admission for a capability set without yielding."""
+        """Close admission for a capability set without yielding.
+
+        Every capability is processed best-effort; per-capability failures
+        are aggregated instead of skipping the rest of the set.
+        """
+        failures: list[Exception] = []
         for capability in capabilities:
-            capability._owner.begin_shutdown(capability._token)
+            try:
+                capability._owner.begin_shutdown(capability._token)
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            raise BaseExceptionGroup("Endpoint shutdown failures", failures)
+
+    def set_snapshot_coverage(
+        self,
+        capabilities: Collection[EndpointBusCapability],
+        *,
+        enabled: bool,
+    ) -> None:
+        """Atomically remove lookup/data before direct coverage is lost."""
+        failures: list[Exception] = []
+        for capability in capabilities:
+            try:
+                capability._owner.set_snapshot_coverage(
+                    capability._token, enabled=enabled
+                )
+            except Exception as error:
+                failures.append(error)
+        if failures:
+            raise BaseExceptionGroup("Endpoint snapshot coverage failures", failures)
 
     async def async_wait_idle(self) -> None:
         await asyncio.gather(*(owner.wait_idle() for owner in self._owners.values()))
@@ -660,6 +1316,11 @@ class EndpointBusRegistry:
     @property
     def active_task_count(self) -> int:
         return sum(owner.active_task_count for owner in self._owners.values())
+
+    @property
+    def snapshot_store_count(self) -> int:
+        """Return a redacted retained-resource count for teardown health."""
+        return sum(len(owner._snapshot_states) for owner in self._owners.values())
 
 
 def get_endpoint_bus_registry(hass: Any) -> EndpointBusRegistry:
