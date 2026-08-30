@@ -176,7 +176,7 @@ def _cloud_frame(
     identity: bytes = OUTER_IDENTITY,
 ) -> bytes:
     body = bytes((1, function)) + identity + payload
-    return b"\xa1\x1a\x00\x01" + len(body).to_bytes(2, "little") + body
+    return b"\xa1\x1a\x01\x00" + len(body).to_bytes(2, "little") + body
 
 
 def _read_request(
@@ -212,6 +212,16 @@ def _read_response(
 def _c2(modbus_frame: bytes, *, identity: bytes = OUTER_IDENTITY) -> bytes:
     payload = len(modbus_frame).to_bytes(2, "little") + modbus_frame
     return _cloud_frame(0xC2, payload, identity=identity)
+
+
+def _canary_register_words() -> tuple[int, ...]:
+    blob = "|".join(PROTECTED_CANARIES.values()).encode()
+    if len(blob) % 2:
+        blob += b"|"
+    return tuple(
+        int.from_bytes(blob[index : index + 2], "little")
+        for index in range(0, len(blob), 2)
+    )
 
 
 def _segments(*payloads: bytes) -> list[CapturedSegment]:
@@ -424,7 +434,7 @@ def test_stream_decoder_rejects_oversize_before_body_buffering() -> None:
     advertised_body = (507).to_bytes(2, "little")
 
     with pytest.raises(CaptureError) as caught:
-        decoder.feed(b"\xa1\x1a\x00\x01" + advertised_body, captured_at=1.0)
+        decoder.feed(b"\xa1\x1a\x01\x00" + advertised_body, captured_at=1.0)
 
     assert caught.value.reason is FailureReason.OVERSIZE
     assert decoder.buffered_bytes <= 6
@@ -526,6 +536,38 @@ def test_sanitizer_rejects_mismatched_inner_address() -> None:
     assert caught.value.reason is FailureReason.IDENTITY
 
 
+def test_sanitizer_accepts_baseline_protocol_frame() -> None:
+    sanitized = sanitize_segments(_segments(_cloud_frame(0xC1, b"\x01")))
+
+    assert sanitized["frames"][0]["function"] == "heartbeat"
+    assert sanitized["frames"][0]["payload"] == "SYNTHETIC_STATUS"
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        b"\xa1\x1a\x02\x00" + _cloud_frame(0xC1, b"\x01")[4:],
+        b"\xa1\x1a\x00\x01" + _cloud_frame(0xC1, b"\x01")[4:],
+        _cloud_frame(0xC1, b"\x01")[:6] + b"\x02" + _cloud_frame(0xC1, b"\x01")[7:],
+        _cloud_frame(0xC1, b"\x01\x02"),
+    ],
+)
+def test_sanitizer_rejects_unsupported_header_and_heartbeat_shapes(
+    frame: bytes,
+) -> None:
+    with pytest.raises(CaptureError) as caught:
+        sanitize_segments(_segments(frame))
+
+    assert caught.value.reason is FailureReason.PROTOCOL
+
+
+def test_sanitizer_rejects_empty_heartbeat_payload() -> None:
+    with pytest.raises(CaptureError) as caught:
+        sanitize_segments(_segments(_cloud_frame(0xC1, b"")))
+
+    assert caught.value.reason is FailureReason.MALFORMED
+
+
 @pytest.mark.parametrize(
     ("frame", "reason"),
     [
@@ -545,9 +587,9 @@ def test_sanitizer_fails_closed_on_unknown_functions_and_ranges(
 
 
 def test_sanitizer_emits_only_synthetic_minimal_data() -> None:
-    payload = "|".join(PROTECTED_CANARIES.values()).encode()
-    heartbeat = _cloud_frame(0xC1, b"\x01" + payload)
-    response = _c2(_read_response(words=(0x4552, 0x2147)))
+    canary_words = _canary_register_words()
+    heartbeat = _cloud_frame(0xC1, b"\x01")
+    response = _c2(_read_response(words=canary_words))
 
     sanitized = sanitize_segments(_segments(heartbeat, response))
     serialized = json.dumps(sanitized, sort_keys=True)
@@ -561,7 +603,7 @@ def test_sanitizer_emits_only_synthetic_minimal_data() -> None:
     }
     assert all(frame["identity"].startswith("SYNTH") for frame in sanitized["frames"])
     response_record = sanitized["frames"][1]
-    assert response_record["register_count"] == 2
+    assert response_record["register_count"] == len(canary_words)
     assert response_record["register_words"] == ["SYNTHETIC_A55A"]
 
 
@@ -596,10 +638,8 @@ def test_sanitizer_fails_closed_at_synthetic_record_capacity(
 def test_offline_pcap_adapter_and_cli_never_report_source_metadata(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    heartbeat = _cloud_frame(
-        0xC1, b"\x01" + "|".join(PROTECTED_CANARIES.values()).encode()
-    )
-    response = _c2(_read_response(words=(0x4552, 0x2147)))
+    heartbeat = _cloud_frame(0xC1, b"\x01")
+    response = _c2(_read_response(words=_canary_register_words()))
     chunks = (heartbeat[:5], heartbeat[5:] + response)
     capture_path = tmp_path / "CANARYDG01-authorized-input.pcap"
     output_path = tmp_path / "sanitized.json"
@@ -1322,7 +1362,7 @@ def test_fragmentation_buffers_have_charged_linear_resource_bounds() -> None:
         maximum_reassembled_bytes_per_flow=65535,
         maximum_aggregate_memory_bytes=256 * 1024,
     )
-    advertised = bytearray(b"\xa1\x1a\x00\x01\x00\x00")
+    advertised = bytearray(b"\xa1\x1a\x01\x00\x00\x00")
     advertised[4:6] = (policy.maximum_frame_bytes - 6).to_bytes(2, "little")
     incomplete = bytes(advertised) + bytes(policy.maximum_frame_bytes - 7)
 
