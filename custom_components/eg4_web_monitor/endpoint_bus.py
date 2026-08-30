@@ -1233,6 +1233,19 @@ class EndpointBusRegistry:
             if not owner._records:
                 owner._state = _OwnerState.CLOSED
                 owner._terminal_callback()
+            else:
+                # The endpoint is shared: the failed terminal close flipped
+                # the owner to CLOSING, which would strand every surviving
+                # sharer behind EndpointOwnerClosingError with no retry path
+                # (codex round-4 MED).  Only the released record's raw was
+                # being closed — the survivors' raw transports were never
+                # touched — so recompute the state exactly like a successful
+                # per-record shutdown does.
+                owner._state = (
+                    _OwnerState.CLOSING
+                    if any(candidate.closing for candidate in owner._records.values())
+                    else _OwnerState.OPEN
+                )
 
     async def async_retry_failed_shutdowns(
         self, configs: Collection[TransportConfig]

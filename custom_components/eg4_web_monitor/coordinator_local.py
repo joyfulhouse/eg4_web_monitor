@@ -2847,6 +2847,19 @@ class LocalTransportMixin(_MixinBase):
         Single-endpoint entries are unaffected (the device is cached before
         its own context exits).  The end-of-cycle eligibility recompute
         remains the authoritative fail-closed check.
+
+        Contract for coverage loss discovered AFTER a publish (adjudicated
+        codex round-4): issue #583 scopes "transport/coverage remained
+        valid" to ONE owner refresh — validity is required through publish
+        time, which this gate enforces.  A sibling link-down detected after
+        a frame published retro-invalidates at the end-of-cycle coverage
+        sync (lookup removed, stores cleared), bounding the exposure to one
+        update cycle.  The window is irreducible, not a defect: a staged
+        end-of-cycle commit would merely move the boundary — a link that
+        dies right after the commit leaves the committed frame readable for
+        one detection latency all the same — while adding a second retained
+        frame per unit against the spec's O(1)/single-readable-frame
+        requirement.
         """
         devices = self._tracked_local_devices()
         for config in self._local_transport_configs:

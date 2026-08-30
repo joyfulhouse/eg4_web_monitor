@@ -9,6 +9,7 @@ import gc
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import patch
 import weakref
 
 import pytest
@@ -1763,3 +1764,135 @@ async def test_unload_force_releases_capability_after_failed_terminal_close() ->
     )
     await recreated.async_shutdown()
     assert registry.owner_count == 0
+
+
+@pytest.mark.asyncio
+async def test_force_release_restores_shared_owner_for_surviving_records() -> None:
+    """Force-releasing one sharer must not strand the endpoint's survivors.
+
+    RED without the state recompute (codex round-4 MED): entry A's failed
+    terminal close flipped the shared owner to CLOSING (owner.shutdown's
+    failure branch); force-release then popped A's record while B's live
+    record remained, so the owner stayed CLOSING forever — every B
+    operation and any new capability raised EndpointOwnerClosingError with
+    no retry path.  Only A's raw was being closed; B's raw transport is
+    never touched.
+    """
+    registry, raws, _ = _registry()
+    released = registry.create_capability(
+        _config(serial="SYNTH00001", unit=1),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    survivor = registry.create_capability(
+        _config(serial="SYNTH00002", unit=2),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    assert survivor._owner is released._owner
+
+    async def failing_disconnect() -> None:
+        raise RuntimeError("synthetic terminal failure")
+
+    raws[0].disconnect = failing_disconnect
+
+    owner = SimpleNamespace(
+        _endpoint_bus_registry=registry,
+        _bus_capabilities={released},
+        _inverter_cache={},
+        _mid_device_cache={},
+        station=None,
+        _prune_bus_capability_tracking=lambda: None,
+    )
+    await coordinator_mixins.BackgroundTaskMixin._disconnect_all_transports(owner)
+
+    assert not registry.is_retained_capability(released)
+    assert registry.is_retained_capability(survivor)
+    assert registry.tombstone_count == 0
+    assert registry.owner_count == 1
+
+    # The survivor keeps operating and publishing on its untouched raw...
+    async with survivor.complete_snapshot_refresh():
+        await survivor.read_runtime()
+    assert survivor.latest_complete_snapshot is not None
+
+    # ...and the endpoint accepts new capabilities again.
+    added = registry.create_capability(
+        _config(serial="SYNTH00003", unit=3),
+        snapshot_enabled=True,
+        poll_interval_seconds=5.0,
+    )
+    await registry.async_shutdown_capabilities((survivor, added))
+    assert registry.owner_count == 0
+
+
+@pytest.mark.asyncio
+async def test_coverage_loss_after_publish_retro_invalidates_at_cycle_sync() -> None:
+    """Coverage loss detected AFTER a valid publish retro-invalidates at sync.
+
+    Pins the adjudicated contract (codex round-4 MED, option (b)): issue
+    #583 scopes "transport/coverage remained valid" to one owner refresh —
+    validity is required through PUBLISH time (the round-2/round-4 gate
+    enforces it).  A sibling link-down detected after a frame published
+    keeps that frame readable for the remainder of the cycle (the
+    documented, detection-bounded window — first assertion) and is
+    retro-invalidated at the end-of-cycle coverage sync: lookup removed and
+    store cleared (second assertion).  A staged end-of-cycle commit would
+    only move this boundary, not remove it, while violating the spec's
+    single-readable-frame/O(1) retention requirement.
+    """
+    registry, raws, _ = _registry()
+    capability = registry.create_capability(
+        _config(), snapshot_enabled=True, poll_interval_seconds=5.0
+    )
+    coordinator = _link_state_coordinator(registry, connection_type="local")
+    coordinator.hass = None  # Repairs registry is patched below
+    coordinator._bus_capabilities = {capability}
+    coordinator._local_transport_configs = [
+        {
+            "serial": "SYNTH00001",
+            "transport_type": "modbus_tcp",
+            "host": "gateway.example.invalid",
+            "port": 1502,
+        },
+        {
+            "serial": "SYNTHB0002",
+            "transport_type": "modbus_tcp",
+            "host": "gateway2.example.invalid",
+            "port": 1502,
+        },
+    ]
+    own_device = SimpleNamespace(
+        transport=capability, transport_link_down=False, serial_number="SYNTH00001"
+    )
+    sibling = SimpleNamespace(
+        transport=object(), transport_link_down=False, serial_number="SYNTHB0002"
+    )
+    coordinator._inverter_cache = {
+        "SYNTH00001": own_device,
+        "SYNTHB0002": sibling,
+    }
+    coordinator._snapshot_coverage_unresolved = lambda: (
+        coordinator_local.LocalTransportMixin._snapshot_coverage_unresolved(coordinator)
+    )
+
+    # Coverage intact at publish time: the frame publishes.
+    assert coordinator._snapshot_coverage_unresolved() is False
+    async with capability.complete_snapshot_refresh():
+        await capability.read_runtime()
+    frame = capability.latest_complete_snapshot
+    assert frame is not None
+
+    # The sibling goes link-down AFTER the publish: the frame stays
+    # readable until the end-of-cycle sync (documented window)...
+    sibling.transport_link_down = True
+    assert coordinator._snapshot_coverage_unresolved() is True
+    assert capability.latest_complete_snapshot is frame
+
+    # ...and the sync retro-invalidates: lookup removed, store cleared.
+    with patch("custom_components.eg4_web_monitor.coordinator_local.ir"):
+        coordinator_local.LocalTransportMixin._sync_transport_link_state(
+            coordinator, None
+        )
+    assert capability.latest_complete_snapshot is None
+    assert registry.snapshot_store_count == 0
