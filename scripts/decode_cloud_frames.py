@@ -171,6 +171,7 @@ class FailureReason(StrEnum):
     OUTPUT_EXISTS = "output_exists"
     OVERSIZE = "oversize"
     PREFIX = "prefix"
+    PROTOCOL = "protocol"
     RANGE = "range"
     SCHEMA = "schema"
     TIMEOUT = "timeout"
@@ -845,6 +846,11 @@ def _sanitize_frame(
 ) -> dict[str, Any]:
     if len(frame) < 19 or 6 + int.from_bytes(frame[4:6], "little") != len(frame):
         raise CaptureError(FailureReason.MALFORMED)
+    # Phase A1 capture evidence contains only protocol version 0x0001
+    # (little-endian on the wire, so bytes 01 00) and address 1. Unknown
+    # variants are rejected rather than redacted into a known-looking record.
+    if frame[2:4] != b"\x01\x00" or frame[6] != 1:
+        raise CaptureError(FailureReason.PROTOCOL)
     session.outer_identity = _bind_identity(session.outer_identity, frame[8:18])
     base: dict[str, Any] = {
         "direction": direction,
@@ -853,8 +859,10 @@ def _sanitize_frame(
     function = frame[7]
     payload = frame[18:]
     if function == 0xC1:
-        if not payload:
-            raise CaptureError(FailureReason.MALFORMED)
+        # The captured heartbeat shape is exactly one status byte. Appended
+        # fields are not evidenced and must not be silently masked.
+        if len(payload) != 1:
+            raise CaptureError(FailureReason.PROTOCOL)
         return base | {"function": "heartbeat", "payload": "SYNTHETIC_STATUS"}
     if function != 0xC2 or len(payload) < 2:
         raise CaptureError(
