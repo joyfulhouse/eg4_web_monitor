@@ -38,9 +38,12 @@ verified-against:
   # Quick Charge/H233) were falsified by PR #569 and re-verified at e9853eb
   # for the #570 sweep ingest — those sections carry their pin inline.
   # Claims describing the PR #600 change set itself (the sweep-extended
-  # protected set and the QuickChargeDuration family gate in the H161
-  # routing note) are reproducible at the PR #600 branch commit 1f39ad1
-  # (#559 precedent: re-pin to the mainline merge SHA at the release cut).
+  # protected set, the quick-charge fail-closed predicates, the schedule
+  # and QuickChargeDuration family gates) are reproducible at the PR #600
+  # branch commit 7400342 — the pin FOLLOWS the branch head as review
+  # rounds land (earlier pins named commits predating later-round
+  # predicates); re-pin to the mainline merge SHA at the release cut
+  # (#559 precedent).
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
 last-verified: 2026-08-29
