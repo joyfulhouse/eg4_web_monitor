@@ -4861,11 +4861,16 @@ class FirmwareUpdateMixin(_MixinBase):
 
         A success re-anchors the carry-forward window at now. A failure only
         seeds the anchor when none exists yet (missing key = the None "never
-        ran" sentinel): monotonic() is host uptime on Linux, so a 0.0 default
-        would make the first-ever failure on a freshly booted host look
-        window-expired and blank cached state immediately (the d66cc92
-        fresh-boot class). Anchoring the first failure at now instead starts
-        the outage clock there, preserving #353's flicker protection.
+        ran" sentinel). Do not "simplify" the sentinel to a 0.0 default:
+        monotonic() is host uptime on Linux, so on any host up LONGER than
+        the staleness window a first-ever failure would read
+        ``now - 0.0 >= window`` and instantly expire an active row that was
+        never successfully polled. (This is the mirror image of the d66cc92
+        fresh-boot class, where a 0.0 default makes the first run look
+        THROTTLED on a freshly booted host.) Anchoring the first failure at
+        now instead starts the outage clock there, preserving #353's flicker
+        protection; pinned by
+        test_long_uptime_first_failure_carries_forward_then_expires.
         """
         serial = getattr(device, "serial_number", None)
         if serial is None:

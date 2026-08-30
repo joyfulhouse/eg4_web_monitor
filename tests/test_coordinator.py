@@ -10248,3 +10248,45 @@ class TestFirmwarePollCarryForward:
             assert result is not None
             assert result["in_progress"] is False
             assert result["update_percentage"] is None
+
+    async def test_prefetch_path_failures_anchor_the_window_and_expire(
+        self, hass, mock_config_entry
+    ):
+        """#573 via the PRODUCTION prefetch path (Codex round-2 LOW).
+
+        On HTTP/hybrid refresh cycles the firmware refresh calls run inside
+        _prefetch_firmware_update_info()'s _check/_progress closures, and
+        _poll_firmware_update_info() short-circuits straight to extraction
+        for prefetched devices — so if only the direct poll path stamped
+        freshness, persistent prefetch failures would provide no anchor and
+        the stale spinner would persist. This drives the prefetch batch with
+        failing devices and asserts expiry still occurs after the window;
+        it goes RED (verified by mutation) if the prefetch closures stop
+        recording results via _note_firmware_poll_result.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        device = self._cached_updating_device()
+        window = coordinator._firmware_poll_staleness_window()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            # First failing prefetch batch anchors the window; the cached
+            # active row still carries forward through the prefetched
+            # short-circuit (#353).
+            monotonic.return_value = 2000.0
+            await coordinator._prefetch_firmware_update_info([device])
+            assert id(device) in coordinator._firmware_prefetched_device_ids
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 42
+
+            # Prefetch batches keep failing past the window: the stale
+            # active row must expire on the prefetched path too.
+            monotonic.return_value = 2000.0 + window + 1.0
+            await coordinator._prefetch_firmware_update_info([device])
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
