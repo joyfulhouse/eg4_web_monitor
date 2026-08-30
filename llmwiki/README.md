@@ -12,15 +12,14 @@ sources:
   - issue #549
   - memory/issue-476-green-mode-bit14.md
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
-verified-against: "9f6d6e2 + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
+verified-against: 9f6d6e2
 # The hand-maintained keeper cache in "Registers the keeper marks unresolved"
 # was reconciled 2026-08-29 for the #570 sweep; the derivation/legend sections
 # stand at the 9f6d6e2 verification pass. Cache cells describing the #570
-# routing are part of the PR #600 change set (reproducible from PR #600,
-# the durable artifact — its diff survives branch deletion; embedded SHAs
-# staled twice in review. REQUIRED POST-MERGE ACTION, recorded in log.md:
-# re-pin to the mainline merge SHA at the release cut); the keeper stays
-# authoritative.
+# routing are licensed per claim by their inline PR #600 / issue #570
+# citations — the pin above stays commit-only per _conventions.md.
+# REQUIRED POST-MERGE ACTION, recorded in log.md: re-pin to the mainline
+# merge SHA at the release cut. The keeper stays authoritative.
 last-verified: 2026-08-29
 ---
 

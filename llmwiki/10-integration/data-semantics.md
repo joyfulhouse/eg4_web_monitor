@@ -39,12 +39,12 @@ verified-against:
   # for the #570 sweep ingest — those sections carry their pin inline.
   # Claims describing the PR #600 change set itself (the sweep-extended
   # protected set, the quick-charge fail-closed predicates, the schedule
-  # and QuickChargeDuration family gates) are reproducible from PR #600
-  # (the durable artifact — its change-set diff survives branch deletion;
-  # embedded SHAs staled twice, the r5/r6 LOWs). REQUIRED POST-MERGE
-  # ACTION (recorded in log.md): re-pin to the mainline merge SHA at the
-  # release cut (#559 precedent).
-  eg4_web_monitor: "9f6d6e2 + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
+  # and QuickChargeDuration family gates) are licensed PER CLAIM by their
+  # inline PR #600 / issue #570 citations — the pin itself stays
+  # commit-only per _conventions.md. REQUIRED POST-MERGE ACTION (recorded
+  # in log.md): re-pin to the mainline merge SHA at the release cut
+  # (#559 precedent).
+  eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
 last-verified: 2026-08-29
 see-also:
@@ -546,6 +546,9 @@ What this page owns is the **behavioural consequence** for the integration:
 | **Per-field** seed timestamps | A later write to one store key must not renew an older key's seed, or an in-flight read of a legitimate portal change gets clobbered | `verified-against-code` — `coordinator.py:1304-1310` |
 | A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started | Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state | `verified-against-code` — `coordinator.py` → the seed-supersede predicate |
 | A seed expires on its own TTL, with a shorter grace window once the write is confirmed | Bounds how long an acknowledged write can override a genuine read. Values live in `coordinator.py` — read them there rather than copying them | `verified-against-code` — `coordinator.py` → the write-seed TTL and confirmed-grace constants |
+| A fresh read that **disagrees** with a seed inside the per-key **settle window** does NOT retire it | Cloud-ACKed writes take seconds to propagate portal → dongle → register, so the post-write refresh can observe the pre-write value — "confirming" it reverted the entity. Each key runs on its own write stamp and retires on its own confirmation; a sibling write never re-arms it. An **agreeing** read confirms immediately; past the window, disagreement is authoritative device truth again | part of the PR #600 change set (#570 reviews r7/r8) — `coordinator.py` → `_reconcile_parameter_read` and the `PARAMETER_WRITE_SEED_SETTLE` constant |
+| A retained disagreement schedules a **one-shot targeted recheck** at that key's settle expiry | Without it a never-propagating cloud write (or an immediate external change) showed the seeded value until the hourly parameter poll. Deduplicated per serial, reusing the existing targeted per-device refresh — no new polling loop | part of the PR #600 change set (#570 review r9) — `coordinator.py` → `_schedule_seed_settle_recheck` |
+| While a seed is **active**, number reads behave **params-first** for that key | The default inverter-first read order let the pylxpweb attribute — refreshed from the same still-stale register — shadow the seeded cache value entirely, clearing optimism onto the pre-write value | part of the PR #600 change set (#570 review r7) — `coordinator.py` → `has_active_parameter_write_seed`, `number.py` → `_read_param_value`'s convergence gate |
 
 Write-then-refresh retention semantics and the data-object-identity check live in
 [controls-and-writes.md](controls-and-writes.md) §4–5.

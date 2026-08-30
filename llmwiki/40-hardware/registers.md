@@ -33,19 +33,19 @@ sources:
   - https://github.com/joyfulhouse/pylxpweb/issues/272
   - https://github.com/joyfulhouse/pylxpweb/pull/273
 verified-against:
-  # eg4 pin covers pre-existing claims, verified at e9853eb (v3.5.1-beta.12
-  # mainline, contains the PR #569 routing). Following the #559 precedent
-  # (PR-branch head now, re-pin to the mainline merge SHA at the cut): rows
+  # The pin is commit-only per _conventions.md (machine tooling passes it to
+  # git show) and covers the pre-existing claims, verified at e9853eb
+  # (v3.5.1-beta.12 mainline, contains the PR #569 routing). Rows
   # describing the #570 sweep-extended routing (H227/H234 shipped-path notes,
   # the H22 row, the cloud-only scalar set, the H233 boundary and
-  # schedule-write routing rows) are part of the PR #600 change set and are
-  # reproducible from PR #600 (the durable artifact — its change-set diff
-  # survives branch deletion; embedded SHAs staled twice inside the review
-  # train). REQUIRED POST-MERGE ACTION (recorded in log.md): re-pin these
-  # claims to the mainline merge SHA at the release cut. pylxpweb stays
+  # schedule-write routing rows) are licensed PER CLAIM by their inline
+  # PR #600 / issue #570 citations (the durable artifact — the PR diff
+  # survives branch deletion; embedded SHAs staled twice in review).
+  # REQUIRED POST-MERGE ACTION (recorded in log.md): re-pin these claims
+  # to the mainline merge SHA at the release cut. pylxpweb stays
   # ab87902 (0.9.39b11); the #271/#272 range fixes merged after it and are
   # cited by PR number (pylxpweb #273), not by pin.
-  eg4_web_monitor: "e9853eb + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
+  eg4_web_monitor: e9853eb
   pylxpweb: ab87902
 last-verified: 2026-08-29
 ---

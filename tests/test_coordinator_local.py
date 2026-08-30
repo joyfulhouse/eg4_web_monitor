@@ -28,7 +28,10 @@ from pylxpweb.transports.data import (
     InverterRuntimeData,
     MidboxRuntimeData,
 )
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 
 from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
@@ -806,6 +809,67 @@ class TestParameterSeedSettleWindow:
 
         assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 70  # own window over
         assert reconciled["HOLD_LEAD_ACID_DISCHARGE_RATE"] == 120  # own window fresh
+
+    async def test_disagreement_schedules_recheck_that_resolves_seed(
+        self, hass, local_config_entry
+    ):
+        """r9 (Codex MED): a disagreeing read inside the window retains the
+        seed AND schedules a one-shot targeted refresh at settle expiry —
+        without it, a never-propagating cloud write (or an immediate
+        external change) showed the seeded value until the hourly poll.
+        The deferred refresh's own authoritative observation then resolves
+        the seed against device truth, with no manual reconciliation."""
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        # Disagreeing post-write read inside the window: seed retained,
+        # recheck scheduled.
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 90
+        assert self.SERIAL in coordinator._parameter_seed_recheck_unsub
+
+        # Production: the deferred targeted refresh re-reads the device and
+        # reconciles through the normal pipeline. Replay that inside the
+        # refresh double — by firing time the settle window has expired, so
+        # the still-stale register value is authoritative.
+        async def _authoritative_refresh(target: str) -> bool:
+            values = coordinator._reconcile_parameter_read(
+                target,
+                {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+                read_complete=True,
+                read_generation=coordinator._parameter_write_generation,
+            )
+            coordinator.data["parameters"][target] = values
+            return True
+
+        refresh = AsyncMock(side_effect=_authoritative_refresh)
+        with (
+            patch.object(coordinator, "async_refresh_device_parameters", refresh),
+            patch.object(coord_mod, "PARAMETER_WRITE_SEED_SETTLE", 0.0),
+        ):
+            # The recheck was scheduled for the key's remaining window + 1s
+            # (~31s); fire comfortably past it.
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+            await hass.async_block_till_done()
+
+        refresh.assert_awaited_once_with(self.SERIAL)
+        assert self.SERIAL not in coordinator._parameter_seed_recheck_unsub
+        # The seed resolved to device truth (retirement is grace-deferred at
+        # the observed value, so the cache and any params-first read now
+        # show the authoritative 60 — the pre-write 90 is gone).
+        assert (
+            coordinator.data["parameters"][self.SERIAL]["HOLD_LEAD_ACID_CHARGE_RATE"]
+            == 60
+        )
+        seeds = coordinator._parameter_write_seeds.get(self.SERIAL, {})
+        assert seeds.get("HOLD_LEAD_ACID_CHARGE_RATE", (None,))[0] == 60
 
 
 class TestStickyParameterCarryForward:

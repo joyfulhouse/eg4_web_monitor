@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING, Any, NoReturn, cast
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
 from homeassistant.helpers import aiohttp_client
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.storage import Store
 
 if TYPE_CHECKING:
@@ -519,6 +520,13 @@ class EG4DataUpdateCoordinator(
         self._parameter_write_seed_key_stamps: dict[tuple[str, str], float] = {}
         # (serial, key) -> monotonic stamp of the confirming observation.
         self._parameter_seed_confirmed: dict[tuple[str, str], float] = {}
+        # Per-serial cancel handles for the one-shot settle-expiry recheck
+        # (#570 review round 9): a disagreeing post-write read retains the
+        # seed, so a follow-up targeted refresh is scheduled at settle
+        # expiry — otherwise a never-propagating cloud write (or an
+        # immediate external change) showed the seeded value until the
+        # next HOURLY parameter poll.
+        self._parameter_seed_recheck_unsub: dict[str, CALLBACK_TYPE] = {}
 
         # DST sync tracking
         self._last_dst_sync: datetime | None = None
@@ -1106,6 +1114,9 @@ class EG4DataUpdateCoordinator(
     async def async_shutdown(self) -> None:
         """Shut down the coordinator and release its cookie-bearing session."""
         try:
+            for cancel_recheck in self._parameter_seed_recheck_unsub.values():
+                cancel_recheck()
+            self._parameter_seed_recheck_unsub.clear()
             await super().async_shutdown()
         finally:
             await self._async_close_cloud_session()
@@ -1192,6 +1203,37 @@ class EG4DataUpdateCoordinator(
         }
         self.async_update_listeners()
 
+    def _schedule_seed_settle_recheck(
+        self, serial: str, stamp: float, now: float
+    ) -> None:
+        """One-shot targeted refresh once the settle window expires (#570 r9).
+
+        A disagreeing post-write read retains the seed but previously
+        scheduled NO follow-up, so a never-propagating cloud write (or an
+        immediate external change) left schedules and params-first numbers
+        showing the seeded value until the default hourly parameter poll.
+        Reuses the existing targeted per-device refresh
+        (``async_refresh_device_parameters``) as a single deferred shot,
+        deduplicated per serial — no new polling loop, at most one extra
+        read per disagreement episode, respecting the read-budget
+        conventions. The refresh reconciles through the normal pipeline:
+        past the window an authoritative observation retires the seed to
+        device truth (and the entity's optimistic/seeded value corrects);
+        keys still inside their own windows re-arm this recheck naturally
+        from that refresh's own reconciliation.
+        """
+        if serial in self._parameter_seed_recheck_unsub:
+            return
+        delay = max(PARAMETER_WRITE_SEED_SETTLE - (now - stamp), 0.0) + 1.0
+
+        async def _recheck(_fire_time: datetime) -> None:
+            self._parameter_seed_recheck_unsub.pop(serial, None)
+            await self.async_refresh_device_parameters(serial)
+
+        self._parameter_seed_recheck_unsub[serial] = async_call_later(
+            self.hass, delay, _recheck
+        )
+
     def has_active_parameter_write_seed(self, serial: str, key: str) -> bool:
         """True while an acknowledged-write seed overlays ``key`` for ``serial``.
 
@@ -1255,6 +1297,11 @@ class EG4DataUpdateCoordinator(
                     # change stays visible while siblings are written.
                     stamp = self._parameter_write_seed_key_stamps.get((serial, key))
                     if stamp is not None and now - stamp <= PARAMETER_WRITE_SEED_SETTLE:
+                        # r9: the retained seed must resolve against
+                        # reality within ~one settle window, not at the
+                        # next hourly poll — schedule the one-shot
+                        # targeted recheck at this key's settle expiry.
+                        self._schedule_seed_settle_recheck(serial, stamp, now)
                         reconciled[key] = seed_value
                         remaining[key] = (seed_value, seed_generation)
                         continue

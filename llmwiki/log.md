@@ -752,3 +752,25 @@ one level up. The four edited pages' `verified-against:` values now carry the co
 pin ("<pre-PR SHA> + PR #600 (change-set claims; re-pin to the merge SHA at the release
 cut)"), so the machine-read pin itself licenses the PR-#600 claims; the release re-pin
 remains tracked by the round-7 entry above.
+
+## [2026-08-29] lint | Review round 9 — settle recheck; the compound pin violated the schema it tried to satisfy
+
+Three corrections. (1) A disagreeing post-write read retained the seed but scheduled NO
+follow-up read, so a never-propagating cloud write (or an immediate external change)
+showed the seeded value until the default HOURLY parameter poll. The retained
+disagreement now schedules a one-shot targeted per-device refresh at that key's settle
+expiry (`_schedule_seed_settle_recheck` — deduplicated per serial, reusing the existing
+targeted refresh, cancelled on shutdown, no new polling loop); the refresh's own
+authoritative observation resolves the seed to device truth within ~one settle window,
+pinned by a deferred-timer test with no manual reconciliation calls. (2) The
+round-8 compound `verified-against:` value ("SHA + PR #600 …") violated
+`_conventions.md`'s commit-only front-matter form — machine tooling passes the pin to
+`git show` — a fix for a citation defect that itself broke the citation schema. The
+four pages' pins are back to bare pre-PR commits; the in-flight change-set claims are
+licensed PER CLAIM by their inline PR #600 / issue #570 citations (the r7 form, which
+`_conventions.md` permits), and the front-matter comments say exactly that. The
+release-cut re-pin stays tracked by the round-7 REQUIRED POST-MERGE ACTION. (3) The
+canonical parameter-seeding section (`data-semantics.md` §7) now documents the settle
+window, the per-key stamps/confirmation, the settle-expiry recheck, and the
+params-first override for active seeds — the convergence contract had lived only in
+code comments and the log.

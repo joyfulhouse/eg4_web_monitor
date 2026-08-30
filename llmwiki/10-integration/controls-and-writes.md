@@ -31,12 +31,11 @@ verified-against:
   # ingest — those sections carry their pin inline; other sections stand at
   # e146d91. Claims describing the PR #600 change set itself (the
   # local_write_blocked_reason protected-set row in §1, the §1.3/§2.4/§6
-  # family gates) are reproducible from PR #600 (the durable artifact —
-  # its change-set diff survives branch deletion; embedded SHAs staled
-  # twice, the r5/r6 LOWs). REQUIRED POST-MERGE ACTION (recorded in
-  # log.md): re-pin to the mainline merge SHA at the release cut (#559
-  # precedent).
-  eg4_web_monitor: "e146d91 + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
+  # family gates) are licensed PER CLAIM by their inline PR #600 / issue
+  # #570 citations — the pin itself stays commit-only per _conventions.md.
+  # REQUIRED POST-MERGE ACTION (recorded in log.md): re-pin to the
+  # mainline merge SHA at the release cut (#559 precedent).
+  eg4_web_monitor: e146d91
   pylxpweb: ab87902
 last-verified: 2026-08-29
 see-also:
