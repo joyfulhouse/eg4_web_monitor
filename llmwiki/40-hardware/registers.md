@@ -45,7 +45,7 @@ verified-against:
   # claims to the mainline merge SHA at the release cut. pylxpweb stays
   # ab87902 (0.9.39b11); the #271/#272 range fixes merged after it and are
   # cited by PR number (pylxpweb #273), not by pin.
-  eg4_web_monitor: e9853eb
+  eg4_web_monitor: "e9853eb + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
   pylxpweb: ab87902
 last-verified: 2026-08-29
 ---

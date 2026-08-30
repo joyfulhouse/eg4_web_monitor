@@ -147,7 +147,10 @@ PARAMETER_SEED_CONFIRMED_GRACE = 120.0  # seconds
 # round 7; the cloud-only off-grid/unresolved routes made the race the
 # common path). A read that AGREES with the seed confirms it immediately
 # (grace above); once this window passes, fresh reads are authoritative
-# again regardless of agreement.
+# again regardless of agreement. The window is PER PARAMETER (#570 round
+# 8): each seeded key runs on its own write stamp and retires on its own
+# confirmation — a sibling write must not re-arm another key's protection
+# or mask a fresh external change to it.
 PARAMETER_WRITE_SEED_SETTLE = 30.0  # seconds
 
 # Reload-safe logical-control locks, keyed (serial, control). Survives the
@@ -507,6 +510,13 @@ class EG4DataUpdateCoordinator(
         # overlaying a possibly raw-scaled value onto cloud-fed publishes
         # forever (#527 review). Per-serial monotonic stamp of the newest seed.
         self._parameter_write_seed_stamps: dict[str, float] = {}
+        # (serial, key) -> monotonic stamp of THAT key's own write. The
+        # settle window is PER PARAMETER (#570 review round 8): keying it on
+        # the serial-wide newest write let a sibling write (H102) re-arm
+        # another key's (H101) stale-read protection, masking a fresh
+        # external H101 change — and repeated sibling writes could extend
+        # the masking indefinitely.
+        self._parameter_write_seed_key_stamps: dict[tuple[str, str], float] = {}
         # (serial, key) -> monotonic stamp of the confirming observation.
         self._parameter_seed_confirmed: dict[tuple[str, str], float] = {}
 
@@ -1166,10 +1176,14 @@ class EG4DataUpdateCoordinator(
             self._parameter_write_generation += 1
             generation = self._parameter_write_generation
             seeds = self._parameter_write_seeds.setdefault(serial, {})
+            now = time.monotonic()
             for key, value in values.items():
                 seeds[key] = (value, generation)
                 self._parameter_seed_confirmed.pop((serial, key), None)
-            self._parameter_write_seed_stamps[serial] = time.monotonic()
+                # Per-key settle stamp (#570 r8): only THIS key's window
+                # re-arms; sibling keys keep their own clocks.
+                self._parameter_write_seed_key_stamps[(serial, key)] = now
+            self._parameter_write_seed_stamps[serial] = now
         params = self.data.setdefault("parameters", {}).setdefault(serial, {})
         params.update(values)
         self._pending_listener_contexts = {
@@ -1222,7 +1236,10 @@ class EG4DataUpdateCoordinator(
             )
             if seed_generation <= read_generation and observed_by_read:
                 observed_value = values.get(key, seed_value)
-                if observed_value != seed_value:
+                if (
+                    observed_value != seed_value
+                    and (serial, key) not in self._parameter_seed_confirmed
+                ):
                     # #570 r7: a fresh read that DISAGREES with the seed
                     # inside the settle window is pre-propagation stale
                     # data (the cloud ACKed the write; the register has
@@ -1230,7 +1247,13 @@ class EG4DataUpdateCoordinator(
                     # "confirming" the pre-write value and reverting the
                     # entity. After the window, disagreement is
                     # authoritative device truth again.
-                    stamp = self._parameter_write_seed_stamps.get(serial)
+                    # r8: the window is PER KEY — this key's own write
+                    # stamp, never the serial-wide newest (a sibling write
+                    # must not re-arm it) — and a key already CONFIRMED by
+                    # an agreeing observation is exempt: its protection
+                    # retired with the confirmation, so a later external
+                    # change stays visible while siblings are written.
+                    stamp = self._parameter_write_seed_key_stamps.get((serial, key))
                     if stamp is not None and now - stamp <= PARAMETER_WRITE_SEED_SETTLE:
                         reconciled[key] = seed_value
                         remaining[key] = (seed_value, seed_generation)
@@ -1246,6 +1269,7 @@ class EG4DataUpdateCoordinator(
                 )
                 if now - confirmed_at > PARAMETER_SEED_CONFIRMED_GRACE:
                     self._parameter_seed_confirmed.pop(confirmed_key, None)
+                    self._parameter_write_seed_key_stamps.pop(confirmed_key, None)
                     continue
                 reconciled[key] = observed_value
                 remaining[key] = (observed_value, seed_generation)
@@ -1253,6 +1277,9 @@ class EG4DataUpdateCoordinator(
             reconciled[key] = seed_value
             remaining[key] = (seed_value, seed_generation)
 
+        for key in seeds:
+            if key not in remaining:
+                self._parameter_write_seed_key_stamps.pop((serial, key), None)
         if remaining:
             self._parameter_write_seeds[serial] = remaining
         else:
@@ -1272,6 +1299,8 @@ class EG4DataUpdateCoordinator(
         for serial in list(self._parameter_write_seeds):
             stamp = self._parameter_write_seed_stamps.get(serial)
             if stamp is None or now - stamp > PARAMETER_WRITE_SEED_TTL:
+                for key in self._parameter_write_seeds.get(serial, {}):
+                    self._parameter_write_seed_key_stamps.pop((serial, key), None)
                 self._parameter_write_seeds.pop(serial, None)
                 self._parameter_write_seed_stamps.pop(serial, None)
                 continue
@@ -1284,6 +1313,7 @@ class EG4DataUpdateCoordinator(
                 ):
                     seeds.pop(key, None)
                     self._parameter_seed_confirmed.pop((serial, key), None)
+                    self._parameter_write_seed_key_stamps.pop((serial, key), None)
             if not seeds:
                 self._parameter_write_seeds.pop(serial, None)
                 self._parameter_write_seed_stamps.pop(serial, None)

@@ -732,6 +732,81 @@ class TestParameterSeedSettleWindow:
         # Past the settle window, fresh device data wins again.
         assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 60
 
+    async def test_sibling_write_does_not_mask_confirmed_key(
+        self, hass, local_config_entry
+    ):
+        """r8 (Codex MED, case a): H101 confirmed, then H102 written — a
+        fresh external H101 change is visible immediately. The settle
+        window is per key and retires on that key's own confirmation; a
+        sibling write must not re-arm it."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+            )
+            # Agreeing read confirms H101 — its settle protection retires.
+            coordinator._reconcile_parameter_read(
+                self.SERIAL,
+                {"HOLD_LEAD_ACID_CHARGE_RATE": 90},
+                read_complete=True,
+                read_generation=coordinator._parameter_write_generation,
+            )
+            # Sibling write (H102): must NOT re-arm H101's window.
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_DISCHARGE_RATE": 120}
+            )
+
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {
+                "HOLD_LEAD_ACID_CHARGE_RATE": 70,  # external change
+                "HOLD_LEAD_ACID_DISCHARGE_RATE": 100,  # stale pre-write
+            },
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        # External H101 change visible immediately; H102 (unconfirmed,
+        # inside its OWN fresh window) keeps its seed.
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 70
+        assert reconciled["HOLD_LEAD_ACID_DISCHARGE_RATE"] == 120
+
+    async def test_repeated_sibling_writes_do_not_extend_own_window(
+        self, hass, local_config_entry
+    ):
+        """r8 (Codex MED, case b): repeated sibling writes cannot extend
+        H101's mask past its OWN 30s window — each key runs on its own
+        write stamp, never the serial-wide newest."""
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
+        coordinator = self._coordinator(hass, local_config_entry)
+        base = time.monotonic()
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+            )
+            # H101's own window expires while sibling writes keep landing.
+            with patch.object(
+                coord_mod.time,
+                "monotonic",
+                return_value=base + coord_mod.PARAMETER_WRITE_SEED_SETTLE + 1,
+            ):
+                coordinator.note_parameters_written(
+                    self.SERIAL, {"HOLD_LEAD_ACID_DISCHARGE_RATE": 120}
+                )
+                reconciled = coordinator._reconcile_parameter_read(
+                    self.SERIAL,
+                    {
+                        "HOLD_LEAD_ACID_CHARGE_RATE": 70,
+                        "HOLD_LEAD_ACID_DISCHARGE_RATE": 100,
+                    },
+                    read_complete=True,
+                    read_generation=coordinator._parameter_write_generation,
+                )
+
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 70  # own window over
+        assert reconciled["HOLD_LEAD_ACID_DISCHARGE_RATE"] == 120  # own window fresh
+
 
 class TestStickyParameterCarryForward:
     """A partial parameter read must not blank known values or arm the throttle.

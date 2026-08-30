@@ -36,7 +36,7 @@ verified-against:
   # twice, the r5/r6 LOWs). REQUIRED POST-MERGE ACTION (recorded in
   # log.md): re-pin to the mainline merge SHA at the release cut (#559
   # precedent).
-  eg4_web_monitor: e146d91
+  eg4_web_monitor: "e146d91 + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
   pylxpweb: ab87902
 last-verified: 2026-08-29
 see-also:

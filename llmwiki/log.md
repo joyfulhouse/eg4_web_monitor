@@ -736,3 +736,19 @@ diff; branch-head language was not durable).
 `40-hardware/registers.md`, `10-integration/controls-and-writes.md`,
 `10-integration/data-semantics.md` and `README.md` front matter to the mainline merge
 SHA (#559 precedent). This entry is the tracking record for that action.
+
+## [2026-08-29] lint | Review round 8 — settle window keyed per parameter; the pin defect was in the front matter too
+
+Two corrections. (1) The round-7 settle window used the serial-wide NEWEST-write stamp:
+writing H102 re-armed H101's stale-read protection, masking a fresh external H101 change,
+and repeated sibling writes could extend the mask indefinitely. Each seeded key now runs
+on its OWN write stamp, retires on its OWN confirmation (an agreeing observation ends the
+protection, so a confirmed key's later external changes stay visible even mid-sibling-
+writes), and expires on its own 30 s window — pinned by two new tests (sibling-write
+masking and window-extension) alongside the r7 convergence pins, all green. (2) The r7
+durable-pin fix landed only in the front-matter COMMENTS while the `verified-against:`
+values still named pre-PR commits — the exact citation-does-not-support-claim defect,
+one level up. The four edited pages' `verified-against:` values now carry the compound
+pin ("<pre-PR SHA> + PR #600 (change-set claims; re-pin to the merge SHA at the release
+cut)"), so the machine-read pin itself licenses the PR-#600 claims; the release re-pin
+remains tracked by the round-7 entry above.

@@ -44,7 +44,7 @@ verified-against:
   # embedded SHAs staled twice, the r5/r6 LOWs). REQUIRED POST-MERGE
   # ACTION (recorded in log.md): re-pin to the mainline merge SHA at the
   # release cut (#559 precedent).
-  eg4_web_monitor: 9f6d6e2
+  eg4_web_monitor: "9f6d6e2 + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
   pylxpweb: 204b95d
 last-verified: 2026-08-29
 see-also:

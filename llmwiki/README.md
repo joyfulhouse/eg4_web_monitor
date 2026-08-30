@@ -12,7 +12,7 @@ sources:
   - issue #549
   - memory/issue-476-green-mode-bit14.md
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
-verified-against: 9f6d6e2
+verified-against: "9f6d6e2 + PR #600 (change-set claims; re-pin to the merge SHA at the release cut)"
 # The hand-maintained keeper cache in "Registers the keeper marks unresolved"
 # was reconciled 2026-08-29 for the #570 sweep; the derivation/legend sections
 # stand at the 9f6d6e2 verification pass. Cache cells describing the #570
