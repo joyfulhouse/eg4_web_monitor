@@ -32,12 +32,12 @@ verified-against:
   # e146d91. Claims describing the PR #600 change set itself (the
   # local_write_blocked_reason protected-set row in §1, the §1.3/§2.4/§6
   # family gates) are licensed PER CLAIM by their inline PR #600 / issue
-  # #570 citations — the pin itself stays commit-only per _conventions.md.
-  # REQUIRED POST-MERGE ACTION (recorded in log.md): re-pin to the
-  # mainline merge SHA at the release cut (#559 precedent).
-  eg4_web_monitor: e146d91
+  # #570 citations. Re-pinned at the 2026-08-30 release cut (#559
+  # precedent): PR #600 merged as d8e2027; the whole page now verifies at
+  # the mainline pin below.
+  eg4_web_monitor: d8e2027
   pylxpweb: ab87902
-last-verified: 2026-08-29
+last-verified: 2026-08-30
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md

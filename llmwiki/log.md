@@ -864,3 +864,13 @@ class only pinned the classic (ac_charge) cloud leg; a gen_charge case now pins 
 writeTime leg — no local FC06 to H256, the atomic `write_time_parameter` call, and no
 classic per-field writes — and the class docstring drops the same "classic cloud field
 writes" overstatement r10 corrected elsewhere. Citations: PR #600 (issue #570).
+
+## [2026-08-30] repin | Release-cut re-pin — PR #600 merged as d8e2027
+
+The REQUIRED POST-MERGE ACTION from the #570 sweep rounds is discharged:
+PR #600 squash-merged to mainline as `d8e2027` (closes #570). The four pages
+carrying per-claim PR #600 citations (README keeper cache, registers keeper,
+controls-and-writes, data-semantics) are re-pinned to `d8e2027` with
+`last-verified: 2026-08-30`; the inline PR/issue citations remain as
+provenance. Performed in the v3.5.1-beta.13 release change set (which bumps
+the pylxpweb pin to 0.10.0b5).
