@@ -33,12 +33,14 @@ sources:
   - https://github.com/joyfulhouse/pylxpweb/issues/272
   - https://github.com/joyfulhouse/pylxpweb/pull/273
 verified-against:
-  # eg4 pin moved to e9853eb (v3.5.1-beta.12 mainline, contains the PR #569
-  # protected-register routing) for the #570 evidence-sweep ingest; rows that
-  # describe the sweep-extended routing are part of the #570 audit change set
-  # itself and cite issue #570 rather than a pre-existing commit. pylxpweb
-  # stays ab87902 (0.9.39b11); the #271/#272 range fixes merged after it and
-  # are cited by PR number (pylxpweb #273), not by pin.
+  # eg4 pin covers pre-existing claims, verified at e9853eb (v3.5.1-beta.12
+  # mainline, contains the PR #569 routing). Following the #559 precedent
+  # (PR-branch head now, re-pin to the mainline merge SHA at the cut): rows
+  # describing the #570 sweep-extended routing (H227/H234 shipped-path notes,
+  # the H22 row, the cloud-only scalar set) are part of the PR #600 change
+  # set and are reproducible at its branch commit 1f39ad1. pylxpweb stays
+  # ab87902 (0.9.39b11); the #271/#272 range fixes merged after it and are
+  # cited by PR number (pylxpweb #273), not by pin.
   eg4_web_monitor: e9853eb
   pylxpweb: ab87902
 last-verified: 2026-08-29

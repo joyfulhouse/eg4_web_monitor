@@ -29,7 +29,11 @@ verified-against:
   # 0.9.39b11 release commit ab87902). The router (§1) and §2.4 were
   # falsified by PR #569 and re-verified at e9853eb for the #570 sweep
   # ingest — those sections carry their pin inline; other sections stand at
-  # e146d91.
+  # e146d91. Claims describing the PR #600 change set itself (the
+  # local_write_blocked_reason protected-set row in §1, the §1.3
+  # QuickChargeDuration family gate) are reproducible at the PR #600 branch
+  # commit 1f39ad1 (#559 precedent: re-pin to the mainline merge SHA at the
+  # release cut).
   eg4_web_monitor: e146d91
   pylxpweb: ab87902
 last-verified: 2026-08-29

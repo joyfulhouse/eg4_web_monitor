@@ -581,3 +581,33 @@ Regression tests in `tests/test_offgrid_write_routing.py`
 [`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) router
 parameter row. The local reg-234 **read** (off-grid HYBRID mirroring) is unchanged — reads
 carry no wrong-write hazard.
+
+## [2026-08-29] lint | Review round 2 — H22 ledger gap closed, H105 range mismatch, stale evidence claims, change-set pins
+
+Corrections from PR #600 adversarial round 2 (Codex + Grok), all landed in the PR branch
+commit `1f39ad1`:
+
+- **H22 was a shipped control with no keeper row** — a violation of the every-claim-graded
+  rule that the sweep's own frame derivation used ("no ledger row at all") without filing
+  the row it implied. Added the H22 row (`portal-correlated`: canonical pylxpweb definition
+  at `ab87902` + the PR #359 verified named-volts cloud route; the reg-22-carries-LSP-bits
+  note and the 140 V firmware floor recorded `asserted-unverified`). Accounting 345→346
+  counted claims, 41 proven (11.8%). The README partial-inventory line and the code/test
+  comments that said "no ledger row" were updated — that phrasing was a fact about a gap,
+  not a permanent property.
+- **H105 range mismatch surfaced by the sweep routing**: the entity advertised 0–100 while
+  the canonical H105 definition and pylxpweb's `set_battery_soc_limits` enforce 10–90, so
+  the new off-grid cloud-only route raised a raw ValueError at the boundaries. The entity
+  (the outlier) now advertises/validates/reads 10–90; H125 is 0–100 everywhere and
+  unchanged. The keeper needed no change — the canonical definition was already right.
+- **Stale evidence claims**: `_offgrid_cloud_only_reason`'s rationale still carried the
+  pre-sweep H158/H159/H66 wording this same change set's keeper rows had superseded;
+  README's write-surface worked example still said pure-LOCAL off-grid drives the local
+  H233 path (closed by PR #569); controls-and-writes §1.3 still described the
+  QuickChargeDuration error contract without the family gate. All updated — same defect
+  class as the round-1 finding: a page or docstring asserting what a sibling document said
+  before the same change set falsified it.
+- **Change-set pins**: claims describing this PR's own routing were pinned only to
+  pre-PR commits. Following the #559 precedent, the affected pages' front matter now
+  names the PR #600 branch commit `1f39ad1` for those claims, to be re-pinned to the
+  mainline merge SHA at the release cut.
