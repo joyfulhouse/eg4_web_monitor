@@ -6,6 +6,7 @@ aggregation, and static entity creation.
 """
 
 import asyncio
+from builtins import BaseExceptionGroup
 import logging
 import time
 from datetime import datetime
@@ -1075,6 +1076,9 @@ class LocalTransportMixin(_MixinBase):
             return
 
         unadopted_capability: EndpointBusCapability | None = None
+        snapshot_capability: EndpointBusCapability | None = None
+        snapshot_context: Any | None = None
+        snapshot_succeeded = False
         try:
             family_str = config.get("inverter_family", DEFAULT_INVERTER_FAMILY)
 
@@ -1158,13 +1162,24 @@ class LocalTransportMixin(_MixinBase):
                         else:
                             raise
 
+            snapshot_device = (
+                self._mid_device_cache[serial]
+                if is_gridboss
+                else self._inverter_cache[serial]
+            )
+            candidate = getattr(snapshot_device, "transport", None)
+            if isinstance(candidate, EndpointBusCapability):
+                await candidate.async_ensure_connected()
+                snapshot_capability = candidate
+                entered_context = candidate.complete_snapshot_refresh()
+                await entered_context.__aenter__()
+                snapshot_context = entered_context
+
             # Process based on device type
             if is_gridboss:
                 mid_device = self._mid_device_cache[serial]
 
                 transport = mid_device.transport
-                if isinstance(transport, EndpointBusCapability):
-                    await transport.async_ensure_connected()
 
                 await mid_device.refresh()
 
@@ -1217,8 +1232,6 @@ class LocalTransportMixin(_MixinBase):
                 inverter = self._inverter_cache[serial]
 
                 transport = inverter.transport
-                if isinstance(transport, EndpointBusCapability):
-                    await transport.async_ensure_connected()
 
                 # Use the per-cycle decision computed in _async_update_local_data
                 # (or fall back to the direct check for the deprecated single-
@@ -1548,6 +1561,8 @@ class LocalTransportMixin(_MixinBase):
                     getattr(runtime_data, "output_power", None),
                 )
 
+            snapshot_succeeded = True
+
         except (
             TransportConnectionError,
             TransportTimeoutError,
@@ -1601,13 +1616,25 @@ class LocalTransportMixin(_MixinBase):
             ):
                 device_data["error"] = _LOCAL_DATA_PROCESSING_ERROR
         finally:
-            if unadopted_capability is not None:
-                try:
-                    await self._endpoint_bus_registry.async_shutdown_capabilities(
-                        (unadopted_capability,)
-                    )
-                finally:
-                    self._prune_bus_capability_tracking()
+            try:
+                if snapshot_context is not None and snapshot_capability is not None:
+                    # Coverage gate at publish time (issue #583 review): a
+                    # sibling endpoint declared link-down — or a configured
+                    # sibling not yet created (first-cycle) — must block this
+                    # endpoint's publish; the end-of-cycle recompute alone
+                    # would leave a readable fresh frame in an ineligible
+                    # entry until the cycle finishes.
+                    if not snapshot_succeeded or self._snapshot_coverage_unresolved():
+                        snapshot_capability.abort_snapshot_refresh()
+                    await snapshot_context.__aexit__(None, None, None)
+            finally:
+                if unadopted_capability is not None:
+                    try:
+                        await self._endpoint_bus_registry.async_shutdown_capabilities(
+                            (unadopted_capability,)
+                        )
+                    finally:
+                        self._prune_bus_capability_tracking()
 
     async def _deferred_local_parameter_load(self) -> None:
         """Background task: load parameters and detect features for local devices.
@@ -2785,6 +2812,69 @@ class LocalTransportMixin(_MixinBase):
                 int(_PARAMETER_RETRY_INTERVAL.total_seconds() // 60),
             )
 
+    def _tracked_local_devices(self) -> dict[str, Any]:
+        """Return serial → device for every station- or cache-tracked device."""
+        devices: dict[str, Any] = {}
+        if self.station is not None:
+            # HYBRID: the station owns all devices (caches mirror it).
+            for inv in self.station.all_inverters:
+                devices[str(inv.serial_number)] = inv
+            for mid in self.station.all_mid_devices:
+                devices[str(mid.serial_number)] = mid
+        else:
+            # LOCAL: devices live in the coordinator caches.
+            devices.update(self._inverter_cache)
+            devices.update(self._mid_device_cache)
+        return devices
+
+    def _snapshot_coverage_unresolved(self) -> bool:
+        """Whether entry-wide direct coverage is not positively intact.
+
+        Evaluated at snapshot-context exit (issue #583 review rounds 1-2):
+        the entry-wide coverage recompute (``_sync_transport_link_state`` →
+        ``set_snapshot_coverage``) runs only at the END of an update cycle,
+        so without this gate a healthy endpoint could publish a fresh frame
+        while the entry was already ineligible — violating
+        "transport/coverage remained valid" atomicity.
+
+        A frame publishes only while EVERY configured direct serial is
+        tracked, transport-attached, and not link-down.  A configured device
+        that has not been created/attached yet blocks publication too (codex
+        round-2 MED): during the FIRST poll a sibling connection can still
+        fail, so coverage is unresolved until all configured endpoints
+        resolve — multi-endpoint entries publish from the first cycle where
+        every device exists, at the cost of at most the boot cycle's frames.
+        Single-endpoint entries are unaffected (the device is cached before
+        its own context exits).  The end-of-cycle eligibility recompute
+        remains the authoritative fail-closed check.
+
+        Contract for coverage loss discovered AFTER a publish (adjudicated
+        codex round-4): issue #583 scopes "transport/coverage remained
+        valid" to ONE owner refresh — validity is required through publish
+        time, which this gate enforces.  A sibling link-down detected after
+        a frame published retro-invalidates at the end-of-cycle coverage
+        sync (lookup removed, stores cleared), bounding the exposure to one
+        update cycle.  The window is irreducible, not a defect: a staged
+        end-of-cycle commit would merely move the boundary — a link that
+        dies right after the commit leaves the committed frame readable for
+        one detection latency all the same — while adding a second retained
+        frame per unit against the spec's O(1)/single-readable-frame
+        requirement.
+        """
+        devices = self._tracked_local_devices()
+        for config in self._local_transport_configs:
+            serial = str(config.get("serial") or "")
+            if not serial:
+                continue
+            device = devices.get(serial)
+            if device is None:
+                return True
+            if getattr(device, "transport", None) is None or is_transport_link_down(
+                device
+            ):
+                return True
+        return False
+
     def _sync_transport_link_state(self, processed: dict[str, Any] | None) -> None:
         """Sync Repairs issues and device error keys with transport link state.
 
@@ -2813,17 +2903,7 @@ class LocalTransportMixin(_MixinBase):
         healthy-path delete is an idempotent registry no-op, which also
         clears stale issues left behind by a restart mid-outage.
         """
-        devices: dict[str, Any] = {}
-        if self.station is not None:
-            # HYBRID: the station owns all devices (caches mirror it).
-            for inv in self.station.all_inverters:
-                devices[str(inv.serial_number)] = inv
-            for mid in self.station.all_mid_devices:
-                devices[str(mid.serial_number)] = mid
-        else:
-            # LOCAL: devices live in the coordinator caches.
-            devices.update(self._inverter_cache)
-            devices.update(self._mid_device_cache)
+        devices = self._tracked_local_devices()
 
         for serial, device in devices.items():
             transport = getattr(device, "transport", None)
@@ -2874,6 +2954,22 @@ class LocalTransportMixin(_MixinBase):
             local_transports=self._local_transport_configs,
             available_serials=available_serials,
         )
+        try:
+            self._endpoint_bus_registry.set_snapshot_coverage(
+                self._bus_capabilities,
+                enabled=bool(getattr(self._bus_owner_eligibility, "eligible", False)),
+            )
+        except BaseExceptionGroup:
+            # A rejected coverage-loss observer detach must not abort the
+            # whole update cycle (kimi round-1): the owner already dropped
+            # the retained store/lookup before the detach attempt, and the
+            # pending-detach marker retries on the next coverage change or
+            # shutdown.  Unreachable with the pinned wheel (its
+            # set_register_observer cannot raise) — consistency hardening.
+            _LOGGER.debug(
+                "Snapshot coverage sync detach rejected; retry pending",
+                exc_info=True,
+            )
 
     def _error_mark_stale_parallel_groups(self, processed: dict[str, Any]) -> None:
         """Error-mark carried-forward parallel groups on a full-outage cycle.

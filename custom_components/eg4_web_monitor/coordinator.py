@@ -581,6 +581,10 @@ class EG4DataUpdateCoordinator(
         self._firmware_status_owner: object | None = None
         self._firmware_status_released = True
         self._firmware_prefetched_device_ids: set[int] = set()
+        # Per-serial anchor of the firmware carry-forward window (#573):
+        # last successful refresh, or the first failure when none ever
+        # succeeded. Missing key = never polled (the None sentinel).
+        self._firmware_poll_fresh_at: dict[str, float] = {}
 
         # Track availability state for Silver tier logging requirement
         self._last_available_state: bool = True
@@ -1798,7 +1802,22 @@ class EG4DataUpdateCoordinator(
 
     def _create_bus_capability(self, config: TransportConfig) -> EndpointBusCapability:
         """Create and track an owner-issued local capability."""
-        capability = self._endpoint_bus_registry.create_capability(config)
+        eligibility = getattr(self, "_bus_owner_eligibility", None)
+        snapshot_enabled = getattr(self, "connection_type", "") in (
+            CONNECTION_TYPE_LOCAL,
+            CONNECTION_TYPE_HYBRID,
+        ) and bool(getattr(eligibility, "eligible", False))
+        poll_interval = (
+            getattr(self, "_modbus_interval", DEFAULT_MODBUS_UPDATE_INTERVAL)
+            if config.transport_type
+            in (TransportType.MODBUS_TCP, TransportType.MODBUS_SERIAL)
+            else getattr(self, "_dongle_interval", DEFAULT_DONGLE_UPDATE_INTERVAL)
+        )
+        capability = self._endpoint_bus_registry.create_capability(
+            config,
+            snapshot_enabled=snapshot_enabled,
+            poll_interval_seconds=poll_interval,
+        )
         self._bus_capabilities.add(capability)
         self._bus_capability_configs[capability] = config
         return capability

@@ -10143,3 +10143,191 @@ class TestFirmwarePollCarryForward:
         assert result["in_progress"] is True
         assert result["update_percentage"] == 42
         assert result["latest_version"] == "ccaa-1E1515"
+
+    async def test_stale_active_100_expires_after_staleness_window(
+        self, hass, mock_config_entry
+    ):
+        """#573 transition: active-100 row -> repeated refresh failures -> expires.
+
+        Carry-forward of a cached ACTIVE row (#353) is freshness-bounded:
+        within the window failures keep serving the cached state; once the
+        last successful refresh is older than the window, the row is
+        republished as not-installing with an unknown percentage so the
+        update entity releases in_progress and HA accepts new installs.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        device = self._cached_updating_device()
+        device.firmware_update_percentage = 100
+        window = coordinator._firmware_poll_staleness_window()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            # t0: a successful poll observes the active-100 row (anchors
+            # the freshness window).
+            monotonic.return_value = 1000.0
+            device.check_firmware_updates = AsyncMock()
+            device.get_firmware_update_progress = AsyncMock()
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 100
+
+            # Refresh calls start failing persistently.
+            device.check_firmware_updates = AsyncMock(side_effect=RuntimeError("down"))
+            device.get_firmware_update_progress = AsyncMock(
+                side_effect=RuntimeError("down")
+            )
+
+            # Within the window: cached active state carries forward (#353).
+            monotonic.return_value = 1000.0 + window - 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 100
+
+            # Past the window: the stale active row expires (#573). Version
+            # and availability fields survive so the entity stays meaningful.
+            monotonic.return_value = 1000.0 + window + 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
+            assert result["latest_version"] == "ccaa-1E1515"
+
+            # Recovery: a later successful poll that still reports an active
+            # update re-anchors the window and republishes it fresh.
+            device.check_firmware_updates = AsyncMock()
+            device.get_firmware_update_progress = AsyncMock()
+            monotonic.return_value = 1000.0 + window + 10.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+
+    async def test_stale_active_row_expires_even_when_coordinator_succeeds(
+        self, hass, mock_config_entry
+    ):
+        """#573 tribunal case: side-poll fails, coordinator update SUCCEEDS.
+
+        _poll_firmware_update_info swallows its refresh exceptions, so the
+        overall coordinator update keeps succeeding (last_update_success
+        stays True) and the entity stays AVAILABLE — the wedge renders as a
+        permanently visible indeterminate spinner, not as unavailability.
+        The stale active row must still expire after the window.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        assert coordinator.last_update_success is True
+        device = self._cached_updating_device()  # refresh raises; cache active
+        window = coordinator._firmware_poll_staleness_window()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            # First observed failure anchors the outage window; the cached
+            # active row still carries forward (no successful poll ever ran).
+            monotonic.return_value = 5000.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+
+            # Failures persist past the window: the row expires even though
+            # every poll cycle "succeeded" from the coordinator's viewpoint.
+            monotonic.return_value = 5000.0 + window + 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
+
+        # The swallowed exceptions never marked the coordinator failed.
+        assert coordinator.last_update_success is True
+
+    async def test_long_uptime_first_failure_carries_forward_then_expires(
+        self, hass, mock_config_entry
+    ):
+        """#573's 0.0 never-ran hazard, pinned at LONG uptime (d66cc92 class).
+
+        monotonic() is host uptime on Linux. If the None "never ran"
+        sentinel (missing dict key in ``_firmware_poll_fresh_at``) were
+        swapped for a 0.0 default, a long-running host (monotonic ~ 1e6)
+        whose FIRST-EVER firmware poll fails would compute
+        ``now - 0.0 >> window`` and instantly expire an active cached row
+        that was never successfully polled — regressing #353. Adjudicated
+        behavior: a failure with no recorded stamp anchors the window AT
+        that failure and carries the cached row forward.
+
+        A fresh-boot monotonic (e.g. 1.0) cannot pin this — ``1.0 - 0.0``
+        is inside the window, so a 0.0-default implementation passes it.
+        The large uptime below goes RED under a 0.0 default (verified by
+        mutation), and the final step goes RED if freshness-bounded expiry
+        is reverted entirely; this test subsumes the fresh-boot case.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        device = self._cached_updating_device()
+        window = coordinator._firmware_poll_staleness_window()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            # First-ever poll fails at large uptime: must carry forward,
+            # not instantly expire.
+            monotonic.return_value = 1_000_000.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 42
+
+            # Still inside the window measured from that first failure.
+            monotonic.return_value = 1_000_000.0 + window - 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 42
+
+            # The first failure was the anchor: past the window it expires.
+            monotonic.return_value = 1_000_000.0 + window + 1.0
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
+
+    async def test_prefetch_path_failures_anchor_the_window_and_expire(
+        self, hass, mock_config_entry
+    ):
+        """#573 via the PRODUCTION prefetch path (Codex round-2 LOW).
+
+        On HTTP/hybrid refresh cycles the firmware refresh calls run inside
+        _prefetch_firmware_update_info()'s _check/_progress closures, and
+        _poll_firmware_update_info() short-circuits straight to extraction
+        for prefetched devices — so if only the direct poll path stamped
+        freshness, persistent prefetch failures would provide no anchor and
+        the stale spinner would persist. This drives the prefetch batch with
+        failing devices and asserts expiry still occurs after the window;
+        it goes RED (verified by mutation) if the prefetch closures stop
+        recording results via _note_firmware_poll_result.
+        """
+        coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        device = self._cached_updating_device()
+        window = coordinator._firmware_poll_staleness_window()
+
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_mixins.time.monotonic"
+        ) as monotonic:
+            # First failing prefetch batch anchors the window; the cached
+            # active row still carries forward through the prefetched
+            # short-circuit (#353).
+            monotonic.return_value = 2000.0
+            await coordinator._prefetch_firmware_update_info([device])
+            assert id(device) in coordinator._firmware_prefetched_device_ids
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is True
+            assert result["update_percentage"] == 42
+
+            # Prefetch batches keep failing past the window: the stale
+            # active row must expire on the prefetched path too.
+            monotonic.return_value = 2000.0 + window + 1.0
+            await coordinator._prefetch_firmware_update_info([device])
+            result = await coordinator._poll_firmware_update_info(device)
+            assert result is not None
+            assert result["in_progress"] is False
+            assert result["update_percentage"] is None
