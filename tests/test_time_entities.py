@@ -27,6 +27,7 @@ entity is registry-disabled by default (opt-in advanced feature).
 
 import asyncio
 from datetime import time
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -1672,11 +1673,31 @@ class TestOffgridScheduleWriteRouting:
             parameters={"68": _pack(8, 0)},
         )
         # Merge write-seeds into the same cache the decoder reads, like the
-        # real coordinator does.
-        coordinator.note_parameters_written = MagicMock(
-            side_effect=lambda serial, values: coordinator.data["parameters"][
-                serial
-            ].update(values)
+        # real coordinator does, and remember them for the refresh below.
+        seeded: dict[str, Any] = {}
+
+        def _note(serial: str, values: dict) -> None:
+            seeded.update(values)
+            coordinator.data["parameters"][serial].update(values)
+
+        coordinator.note_parameters_written = MagicMock(side_effect=_note)
+
+        # Emission-faithful refresh (#570 r7, codex MED): the post-write
+        # refresh SUCCEEDS and observes the not-yet-propagated register —
+        # it writes the STALE packed value into the cache. The real
+        # coordinator's settle-window reconciliation then keeps the seed
+        # over the disagreeing observation (pinned on the real code by
+        # TestParameterSeedSettleWindow in test_coordinator_local.py);
+        # this double replays exactly that outcome. Without local_values
+        # seeding, `seeded` is empty, the stale value survives, and the
+        # native_value assertion below goes RED.
+        async def _stale_then_reconciled_refresh(serial: str) -> bool:
+            coordinator.data["parameters"][serial]["68"] = _pack(8, 0)
+            coordinator.data["parameters"][serial].update(seeded)
+            return True
+
+        coordinator.async_refresh_device_parameters = AsyncMock(
+            side_effect=_stale_then_reconciled_refresh
         )
         entity = _entity(coordinator, schedule="ac_charge", window=1, is_end=False)
         _prep(entity)
@@ -1685,10 +1706,9 @@ class TestOffgridScheduleWriteRouting:
 
         coordinator.write_register.assert_not_awaited()
         # The seed carried the packed value under the register's aliases...
-        seeded = coordinator.note_parameters_written.call_args[0][1]
         assert seeded.get("68") == _pack(6, 30)
-        # ...so after the (merely successful) refresh cleared the optimistic
-        # value, the entity shows the WRITTEN time, not the stale 08:00.
+        # ...so after the successful-but-stale refresh cleared the
+        # optimistic value, the entity shows the WRITTEN time, not 08:00.
         assert entity._optimistic_value is None
         assert entity.native_value == time(6, 30)
 

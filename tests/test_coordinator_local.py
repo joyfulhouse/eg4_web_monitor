@@ -635,6 +635,104 @@ class TestReadModbusParameters:
 # ── #282 sticky parameters: carry-forward + throttle re-arm ─────────
 
 
+class TestParameterSeedSettleWindow:
+    """#570 review round 7: the seed must survive a pre-propagation re-read.
+
+    A cloud-ACKed write takes seconds to reach the register (portal ->
+    dongle -> device), so the post-write refresh — a fresh read that STARTS
+    after the write — can observe the pre-write value. Before this round the
+    reconciliation "confirmed" the seed at that stale observation and the
+    entity visibly reverted (optimism cleared onto the pre-write value).
+    Within PARAMETER_WRITE_SEED_SETTLE a disagreeing observation keeps the
+    seed; an agreeing one confirms it; past the window fresh reads are
+    authoritative again.
+    """
+
+    SERIAL = "INV001"
+
+    def _coordinator(self, hass, local_config_entry) -> EG4DataUpdateCoordinator:
+        local_config_entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
+        coordinator.async_update_listeners = MagicMock()
+        coordinator.data = {
+            "devices": {self.SERIAL: {"type": "inverter"}},
+            "parameters": {self.SERIAL: {}},
+        }
+        return coordinator
+
+    def _seeded(self, coordinator: EG4DataUpdateCoordinator) -> None:
+        with patch.object(coordinator, "params_are_local_raw", return_value=True):
+            coordinator.note_parameters_written(
+                self.SERIAL, {"HOLD_LEAD_ACID_CHARGE_RATE": 90}
+            )
+
+    async def test_disagreeing_read_within_settle_keeps_seed(
+        self, hass, local_config_entry
+    ):
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+        assert (
+            coordinator.has_active_parameter_write_seed(
+                self.SERIAL, "HOLD_LEAD_ACID_CHARGE_RATE"
+            )
+            is True
+        )
+
+        # A fresh, complete read that started after the write observes the
+        # not-yet-propagated pre-write value.
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 90  # seed wins
+        assert (
+            coordinator.has_active_parameter_write_seed(
+                self.SERIAL, "HOLD_LEAD_ACID_CHARGE_RATE"
+            )
+            is True
+        )
+
+    async def test_agreeing_read_confirms_seed(self, hass, local_config_entry):
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 90},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 90
+        # Confirmed: the grace clock is running for this key.
+        assert (
+            self.SERIAL,
+            "HOLD_LEAD_ACID_CHARGE_RATE",
+        ) in coordinator._parameter_seed_confirmed
+
+    async def test_disagreeing_read_after_settle_is_authoritative(
+        self, hass, local_config_entry, monkeypatch
+    ):
+        from custom_components.eg4_web_monitor import coordinator as coordinator_module
+
+        monkeypatch.setattr(coordinator_module, "PARAMETER_WRITE_SEED_SETTLE", 0.0)
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._seeded(coordinator)
+
+        reconciled = coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+
+        # Past the settle window, fresh device data wins again.
+        assert reconciled["HOLD_LEAD_ACID_CHARGE_RATE"] == 60
+
+
 class TestStickyParameterCarryForward:
     """A partial parameter read must not blank known values or arm the throttle.
 
@@ -826,7 +924,13 @@ class TestStickyParameterCarryForward:
         )
 
         # A later complete read that begins after the write is authoritative
-        # and retires the retained write seed.
+        # and retires the retained write seed — but only past the settle
+        # window (#570 r7): inside it a DISAGREEING fresh read is treated as
+        # pre-propagation stale data and keeps the seed
+        # (TestParameterSeedSettleWindow pins that half). Expire the window
+        # so this phase exercises eventual convergence.
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
         coordinator.data = partial
         coordinator._last_parameter_refresh = None
         coordinator._last_parameter_attempt = None
@@ -839,6 +943,7 @@ class TestStickyParameterCarryForward:
             return {"HOLD_CHG_POWER_PERCENT_CMD": 75}, True
 
         with (
+            patch.object(coord_mod, "PARAMETER_WRITE_SEED_SETTLE", 0.0),
             patch.object(coordinator, "_should_poll_transport", return_value=True),
             patch.object(
                 coordinator, "_read_modbus_parameters", side_effect=post_write_read
@@ -3925,13 +4030,18 @@ class TestLinkDownParameterRefreshGate:
         }
         assert "INV1" in coordinator._parameter_write_seeds
 
-        # A complete post-write read finally converges and retires the seed.
+        # A complete post-write read finally converges and retires the seed
+        # — past the settle window (#570 r7: inside it a disagreeing fresh
+        # read keeps the seed; expire the window for the convergence phase).
+        from custom_components.eg4_web_monitor import coordinator as coord_mod
+
         async def complete_refresh(**_kwargs: Any) -> None:
             inverter.parameters = {"HOLD_CHG_POWER_PERCENT_CMD": 75}
             inverter.parameters_complete = True
 
         inverter._fetch_parameters = AsyncMock(side_effect=complete_refresh)
-        assert await coordinator._refresh_device_parameters("INV1") is True
+        with patch.object(coord_mod, "PARAMETER_WRITE_SEED_SETTLE", 0.0):
+            assert await coordinator._refresh_device_parameters("INV1") is True
         assert coordinator.data["parameters"]["INV1"] == {
             "HOLD_CHG_POWER_PERCENT_CMD": 75
         }

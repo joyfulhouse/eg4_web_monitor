@@ -491,11 +491,27 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
 
         Standard order: optimistic -> local params -> inverter -> param fallback.
         With params_first: optimistic -> local params -> params -> inverter.
+
+        CONVERGENCE GATE (#570 r7): while the coordinator holds an active
+        acknowledged-write seed for ``param_key``, the read behaves as
+        params_first regardless of the caller's order — the inverter
+        attribute is refreshed from the still-stale local register during
+        the settle window and would shadow the seeded cache value, clearing
+        optimistic state onto the pre-write value (the H101/H102/H105/H125
+        snap-back). The strict ``is True`` check keeps auto-mocked
+        coordinators (whose attributes return truthy MagicMocks) on the
+        caller's declared order.
         """
         if self._optimistic_value is not None:
             if as_float:
                 return float(round(self._optimistic_value, precision))
             return int(self._optimistic_value)
+
+        seed_checker = getattr(
+            self.coordinator, "has_active_parameter_write_seed", None
+        )
+        if callable(seed_checker) and seed_checker(self.serial, param_key) is True:
+            params_first = True
 
         def _fmt(raw: float | None) -> float | None:
             if raw is None:
@@ -1528,6 +1544,16 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                     self.serial, PARAM_HOLD_GRID_PEAK_SHAVING_POWER, str(value)
                 )
                 success = bool(result.success)
+                if success:
+                    # #570 r7 convergence: seed the acknowledged value (kW —
+                    # this entity's read representation; the local name map
+                    # never carries this key, so no raw-deci-kW collision)
+                    # so the post-write refresh cannot clear optimism onto
+                    # the stale inverter attribute.
+                    self.coordinator.note_parameters_written(
+                        self.serial,
+                        {PARAM_HOLD_GRID_PEAK_SHAVING_POWER: value},
+                    )
             if not success:
                 raise HomeAssistantError(
                     f"Failed to set grid peak shaving power to {value:.1f} kW"
@@ -3245,8 +3271,9 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         # — no local off-grid write proof exists, so EG4_OFFGRID routes
         # cloud-only (#558/#570).
         offgrid_local_write_unverified=True,
-        # CEAA/CCAA writer enforces raw 384..570 (38.4-57.0 V); the whole-
-        # volt step makes 39 V the effective off-grid minimum (#570 r6).
+        # CEAA/CCAA writer enforces raw 384..570 (38.4-57.0 V); this entity
+        # is whole-volt, so the ADVERTISED off-grid bounds are 39..57 — every
+        # advertised boundary is writable as-is (#570 r6/r7).
         offgrid_min_value=AC_CHARGE_START_VOLTAGE_OFFGRID_MIN,
         offgrid_max_value=AC_CHARGE_START_VOLTAGE_OFFGRID_MAX,
     ),

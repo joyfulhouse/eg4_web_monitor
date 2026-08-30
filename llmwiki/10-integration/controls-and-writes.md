@@ -31,10 +31,11 @@ verified-against:
   # ingest — those sections carry their pin inline; other sections stand at
   # e146d91. Claims describing the PR #600 change set itself (the
   # local_write_blocked_reason protected-set row in §1, the §1.3/§2.4/§6
-  # family gates) are reproducible at the PR #600 branch head — no SHA is
-  # embedded because review rounds move the head (two successive pinned
-  # SHAs staled, the r5/r6 LOWs); re-pin to the mainline merge SHA at the
-  # release cut (#559 precedent).
+  # family gates) are reproducible from PR #600 (the durable artifact —
+  # its change-set diff survives branch deletion; embedded SHAs staled
+  # twice, the r5/r6 LOWs). REQUIRED POST-MERGE ACTION (recorded in
+  # log.md): re-pin to the mainline merge SHA at the release cut (#559
+  # precedent).
   eg4_web_monitor: e146d91
   pylxpweb: ab87902
 last-verified: 2026-08-29

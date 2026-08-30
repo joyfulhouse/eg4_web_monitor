@@ -697,3 +697,42 @@ against a stale cached sibling would produce false rejections); the H117 error n
 promises a cloud route that does not exist (it names family resolution as the remedy);
 and the change-set pin comments switched to branch-head language after two successive
 pinned SHAs staled within the review train.
+
+## [2026-08-29] lint | Review round 7 — cloud-routed writes must CONVERGE, not just route
+
+Three MEDs were one class: every write this PR re-routed through the cloud races the
+post-write refresh against portal→dongle→register propagation, and three gaps let the
+stale register win — (1) `_reconcile_parameter_read` "confirmed" a seeded key at a
+disagreeing fresh observation, so the successful refresh retired the seed at the
+PRE-write value and cleared optimism onto it (schedules and every seeded number
+reverted for a poll cycle); (2) the number platform's default inverter-first read order
+let the pylxpweb attribute (refreshed from the same stale register) shadow the seeded
+cache value entirely (the H101/H102/H105/H125 snap-back); (3)
+`GridPeakShavingPowerNumber`'s round-6 cloud-named branch never seeded convergence at
+all. Fixed as one mechanism, not spot fixes: a new
+`PARAMETER_WRITE_SEED_SETTLE` window in the coordinator keeps a seed over a
+DISAGREEING fresh observation (agreement still confirms immediately; past the window
+fresh reads are authoritative again — pinned RED→GREEN on the real coordinator);
+`_read_param_value` now behaves params-first for any key with an active seed
+(`has_active_parameter_write_seed`, strict-True so auto-mocked scaffolds keep their
+declared order); the H206 cloud branch seeds its acknowledged kW value. The routing
+tests now assert `native_value` AFTER every cloud-routed write (grok's point: routing
+tests passed without convergence), against an emission-faithful mock that replays the
+coordinator contract. The whole rerouted set was swept against the mechanism:
+66/74/101/102/105/125/158/159/160/161/169/100/22/202/227/228 and the r5 additions
+67/82/83/103/116 ride the router's `local_values` seeding; H206 seeds at its entity;
+schedule times seed their alias keys; H117 and QuickChargeDuration write nothing
+cloud-side to converge.
+
+Also: H158's advertised off-grid floor is now 39 V (advertising the firmware's 38.4 V
+on a whole-volt entity made HA accept a boundary the validation then rejected — every
+advertised boundary is writable as-is, boundary-tested both ends for
+H66/H158/H159/H160/H161); the last H234 read/write-symmetry comment was corrected
+(`_read_quick_charge_status`), completing the r4 sweep; and the change-set pin
+comments now cite **PR #600** as the durable artifact (a deleted branch keeps the PR
+diff; branch-head language was not durable).
+
+**REQUIRED POST-MERGE ACTION (release cut):** re-pin the PR #600 change-set claims in
+`40-hardware/registers.md`, `10-integration/controls-and-writes.md`,
+`10-integration/data-semantics.md` and `README.md` front matter to the mainline merge
+SHA (#559 precedent). This entry is the tracking record for that action.

@@ -16,10 +16,11 @@ verified-against: 9f6d6e2
 # The hand-maintained keeper cache in "Registers the keeper marks unresolved"
 # was reconciled 2026-08-29 for the #570 sweep; the derivation/legend sections
 # stand at the 9f6d6e2 verification pass. Cache cells describing the #570
-# routing are part of the PR #600 change set (reproducible at its branch
-# head — no SHA is embedded because review rounds move the head, which
-# staled two successive pinned SHAs; re-pin to the mainline merge SHA at
-# the release cut); the keeper stays authoritative.
+# routing are part of the PR #600 change set (reproducible from PR #600,
+# the durable artifact — its diff survives branch deletion; embedded SHAs
+# staled twice in review. REQUIRED POST-MERGE ACTION, recorded in log.md:
+# re-pin to the mainline merge SHA at the release cut); the keeper stays
+# authoritative.
 last-verified: 2026-08-29
 ---
 

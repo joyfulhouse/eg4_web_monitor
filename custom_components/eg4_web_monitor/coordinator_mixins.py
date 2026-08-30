@@ -1393,8 +1393,12 @@ class DeviceProcessingMixin(_MixinBase):
                 client.api.control.get_quick_charge_status(inverter.serial_number),
                 timeout=QUICK_CHARGE_CLOUD_STATUS_TIMEOUT,
             )
-            # Active flag from the cloud, duration register read locally so
-            # the Duration number's read and write sides agree (#296 round 2).
+            # Active flag from the cloud; duration register MIRROR-read
+            # locally so the Duration number displays the live countdown
+            # (#296 round 2). Read-only: since #570 the setter does NOT
+            # write reg 234 on off-grid/unresolved families — do not read
+            # this comment as write symmetry (see
+            # _read_offgrid_quick_charge_minute's warning).
             quick_charge_minute = await self._read_offgrid_quick_charge_minute(inverter)
         elif hasattr(inverter, "get_quick_charge_detail"):
             # Prefer the full detail (remaining time + task metadata);

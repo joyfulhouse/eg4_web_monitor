@@ -233,16 +233,20 @@ AC_CHARGE_VOLTAGE_MIN = 38
 AC_CHARGE_VOLTAGE_MAX = 60
 # Off-grid firmware bounds for the AC-charge voltage window (CEAA/CCAA
 # FC06/FC16 writer range checks, firmware-proven #570): H158 raw 384..570
-# = 38.4-57.0 V; H159 raw 480..590 = 48.0-59.0 V. The shared 38-60 V range
-# above is kept ONLY for positively resolved non-off-grid families; the
-# whole-volt entity step makes 39 V the effective off-grid H158 minimum.
+# (38.4-57.0 V); H159 raw 480..590 (48.0-59.0 V). The shared 38-60 V range
+# above is kept ONLY for positively resolved non-off-grid families. These
+# entities are whole-volt (require_whole, 1 V step), so the ADVERTISED
+# bounds are the whole-volt values inside the firmware windows — H158's
+# floor is 39, not 38.4: advertising 38.4 made HA accept a boundary the
+# whole-volt validation then rejected (#570 review round 7). Every
+# advertised boundary below is writable as-is.
 # The cross-register constraint (H158 <= H159, firmware-enforced) is
 # deliberately NOT validated entity-side: the sibling's cached value can
 # be stale, and a false rejection is worse than the writer's own error.
-AC_CHARGE_START_VOLTAGE_OFFGRID_MIN = 38.4
-AC_CHARGE_START_VOLTAGE_OFFGRID_MAX = 57.0
-AC_CHARGE_END_VOLTAGE_OFFGRID_MIN = 48.0
-AC_CHARGE_END_VOLTAGE_OFFGRID_MAX = 59.0
+AC_CHARGE_START_VOLTAGE_OFFGRID_MIN = 39
+AC_CHARGE_START_VOLTAGE_OFFGRID_MAX = 57
+AC_CHARGE_END_VOLTAGE_OFFGRID_MIN = 48
+AC_CHARGE_END_VOLTAGE_OFFGRID_MAX = 59
 AC_CHARGE_VOLTAGE_STEP = 1
 
 # =============================================================================

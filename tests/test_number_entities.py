@@ -1097,6 +1097,49 @@ class TestBatteryCurrentWrite:
         coordinator.write_named_parameter.assert_called_once()
 
 
+class TestActiveWriteSeedReadGate:
+    """#570 r7 convergence: an active acknowledged-write seed outranks the
+    inverter attribute. The pylxpweb object's attribute is refreshed from
+    the still-stale local register during the settle window, and the
+    shipped inverter-first read order let it shadow the seeded cache value
+    — clearing optimism onto the pre-write value (the H101/H102/H105/H125
+    snap-back). Without an active seed, the shipped order stands."""
+
+    @pytest.mark.asyncio
+    async def test_active_write_seed_outranks_stale_inverter_attr(self):
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_LEAD_ACID_CHARGE_RATE": 100},
+            inverter_attrs={"battery_charge_current_limit": 80},
+        )
+        entity = BatteryChargeCurrentNumber(coordinator, "1234567890")
+
+        # No active seed: the shipped inverter-first order stands.
+        coordinator.has_active_parameter_write_seed = MagicMock(return_value=False)
+        assert entity.native_value == 80
+
+        # Active seed: the seeded params-cache value wins for its key.
+        coordinator.has_active_parameter_write_seed = MagicMock(return_value=True)
+        assert entity.native_value == 100
+        coordinator.has_active_parameter_write_seed.assert_called_with(
+            "1234567890", "HOLD_LEAD_ACID_CHARGE_RATE"
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_mocked_coordinator_keeps_declared_order(self):
+        """The gate requires a strict boolean True — an auto-MagicMock
+        coordinator attribute (truthy but not True) must not flip every
+        test scaffold to params-first."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            parameters={"HOLD_LEAD_ACID_CHARGE_RATE": 100},
+            inverter_attrs={"battery_charge_current_limit": 80},
+        )
+        entity = BatteryChargeCurrentNumber(coordinator, "1234567890")
+        # coordinator.has_active_parameter_write_seed is an auto-MagicMock.
+        assert entity.native_value == 80
+
+
 class TestSystemChargeSOCWrite:
     """Test SystemChargeSOCLimit's custom 3-way write path."""
 

@@ -96,7 +96,25 @@ def _mock_coordinator(
     coordinator.async_refresh_device_parameters = AsyncMock(return_value=True)
     coordinator.write_named_parameter = AsyncMock()
     coordinator.write_raw_parameter = AsyncMock()
-    coordinator.note_parameters_written = MagicMock()
+    # Emission-faithful convergence wiring (#570 r7): note_parameters_written
+    # merges acknowledged values into the same cache the entities read, and
+    # has_active_parameter_write_seed reports them active — mirroring the
+    # real coordinator's seed registry (settle-window semantics pinned by
+    # TestParameterSeedSettleWindow in test_coordinator_local.py). Routing
+    # tests can then assert native_value AFTER a cloud-routed write; without
+    # convergence seeding those assertions go RED.
+    _seeded_keys: set[str] = set()
+
+    def _note_parameters_written(target: str, values: dict) -> None:
+        coordinator.data["parameters"].setdefault(target, {}).update(values)
+        _seeded_keys.update(values)
+
+    coordinator.note_parameters_written = MagicMock(
+        side_effect=_note_parameters_written
+    )
+    coordinator.has_active_parameter_write_seed = MagicMock(
+        side_effect=lambda target, key: key in _seeded_keys
+    )
     coordinator._quick_charge_minutes = {}
     # Live H233-b0 active check (cloud-routed on off-grid HYBRID, #296).
     # Default idle; the duration live-adjust tests override it.
@@ -201,6 +219,7 @@ class TestOffgridACChargeSOCCloudOnlyRouting:
         coordinator.note_parameters_written.assert_called_once_with(
             SERIAL, {param: value}
         )
+        assert entity.native_value == value  # r7 convergence
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -481,6 +500,7 @@ class TestACChargePowerProtectedRouting:
         coordinator.note_parameters_written.assert_called_once_with(
             SERIAL, {"HOLD_AC_CHARGE_POWER_CMD": 50}
         )
+        assert entity.native_value == pytest.approx(5.0)  # r7 convergence
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -593,6 +613,10 @@ class TestSweepExtendedProtectedRouting:
         coordinator.write_named_parameter.assert_not_awaited()
         inverter = coordinator.get_inverter_object(SERIAL)
         getattr(inverter, cloud_method).assert_awaited_once_with(**cloud_kwargs)
+        # #570 r7 (grok): routing alone is not convergence — the cloud-routed
+        # write must land in the entity's own read path (seeded cache beats
+        # the stale inverter attribute during the settle window).
+        assert entity.native_value == pytest.approx(value)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -647,6 +671,7 @@ class TestSweepExtendedProtectedRouting:
         coordinator.client.api.control.set_system_charge_soc_limit.assert_awaited_once_with(
             SERIAL, 90
         )
+        assert entity.native_value == 90  # r7: converges via the cache seed
 
     @pytest.mark.asyncio
     async def test_offgrid_ac_charge_power_capped_at_firmware_10kw(self):
@@ -662,13 +687,18 @@ class TestSweepExtendedProtectedRouting:
 
         assert entity.native_max_value == 10.0
 
+        # BOTH advertised boundaries write as-is (r7).
+        await entity.async_set_native_value(0.0)
         await entity.async_set_native_value(10.0)
         inverter = coordinator.get_inverter_object(SERIAL)
-        inverter.set_ac_charge_power.assert_awaited_once_with(power_kw=10.0)
+        kw_calls = inverter.set_ac_charge_power.await_args_list
+        assert kw_calls[0].kwargs == {"power_kw": 0.0}
+        assert kw_calls[1].kwargs == {"power_kw": 10.0}
 
-        with pytest.raises(HomeAssistantError, match=r"0\.0-10\.0 kW"):
-            await entity.async_set_native_value(10.1)
-        inverter.set_ac_charge_power.assert_awaited_once()  # unchanged
+        for bad in (-0.1, 10.1):
+            with pytest.raises(HomeAssistantError, match=r"0\.0-10\.0 kW"):
+                await entity.async_set_native_value(bad)
+        assert inverter.set_ac_charge_power.await_count == 2  # unchanged
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -694,22 +724,24 @@ class TestSweepExtendedProtectedRouting:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        ("spec_key", "min_v", "max_v", "ok_value", "ok_raw", "bad_values"),
+        ("spec_key", "min_v", "max_v", "bad_values"),
         [
-            ("ac_charge_start_voltage", 38.4, 57.0, 57, 570, (38, 58)),
-            ("ac_charge_end_voltage", 48.0, 59.0, 48, 480, (47, 60)),
+            ("ac_charge_start_voltage", 39, 57, (38, 58)),
+            ("ac_charge_end_voltage", 48, 59, (47, 60)),
         ],
         ids=["h158", "h159"],
     )
     async def test_offgrid_ac_charge_voltage_firmware_bounds(
-        self, spec_key, min_v, max_v, ok_value, ok_raw, bad_values
+        self, spec_key, min_v, max_v, bad_values
     ):
-        """r6 (Codex MED): the shared 38-60 V range let H158=60 / H159=38
-        pass HA validation and then fail at the CEAA/CCAA writer
-        (exception 03). Off-grid/unresolved families now advertise and
-        validate the firmware-proven windows (H158 38.4-57.0, H159
-        48.0-59.0); boundary values land via the cloud raw-register
-        write, out-of-window values fail clearly at the entity."""
+        """r6 (Codex MED) + r7 (Codex MED): the shared 38-60 V range let
+        H158=60 / H159=38 pass HA validation and then fail at the
+        CEAA/CCAA writer (exception 03); and r6's 38.4 V advertised floor
+        let HA accept a boundary the whole-volt validation then rejected.
+        Off-grid/unresolved families now advertise whole-volt bounds
+        inside the firmware windows (H158 39-57, H159 48-59) and BOTH
+        advertised boundaries write as-is via the cloud raw-register
+        route; out-of-window values fail clearly at the entity."""
         coordinator = _mock_coordinator(
             has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
         )
@@ -720,15 +752,17 @@ class TestSweepExtendedProtectedRouting:
         assert entity.native_min_value == min_v
         assert entity.native_max_value == max_v
 
-        await entity.async_set_native_value(ok_value)
-        coordinator.client.api.control.write_parameters.assert_awaited_once_with(
-            SERIAL, {spec.register: ok_raw}
-        )
+        # BOTH advertised boundaries are writable exactly as advertised.
+        await entity.async_set_native_value(min_v)
+        await entity.async_set_native_value(max_v)
+        raw_calls = coordinator.client.api.control.write_parameters.await_args_list
+        assert raw_calls[0].args == (SERIAL, {spec.register: min_v * 10})
+        assert raw_calls[1].args == (SERIAL, {spec.register: max_v * 10})
 
         for bad in bad_values:
             with pytest.raises(HomeAssistantError, match=r"must be"):
                 await entity.async_set_native_value(bad)
-        coordinator.client.api.control.write_parameters.assert_awaited_once()
+        assert coordinator.client.api.control.write_parameters.await_count == 2
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -766,14 +800,17 @@ class TestSweepExtendedProtectedRouting:
 
         assert entity.native_min_value == 20
 
+        # BOTH advertised boundaries write as-is (r7).
         await entity.async_set_native_value(20)
-        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
-            SERIAL, "HOLD_AC_CHARGE_END_BATTERY_SOC", "20"
-        )
+        await entity.async_set_native_value(100)
+        named_calls = coordinator.client.api.control.write_parameter.await_args_list
+        assert named_calls[0].args == (SERIAL, "HOLD_AC_CHARGE_END_BATTERY_SOC", "20")
+        assert named_calls[1].args == (SERIAL, "HOLD_AC_CHARGE_END_BATTERY_SOC", "100")
 
-        with pytest.raises(HomeAssistantError, match=r"20-100"):
-            await entity.async_set_native_value(19)
-        coordinator.client.api.control.write_parameter.assert_awaited_once()
+        for bad in (19, 101):
+            with pytest.raises(HomeAssistantError, match=r"20-100"):
+                await entity.async_set_native_value(bad)
+        assert coordinator.client.api.control.write_parameter.await_count == 2
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -790,14 +827,21 @@ class TestSweepExtendedProtectedRouting:
 
         assert entity.native_min_value == 1
 
+        # BOTH advertised boundaries write as-is (r7).
         await entity.async_set_native_value(1)
-        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
-            SERIAL, "HOLD_AC_CHARGE_START_BATTERY_SOC", "1"
+        await entity.async_set_native_value(90)
+        named_calls = coordinator.client.api.control.write_parameter.await_args_list
+        assert named_calls[0].args == (SERIAL, "HOLD_AC_CHARGE_START_BATTERY_SOC", "1")
+        assert named_calls[1].args == (
+            SERIAL,
+            "HOLD_AC_CHARGE_START_BATTERY_SOC",
+            "90",
         )
 
-        with pytest.raises(HomeAssistantError, match=r"1-90"):
-            await entity.async_set_native_value(0)
-        coordinator.client.api.control.write_parameter.assert_awaited_once()
+        for bad in (0, 91):
+            with pytest.raises(HomeAssistantError, match=r"1-90"):
+                await entity.async_set_native_value(bad)
+        assert coordinator.client.api.control.write_parameter.await_count == 2
         coordinator.write_named_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -1160,6 +1204,12 @@ class TestFirstRunUnresolvedProtectedRouting:
         coordinator.client.api.control.write_parameter.assert_awaited_once_with(
             SERIAL, "_12K_HOLD_GRID_PEAK_SHAVING_POWER", "5.0"
         )
+        # r7: the cloud-named branch seeds convergence too (it previously
+        # never called note_parameters_written at all).
+        coordinator.note_parameters_written.assert_called_once_with(
+            SERIAL, {"_12K_HOLD_GRID_PEAK_SHAVING_POWER": 5.0}
+        )
+        assert entity.native_value == pytest.approx(5.0)
 
     @pytest.mark.asyncio
     async def test_resolved_hybrid_grid_peak_shaving_uses_library_method(self):

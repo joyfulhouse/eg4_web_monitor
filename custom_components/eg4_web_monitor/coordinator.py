@@ -139,6 +139,17 @@ PARAMETER_WRITE_SEED_TTL = 1800.0  # seconds
 # flight cannot publish its pre-write snapshot after retirement (codex P1).
 PARAMETER_SEED_CONFIRMED_GRACE = 120.0  # seconds
 
+# A cloud-ACKed write takes seconds to propagate portal -> dongle -> register,
+# so a fresh local read inside this window that DISAGREES with a seeded key is
+# treated as pre-propagation stale data and does NOT retire the seed — the
+# post-write refresh otherwise "confirmed" the pre-write value, cleared the
+# optimistic state onto it, and visibly reverted the entity (#570 review
+# round 7; the cloud-only off-grid/unresolved routes made the race the
+# common path). A read that AGREES with the seed confirms it immediately
+# (grace above); once this window passes, fresh reads are authoritative
+# again regardless of agreement.
+PARAMETER_WRITE_SEED_SETTLE = 30.0  # seconds
+
 # Reload-safe logical-control locks, keyed (serial, control). Survives the
 # coordinator across config-entry reloads so a mid-write reload cannot let a
 # second writer interleave a schedule hour/minute or battery-mode bit pair.
@@ -1167,6 +1178,20 @@ class EG4DataUpdateCoordinator(
         }
         self.async_update_listeners()
 
+    def has_active_parameter_write_seed(self, serial: str, key: str) -> bool:
+        """True while an acknowledged-write seed overlays ``key`` for ``serial``.
+
+        The read side of the #570 r7 convergence contract: while a seed is
+        live (armed by :meth:`note_parameters_written`, retired by
+        confirmation/settle/TTL in ``_reconcile_parameter_read`` /
+        ``_overlay_parameter_write_seeds``), inverter-attribute-first number
+        reads must prefer the seeded params-cache value — the pylxpweb
+        object's attribute is refreshed from the still-stale local register
+        and would otherwise shadow the acknowledged write.
+        """
+        seeds = self._parameter_write_seeds.get(serial)
+        return bool(seeds and key in seeds)
+
     def _reconcile_parameter_read(
         self,
         serial: str,
@@ -1196,12 +1221,25 @@ class EG4DataUpdateCoordinator(
                 observed_keys is not None and key in observed_keys
             )
             if seed_generation <= read_generation and observed_by_read:
+                observed_value = values.get(key, seed_value)
+                if observed_value != seed_value:
+                    # #570 r7: a fresh read that DISAGREES with the seed
+                    # inside the settle window is pre-propagation stale
+                    # data (the cloud ACKed the write; the register has
+                    # not caught up) — keep the seed instead of
+                    # "confirming" the pre-write value and reverting the
+                    # entity. After the window, disagreement is
+                    # authoritative device truth again.
+                    stamp = self._parameter_write_seed_stamps.get(serial)
+                    if stamp is not None and now - stamp <= PARAMETER_WRITE_SEED_SETTLE:
+                        reconciled[key] = seed_value
+                        remaining[key] = (seed_value, seed_generation)
+                        continue
                 # Confirmed by an authoritative observation — but an OLDER
                 # update cycle may still hold a pre-write snapshot it has not
                 # published yet. Keep the seed at the freshly observed value
                 # for a grace window so the final overlay repairs that
                 # publication too, then let it expire.
-                observed_value = values.get(key, seed_value)
                 confirmed_key = (serial, key)
                 confirmed_at = self._parameter_seed_confirmed.setdefault(
                     confirmed_key, now
