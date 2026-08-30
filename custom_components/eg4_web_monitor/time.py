@@ -64,6 +64,7 @@ from .utils import (
     flag_offgrid_control_suppression,
     is_hybrid_family,
     is_offgrid_family,
+    is_positively_non_offgrid_family,
     is_supported_control_model,
 )
 
@@ -528,12 +529,34 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
                     self._register, packed, serial=self.serial
                 )
 
+            # #570 r5 derivation pass: local packed FC06 schedule writes
+            # have no off-grid write evidence (the schedule rows are all
+            # `portal-correlated` from CLOUD probes), and the clear-schedule
+            # button already declares local off-grid schedule writes
+            # unsanctioned (#563) — so the entity write shares the
+            # fail-closed family routing: off-grid/unresolved go through
+            # the classic cloud field writes; resolved non-off-grid
+            # families keep local-first.
+            device_data: dict[str, Any] = (
+                (self.coordinator.data or {}).get("devices", {}).get(self.serial, {})
+            )
+            blocked_reason: str | None = None
+            if not is_positively_non_offgrid_family(device_data):
+                blocked_reason = (
+                    f"Cannot set {self._spec.key} schedule time: local Modbus "
+                    f"writes to register {self._register} are not "
+                    "hardware-verified on this inverter family (or the family "
+                    "could not be positively identified), so this control "
+                    "writes through the EG4 cloud API only (issue #558) — add "
+                    "cloud credentials to this integration entry to use it"
+                )
             await async_write_with_cloud_fallback(
                 self.coordinator,
                 self.serial,
                 f"{self._spec.key} schedule time",
                 local_write=_local_write,
                 cloud_write=lambda: self._async_write_cloud(boundary_value),
+                local_write_blocked_reason=blocked_reason,
             )
             write_ok = True
             if self.coordinator.is_transport_link_down(self.serial):

@@ -44,14 +44,20 @@ from custom_components.eg4_web_monitor.const import INVERTER_FAMILY_EG4_OFFGRID
 from custom_components.eg4_web_monitor.number import (
     ACChargeEndBatterySOCNumber,
     ACChargePowerNumber,
+    ACChargeSOCLimitNumber,
     ACChargeStartBatterySOCNumber,
     BatteryChargeCurrentNumber,
     BatteryDischargeCurrentNumber,
     EG4VoltageNumber,
+    ForcedDischargePowerNumber,
+    ForcedDischargeSOCLimitNumber,
+    GridSellBackPowerNumber,
     OffGridSOCCutoffNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
     QuickChargeDurationNumber,
+    StartChargePowerNumber,
+    StartDischargePowerNumber,
     StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
     SystemChargeVoltLimitNumber,
@@ -117,6 +123,11 @@ def _mock_coordinator(
     mock_inverter.set_battery_discharge_current = AsyncMock(return_value=True)
     mock_inverter.set_battery_soc_limits = AsyncMock(return_value=True)
     mock_inverter.set_stop_discharge_voltage = AsyncMock(return_value=True)
+    # Cloud methods for the r5 fail-open-created grid-tied scalars
+    mock_inverter.set_ac_charge_soc_limit = AsyncMock(return_value=True)
+    mock_inverter.set_forced_discharge_power = AsyncMock(return_value=True)
+    mock_inverter.set_forced_discharge_soc_limit = AsyncMock(return_value=True)
+    mock_inverter.set_feed_in_grid_power_kw = AsyncMock(return_value=True)
     mock_inverter.transport = object() if has_local else None
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
@@ -920,6 +931,152 @@ class TestQuickChargeDurationOffgridLiveAdjust:
 
         coordinator.write_named_parameter.assert_awaited_once_with(
             "SNA_HOLD_QUICK_CHARGE_MINUTE", 45, serial=SERIAL
+        )
+
+
+# ── #570 r5: first-run/unresolved family — fail-open creation, gated writes ──
+
+
+class TestFirstRunUnresolvedProtectedRouting:
+    """#570 review round 5: fail-open CREATION never yields an ungated write.
+
+    Entity creation deliberately fails OPEN (suppression needs positive
+    identification, #259/#219 — a 12000XP model string with an UNRESOLVED
+    family still creates the grid-tied controls, pinned by
+    test_number_entities.test_xp_model_without_family_fails_open). The
+    WRITES of those fail-open-created entities (H67/H82/H83/H103/H116/H117)
+    therefore fail CLOSED on the family, so the first-run window before
+    family resolution cannot produce an unverified local write.
+    """
+
+    FIRST_RUN = {"features": {"inverter_family": "UNKNOWN"}}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("entity_cls", "value", "cloud_method", "cloud_kwargs"),
+        [
+            (
+                ACChargeSOCLimitNumber,
+                80,
+                "set_ac_charge_soc_limit",
+                {"soc_percent": 80},
+            ),
+            (
+                ForcedDischargePowerNumber,
+                5.0,
+                "set_forced_discharge_power",
+                {"power_kw": 5.0},
+            ),
+            (
+                ForcedDischargeSOCLimitNumber,
+                20,
+                "set_forced_discharge_soc_limit",
+                {"soc_percent": 20},
+            ),
+            (
+                GridSellBackPowerNumber,
+                5.0,
+                "set_feed_in_grid_power_kw",
+                {"power_kw": 5.0},
+            ),
+        ],
+        ids=["h67", "h82", "h83", "h103"],
+    )
+    async def test_first_run_unknown_family_write_goes_cloud_never_local(
+        self, entity_cls, value, cloud_method, cloud_kwargs
+    ):
+        """First-run 12000XP model + UNKNOWN family + local transport +
+        cloud: the write lands via the cloud method; no local named write."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="12000XP",
+            device_data=dict(self.FIRST_RUN),
+        )
+        entity = entity_cls(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        getattr(inverter, cloud_method).assert_awaited_once_with(**cloud_kwargs)
+
+    @pytest.mark.asyncio
+    async def test_first_run_unknown_family_start_discharge_goes_cloud_named(self):
+        """H116 routes through the reporter-verified cloud named path."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="12000XP",
+            device_data=dict(self.FIRST_RUN),
+        )
+        entity = StartDischargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(100)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            SERIAL, "HOLD_P_TO_USER_START_DISCHG", "100"
+        )
+
+    @pytest.mark.asyncio
+    async def test_first_run_unknown_family_raw_h117_write_refused(self):
+        """H117 is a RAW register write with NO cloud path: on an unresolved
+        family it is refused outright — never fired, never silently ACKed."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="12000XP",
+            device_data=dict(self.FIRST_RUN),
+        )
+        entity = StartChargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        with pytest.raises(
+            HomeAssistantError, match=r"register 117.*cloud API only.*558"
+        ):
+            await entity.async_set_native_value(-50)
+
+        coordinator.write_raw_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_forced_discharge_keeps_local_first(self):
+        """Regression guard: a positively resolved non-off-grid family keeps
+        the local-first route for the fail-open-created scalars."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = ForcedDischargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(5.0)
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            "HOLD_FORCED_DISCHG_POWER_CMD", 50, serial=SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_raw_h117_write_still_runs(self):
+        """Regression guard: resolved non-off-grid keeps the raw H117 write
+        (LOCAL/HYBRID-only by construction)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = StartChargePowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(-50)
+
+        coordinator.write_raw_parameter.assert_awaited_once_with(
+            117, 65486, serial=SERIAL
         )
 
 

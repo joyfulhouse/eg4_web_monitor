@@ -8674,6 +8674,11 @@ class TestIsQuickChargeActiveLive:
     async def test_detail_active_returns_true(self, hass, mock_config_entry):
         """get_quick_charge_detail with hasUnclosedQuickChargeTask=True -> active."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        # Resolved non-off-grid family keeps the local detail read (#570 r5:
+        # unresolved families fail closed to the cloud status endpoint).
+        coordinator.data = {
+            "devices": {"1234567890": {"features": {"inverter_family": "EG4_HYBRID"}}}
+        }
         inverter = MagicMock()
         detail = MagicMock()
         detail.hasUnclosedQuickChargeTask = True
@@ -8684,6 +8689,10 @@ class TestIsQuickChargeActiveLive:
     async def test_detail_idle_returns_false(self, hass, mock_config_entry):
         """get_quick_charge_detail with hasUnclosedQuickChargeTask=False -> idle."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        # Resolved non-off-grid family keeps the local detail read (#570 r5).
+        coordinator.data = {
+            "devices": {"1234567890": {"features": {"inverter_family": "EG4_HYBRID"}}}
+        }
         inverter = MagicMock()
         detail = MagicMock()
         detail.hasUnclosedQuickChargeTask = False
@@ -8695,6 +8704,10 @@ class TestIsQuickChargeActiveLive:
         """A transport/cloud read failure is swallowed to None (unknown), not
         False — callers must not treat it as confirmed idle."""
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
+        # Resolved non-off-grid family keeps the local detail read (#570 r5).
+        coordinator.data = {
+            "devices": {"1234567890": {"features": {"inverter_family": "EG4_HYBRID"}}}
+        }
         inverter = MagicMock()
         inverter.get_quick_charge_detail = AsyncMock(side_effect=OSError("bus stalled"))
         with patch.object(coordinator, "get_inverter_object", return_value=inverter):
@@ -8964,6 +8977,34 @@ class TestQuickChargeOffgridCloudStatus:
                 "SYNTH30005": {
                     "type": "inverter",
                     "features": {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID},
+                }
+            }
+        }
+        inverter = self._offgrid_inverter()
+        with patch.object(coordinator, "get_inverter_object", return_value=inverter):
+            assert await coordinator.is_quick_charge_active_live("SYNTH30005") is True
+        inverter.get_quick_charge_detail.assert_not_awaited()
+        coordinator.client.api.control.get_quick_charge_status.assert_awaited_once_with(
+            "SYNTH30005"
+        )
+
+    async def test_active_live_uses_cloud_for_unresolved_family_hybrid(
+        self, hass, mock_config_entry
+    ):
+        """#570 review round 5: the read-side predicate fails CLOSED like the
+        switch's write-side one — an UNKNOWN/missing family with cloud +
+        transport resolves the live state via the CLOUD, never the local
+        H233/H234 detail read (CEAA would error, CCAA would return unproven
+        bit-0 data, and a cloud-started charge would go invisible after the
+        pending-state TTL — the #296 bug on exactly the population round 4
+        moved to cloud writes)."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = self._coordinator_with_cloud(hass, mock_config_entry)
+        coordinator.data = {
+            "devices": {
+                "SYNTH30005": {
+                    "type": "inverter",
+                    "features": {"inverter_family": "UNKNOWN"},
                 }
             }
         }

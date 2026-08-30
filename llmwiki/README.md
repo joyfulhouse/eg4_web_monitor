@@ -319,7 +319,7 @@ keeper; this section reports, it does not award.
 | H161 | AC Charge End Battery SOC (`EG4_OFFGRID`) | `portal-correlated`; status "current; write unresolved". Mapping now separately `firmware-proven` on the decoded CEAA/CCAA images (#570); since PR #569 the entity's write routes cloud-only on off-grid/unresolved families |
 | H110 b14 | Off-Grid / Green Mode switch | Proven on the tested 18kPV, but the switch is created for *every* family and the 12000XP/6000XP row is `lineage-inferred`, status **unresolved** |
 | H227 | System Charge SOC Limit number | `hardware-toggle-proven`, but **scoped to the one tested 18kPV**; status "current on tested unit; **cross-family write risk unresolved**". Created in the always-on block for every inverter that reaches it, with no family gate; since the #570 sweep its **write** routes cloud-only on off-grid/unresolved families (creation remains ungated) |
-| H117 | Start Charge Power Threshold number | `asserted-unverified`, status **unresolved** — the keeper records "no cloud name or validated behavior" |
+| H117 | Start Charge Power Threshold number | `asserted-unverified`, status **unresolved** — the keeper records "no cloud name or validated behavior". Since the #570 sweep (review round 5) the raw write is refused outright on off-grid/unresolved families (no cloud path exists to route to); resolved non-off-grid families keep it |
 | H233 b0 | Quick Charge switch | `portal-correlated` — "paired start/stop observed, but a complete raw before/after and restoration record is absent". The keeper's separate **off-grid access boundary** is now lineage-scoped (#570): CEAA rejection `firmware-proven`, CCAA implements the address but b0 semantics unproven; since PR #569 the switch fails closed on cloud-less off-grid/unresolved entries |
 
 Two of these deserve singling out.
@@ -332,12 +332,14 @@ analogy to it.
 **H117 is the sharpest single case here.** It is a **raw** register write —
 `coordinator.write_raw_parameter(REG_PTOUSER_START_CHARGE, …)`, bypassing the router
 entirely, so it gets none of the router's fallback, cache-seeding or error handling — to a
-register with no validated behaviour and no cloud name to check it against. Two things
+register with no validated behaviour and no cloud name to check it against. Three things
 narrow the exposure without touching the risk: the entity is **disabled by default**
-(`_attr_entity_registry_enabled_default = False`), and it is only created where a local
-register path exists (`has_local_register_path`). Fewer installations have it live; for
-any that enable it, the write is exactly as unproven. `verified-against-code`
-(`number.py` → `StartChargePowerNumber`).
+(`_attr_entity_registry_enabled_default = False`), it is only created where a local
+register path exists (`has_local_register_path`), and — since the #570 sweep's review
+round 5 (PR #600 change set) — the write is **refused outright on off-grid/unresolved
+families** (fail-closed, with no cloud path to route to). Fewer installations have it
+live; for a resolved non-off-grid family that enables it, the write is exactly as
+unproven. `verified-against-code` (`number.py` → `StartChargePowerNumber`).
 
 **A register's absence from this table is not a clearance.** It means only that the keeper
 has not flagged it, or that nothing writes it yet. A mapping proven on one tested unit and

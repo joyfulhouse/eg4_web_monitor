@@ -816,6 +816,10 @@ class TestWriteParameter:
     async def test_write_local(self):
         """Local transport writes named parameter."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -897,6 +901,10 @@ class TestHybridCloudFallback:
     async def test_write_parameter_local_failure_falls_back_to_cloud(self):
         """_write_parameter: local raises -> inverter cloud method used."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
+        # Resolved non-off-grid family keeps the local-first route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -913,6 +921,10 @@ class TestHybridCloudFallback:
     async def test_write_parameter_local_only_failure_still_raises(self):
         """LOCAL-only: no cloud client -> the local error propagates."""
         coordinator = _mock_coordinator(has_local=True, has_http=False)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_named_parameter = AsyncMock(
             side_effect=HomeAssistantError("Failed to write parameter: timeout")
         )
@@ -1269,6 +1281,10 @@ class TestForcedDischargeNumbers:
     async def test_power_write_local(self):
         """Local transport writes the raw 100W value by name (2.5 kW -> 25)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ForcedDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1284,6 +1300,10 @@ class TestForcedDischargeNumbers:
         """kW->raw conversion rounds instead of truncating float artifacts
         (2.3 * 10 = 22.999... must write 23, not 22)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ForcedDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1309,6 +1329,10 @@ class TestForcedDischargeNumbers:
     async def test_soc_limit_write_local(self):
         """Local transport writes HOLD_FORCED_DISCHG_SOC_LIMIT by name."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = ForcedDischargeSOCLimitNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1719,6 +1743,10 @@ class TestGridSellBackPowerNumber:
     async def test_write_local_named_parameter_raw(self):
         """Local transport writes the raw 100 W value (12.1 kW -> 121)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = GridSellBackPowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1850,6 +1878,10 @@ class TestStartDischargePowerNumber:
     async def test_write_local_named_parameter_w(self):
         """Local transport writes the watt value under the name-map key."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the local route (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         entity = StartDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
@@ -1962,6 +1994,10 @@ class TestStartChargePowerNumber:
     async def test_write_local_raw_register_positive(self):
         """Positive watts write the raw register value as-is."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the raw H117 write (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_raw_parameter = AsyncMock(return_value=True)
         entity = StartChargePowerNumber(coordinator, "1234567890")
         _prep(entity)
@@ -1977,6 +2013,10 @@ class TestStartChargePowerNumber:
         """-50 W writes the two's-complement 65486 (W round-trip with the
         signed read decode above)."""
         coordinator = _mock_coordinator(has_local=True)
+        # Resolved non-off-grid family keeps the raw H117 write (#570 r5).
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "EG4_HYBRID"
+        }
         coordinator.write_raw_parameter = AsyncMock(return_value=True)
         entity = StartChargePowerNumber(coordinator, "1234567890")
         _prep(entity)

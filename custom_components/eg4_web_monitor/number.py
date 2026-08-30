@@ -320,38 +320,45 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         #331 holdParam trail, the H158 cloud delta-test, the #570 cloud
         toggle sweep) or absent altogether. The #570 evidence sweep
         applied that criterion to EVERY scalar holding register this
-        platform writes through the local-first router on EG4_OFFGRID,
-        and every one of them fails it: no register in the ledger carries
-        a local off-grid write proof. The protected set is therefore ALL
-        of them — the original five {66, 158, 159, 160, 161} plus PV
-        charge power 74, battery charge/discharge current 101/102,
-        on-/off-grid SOC cutoffs 105/125, stop-discharge voltage 202,
-        system charge SOC/voltage limits 227/228, cutoff voltages
-        169/100, and PV start voltage 22 (``portal-correlated``, with a
-        pylxpweb table note that reg 22 also carries LSP function bits —
-        an extra reason a scalar local write must stay gated). The
-        firmware verification recorded on #570 proves H158–H161 are
+        platform can write on a possibly-off-grid unit — both the
+        entities CREATED on EG4_OFFGRID and (review round 5) the
+        fail-open-created ones a not-yet-resolved family exposes — and
+        every one of them fails it. The protected set is therefore ALL of
+        them: the original five {66, 158, 159, 160, 161}, PV charge power
+        74, battery charge/discharge current 101/102, SOC cutoffs
+        105/125, stop-discharge voltage 202, system charge SOC/voltage
+        limits 227/228, cutoff voltages 169/100, PV start voltage 22
+        (``portal-correlated``, and pylxpweb notes reg 22 also carries
+        LSP function bits), plus the fail-open-created grid-tied scalars
+        reachable before family resolution: AC charge SOC limit 67
+        (family-rejected on resolved off-grid, #331), forced discharge
+        power/SOC 82/83, grid sell-back 103, start-discharge threshold
+        116, and the RAW start-charge threshold 117 (no cloud path — its
+        write is refused outright on off-grid/unresolved). Grid
+        peak-shaving (H206) needs no gate: it is cloud-only by
+        construction. The #570 firmware verification proves H158–H161 are
         correctly MAPPED on the CEAA/CCAA off-grid images, which
         discharges the wrong-address risk there but is deliberately NOT
         acted on here: a version-gated local-write upgrade is a separate,
         explicitly-out-of-scope change (#570), and cloud-only remains
         safe.
-        Blind spots (mechanisms this helper cannot reach, recorded in the
-        #570 audit): (1) bit-level function writes on the switch/select
-        platforms (H110/H179/H21 bits, H179 b9/b10 regime selects, H20 PV
-        input mode) route through ``_execute_switch_action`` /
-        ``write_named_parameter``, not this router — their per-bit risk
-        is tracked in the llmwiki keeper and C7; (2) schedule time
-        entities write packed registers via ``write_register``.
-        ``QuickChargeDurationNumber``'s live reg-234 adjust is also
-        outside this router but carries its own fail-closed
-        ``is_positively_non_offgrid_family`` gate (#570 adversarial round
-        1) — an earlier revision of this docstring wrongly claimed the
-        off-grid H233 rejection gated it: on EG4_OFFGRID the active check
-        is CLOUD-routed (#296), so no local read rejects the path, and
-        the H233 rejection is CEAA-scoped anyway (CCAA implements the
-        address). Do not treat this docstring as an inventory of those
-        surfaces.
+        Adjacent mechanisms carrying the same fail-closed family gate at
+        their own sites (#570 rounds 1/4/5): the schedule time entities'
+        packed ``write_register`` path (``time.py``), the Quick Charge
+        switch's ``_prefers_cloud_control``, the coordinator's
+        ``_quick_charge_prefers_cloud`` status routing, and
+        ``QuickChargeDurationNumber``'s live reg-234 adjust — an earlier
+        revision of this docstring wrongly claimed the off-grid H233
+        rejection gated that adjust (the active check is CLOUD-routed on
+        off-grid per #296, and the H233 rejection is CEAA-scoped; CCAA
+        implements the address).
+        Remaining blind spots (recorded, deliberately NOT converted —
+        their per-bit risk is tracked in the llmwiki keeper and C7):
+        bit-level function writes on the switch/select platforms (H110/
+        H179/H21 bits via ``_execute_switch_action``, H179 b9/b10 regime
+        selects, H20 PV input mode) and direct library calls such as
+        ``set_operating_mode``. Do not treat this docstring as an
+        inventory of those surfaces.
         """
         if is_positively_non_offgrid_family(self._device_data):
             return None
@@ -684,10 +691,13 @@ def _create_number_entities(
             # variants the substrings miss (e.g. "SNA-US 15K", #259), by the
             # detected inverter family.
             if is_supported_control_model(device_data):
-                # Quick Charge Duration — gated exactly like the Quick Charge
-                # switch (switch.py). Cloud-only: a UI preference for the
-                # `minute` start parameter. LOCAL/HYBRID: also written to
-                # holding register 234 (the live duration setpoint).
+                # Quick Charge Duration — created under the same transport
+                # gate as the Quick Charge switch (switch.py). Cloud-only: a
+                # UI preference for the `minute` start parameter. LOCAL/
+                # HYBRID on a positively resolved non-off-grid family: also
+                # written to holding register 234 (the live duration
+                # setpoint). Off-grid/unresolved families never write reg
+                # 234 locally — they store the start preference (#570).
                 if (
                     coordinator.has_http_api()
                     or coordinator.has_configured_local_transport(serial)
@@ -1536,6 +1546,14 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
             cloud_method="set_ac_charge_soc_limit",
             cloud_kwargs={"soc_percent": int_value},
             label=f"AC charge SOC limit to {int_value}%",
+            # #570 r5: this entity is fail-open CREATED on unresolved
+            # families (a first-run 12000XP reaches it before family
+            # resolution, and reg 67 is family-rejected there, #331) — the
+            # WRITE fails closed so that window cannot produce an
+            # unverified local write.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                67, "AC charge SOC limit"
+            ),
         )
 
 
@@ -2322,6 +2340,12 @@ class GridSellBackPowerNumber(EG4BaseNumberEntity):
                 cloud_method="set_feed_in_grid_power_kw",
                 cloud_kwargs={"power_kw": value},
                 label=f"grid sell back power to {value:.1f} kW",
+                # #570 r5: fail-open CREATED on unresolved families (the
+                # sellback gate's model fallback only catches known
+                # off-grid model strings) — the WRITE fails closed.
+                local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                    103, "grid sell back power"
+                ),
             )
             return
         # Cloud path on a pylxpweb without set_feed_in_grid_power_kw: write
@@ -2428,6 +2452,11 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
             )
         await self._write_parameter(
             value,
+            # #570 r5: fail-open CREATED on unresolved families — the WRITE
+            # fails closed to the reporter-verified cloud named path.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                116, "start discharge power threshold"
+            ),
             local_param=PARAM_HOLD_PTOUSER_START_DISCHARGE,
             local_value=int_value,
             # The named-param cloud writer is BOTH the cloud-mode path and
@@ -2506,6 +2535,15 @@ class StartChargePowerNumber(EG4BaseNumberEntity):
                 "Modbus/dongle connection — the cloud API has no parameter "
                 "name for this register."
             )
+        # #570 r5: reg 117 is a RAW register write with no cloud path at
+        # all and an `asserted-unverified` ledger mapping — the sharpest
+        # case in the README's ladder. Fail closed on the family: an
+        # unresolved unit might be off-grid, where nothing validates this
+        # write and a wrong target ACKs silently (#476). There is no cloud
+        # route to fall back to, so the write is refused outright.
+        blocked = self._offgrid_cloud_only_reason(117, "start charge power threshold")
+        if blocked is not None:
+            raise HomeAssistantError(blocked)
         _LOGGER.info(
             "Setting start charge power threshold for %s to %d W",
             self.serial,
@@ -2599,6 +2637,12 @@ class ForcedDischargePowerNumber(EG4BaseNumberEntity):
             cloud_method="set_forced_discharge_power",
             cloud_kwargs={"power_kw": value},
             label=f"forced discharge power to {value:.1f} kW",
+            # #570 r5: fail-open CREATED on unresolved families (suppressed
+            # only on positively resolved off-grid) — the WRITE fails
+            # closed.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                82, "forced discharge power"
+            ),
         )
 
 
@@ -2663,6 +2707,11 @@ class ForcedDischargeSOCLimitNumber(EG4BaseNumberEntity):
             cloud_method="set_forced_discharge_soc_limit",
             cloud_kwargs={"soc_percent": int_value},
             label=f"forced discharge SOC limit to {int_value}%",
+            # #570 r5: fail-open CREATED on unresolved families — the WRITE
+            # fails closed.
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                83, "forced discharge SOC limit"
+            ),
         )
 
 

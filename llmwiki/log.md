@@ -640,3 +640,32 @@ Corrections from PR #600 adversarial round 4 (Codex 3 MED + 2 LOW, Grok corrobor
   symmetry" fix would cite to reopen the gated write. Both now state the fail-closed
   family gate explicitly, and the mirror-read helper carries a do-not-restore-symmetry
   warning naming what the symmetry claim would reopen.
+
+## [2026-08-29] lint | Review round 5 — one derivation pass over every fail-open `is_offgrid_family` site
+
+Rounds 4 and 5 found the same defect class three times (switch write gate, coordinator
+status gate, fail-open creation branch), so this round ran ONE derivation pass over every
+`is_offgrid_family(` call site instead of fixing the reported instances alone. Result,
+landed in the PR #600 branch:
+
+- **Creation/suppression gates stay fail-open by design** (`number.py`, `switch.py`,
+  `time.py` gate table, Repairs flags, off-grid read blocks, off-grid-only
+  sensors/buttons): suppression needs positive identification (#259/#219), and the
+  off-grid-only surfaces are conservative when they fail open (absence, or read-only).
+- **Every write or routing decision now fails closed on
+  `is_positively_non_offgrid_family`**: the coordinator's `_quick_charge_prefers_cloud`
+  (Grok MED — round 4 moved unresolved-family WRITES to the cloud while the READ side
+  still sent the next status poll to the local H233/H234 detail read, reintroducing the
+  #296 invisibility bug on exactly the protected population); the fail-open-CREATED
+  grid-tied number setters reachable in the first-run window before family resolution
+  (Codex MED — H67/H82/H83/H103/H116 route cloud-only, and the RAW H117 write, having no
+  cloud path, is refused outright); and the schedule time entities' packed
+  `write_register` path (found by the pass, not by a reviewer — the clear-schedule
+  button had already declared local off-grid schedule writes unsanctioned while the
+  entities still wrote local-first).
+- Pages updated: the keeper's schedule-write-boundary row, README's H117 cells,
+  controls-and-writes router-parameter row, data-semantics gate table and limits note.
+- The remaining fail-open-adjacent write surfaces are the bit-level switch/select
+  writes and direct library calls — recorded in `_offgrid_cloud_only_reason`'s
+  docstring and C7, deliberately not converted (per-bit mappings, different mechanism,
+  tracked risk).

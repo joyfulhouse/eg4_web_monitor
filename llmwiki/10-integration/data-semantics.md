@@ -270,17 +270,17 @@ Grades for the **left** column — that these gates, purges and routings exist i
 > | `ACChargeEndBatterySOCNumber` passes `local_write_blocked_reason` from `_offgrid_cloud_only_reason` | `number.py` → `ACChargeEndBatterySOCNumber.async_set_native_value` |
 > | The gate FAILS CLOSED: EG4_OFFGRID, a missing family, and UNKNOWN all block the local path; only a positively resolved non-off-grid family keeps local-first | `number.py` → `_offgrid_cloud_only_reason`, `utils.py` → `is_positively_non_offgrid_family` |
 > | With the reason set, the router never attempts the local write; it goes cloud, or raises a clear error on a pure-LOCAL install | `utils.py` → `async_write_with_cloud_fallback` |
-> | The #570 sweep extended the same gate to **every** scalar register the number platform writes (74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22 — alongside the original 66, 158–161) | `number.py` — derivation recorded in `_offgrid_cloud_only_reason`'s docstring |
+> | The #570 sweep extended the same gate to **every** scalar register the number platform can write on a possibly-off-grid unit: the off-grid-created set (74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22 — alongside the original 66, 158–161) plus, after review round 5, the fail-open-created grid-tied scalars reachable before family resolution (67, 82, 83, 103, 116; the RAW 117 write is refused outright — no cloud path exists) and the schedule time entities' packed `write_register` path in `time.py` | `number.py` — derivation recorded in `_offgrid_cloud_only_reason`'s docstring |
 >
 > **Limits of the gate — do not read more into it than it is.** (1) It is a curated per-entity
 > list; a new entity gets no protection automatically, and no lint compares the list against the
-> ledger. (2) It covers the number platform's router only: bit-level switch/select writes
-> (H110/H179 bits, H179 b9/b10 regime selects, H20), schedule time entities (`write_register`),
-> and direct `inverter.<method>()` calls are outside it — their per-bit risk stays recorded in
-> the keeper and [C7](../60-history/open-contradictions.md). The Quick Charge Duration live
-> reg-234 adjust is outside the router too but carries its own fail-closed family gate at the
-> entity (#570 adversarial round 1: on off-grid the live-active check is cloud-routed per #296,
-> so no local H233 rejection ever gated that write). (3) On resolved non-off-grid
+> ledger. (2) Bit-level switch/select writes (H110/H179 bits, H179 b9/b10 regime selects, H20)
+> and direct `inverter.<method>()` calls remain outside it — their per-bit risk stays recorded
+> in the keeper and [C7](../60-history/open-contradictions.md). Since round 5 the schedule time
+> entities' packed `write_register` path carries an equivalent inline fail-closed gate in
+> `time.py`, and the Quick Charge Duration live reg-234 adjust carries its own at the entity
+> (#570 adversarial round 1: on off-grid the live-active check is cloud-routed per #296, so no
+> local H233 rejection ever gated that write). (3) On resolved non-off-grid
 > families the local-first write still runs on mappings whose proof is scoped to one or two
 > tested units. **The readback still does not cover any of this** — storage and transport only,
 > the #476 mechanism.

@@ -75,7 +75,7 @@ from .coordinator_mappings import (
 from .utils import (
     _resolve_chart_day_timezone,
     clean_battery_display_name,
-    is_offgrid_family,
+    is_positively_non_offgrid_family,
     normalize_event_row,
 )
 
@@ -1280,20 +1280,30 @@ class DeviceProcessingMixin(_MixinBase):
     ) -> bool:
         """True when quick charge state/control must come from the cloud API.
 
-        The EG4_OFFGRID family (12000XP/6000XP) firmware rejects holding
-        register 233 with ILLEGAL DATA ADDRESS (issue #296) — the register
-        pylxpweb's transport-preferring quick-charge paths read and write.
-        A quick charge started via the cloud endpoint (the local-write
-        fallback, and what the EG4 app reflects) is therefore invisible to
-        the local read. When such a device has a transport attached AND a
-        cloud client is available (HYBRID), bypass the transport and use the
-        cloud getStatusInfo/start/stop endpoints directly. Fails closed
-        (False) for every other family, cloud-only devices (whose pylxpweb
-        paths already use the cloud), and LOCAL-only installs (no cloud to
-        prefer).
+        The EG4_OFFGRID family (12000XP/6000XP) has no proven local H233
+        route — CEAA rejects the address with ILLEGAL DATA ADDRESS (#296),
+        CCAA implements it with unproven semantics — and a quick charge
+        started via the cloud endpoint is invisible to the local read. When
+        a transport is attached AND a cloud client is available (HYBRID),
+        bypass the transport and use the cloud getStatusInfo/start/stop
+        endpoints directly.
+
+        FAILS CLOSED on the family (#570 review round 5, aligning with the
+        switch's ``_prefers_cloud_control``): only a positively resolved
+        non-off-grid family keeps the local status/detail read. An earlier
+        revision gated on positive off-grid identification, which split the
+        routing for unresolved families — round 4 moved their WRITES to the
+        cloud endpoints while this read-side predicate still sent the next
+        status poll to the local H233/H234 detail read: on CEAA that read
+        fails (ILLEGAL DATA ADDRESS), on CCAA it returns unproven bit-0
+        data, and after the switch's pending-state TTL the cloud-started
+        charge went invisible — the #296 bug reintroduced on exactly the
+        population round 4 protected. Returns False for cloud-only devices
+        (whose pylxpweb paths already use the cloud) and LOCAL-only
+        installs (no cloud to prefer).
         """
         return (
-            is_offgrid_family(device_data)
+            not is_positively_non_offgrid_family(device_data)
             and self.client is not None
             and getattr(inverter, "transport", None) is not None
         )

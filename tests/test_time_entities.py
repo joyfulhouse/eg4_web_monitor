@@ -62,8 +62,14 @@ def _mock_coordinator(
     has_client: bool = True,
     local_only: bool = False,
     parameters: dict | None = None,
+    family: str | None = None,
 ) -> MagicMock:
-    """Build a mock coordinator for time entity tests."""
+    """Build a mock coordinator for time entity tests.
+
+    ``family`` seeds ``features.inverter_family``; None leaves the device
+    featureless (an UNRESOLVED family, which since #570 r5 routes schedule
+    writes cloud-only — local-write tests must pass a resolved family).
+    """
     coordinator = MagicMock()
     coordinator.has_local_transport = MagicMock(return_value=has_local)
     coordinator.has_http_api = MagicMock(return_value=has_client)
@@ -82,6 +88,8 @@ def _mock_coordinator(
         "device_info": {serial: {"deviceTypeText4APP": model}},
         "parameters": {serial: parameters or {}},
     }
+    if family is not None:
+        coordinator.data["devices"][serial]["features"] = {"inverter_family": family}
 
     mock_inverter = MagicMock()
     mock_inverter.refresh = AsyncMock()
@@ -886,7 +894,7 @@ class TestWritePaths:
         self, schedule, window, is_end, register
     ):
         """LOCAL: one packed write to the window's register."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
         _prep(entity)
 
@@ -1108,7 +1116,7 @@ class TestWritePaths:
         """HYBRID: transport attached but the register write fails (e.g.
         transport_link_down Modbus timeout) -> the cloud named-parameter
         branch is used and the service call succeeds (switch parity)."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         coordinator.write_register = AsyncMock(
             side_effect=HomeAssistantError("Failed to write register 68: timeout")
         )
@@ -1131,7 +1139,7 @@ class TestWritePaths:
     async def test_local_only_write_failure_still_raises(self):
         """LOCAL-only: no cloud to fall back to -> the local error propagates."""
         coordinator = _mock_coordinator(
-            has_local=True, has_client=False, local_only=True
+            has_local=True, has_client=False, local_only=True, family="EG4_HYBRID"
         )
         coordinator.write_register = AsyncMock(
             side_effect=HomeAssistantError("Failed to write register 68: timeout")
@@ -1190,6 +1198,7 @@ class TestWritePaths:
         coordinator = _mock_coordinator(
             has_local=True,
             parameters={str(spec.base_register): _pack(20, 0)},
+            family="EG4_HYBRID",
         )
         end_entity = _entity(coordinator, schedule=schedule, window=1, is_end=True)
         _prep(end_entity)
@@ -1203,7 +1212,7 @@ class TestWritePaths:
     @pytest.mark.asyncio
     async def test_optimistic_value_during_write(self):
         """The UI shows the target value while the write is in flight."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, window=1, is_end=False)
         _prep(entity)
 
@@ -1224,7 +1233,7 @@ class TestWritePaths:
     @pytest.mark.asyncio
     async def test_seconds_are_dropped(self):
         """Registers store hour/minute only; seconds must not leak into packing."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, window=1, is_end=False)
         _prep(entity)
 
@@ -1469,6 +1478,7 @@ class TestWriteFailureConvergence:
         coordinator = _mock_coordinator(
             has_local=True,
             parameters={str(spec.base_register): _pack(8, 0)},
+            family="EG4_HYBRID",
         )
         # The real coordinator method catches its own exceptions and reports
         # failure by returning False (#362, coordinator_mixins.py), so this
@@ -1501,6 +1511,7 @@ class TestWriteFailureConvergence:
         coordinator = _mock_coordinator(
             has_local=True,
             parameters={"HOLD_AC_CHARGE_START_HOUR_1": _pack(8, 0)},
+            family="EG4_HYBRID",
         )
         coordinator.async_refresh_device_parameters = AsyncMock(return_value=False)
 
@@ -1616,6 +1627,58 @@ class TestWriteFailureConvergence:
 # ── writeTime families (Generator / Off-Grid / Peak Shaving) ──────────
 
 
+class TestOffgridScheduleWriteRouting:
+    """#570 review round 5: schedule writes share the fail-closed routing.
+
+    Local packed FC06 schedule writes have no off-grid write evidence (the
+    ledger's schedule rows are all `portal-correlated` from CLOUD probes),
+    and the clear-schedule button already declares local off-grid schedule
+    writes unsanctioned (#563) — so off-grid AND unresolved families route
+    the entity write through the classic cloud field writes; resolved
+    non-off-grid families keep local-first (pinned by the local-write tests
+    above via their EG4_HYBRID scaffolds).
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "family",
+        ["EG4_OFFGRID", "UNKNOWN", None],
+        ids=["offgrid", "unknown-family", "no-features"],
+    )
+    async def test_offgrid_or_unresolved_write_routes_cloud(self, family):
+        """Off-grid/unresolved + local transport + cloud: the classic cloud
+        hour/minute field writes run and the local packed register write
+        never fires."""
+        coordinator = _mock_coordinator(has_local=True, family=family)
+        entity = _entity(coordinator, schedule="ac_charge", window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+        assert coordinator.client.api.control.write_parameter.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_offgrid_pure_local_write_raises_clear_error(self):
+        """Pure-LOCAL off-grid: the unverified schedule write is refused
+        with the actionable cloud-only error and no register write fires."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_client=False,
+            local_only=True,
+            family="EG4_OFFGRID",
+        )
+        entity = _entity(coordinator, schedule="ac_charge", window=1, is_end=False)
+        _prep(entity)
+
+        with pytest.raises(
+            HomeAssistantError, match=r"register 68.*cloud API only.*558"
+        ):
+            await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+
+
 class TestWriteTimeFamilies:
     """The Generator/Off-Grid/Peak Shaving families: atomic writeTime cloud
     writes, uniform local packed writes, and the LSP cloud read for Peak
@@ -1637,7 +1700,7 @@ class TestWriteTimeFamilies:
         self, schedule, window, is_end, register
     ):
         """LOCAL packed write is uniform across families: base + window*2."""
-        coordinator = _mock_coordinator(has_local=True)
+        coordinator = _mock_coordinator(has_local=True, family="EG4_HYBRID")
         entity = _entity(coordinator, schedule=schedule, window=window, is_end=is_end)
         _prep(entity)
 
