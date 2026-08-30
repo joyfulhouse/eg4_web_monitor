@@ -1659,6 +1659,40 @@ class TestOffgridScheduleWriteRouting:
         assert coordinator.client.api.control.write_parameter.await_count == 2
 
     @pytest.mark.asyncio
+    async def test_offgrid_cloud_write_seeds_local_cache_no_revert(self):
+        """r6 (Grok/Codex MED): the cloud-routed schedule write must seed the
+        local-raw parameter cache under the register's alias keys — without
+        the seed, the post-write refresh re-reads the not-yet-propagated
+        packed register, reports success, clears the optimistic value, and
+        the entity visibly reverts to the stale time until a later poll."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            family="EG4_OFFGRID",
+            # Stale local register: still holds 08:00 when the cloud ACKs.
+            parameters={"68": _pack(8, 0)},
+        )
+        # Merge write-seeds into the same cache the decoder reads, like the
+        # real coordinator does.
+        coordinator.note_parameters_written = MagicMock(
+            side_effect=lambda serial, values: coordinator.data["parameters"][
+                serial
+            ].update(values)
+        )
+        entity = _entity(coordinator, schedule="ac_charge", window=1, is_end=False)
+        _prep(entity)
+
+        await entity.async_set_value(time(6, 30))
+
+        coordinator.write_register.assert_not_awaited()
+        # The seed carried the packed value under the register's aliases...
+        seeded = coordinator.note_parameters_written.call_args[0][1]
+        assert seeded.get("68") == _pack(6, 30)
+        # ...so after the (merely successful) refresh cleared the optimistic
+        # value, the entity shows the WRITTEN time, not the stale 08:00.
+        assert entity._optimistic_value is None
+        assert entity.native_value == time(6, 30)
+
+    @pytest.mark.asyncio
     async def test_offgrid_pure_local_write_raises_clear_error(self):
         """Pure-LOCAL off-grid: the unverified schedule write is refused
         with the actionable cloud-only error and no register write fires."""

@@ -21,8 +21,12 @@ suffix schemes and family gates all come from the declarative
 default (opt-in advanced feature).
 
 Write paths:
-- LOCAL / HYBRID with an attached transport: one packed register write (FC06)
-  via :meth:`EG4DataUpdateCoordinator.write_register` (uniform across families).
+- LOCAL / HYBRID with an attached transport, on a POSITIVELY RESOLVED
+  non-off-grid family: one packed register write (FC06) via
+  :meth:`EG4DataUpdateCoordinator.write_register`.
+- Off-grid/unresolved families (#570 r5): the local packed write is blocked
+  fail-closed — the write routes through the cloud paths below (with the
+  local-raw cache seeded), and a pure-LOCAL install raises.
 - CLOUD: writeTime families use the atomic ``write_time_parameter``; classic
   families use the portal's separate ``*_HOUR`` + ``*_MINUTE`` writes.
 
@@ -556,6 +560,16 @@ class EG4ScheduleTimeEntity(EG4BaseTime, TimeEntity):
                 f"{self._spec.key} schedule time",
                 local_write=_local_write,
                 cloud_write=lambda: self._async_write_cloud(boundary_value),
+                # #570 r6: when the write lands via the cloud (the blocked
+                # off-grid/unresolved route, or a HYBRID fallback), seed the
+                # local-raw parameter cache under every alias the decoder
+                # reads — otherwise the post-write refresh can re-read the
+                # not-yet-propagated packed register, report success, clear
+                # the optimistic value, and visibly revert the entity until
+                # a later poll.
+                local_values={
+                    key: packed for key in self._spec.local_param_keys[self._register]
+                },
                 local_write_blocked_reason=blocked_reason,
             )
             write_ok = True

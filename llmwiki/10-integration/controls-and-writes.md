@@ -30,11 +30,11 @@ verified-against:
   # falsified by PR #569 and re-verified at e9853eb for the #570 sweep
   # ingest — those sections carry their pin inline; other sections stand at
   # e146d91. Claims describing the PR #600 change set itself (the
-  # local_write_blocked_reason protected-set row in §1, the §1.3 and §2.4
-  # family gates) are reproducible at the PR #600 branch commit 7400342 —
-  # the pin FOLLOWS the branch head as review rounds land (earlier pins
-  # named commits predating later-round predicates, the round-5 LOW);
-  # re-pin to the mainline merge SHA at the release cut (#559 precedent).
+  # local_write_blocked_reason protected-set row in §1, the §1.3/§2.4/§6
+  # family gates) are reproducible at the PR #600 branch head — no SHA is
+  # embedded because review rounds move the head (two successive pinned
+  # SHAs staled, the r5/r6 LOWs); re-pin to the mainline merge SHA at the
+  # release cut (#559 precedent).
   eg4_web_monitor: e146d91
   pylxpweb: ab87902
 last-verified: 2026-08-29
@@ -136,7 +136,7 @@ as the answer.
 | `StartChargePowerNumber` | router bypass | `write_raw_parameter` (raw) | H117 |
 | `EG4QuickChargeSwitch` | switch action | `enable_quick_charge` / `disable_quick_charge` — transport-first | H233 |
 | `EG4WorkingModeSwitch` (`FUNC_PV_SELL_TO_GRID_EN`) | router; reaches the switch-action branch only via the legacy version guard (§2.2) | `BaseInverter.enable_pv_sell_to_grid` — client-first **per instance**. The `HybridInverter` transport-first override is never constructed | H179 b3 |
-| `GridPeakShavingPowerNumber` | direct library call | `set_grid_peak_shaving_power` — transport-first with internal cloud fallback | H206 |
+| `GridPeakShavingPowerNumber` | direct library call | `set_grid_peak_shaving_power` — transport-first with internal cloud fallback. Since #570 r6 (PR #600 change set) the entity reaches it only on a positively resolved non-off-grid family; off-grid/unresolved write the cloud named parameter directly | H206 |
 | `EG4OperatingModeSelect` | direct library call | `set_operating_mode` → `set_standby_mode` | — |
 | DST reconciliation | background | `station.sync_dst_setting()` | cloud-side |
 
@@ -334,7 +334,7 @@ population as exhaustive and both were wrong (§0.3 **b** and **c**).
 |---|---|---|---|---|
 | `EG4QuickChargeSwitch._async_set_quick_charge` | `switch.py:628` | switch action | `enable_quick_charge` / `disable_quick_charge` | **Yes** — transport-first, targets **H233** (§2.4) |
 | `EG4WorkingModeSwitch._execute_working_mode` | `switch.py:1516` | switch action, on the `elif self.coordinator.has_http_api() and methods:` branch | one of `_WORKING_MODE_METHODS` | **Not through the override.** All seven resolve to `base.py` — eg4 never holds a `HybridInverter`, so its transport-first `enable_pv_sell_to_grid` never runs. The base method is client-first *per instance* and reaches H179 b3 locally only on a **clientless** inverter (below) |
-| `GridPeakShavingPowerNumber.async_set_native_value` | `number.py:1291` | direct library call | `set_grid_peak_shaving_power` | **Yes** — transport-first with internal cloud fallback, targets **H206** |
+| `GridPeakShavingPowerNumber.async_set_native_value` | `number.py:1291` | direct library call | `set_grid_peak_shaving_power` | **Yes** — transport-first with internal cloud fallback, targets **H206**. Family-gated at the entity since #570 r6 (PR #600 change set): only a positively resolved non-off-grid family reaches the library method |
 | `EG4OperatingModeSelect.async_select_option` | `select.py:266` | direct library call | `set_operating_mode` → `set_standby_mode` | Read the runtime class per §2.1 |
 
 `verified-against-code` — call sites and guards at `9f6d6e2`; routing policies and the
@@ -545,7 +545,7 @@ All rows: `verified-against-code`.
 |---|---|---|---|
 | **Number** | `optimistic_value_context()` publishes the optimistic value; the body sets `write.refresh_ok`; the exit either clears or arms retention | `_write_parameter` and `_write_voltage_register` both go through the shared router with `local_values=` seeding. `_refresh_related_entities()` returns a bool and **never raises** | `base_entity.py:984-1026`; `number.py:438-489`, `:491-536`, `:538-555` |
 | **Voltage registers** | Local writes by **name**; cloud writes by **raw register address** | Asymmetric on purpose | `number.py:513-525` |
-| **Time** | **Explicit** optimistic management — no `finally`-clearing context manager | Because a successful write with a failed refresh must **retain**. LOCAL/HYBRID write one packed FC06 register; CLOUD uses `write_time_parameter` (writeTime families) or separate `*_HOUR` + `*_MINUTE` writes | `base_entity.py:1109-1114`; `time.py:23-33` |
+| **Time** | **Explicit** optimistic management — no `finally`-clearing context manager | Because a successful write with a failed refresh must **retain**. LOCAL/HYBRID on a positively resolved non-off-grid family write one packed FC06 register; off-grid/unresolved families are blocked fail-closed onto the cloud paths with the local-raw cache seeded under the register's alias keys (#570 r5/r6, PR #600 change set); CLOUD uses `write_time_parameter` (writeTime families) or separate `*_HOUR` + `*_MINUTE` writes | `base_entity.py:1109-1114`; `time.py` module docstring |
 | **Select** | `EG4BaseSelect._cache_state()` masks the optimistic option **synchronously** | | `base_entity.py:1220-1233` |
 | **Switch** | Full envelope, §4 | | `base_entity.py:1440-1541` |
 

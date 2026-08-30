@@ -39,8 +39,9 @@ verified-against:
   # describing the #570 sweep-extended routing (H227/H234 shipped-path notes,
   # the H22 row, the cloud-only scalar set, the H233 boundary and
   # schedule-write routing rows) are part of the PR #600 change set and are
-  # reproducible at its branch commit 7400342 — the pin FOLLOWS the branch
-  # head as review rounds land; re-pin at the release cut. pylxpweb stays
+  # reproducible at its branch head — no SHA is embedded because review
+  # rounds move the head (two successive pinned SHAs staled the same day);
+  # re-pin to the mainline merge SHA at the release cut. pylxpweb stays
   # ab87902 (0.9.39b11); the #271/#272 range fixes merged after it and are
   # cited by PR number (pylxpweb #273), not by pin.
   eg4_web_monitor: e9853eb

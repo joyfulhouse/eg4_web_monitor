@@ -90,6 +90,12 @@ AC_CHARGE_SOC_LIMIT_STEP = 1
 AC_CHARGE_BATTERY_SOC_MIN = 0
 AC_CHARGE_BATTERY_SOC_MAX = 100
 AC_CHARGE_START_BATTERY_SOC_MAX = 90
+# Off-grid floor for reg 161: the CEAA/CCAA firmware writer enforces
+# 20..100 (and >= H160 — firmware-enforced, not validated entity-side for
+# the same stale-sibling reason as the voltage window). The 0 floor is kept
+# ONLY for positively resolved non-off-grid families (where reg 161 is
+# inert/read-only per the keeper anyway).
+AC_CHARGE_END_SOC_OFFGRID_MIN = 20
 # Off-grid floor for reg 160: the CEAA/CCAA firmware writer rejects 0 with
 # exception 03 — firmware-proven (#570; the sweep deliberately never wrote 0);
 # pylxpweb PR #273 set the canonical minimum to 1 to match. The 0 floor above
@@ -225,6 +231,18 @@ STOP_DISCHARGE_VOLTAGE_STEP = 0.1
 # AC charge start/stop voltage (regs 158 / 159) — whole volts only
 AC_CHARGE_VOLTAGE_MIN = 38
 AC_CHARGE_VOLTAGE_MAX = 60
+# Off-grid firmware bounds for the AC-charge voltage window (CEAA/CCAA
+# FC06/FC16 writer range checks, firmware-proven #570): H158 raw 384..570
+# = 38.4-57.0 V; H159 raw 480..590 = 48.0-59.0 V. The shared 38-60 V range
+# above is kept ONLY for positively resolved non-off-grid families; the
+# whole-volt entity step makes 39 V the effective off-grid H158 minimum.
+# The cross-register constraint (H158 <= H159, firmware-enforced) is
+# deliberately NOT validated entity-side: the sibling's cached value can
+# be stale, and a false rejection is worse than the writer's own error.
+AC_CHARGE_START_VOLTAGE_OFFGRID_MIN = 38.4
+AC_CHARGE_START_VOLTAGE_OFFGRID_MAX = 57.0
+AC_CHARGE_END_VOLTAGE_OFFGRID_MIN = 48.0
+AC_CHARGE_END_VOLTAGE_OFFGRID_MAX = 59.0
 AC_CHARGE_VOLTAGE_STEP = 1
 
 # =============================================================================

@@ -669,3 +669,31 @@ landed in the PR #600 branch:
   writes and direct library calls — recorded in `_offgrid_cloud_only_reason`'s
   docstring and C7, deliberately not converted (per-bit mappings, different mechanism,
   tracked risk).
+
+## [2026-08-29] lint | Review round 6 — a "needs no gate" claim must be wheel-verified, not docstring-trusted
+
+The round-5 derivation classified H206 as "cloud-only by construction" by reading the
+ENTITY's docstring ("cloud-write-only ... local transport name-writes are never used"),
+which the pinned pylxpweb wheel falsifies: `set_grid_peak_shaving_power` is
+TRANSPORT-FIRST onto raw H206 (deci-kW) whenever a transport is attached — this wiki's
+own README partial inventory had recorded exactly that ("pylxpweb drives
+set_grid_peak_shaving_power local-first") while the derivation trusted the code comment
+instead. The classic failure: a claim's citation (the entity docstring) did not support
+it, and the primary source (the wheel) was one grep away. Fixed by gating the entity
+(off-grid/unresolved write the cloud named parameter directly; resolved non-off-grid
+keeps the hybrid-verified transport-first method), and the round re-verified EVERY cloud
+path the number/time gates rely on against the wheel: `set_battery_soc_limits`, both
+battery-current setters, every `_write_named_parameter` consumer (66/74/67/82/83/202),
+`set_feed_in_grid_power_kw` and `set_system_charge_soc_limit` go straight to
+`client.api.control` — H206's method was the only transport-first one.
+
+Also landed this round: the cloud-routed schedule write now seeds the local-raw cache
+under the register's alias keys (without it the post-write refresh re-read the stale
+packed register and visibly reverted the entity); firmware bounds reached the remaining
+entities family-scoped (H158 38.4–57.0 V, H159 48.0–59.0 V, H161 floor 20 on
+off-grid/unresolved; resolved non-off-grid keeps the shipped ranges — cross-register
+constraints H158≤H159 and H161≥H160 stay firmware-enforced only, because validating
+against a stale cached sibling would produce false rejections); the H117 error no longer
+promises a cloud route that does not exist (it names family resolution as the remedy);
+and the change-set pin comments switched to branch-head language after two successive
+pinned SHAs staled within the review train.

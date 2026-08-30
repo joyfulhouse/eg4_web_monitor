@@ -40,10 +40,9 @@ verified-against:
   # Claims describing the PR #600 change set itself (the sweep-extended
   # protected set, the quick-charge fail-closed predicates, the schedule
   # and QuickChargeDuration family gates) are reproducible at the PR #600
-  # branch commit 7400342 — the pin FOLLOWS the branch head as review
-  # rounds land (earlier pins named commits predating later-round
-  # predicates); re-pin to the mainline merge SHA at the release cut
-  # (#559 precedent).
+  # branch head — no SHA is embedded because review rounds move the head
+  # (two successive pinned SHAs staled, the r5/r6 LOWs); re-pin to the
+  # mainline merge SHA at the release cut (#559 precedent).
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
 last-verified: 2026-08-29
@@ -279,7 +278,10 @@ Grades for the **left** column — that these gates, purges and routings exist i
 > list; a new entity gets no protection automatically, and no lint compares the list against the
 > ledger. (2) Bit-level switch/select writes (H110/H179 bits, H179 b9/b10 regime selects, H20)
 > and direct `inverter.<method>()` calls remain outside it — their per-bit risk stays recorded
-> in the keeper and [C7](../60-history/open-contradictions.md). Since round 5 the schedule time
+> in the keeper and [C7](../60-history/open-contradictions.md) — with one exception: the grid
+> peak-shaving direct call (H206) is family-gated at its entity since round 6, because
+> pylxpweb's method is transport-first (an earlier "cloud-only by construction" claim the
+> pinned wheel falsified). Since round 5 the schedule time
 > entities' packed `write_register` path carries an equivalent inline fail-closed gate in
 > `time.py`, and the Quick Charge Duration live reg-234 adjust carries its own at the entity
 > (#570 adversarial round 1: on off-grid the live-active check is cloud-routed per #296, so no

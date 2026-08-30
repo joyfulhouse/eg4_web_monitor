@@ -52,6 +52,7 @@ from custom_components.eg4_web_monitor.number import (
     ForcedDischargePowerNumber,
     ForcedDischargeSOCLimitNumber,
     GridSellBackPowerNumber,
+    GridPeakShavingPowerNumber,
     OffGridSOCCutoffNumber,
     OnGridSOCCutoffNumber,
     PVChargePowerNumber,
@@ -128,6 +129,9 @@ def _mock_coordinator(
     mock_inverter.set_forced_discharge_power = AsyncMock(return_value=True)
     mock_inverter.set_forced_discharge_soc_limit = AsyncMock(return_value=True)
     mock_inverter.set_feed_in_grid_power_kw = AsyncMock(return_value=True)
+    # r6: pylxpweb's method is TRANSPORT-FIRST onto raw H206 — the entity
+    # must only reach it on a positively resolved non-off-grid family.
+    mock_inverter.set_grid_peak_shaving_power = AsyncMock(return_value=True)
     mock_inverter.transport = object() if has_local else None
     coordinator.get_inverter_object = MagicMock(return_value=mock_inverter)
 
@@ -689,6 +693,90 @@ class TestSweepExtendedProtectedRouting:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("spec_key", "min_v", "max_v", "ok_value", "ok_raw", "bad_values"),
+        [
+            ("ac_charge_start_voltage", 38.4, 57.0, 57, 570, (38, 58)),
+            ("ac_charge_end_voltage", 48.0, 59.0, 48, 480, (47, 60)),
+        ],
+        ids=["h158", "h159"],
+    )
+    async def test_offgrid_ac_charge_voltage_firmware_bounds(
+        self, spec_key, min_v, max_v, ok_value, ok_raw, bad_values
+    ):
+        """r6 (Codex MED): the shared 38-60 V range let H158=60 / H159=38
+        pass HA validation and then fail at the CEAA/CCAA writer
+        (exception 03). Off-grid/unresolved families now advertise and
+        validate the firmware-proven windows (H158 38.4-57.0, H159
+        48.0-59.0); boundary values land via the cloud raw-register
+        write, out-of-window values fail clearly at the entity."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        spec = _VOLTAGE_SPECS_BY_KEY[spec_key]
+        entity = EG4VoltageNumber(coordinator, SERIAL, spec)
+        _prep(entity)
+
+        assert entity.native_min_value == min_v
+        assert entity.native_max_value == max_v
+
+        await entity.async_set_native_value(ok_value)
+        coordinator.client.api.control.write_parameters.assert_awaited_once_with(
+            SERIAL, {spec.register: ok_raw}
+        )
+
+        for bad in bad_values:
+            with pytest.raises(HomeAssistantError, match=r"must be"):
+                await entity.async_set_native_value(bad)
+        coordinator.client.api.control.write_parameters.assert_awaited_once()
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_ac_charge_voltage_keeps_shared_range(self):
+        """Regression guard: resolved non-off-grid families keep the shipped
+        38-60 V range (no firmware proof narrows it there)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        spec = _VOLTAGE_SPECS_BY_KEY["ac_charge_start_voltage"]
+        entity = EG4VoltageNumber(coordinator, SERIAL, spec)
+        _prep(entity)
+
+        assert entity.native_min_value == 38
+        assert entity.native_max_value == 60
+
+        await entity.async_set_native_value(60)
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            spec.param_key, 600, serial=SERIAL
+        )
+
+    @pytest.mark.asyncio
+    async def test_offgrid_ac_charge_end_soc_floor_is_20(self):
+        """r6 (Codex MED): H161 advertised 0-100 but the CEAA/CCAA writer
+        enforces 20..100 — off-grid/unresolved families floor at 20; 20
+        lands via the cloud holdParam write, 19 fails at the entity."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
+        )
+        entity = ACChargeEndBatterySOCNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        assert entity.native_min_value == 20
+
+        await entity.async_set_native_value(20)
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            SERIAL, "HOLD_AC_CHARGE_END_BATTERY_SOC", "20"
+        )
+
+        with pytest.raises(HomeAssistantError, match=r"20-100"):
+            await entity.async_set_native_value(19)
+        coordinator.client.api.control.write_parameter.assert_awaited_once()
+        coordinator.write_named_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_offgrid_ac_charge_start_soc_floor_is_1(self):
         """#570 review round 4: the CEAA/CCAA firmware writer rejects
         H160=0 (exception 03), so off-grid/unresolved families accept a
@@ -1034,12 +1122,63 @@ class TestFirstRunUnresolvedProtectedRouting:
         entity = StartChargePowerNumber(coordinator, SERIAL)
         _prep(entity)
 
+        # r6: the message must NOT promise a cloud route (none exists) —
+        # it names family resolution as the remedy instead.
         with pytest.raises(
-            HomeAssistantError, match=r"register 117.*cloud API only.*558"
+            HomeAssistantError,
+            match=r"register 117.*no cloud parameter name.*positively identified",
         ):
             await entity.async_set_native_value(-50)
 
         coordinator.write_raw_parameter.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "device_data",
+        [dict(FIRST_RUN), {}],
+        ids=["unknown-family", "no-features"],
+    )
+    async def test_first_run_grid_peak_shaving_goes_cloud_named_never_library(
+        self, device_data
+    ):
+        """r6 (Grok MED): pylxpweb's set_grid_peak_shaving_power is
+        TRANSPORT-FIRST onto raw H206 — an earlier derivation claim called
+        the entity 'cloud-only by construction', which the pinned wheel
+        falsifies. On off-grid/unresolved families the entity must write
+        the cloud named parameter directly and never reach the library
+        method."""
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, model="12000XP", device_data=device_data
+        )
+        entity = GridPeakShavingPowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(5.0)
+
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_grid_peak_shaving_power.assert_not_awaited()
+        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
+            SERIAL, "_12K_HOLD_GRID_PEAK_SHAVING_POWER", "5.0"
+        )
+
+    @pytest.mark.asyncio
+    async def test_resolved_hybrid_grid_peak_shaving_uses_library_method(self):
+        """Regression guard: a positively resolved non-off-grid family keeps
+        pylxpweb's transport-first method (hybrid-verified deci-kW raw
+        encoding, cloud fallback inside the library)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = GridPeakShavingPowerNumber(coordinator, SERIAL)
+        _prep(entity)
+
+        await entity.async_set_native_value(5.0)
+
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_grid_peak_shaving_power.assert_awaited_once_with(power_kw=5.0)
 
     @pytest.mark.asyncio
     async def test_resolved_hybrid_forced_discharge_keeps_local_first(self):

@@ -17,9 +17,9 @@ verified-against: 9f6d6e2
 # was reconciled 2026-08-29 for the #570 sweep; the derivation/legend sections
 # stand at the 9f6d6e2 verification pass. Cache cells describing the #570
 # routing are part of the PR #600 change set (reproducible at its branch
-# commit 7400342 — the pin FOLLOWS the branch head as review rounds land, so
-# re-verify it still names the head before citing; re-pin to the mainline
-# merge SHA at the release cut); the keeper stays authoritative.
+# head — no SHA is embedded because review rounds move the head, which
+# staled two successive pinned SHAs; re-pin to the mainline merge SHA at
+# the release cut); the keeper stays authoritative.
 last-verified: 2026-08-29
 ---
 

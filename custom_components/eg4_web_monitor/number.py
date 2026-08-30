@@ -28,11 +28,16 @@ else:
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseNumber, optimistic_value_context
 from .const import (
+    AC_CHARGE_END_SOC_OFFGRID_MIN,
+    AC_CHARGE_END_VOLTAGE_OFFGRID_MAX,
+    AC_CHARGE_END_VOLTAGE_OFFGRID_MIN,
     AC_CHARGE_POWER_MAX,
     AC_CHARGE_POWER_MIN,
     AC_CHARGE_POWER_OFFGRID_MAX,
     AC_CHARGE_POWER_STEP,
     AC_CHARGE_START_SOC_OFFGRID_MIN,
+    AC_CHARGE_START_VOLTAGE_OFFGRID_MAX,
+    AC_CHARGE_START_VOLTAGE_OFFGRID_MIN,
     AC_CHARGE_VOLTAGE_MAX,
     AC_CHARGE_VOLTAGE_MIN,
     AC_CHARGE_VOLTAGE_STEP,
@@ -335,8 +340,18 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         power/SOC 82/83, grid sell-back 103, start-discharge threshold
         116, and the RAW start-charge threshold 117 (no cloud path — its
         write is refused outright on off-grid/unresolved). Grid
-        peak-shaving (H206) needs no gate: it is cloud-only by
-        construction. The #570 firmware verification proves H158–H161 are
+        peak-shaving (H206) is gated at its entity (review round 6): an
+        earlier revision here claimed it was "cloud-only by construction",
+        which the pinned pylxpweb wheel falsifies —
+        ``set_grid_peak_shaving_power`` is TRANSPORT-FIRST onto raw H206;
+        off-grid/unresolved families now write the cloud named parameter
+        directly. Wheel-verified routing of every other cloud path this
+        platform's gates rely on (r6 sweep): ``set_battery_soc_limits``,
+        the battery-current setters and every ``_write_named_parameter``
+        consumer (66/74/67/82/83/202) plus ``set_feed_in_grid_power_kw``
+        and ``set_system_charge_soc_limit`` go straight to
+        ``client.api.control`` — pure cloud, no transport branch. The #570
+        firmware verification proves H158–H161 are
         correctly MAPPED on the CEAA/CCAA off-grid images, which
         discharges the wrong-address risk there but is deliberately NOT
         acted on here: a version-gated local-write upgrade is a separate,
@@ -1368,11 +1383,18 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
 class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
     """Number entity for Grid Peak Shaving Power control.
 
-    Cloud-write-only (eg4-gfu5): PS1 lives at holding register 206, not the
-    register 231 the transport name map historically claimed, and the raw
-    register encoding (presumed deci-kW) is unverified. The cloud write goes
-    by parameter NAME, so the server resolves the true register and accepts
-    float kW — local transport name-writes are never used for this control.
+    PS1 lives at holding register 206, not the register 231 the transport
+    name map historically claimed (eg4-gfu5) — local NAME-map writes are
+    never used for this control. A cloud client is always required (the
+    write raises without one). Routing (#570 r6): on a positively resolved
+    non-off-grid family the write goes through pylxpweb's
+    ``set_grid_peak_shaving_power``, which is TRANSPORT-FIRST onto raw
+    H206 (deci-kW, verified on hybrid hardware — pylxpweb#158 raw 41 ->
+    4.1 kW) with a cloud named-parameter fallback; an earlier revision of
+    this docstring called the entity "cloud-write-only", which the pinned
+    wheel falsifies. Off-grid/unresolved families fail closed and write
+    the cloud named parameter directly — no off-grid H206 write evidence
+    exists, and the entity is fail-open CREATED on unresolved families.
 
     Firmware coupling to Peak Shaving mode (#328, live-verified 2026-07):
     the inverter only accepts this setpoint while Peak Shaving mode
@@ -1414,14 +1436,15 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the grid peak shaving power via the cloud API.
+        """Set the grid peak shaving power (family-routed, cloud client required).
 
-        Deliberately NOT routed through the local transport name map: the
-        old map entry pointed local writes at register 231 (an unknown,
-        unrelated register), and the true PS1 register's raw encoding is
-        unverified, so local raw writes cannot be constructed safely. The
-        cloud name-write works in CLOUD and HYBRID modes; in pure-LOCAL mode
-        this control cannot be written.
+        Never routed through the local transport NAME map: the old map
+        entry pointed local writes at register 231 (an unknown, unrelated
+        register). Resolved non-off-grid families use pylxpweb's
+        transport-first raw-H206 method (hybrid-verified deci-kW encoding,
+        cloud named fallback); off-grid/unresolved families write the
+        cloud named parameter directly (#570 r6 fail-closed). In pure-LOCAL
+        mode this control cannot be written (no cloud client).
 
         Pre-check (#328): the firmware rejects this write (DATAFRAME_TIMEOUT)
         while Peak Shaving mode is disabled, and clears the setpoint whenever
@@ -1487,8 +1510,24 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
         self._warn_if_ineffective()
         label = f"grid peak shaving power to {value:.1f} kW"
         with optimistic_value_context(self, value, label) as write:
-            inverter = self._get_inverter_or_raise()
-            success = await inverter.set_grid_peak_shaving_power(power_kw=value)
+            if is_positively_non_offgrid_family(self._device_data):
+                # pylxpweb's set_grid_peak_shaving_power is TRANSPORT-FIRST
+                # onto raw H206 (deci-kW, verified on hybrid hardware —
+                # pylxpweb#158 raw 41 -> 4.1 kW) — allowed only on a
+                # positively resolved non-off-grid family.
+                inverter = self._get_inverter_or_raise()
+                success = await inverter.set_grid_peak_shaving_power(power_kw=value)
+            else:
+                # #570 r6: fail closed on off-grid/unresolved families —
+                # the transport-first library method would silently ACK a
+                # raw H206 write with no off-grid evidence (the exact
+                # first-run window round 5 closed for H67/H82/H83). Write
+                # the cloud named parameter directly instead (pylxpweb's
+                # own cloud leg); the client is guaranteed above.
+                result = await client.api.control.write_parameter(
+                    self.serial, PARAM_HOLD_GRID_PEAK_SHAVING_POWER, str(value)
+                )
+                success = bool(result.success)
             if not success:
                 raise HomeAssistantError(
                     f"Failed to set grid peak shaving power to {value:.1f} kW"
@@ -1723,7 +1762,6 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         self._attr_unique_id = self._stable_control_unique_id(
             "ac_charge_end_battery_soc"
         )
-        self._attr_native_min_value = AC_CHARGE_BATTERY_SOC_MIN
         self._attr_native_max_value = AC_CHARGE_BATTERY_SOC_MAX
         self._attr_native_step = AC_CHARGE_BATTERY_SOC_STEP
         self._attr_native_unit_of_measurement = "%"
@@ -1731,11 +1769,28 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         self._attr_native_precision = 0
 
     @property
+    def native_min_value(self) -> float:
+        """Family-scoped floor (#570 r6): the CEAA/CCAA firmware writer
+        enforces 20..100 (and >= H160 — firmware-enforced; not validated
+        entity-side, where the sibling's cached value can be stale), so
+        off-grid/unresolved families floor at 20. Positively resolved
+        non-off-grid families keep 0 (where the keeper records the register
+        inert/read-only anyway)."""
+        if is_positively_non_offgrid_family(self._device_data):
+            return AC_CHARGE_BATTERY_SOC_MIN
+        return AC_CHARGE_END_SOC_OFFGRID_MIN
+
+    @property
     def native_value(self) -> float | None:
-        """Return the SOC that stops AC charging (whole percent, both paths)."""
+        """Return the SOC that stops AC charging (whole percent, both paths).
+
+        The plausibility window tracks the family floor so a below-floor
+        register value reads unknown instead of tripping HA's out-of-range
+        state error.
+        """
         return self._read_param_value(
             param_key=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC,
-            value_min=AC_CHARGE_BATTERY_SOC_MIN,
+            value_min=int(self.native_min_value),
             value_max=AC_CHARGE_BATTERY_SOC_MAX,
             params_first=True,
         )
@@ -1744,7 +1799,7 @@ class ACChargeEndBatterySOCNumber(EG4BaseNumberEntity):
         """Set the SOC that stops AC charging (local named write or cloud)."""
         int_value = _coerce_int_in_range(
             value,
-            min_v=AC_CHARGE_BATTERY_SOC_MIN,
+            min_v=int(self.native_min_value),
             max_v=AC_CHARGE_BATTERY_SOC_MAX,
             label="AC charge end battery SOC",
             require_integer=True,
@@ -2540,10 +2595,20 @@ class StartChargePowerNumber(EG4BaseNumberEntity):
         # case in the README's ladder. Fail closed on the family: an
         # unresolved unit might be off-grid, where nothing validates this
         # write and a wrong target ACKs silently (#476). There is no cloud
-        # route to fall back to, so the write is refused outright.
-        blocked = self._offgrid_cloud_only_reason(117, "start charge power threshold")
-        if blocked is not None:
-            raise HomeAssistantError(blocked)
+        # route to fall back to, so the write is refused outright — and the
+        # generic cloud-only message would lie here ("add cloud
+        # credentials" fixes nothing, no cloud parameter name exists), so
+        # the error names the real remedy: family resolution (#570 r6).
+        if not is_positively_non_offgrid_family(self._device_data):
+            raise HomeAssistantError(
+                "Cannot set start charge power threshold: local Modbus "
+                "writes to register 117 are not hardware-verified on this "
+                "inverter family (or the family could not be positively "
+                "identified), and register 117 has no cloud parameter name "
+                "to route through — the control stays read-only until the "
+                "device is positively identified as a non-off-grid family "
+                "(issues #558/#570)"
+            )
         _LOGGER.info(
             "Setting start charge power threshold for %s to %d W",
             self.serial,
@@ -3112,6 +3177,12 @@ class VoltageNumberSpec:
     # the write is the only safe policy until hardware-confirmed. Other
     # families keep the local-first route.
     offgrid_local_write_unverified: bool = False
+    # Firmware-proven bounds on the CEAA/CCAA off-grid images (#570 r6).
+    # When set, off-grid/unresolved families advertise/validate/read these
+    # instead of min_value/max_value; positively resolved non-off-grid
+    # families keep the shared range (status quo, no firmware proof there).
+    offgrid_min_value: int | float | None = None
+    offgrid_max_value: int | float | None = None
 
 
 VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
@@ -3174,6 +3245,10 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         # — no local off-grid write proof exists, so EG4_OFFGRID routes
         # cloud-only (#558/#570).
         offgrid_local_write_unverified=True,
+        # CEAA/CCAA writer enforces raw 384..570 (38.4-57.0 V); the whole-
+        # volt step makes 39 V the effective off-grid minimum (#570 r6).
+        offgrid_min_value=AC_CHARGE_START_VOLTAGE_OFFGRID_MIN,
+        offgrid_max_value=AC_CHARGE_START_VOLTAGE_OFFGRID_MAX,
     ),
     VoltageNumberSpec(
         key="ac_charge_end_voltage",
@@ -3195,6 +3270,9 @@ VOLTAGE_NUMBER_SPECS: tuple[VoltageNumberSpec, ...] = (
         # on the same tested hybrids — still cloud-path only, with no
         # local off-grid write proof (#558/#570).
         offgrid_local_write_unverified=True,
+        # CEAA/CCAA writer enforces raw 480..590 (48.0-59.0 V) (#570 r6).
+        offgrid_min_value=AC_CHARGE_END_VOLTAGE_OFFGRID_MIN,
+        offgrid_max_value=AC_CHARGE_END_VOLTAGE_OFFGRID_MAX,
     ),
     VoltageNumberSpec(
         # MPPT activation floor (register 22). Lowering it (e.g. to 140 V)
@@ -3260,6 +3338,33 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
         self._attr_icon = spec.icon
         self._attr_native_precision = spec.precision
 
+    def _offgrid_bounds_active(self) -> bool:
+        """True when the spec's firmware-proven off-grid bounds apply (#570 r6)."""
+        return self._spec.offgrid_min_value is not None and (
+            not is_positively_non_offgrid_family(self._device_data)
+        )
+
+    @property
+    def native_min_value(self) -> float:
+        """Family-scoped floor: firmware bound on off-grid/unresolved.
+
+        Returns the spec values untouched (int stays int) so validation
+        messages keep their exact shipped formatting ("38-60 V", not
+        "38.0-60.0 V").
+        """
+        bound = self._spec.offgrid_min_value
+        if bound is not None and self._offgrid_bounds_active():
+            return bound
+        return self._spec.min_value
+
+    @property
+    def native_max_value(self) -> float:
+        """Family-scoped ceiling: firmware bound on off-grid/unresolved."""
+        bound = self._spec.offgrid_max_value
+        if bound is not None and self._offgrid_bounds_active():
+            return bound
+        return self._spec.max_value
+
     def _volts_from_spec_param(self, raw: Any) -> float:
         """Normalize a voltage parameter to volts using the spec's threshold.
 
@@ -3275,10 +3380,19 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
     @property
     def native_value(self) -> float | None:
         """Return the current voltage, normalizing raw decivolts when needed."""
+        # With firmware-proven off-grid bounds active, the plausibility
+        # window tracks them so an out-of-bounds register value reads
+        # unknown instead of tripping HA's out-of-range state error.
+        if self._offgrid_bounds_active():
+            read_min: int | float = self.native_min_value
+            read_max: int | float = self.native_max_value
+        else:
+            read_min = self._spec.read_value_min
+            read_max = self._spec.read_value_max
         return self._read_param_value(
             param_key=self._spec.param_key,
-            value_min=self._spec.read_value_min,
-            value_max=self._spec.read_value_max,
+            value_min=read_min,
+            value_max=read_max,
             as_float=self._spec.read_as_float,
             param_transform=self._volts_from_spec_param,
             params_first=True,
@@ -3287,6 +3401,8 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Validate and write the configured voltage register."""
         spec = self._spec
+        min_v = self.native_min_value
+        max_v = self.native_max_value
         write_value = value
         if spec.require_whole:
             int_value = int(value)
@@ -3296,16 +3412,15 @@ class EG4VoltageNumber(EG4BaseNumberEntity):
                 )
             int_value = _coerce_int_in_range(
                 value,
-                min_v=spec.min_value,
-                max_v=spec.max_value,
+                min_v=min_v,
+                max_v=max_v,
                 label=spec.message_label,
                 unit=" V",
             )
             write_value = float(int_value)
-        elif value < spec.min_value or value > spec.max_value:
+        elif value < min_v or value > max_v:
             raise HomeAssistantError(
-                f"{spec.message_label} must be between "
-                f"{spec.min_value}-{spec.max_value} V, got {value}"
+                f"{spec.message_label} must be between {min_v}-{max_v} V, got {value}"
             )
 
         cloud_write: Callable[[], Awaitable[None]] | None = None

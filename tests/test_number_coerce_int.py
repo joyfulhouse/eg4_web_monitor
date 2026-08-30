@@ -41,7 +41,9 @@ ENTITY_CASES: "Sequence[ParameterSet]" = (
     ),
     pytest.param(
         ACChargeEndBatterySOCNumber,
-        0,
+        # Floor 20 on this family-less (unresolved → fail-closed) scaffold:
+        # the CEAA/CCAA firmware writer enforces 20..100 (#570 round 6).
+        20,
         100,
         "AC charge end battery SOC",
         id="ac-charge-end-battery-soc",
