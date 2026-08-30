@@ -1257,7 +1257,10 @@ class EG4DataUpdateCoordinator(
 
         No-op once teardown has begun (round 11): a reconciliation still in
         flight during the awaited base-class teardown must not re-arm a
-        timer that would refresh against closed transports.
+        timer that would refresh against closed transports. Once the timer
+        FIRES (round 12) the latch is re-checked and the refresh runs as a
+        coordinator-owned background task, so teardown starting mid-refresh
+        cancels and awaits it instead of leaving unowned parameter I/O.
         """
         if self._parameter_seed_recheck_closed:
             return
@@ -1270,10 +1273,28 @@ class EG4DataUpdateCoordinator(
             if cancel_pending is not None:
                 cancel_pending()
 
-        async def _recheck(_fire_time: datetime) -> None:
+        async def _recheck_refresh() -> None:
+            await self.async_refresh_device_parameters(serial)
+
+        @callback
+        def _recheck(_fire_time: datetime) -> None:
             self._parameter_seed_recheck_unsub.pop(serial, None)
             self._parameter_seed_recheck_at.pop(serial, None)
-            await self.async_refresh_device_parameters(serial)
+            # Fire-vs-teardown race (round 12): firing consumed the only
+            # coordinator-owned cancel handle, so an unowned refresh here
+            # would keep doing parameter I/O against detached transports /
+            # a closing cloud session. Re-check the latch AFTER the fire,
+            # and run the refresh as a tracked background task so
+            # _cancel_background_tasks cancels and awaits it on teardown.
+            if (
+                self._parameter_seed_recheck_closed
+                or self._background_scheduling_stopped
+            ):
+                return
+            task = self.hass.async_create_task(_recheck_refresh())
+            self._background_tasks.add(task)
+            task.add_done_callback(self._remove_task_from_set)
+            task.add_done_callback(self._log_task_exception)
 
         self._parameter_seed_recheck_at[serial] = deadline
         self._parameter_seed_recheck_unsub[serial] = async_call_later(

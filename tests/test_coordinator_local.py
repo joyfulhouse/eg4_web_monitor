@@ -975,6 +975,73 @@ class TestParameterSeedSettleWindow:
             await hass.async_block_till_done()
         refresh.assert_not_awaited()
 
+    def _armed_recheck(self, coordinator: EG4DataUpdateCoordinator) -> None:
+        """Seed, then disagree inside the window so a recheck timer is armed."""
+        self._seeded(coordinator)
+        coordinator._reconcile_parameter_read(
+            self.SERIAL,
+            {"HOLD_LEAD_ACID_CHARGE_RATE": 60},
+            read_complete=True,
+            read_generation=coordinator._parameter_write_generation,
+        )
+        assert self.SERIAL in coordinator._parameter_seed_recheck_unsub
+
+    async def test_fired_recheck_refresh_cancelled_by_shutdown(
+        self, hass, local_config_entry
+    ):
+        """r12 (Codex MED): a FIRED recheck consumed its only
+        coordinator-owned cancel handle before awaiting the refresh, so a
+        shutdown starting while the refresh was in flight left the
+        parameter I/O running against detached transports / a closing
+        cloud session. The fired refresh now runs as a tracked background
+        task that teardown cancels and awaits."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._armed_recheck(coordinator)
+
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def _blocked_refresh(target: str) -> bool:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+            return True
+
+        with patch.object(
+            coordinator,
+            "async_refresh_device_parameters",
+            AsyncMock(side_effect=_blocked_refresh),
+        ):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+            await asyncio.wait_for(started.wait(), timeout=5)
+            # The in-flight refresh is coordinator-owned, so teardown can
+            # cancel and await it.
+            assert coordinator._background_tasks
+            await coordinator.async_shutdown()
+
+        assert cancelled.is_set()
+        assert not coordinator._background_tasks
+
+    async def test_fired_recheck_respects_closed_latch(self, hass, local_config_entry):
+        """r12: the closed latch is re-checked AFTER the timer fires — a
+        callback that outraces teardown's cancel must not start a
+        refresh against a coordinator whose teardown has begun."""
+        coordinator = self._coordinator(hass, local_config_entry)
+        self._armed_recheck(coordinator)
+        # Teardown has begun but its cancel has not reached this timer yet.
+        coordinator._parameter_seed_recheck_closed = True
+
+        refresh = AsyncMock(return_value=True)
+        with patch.object(coordinator, "async_refresh_device_parameters", refresh):
+            async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+            await hass.async_block_till_done()
+
+        refresh.assert_not_awaited()
+        assert not coordinator._background_tasks
+
 
 class TestStickyParameterCarryForward:
     """A partial parameter read must not blank known values or arm the throttle.

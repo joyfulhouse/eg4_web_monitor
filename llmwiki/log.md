@@ -823,3 +823,20 @@ false rationale could have motivated a "fix" seeding raw deci-kW, a 10× state d
 The comment now states the actual mapping/decode and why kW is the invariant unit. No
 wiki page repeated the falsehood (`40-hardware/registers.md` H206 rows already say
 0.1 kW raw); no wiki content change this round. Citations: PR #600 (issue #570).
+
+## [2026-08-29] lint | Review round 12 — a fired recheck must stay coordinator-owned
+
+One MED (Codex gpt-5.6-sol; kimi quota-died again). The fired settle-recheck callback
+popped its only coordinator-owned cancel handle and then awaited the targeted refresh
+unowned — a timer firing just before reload/shutdown left parameter I/O running against
+detached transports or a closing cloud session, racing the replacement coordinator. Two
+changes, both inside `_schedule_seed_settle_recheck`: the fired callback re-checks the
+round-11 closed latch (plus `_background_scheduling_stopped`) AFTER the fire and before
+starting any I/O, and the refresh itself now runs through the existing
+`BackgroundTaskMixin` ownership convention (`hass.async_create_task` +
+`_background_tasks` + `_remove_task_from_set`/`_log_task_exception` done callbacks), so
+`_cancel_background_tasks` — which both teardown paths already run AFTER the latch is
+set — cancels and awaits it. Two RED-verified tests: a shutdown starting while the
+fired refresh is blocked in flight cancels and awaits it (CancelledError observed, task
+set drained), and a fired callback that outraces teardown's cancel starts nothing once
+the latch is set. Citations: PR #600 (issue #570).
