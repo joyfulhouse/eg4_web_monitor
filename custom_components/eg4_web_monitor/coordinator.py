@@ -542,6 +542,10 @@ class EG4DataUpdateCoordinator(
         self._firmware_status_owner: object | None = None
         self._firmware_status_released = True
         self._firmware_prefetched_device_ids: set[int] = set()
+        # Per-serial anchor of the firmware carry-forward window (#573):
+        # last successful refresh, or the first failure when none ever
+        # succeeded. Missing key = never polled (the None sentinel).
+        self._firmware_poll_fresh_at: dict[str, float] = {}
 
         # Track availability state for Silver tier logging requirement
         self._last_available_state: bool = True

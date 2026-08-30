@@ -97,6 +97,18 @@ FIRMWARE_UPDATE_CLOUD_TIMEOUT = 10.0
 BATTERY_BACKUP_CLOUD_TIMEOUT = 10.0
 BATTERY_BACKUP_FETCH_INTERVAL = 30.0
 
+# Carry-forward bound for a cached ACTIVE firmware row (#573). A transient
+# refresh failure must keep serving the device's cached in-progress state so
+# an active update does not flicker to idle (#353) — but that carry-forward
+# must not be indefinite: a stale ``in_progress=True`` row surviving
+# persistent refresh failures wedges the update entity busy forever and HA
+# rejects new installs from that flag. Firmware polls piggyback on the cloud
+# refresh cycle (``_http_polling_interval``), so the window allows roughly
+# three missed polls with a floor so a short configured interval cannot make
+# a brief cloud blip expire a genuinely active update.
+FIRMWARE_POLL_STALENESS_MISSED_POLLS = 3
+FIRMWARE_POLL_STALENESS_FLOOR = 600.0
+
 # Portal event-log poll throttle (#327).  Events are pushed to the cloud
 # out-of-band by the device (some never surface in registers), so the Last
 # Event sensor polls /WManage/api/analyze/event/list — but events are rare,
@@ -803,6 +815,7 @@ if TYPE_CHECKING:
         _firmware_status_owner: object | None
         _firmware_status_released: bool
         _firmware_prefetched_device_ids: set[int]
+        _firmware_poll_fresh_at: dict[str, float]
         _background_scheduling_stopped: bool
         _http_polling_interval: int
         _local_transport_configs: list[dict[str, Any]]
@@ -916,6 +929,10 @@ if TYPE_CHECKING:
         # ── FirmwareUpdateMixin methods ──
         def _extract_firmware_update_info(
             self, device: "BaseInverter | MIDDevice"
+        ) -> dict[str, Any] | None: ...
+        def _note_firmware_poll_result(self, device: Any, *, success: bool) -> None: ...
+        def _expire_stale_firmware_activity(
+            self, device: Any, info: dict[str, Any] | None
         ) -> dict[str, Any] | None: ...
 
         # ── ParameterManagementMixin methods ──
@@ -2348,11 +2365,20 @@ class DeviceProcessingMixin(_MixinBase):
         the device object caches its last firmware state, so we extract from it
         even when the refresh calls above raise. Otherwise an active firmware
         update would flicker to idle on any poll error (issue #353).
+
+        That carry-forward is freshness-bounded (#573): each refresh outcome is
+        recorded via _note_firmware_poll_result, and once failures persist past
+        the staleness window a cached ACTIVE row is expired by
+        _expire_stale_firmware_activity instead of wedging the update entity
+        busy forever.
         """
         if not hasattr(device, "check_firmware_updates"):
             return None
         if id(device) in self._firmware_prefetched_device_ids:
-            return self._extract_firmware_update_info(device)
+            # Refresh outcome was already recorded by the prefetch batch.
+            return self._expire_stale_firmware_activity(
+                device, self._extract_firmware_update_info(device)
+            )
         try:
             await self._breakered_cloud_call(
                 lambda: device.check_firmware_updates(),
@@ -2364,13 +2390,19 @@ class DeviceProcessingMixin(_MixinBase):
                     timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
                 )
         except Exception as e:
+            self._note_firmware_poll_result(device, success=False)
             _LOGGER.debug(
                 "Could not refresh firmware updates for %s (using last cached state): %s",
                 device.serial_number,
                 e,
             )
-        # Extract from the device's cached state regardless of refresh outcome.
-        return self._extract_firmware_update_info(device)
+        else:
+            self._note_firmware_poll_result(device, success=True)
+        # Extract from the device's cached state regardless of refresh outcome,
+        # expiring a stale active row once the carry-forward window is spent.
+        return self._expire_stale_firmware_activity(
+            device, self._extract_firmware_update_info(device)
+        )
 
     async def _fetch_battery_backup_status(
         self,
@@ -2486,12 +2518,19 @@ class DeviceProcessingMixin(_MixinBase):
                         timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
                     )
             except Exception as err:
+                self._note_firmware_poll_result(device, success=False)
                 _LOGGER.debug(
                     "Could not refresh firmware availability for %s "
                     "(using last cached state): %s",
                     getattr(device, "serial_number", "?"),
                     err,
                 )
+            else:
+                # For progress-capable devices the progress call below is the
+                # authoritative freshness signal for in_progress; only stamp
+                # success here when no progress poll will follow.
+                if not hasattr(device, "get_firmware_update_progress"):
+                    self._note_firmware_poll_result(device, success=True)
 
         await asyncio.gather(*(_check(device) for device in firmware_devices))
 
@@ -2509,12 +2548,15 @@ class DeviceProcessingMixin(_MixinBase):
                         timeout=FIRMWARE_UPDATE_CLOUD_TIMEOUT,
                     )
             except Exception as err:
+                self._note_firmware_poll_result(device, success=False)
                 _LOGGER.debug(
                     "Could not refresh firmware progress for %s "
                     "(using last cached state): %s",
                     getattr(device, "serial_number", "?"),
                     err,
                 )
+            else:
+                self._note_firmware_poll_result(device, success=True)
 
         flight = self._firmware_status_flight
         if flight is not None:
@@ -4853,3 +4895,73 @@ class FirmwareUpdateMixin(_MixinBase):
             update_info["update_percentage"] = device.firmware_update_percentage
 
         return update_info
+
+    def _firmware_poll_staleness_window(self) -> float:
+        """Seconds a cached ACTIVE firmware row may be carried forward (#573)."""
+        return max(
+            FIRMWARE_POLL_STALENESS_MISSED_POLLS * float(self._http_polling_interval),
+            FIRMWARE_POLL_STALENESS_FLOOR,
+        )
+
+    def _note_firmware_poll_result(self, device: Any, *, success: bool) -> None:
+        """Record the freshness of a device's firmware refresh outcome (#573).
+
+        A success re-anchors the carry-forward window at now. A failure only
+        seeds the anchor when none exists yet (missing key = the None "never
+        ran" sentinel). Do not "simplify" the sentinel to a 0.0 default:
+        monotonic() is host uptime on Linux, so on any host up LONGER than
+        the staleness window a first-ever failure would read
+        ``now - 0.0 >= window`` and instantly expire an active row that was
+        never successfully polled. (This is the mirror image of the d66cc92
+        fresh-boot class, where a 0.0 default makes the first run look
+        THROTTLED on a freshly booted host.) Anchoring the first failure at
+        now instead starts the outage clock there, preserving #353's flicker
+        protection; pinned by
+        test_long_uptime_first_failure_carries_forward_then_expires.
+        """
+        serial = getattr(device, "serial_number", None)
+        if serial is None:
+            return
+        key = str(serial)
+        now = time.monotonic()
+        if success:
+            self._firmware_poll_fresh_at[key] = now
+        else:
+            self._firmware_poll_fresh_at.setdefault(key, now)
+
+    def _expire_stale_firmware_activity(
+        self, device: Any, info: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Expire a cached ACTIVE firmware row past the staleness window (#573).
+
+        Carry-forward on refresh failure (#353) must be bounded: a stale
+        ``in_progress=True`` row that survives persistent failures wedges the
+        update entity busy indefinitely — HA rejects new installs from that
+        flag — and renders a permanent indeterminate spinner. Once the last
+        refresh success (or the first failure, if none ever succeeded) is
+        older than the window, the row is exposed as not-installing with an
+        unknown percentage rather than actively installing. Availability and
+        version fields are untouched; a later successful poll that still
+        reports an active update re-publishes it fresh.
+        """
+        if not info or not info.get("in_progress"):
+            return info
+        serial = getattr(device, "serial_number", None)
+        if serial is None:
+            return info
+        fresh_at = self._firmware_poll_fresh_at.get(str(serial))
+        if fresh_at is None:
+            # No recorded refresh outcome for this serial: nothing proves the
+            # row stale, so leave it alone.
+            return info
+        if time.monotonic() - fresh_at < self._firmware_poll_staleness_window():
+            return info
+        _LOGGER.debug(
+            "Firmware progress for %s has not refreshed within %.0f s; "
+            "expiring stale active update state (#573)",
+            serial,
+            self._firmware_poll_staleness_window(),
+        )
+        info["in_progress"] = False
+        info["update_percentage"] = None
+        return info

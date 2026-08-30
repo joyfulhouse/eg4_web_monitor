@@ -481,28 +481,30 @@ class TestProperties:
         entity = EG4FirmwareUpdateEntity(coordinator, "SN1")
         assert entity.update_percentage == expected
 
-    def test_stale_active_100_survives_refresh_failures_characterization(self):
-        """CHARACTERIZATION: stale active-100 row + refresh failures (#512 wedge).
+    def test_stale_active_100_expires_after_refresh_failure_window(self):
+        """#573: a stale active-100 row no longer wedges the entity busy.
 
-        Sequence: cached firmware_update_info stays in_progress=True at 100%,
-        then last_update_success flips False (persistent refresh failures)
-        without replacing the device row.
+        Replaces the #512 characterization test that pinned the wedge: a
+        cached ``in_progress=True`` row surviving persistent refresh failures
+        kept ``in_progress`` True forever, so HA rejected new installs.
 
-        Pre-#512 rendering: update_percentage=100 (Installing 100%).
-        Post-#512 rendering: update_percentage=None (indeterminate).
-        in_progress remains True either way — Home Assistant rejects new
-        installs from that busy flag. The wedge WHEN is coordinator
-        carry-forward of the firmware_update_info row across failed refreshes
-        (pre-existing; in_progress property unchanged by this PR).
-        Freshness-bounded clearing of stale active rows is a follow-up,
-        out of #512 scope.
+        The coordinator now bounds that carry-forward
+        (``_expire_stale_firmware_activity``, covered by
+        ``TestFirmwarePollCarryForward`` in test_coordinator.py): past the
+        staleness window it republishes the row as not-installing with an
+        unknown percentage. This test asserts the entity's rendering of that
+        expired row — idle, no percentage, installs accepted again — while
+        version fields survive.
         """
+        # While the row is still within the window the entity renders the
+        # #512 indeterminate-active state.
         coordinator = _mock_coordinator(
             devices={
                 "SN1": {
                     "type": "inverter",
                     "model": "X",
                     "firmware_update_info": {
+                        "latest_version": "2.0.0",
                         "in_progress": True,
                         "update_percentage": 100,
                     },
@@ -514,11 +516,17 @@ class TestProperties:
         assert entity.in_progress is True
         assert entity.update_percentage is None
 
-        # Repeated refresh failures: availability drops, cached row unchanged.
-        coordinator.last_update_success = False
-        assert entity.available is False
-        assert entity.in_progress is True
+        # Past the window the coordinator republishes the row expired.
+        coordinator.data["devices"]["SN1"]["firmware_update_info"] = {
+            "latest_version": "2.0.0",
+            "in_progress": False,
+            "update_percentage": None,
+        }
+        assert entity.in_progress is False
         assert entity.update_percentage is None
+        assert entity.latest_version == "2.0.0"
+        # The busy flag is released, so HA no longer rejects new installs.
+        assert entity.available is True
 
     def test_available_true(self):
         """Entity is available when coordinator succeeds and serial is in data."""
