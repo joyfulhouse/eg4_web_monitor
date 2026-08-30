@@ -16,7 +16,7 @@ aiohttp>=3.10.0
 pycares>=4.9.0,<5
 voluptuous>=0.15.0
 # Exact public prerelease required for the caller-owned transport factory seam (#581).
-pylxpweb==0.10.0b4  # keep in sync with manifest.json
+pylxpweb==0.10.0b5  # keep in sync with manifest.json
 
 # Code quality
 mypy==2.3.0  # pinned (#528 review, same rationale as ruff/#482); keep in sync with quality-validation.yml

@@ -5,6 +5,23 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.5.1-beta.13] - 2026-08-30
+
+Requires **[pylxpweb==0.10.0b5](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b5)**.
+
+### Fixed
+
+- **Stale firmware-update activity now expires** ([#573](https://github.com/joyfulhouse/eg4_web_monitor/issues/573), PR [#599](https://github.com/joyfulhouse/eg4_web_monitor/pull/599)): a cached `in_progress` firmware row no longer survives persistent refresh failures as a permanent spinner. Per-serial poll freshness (monotonic, `None` never-ran sentinel) expires stale activity after `max(3 × cloud poll interval, 600 s)` — including when the overall coordinator update succeeds while the firmware side-poll fails — and recovery re-publishes fresh state.
+- **GridBOSS Modbus discovery no longer misreads the AC-couple energy counter as parallel config** ([#596](https://github.com/joyfulhouse/eg4_web_monitor/issues/596), PR [#597](https://github.com/joyfulhouse/eg4_web_monitor/pull/597)): input registers 112–113 on MID/GridBOSS are `ac_couple3_energy_total_l1`, so once lifetime energy crossed 6553.6 kWh discovery would have fabricated a parallel role. The read is skipped for GridBOSS (companion library-side fix in pylxpweb 0.10.0b5).
+- **Dongle sanitizer is fail-closed on protocol shape** ([#588](https://github.com/joyfulhouse/eg4_web_monitor/issues/588), PR [#598](https://github.com/joyfulhouse/eg4_web_monitor/pull/598)): frames with a protocol version other than little-endian 0x0001 or an address byte other than 1 are rejected with a new `PROTOCOL` failure reason, and heartbeat payloads must be exactly one byte. Review caught and fixed an inverted-endianness check inherited from the earlier #579 draft.
+- **Unreported battery state of health shows as unknown, not 100%** (pylxpweb [#309](https://github.com/joyfulhouse/pylxpweb/issues/309), based on pylxpweb [#286](https://github.com/joyfulhouse/pylxpweb/pull/286)): a silent BMS was indistinguishable from a perfectly healthy pack. All decode paths (local Modbus, master/slave battery protocols, cloud) now surface unreported SoH as `None`; bank min-SoH/SoH-delta exclude unreported batteries.
+- **GridBOSS serial-number discovery falls back to holding registers** (eg4 [#593](https://github.com/joyfulhouse/eg4_web_monitor/issues/593), pylxpweb [#315](https://github.com/joyfulhouse/pylxpweb/pull/315)): units whose input-register serial area serves energy counters now read `HOLD_SERIAL_NUM`, gated by a strict 10-char alphanumeric plausibility check on both paths, with dongle-safe inter-register delay and graceful degradation on restricted register maps.
+
+### Changed
+
+- **Off-grid write-evidence audit — every off-grid-writable control derived and fail-closed** ([#570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570), PR [#600](https://github.com/joyfulhouse/eg4_web_monitor/pull/600)): the #558 protected set is now *derived*, not spot-checked. All writable scalars, the quick-charge switch/status path, schedule time entities, and Grid Peak-Shaving Power route cloud-only on EG4_OFFGRID **and unresolved** families (fail-closed, verified against the pinned pylxpweb wheel); resolved non-off-grid families keep local-first behavior. Entity ranges now respect firmware-proven off-grid limits (H66 ≤ 10 kW, H158 39–57 V, H159 48–59 V, H160 ≥ 1 %, H161 ≥ 20 %, H105 10–90 %) with family-scoped bounds. Cloud-routed writes converge cleanly via per-key write-seed settle windows with a one-shot settle-expiry recheck. The llmwiki register ledger carries per-register write-evidence grades from the firmware RE + live hardware sweep, including the H161 write anomaly and the H233 CEAA/CCAA split.
+- **Immutable raw-register snapshot store (Phase A3)** ([#583](https://github.com/joyfulhouse/eg4_web_monitor/issues/583), PR [#586](https://github.com/joyfulhouse/eg4_web_monitor/pull/586)): eligible LOCAL/HYBRID owners publish exactly one immutable latest-complete raw frame per (endpoint, unit) — atomic publication only when every invoked read contributed and coverage held, O(1) storage, monotonic freshness policy, zero additional Modbus reads, redacted metrics only, and clean teardown (shared-owner-safe forced release on unload).
+
 ## [3.5.1-beta.12] - 2026-08-28
 
 Requires **[pylxpweb==0.10.0b4](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b4)** — the first release on the 0.10.x library line, carrying both halves of the #587 fix.

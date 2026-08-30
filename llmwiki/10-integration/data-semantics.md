@@ -41,12 +41,12 @@ verified-against:
   # protected set, the quick-charge fail-closed predicates, the schedule
   # and QuickChargeDuration family gates) are licensed PER CLAIM by their
   # inline PR #600 / issue #570 citations — the pin itself stays
-  # commit-only per _conventions.md. REQUIRED POST-MERGE ACTION (recorded
-  # in log.md): re-pin to the mainline merge SHA at the release cut
-  # (#559 precedent).
-  eg4_web_monitor: 9f6d6e2
+  # commit-only per _conventions.md. Re-pinned at the 2026-08-30 release
+  # cut (#559 precedent): PR #600 merged as d8e2027; the whole page now
+  # verifies at the mainline pin below.
+  eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
-last-verified: 2026-08-29
+last-verified: 2026-08-30
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md

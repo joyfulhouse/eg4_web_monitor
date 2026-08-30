@@ -41,13 +41,14 @@ verified-against:
   # schedule-write routing rows) are licensed PER CLAIM by their inline
   # PR #600 / issue #570 citations (the durable artifact — the PR diff
   # survives branch deletion; embedded SHAs staled twice in review).
-  # REQUIRED POST-MERGE ACTION (recorded in log.md): re-pin these claims
-  # to the mainline merge SHA at the release cut. pylxpweb stays
+  # Re-pinned at the 2026-08-30 release cut: PR #600 merged as d8e2027, so
+  # the sweep-extended rows now verify at the mainline pin below (inline
+  # PR #600 / issue #570 citations remain as provenance). pylxpweb stays
   # ab87902 (0.9.39b11); the #271/#272 range fixes merged after it and are
   # cited by PR number (pylxpweb #273), not by pin.
-  eg4_web_monitor: e9853eb
+  eg4_web_monitor: d8e2027
   pylxpweb: ab87902
-last-verified: 2026-08-29
+last-verified: 2026-08-30
 ---
 
 # Register ground truth

@@ -12,15 +12,14 @@ sources:
   - issue #549
   - memory/issue-476-green-mode-bit14.md
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
-verified-against: 9f6d6e2
+verified-against: d8e2027
 # The hand-maintained keeper cache in "Registers the keeper marks unresolved"
-# was reconciled 2026-08-29 for the #570 sweep; the derivation/legend sections
-# stand at the 9f6d6e2 verification pass. Cache cells describing the #570
-# routing are licensed per claim by their inline PR #600 / issue #570
-# citations — the pin above stays commit-only per _conventions.md.
-# REQUIRED POST-MERGE ACTION, recorded in log.md: re-pin to the mainline
-# merge SHA at the release cut. The keeper stays authoritative.
-last-verified: 2026-08-29
+# was reconciled 2026-08-29 for the #570 sweep. Re-pinned at the 2026-08-30
+# release cut: PR #600 merged as d8e2027, so the #570 routing cells and the
+# derivation/legend sections now verify at the mainline pin above (the
+# per-claim inline PR #600 / issue #570 citations remain as provenance).
+# The keeper stays authoritative.
+last-verified: 2026-08-30
 ---
 
 # llmwiki
