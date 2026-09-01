@@ -1996,3 +1996,26 @@ def test_capability_forwards_pinned_terminal_protocol_surface() -> None:
         if not hasattr(EndpointBusCapability, member)
     }
     assert missing == set()
+
+
+def test_capability_mutable_config_properties_round_trip() -> None:
+    """Feature-detected config the factory propagates must be settable.
+
+    ``BaseInverter.from_modbus_transport`` assigns ``inverter_family`` (when the
+    detected family differs from the configured one) and ``pv_string_count`` onto
+    the transport after detecting the model. A getter-only property passes
+    ``hasattr`` but raises ``AttributeError`` on assignment, which crashed local
+    inverter setup (issue #602: ``pv_string_count`` observed; ``inverter_family``
+    is the same latent class, fired on family auto-correction).
+    """
+    capability = _registry({"gateway.example.invalid": _WireProbe()}).create_capability(
+        _config("SYNTH00001")
+    )
+
+    capability.inverter_family = "EG4_HYBRID"
+    capability.split_phase = True
+    capability.pv_string_count = 6
+
+    assert capability.inverter_family == "EG4_HYBRID"
+    assert capability.split_phase is True
+    assert capability.pv_string_count == 6
