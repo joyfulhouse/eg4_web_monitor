@@ -952,6 +952,10 @@ class EndpointBusCapability:
     def inverter_family(self) -> Any:
         return self._owner.get_property(self._token, "inverter_family")
 
+    @inverter_family.setter
+    def inverter_family(self, value: Any) -> None:
+        self._owner.set_property(self._token, "inverter_family", value)
+
     @property
     def split_phase(self) -> bool:
         return bool(self._owner.get_property(self._token, "split_phase"))
@@ -963,6 +967,10 @@ class EndpointBusCapability:
     @property
     def pv_string_count(self) -> int:
         return int(self._owner.get_property(self._token, "pv_string_count"))
+
+    @pv_string_count.setter
+    def pv_string_count(self, value: int) -> None:
+        self._owner.set_property(self._token, "pv_string_count", value)
 
     @property
     def is_midbox_device(self) -> bool:
