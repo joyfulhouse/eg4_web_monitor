@@ -852,18 +852,18 @@ async def test_capability_exposes_fresh_only_lookup_and_redacted_metrics() -> No
         await capability.read_runtime()
     frame = capability.latest_complete_snapshot
     assert frame is not None
-    metrics = capability.snapshot_metrics(
-        monotonic_now=frame.acquired_monotonic_end + 15.0
-    )
+    # Probe strictly PAST the policy's maximum age, not at it: the frame's
+    # end is a real (large) monotonic reading, and ``(end + 15.0) - end``
+    # can round to 14.999... so an exact-boundary probe flips ``age < max``
+    # true on some hosts (CI flake on PR #604). The stale margin is 1 s.
+    max_age = capability.snapshot_freshness_policy.maximum_age_seconds
+    assert max_age == 15.0
+    stale_now = frame.acquired_monotonic_end + max_age + 1.0
+    metrics = capability.snapshot_metrics(monotonic_now=stale_now)
 
-    assert metrics.age_seconds == pytest.approx(15.0)
+    assert metrics.age_seconds == pytest.approx(max_age + 1.0)
     assert metrics.fresh is False
-    assert (
-        capability.latest_fresh_snapshot(
-            monotonic_now=frame.acquired_monotonic_end + 15.0
-        )
-        is None
-    )
+    assert capability.latest_fresh_snapshot(monotonic_now=stale_now) is None
     assert "owner-" not in repr(metrics)
     assert "11" not in repr(metrics)
 
