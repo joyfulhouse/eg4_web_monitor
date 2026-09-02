@@ -874,3 +874,23 @@ controls-and-writes, data-semantics) are re-pinned to `d8e2027` with
 `last-verified: 2026-08-30`; the inline PR/issue citations remain as
 provenance. Performed in the v3.5.1-beta.13 release change set (which bumps
 the pylxpweb pin to 0.10.0b5).
+
+## [2026-09-01] ingest | #603 — H105 ceiling is 100, not 90; the entity read window must not be tighter than the writers
+
+Source: [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter
+diagnostics (LXP-LB-US 10K, hybrid) showing `HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`
+stored after a portal-typed value, plus the reporter's statement that 101 is
+rejected by the inverter (96–100 were never individually written). The 10–90 range PR #600 round 2 propagated into the
+On-Grid SOC Cut-Off entity (advertised, write-validated AND read-windowed) was the
+portal's arrow-button hint copied into pylxpweb's canonical H105 definition and
+`set_battery_soc_limits`; it blanked the stored 95 to unknown and refused writes
+above 90. Filed on the keeper as two H105 rows: the stored-95 observation
+(`portal-correlated`, reporter unit only) and the exact 10–100 bound (`inferred`;
+both ends unproven). Accounting 346 → 348 claims, 41 proven. Library fix widens both
+pylxpweb writers and the definition to 100; the entity read window is now the
+tolerant 0–100 while the write bounds track the writers. Same-class audit: reg 227
+(System Charge SOC Limit) carried an evidence-free 10 floor against a 0–101
+library/keeper range — floor set to 0; reg 160's hybrid-side 90 write cap is the
+same evidence tier and is now annotated as such in the entity docstring, not
+changed. Rule recorded: a read plausibility window must never be tighter than the
+widest bound any writer accepts.

@@ -935,7 +935,7 @@ async def async_setup_entry(
 class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
     """Number entity for System Charge SOC Limit control (register 227).
 
-    Values 10-100%: stop charging at this SOC.  101%: enable top balancing.
+    Values 0-100%: stop charging at this SOC.  101%: enable top balancing.
     """
 
     _control_key = "system_charge_soc_limit"
@@ -957,8 +957,8 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
         """Return the current System Charge SOC limit (reads params first)."""
         return self._read_param_value(
             param_key="HOLD_SYSTEM_CHARGE_SOC_LIMIT",
-            value_min=10,
-            value_max=101,
+            value_min=SYSTEM_CHARGE_SOC_LIMIT_MIN,
+            value_max=SYSTEM_CHARGE_SOC_LIMIT_MAX,
             inverter_attr="system_charge_soc_limit",
             params_first=True,
         )
@@ -966,9 +966,13 @@ class SystemChargeSOCLimitNumber(EG4BaseNumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set the System Charge SOC limit (3-way: local, cloud API, or client)."""
         int_value = int(value)
-        if int_value < 10 or int_value > 101:
+        if (
+            int_value < SYSTEM_CHARGE_SOC_LIMIT_MIN
+            or int_value > SYSTEM_CHARGE_SOC_LIMIT_MAX
+        ):
             raise HomeAssistantError(
-                f"SOC limit must be an integer between 10-101%, got {int_value}"
+                "SOC limit must be an integer between "
+                f"{SYSTEM_CHARGE_SOC_LIMIT_MIN}-{SYSTEM_CHARGE_SOC_LIMIT_MAX}%, got {int_value}"
             )
         if abs(value - int_value) > 0.01:
             raise HomeAssistantError(f"SOC limit must be an integer value, got {value}")
@@ -1658,7 +1662,11 @@ class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):
 
     Whole percent, SCALE_NONE on both paths; reg 160 is in pylxpweb's
     transport name map, so local named reads/writes work as-is. Writes cap
-    at 90% (pylxpweb's register definition and hybrid setter bound).
+    at 90% (pylxpweb's register definition and hybrid setter bound). That
+    cap is firmware-proven ONLY on the CEAA/CCAA off-grid images (writer
+    rejects >=91); on hybrid families it is portal-correlated, the same
+    evidence tier as the reg-105 cap #603 falsified — revisit if a hybrid
+    ever stores a portal-typed value above 90.
 
     RANGE FLOOR (#570 review round 4): family-scoped because the evidence
     is. The CEAA/CCAA firmware writer rejects 0 with exception 03 —
@@ -2899,13 +2907,17 @@ class StopDischargeVoltageNumber(EG4BaseNumberEntity):
 class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
     """Number entity for On-Grid SOC Cut-Off control.
 
-    Range 10-90%: the canonical H105 definition (pylxpweb
-    ``inverter_holding.py`` address 105, min 10 / max 90) and the cloud
-    writer ``set_battery_soc_limits`` (ValueError outside 10..90) both
+    Write range 10-100%: the canonical H105 definition (pylxpweb
+    ``inverter_holding.py`` address 105, min 10 / max 100) and the cloud
+    writer ``set_battery_soc_limits`` (ValueError outside 10..100) both
     enforce it. The entity previously advertised 0-100, which the #570
     cloud-only routing turned into a user-visible ValueError on off-grid
     entries for 0-9/91-100 (review round 2 MED) — the entity was the
-    outlier, so its advertised range now matches the writers. H125
+    outlier, so its advertised range was matched to the writers. That
+    round copied a 90 ceiling that was only the portal's arrow-button
+    hint: the inverter stores a portal-typed 95 and rejects only >100
+    (#603), so the writers and this entity now cap at 100; the READ window
+    stays the tolerant 0-100 so a stored value never blanks. H125
     (off-grid cutoff) is 0-100 everywhere and keeps SOC_LIMIT_*.
     """
 
@@ -2927,20 +2939,21 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
     def native_value(self) -> float | None:
         """Return the current on-grid SOC cutoff (reads from battery_soc_limits dict).
 
-        The plausibility window matches the advertised 10-90 range: a value
-        outside it reads as unknown rather than tripping HA's out-of-range
-        state error on the tightened bounds.
+        The plausibility window is the full 0-100 percent range, deliberately
+        wider than the write bounds: the portal can store any value the
+        firmware accepts (a typed 95 on an LXP-LB-US 10K, #603), and a read
+        window tighter than that blanked a legal value to unknown.
         """
         return self._read_param_value(
             param_key="HOLD_DISCHG_CUT_OFF_SOC_EOD",
-            value_min=ONGRID_SOC_CUTOFF_MIN,
-            value_max=ONGRID_SOC_CUTOFF_MAX,
+            value_min=SOC_LIMIT_MIN,
+            value_max=SOC_LIMIT_MAX,
             inverter_dict_attr="battery_soc_limits",
             inverter_dict_key="on_grid_limit",
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the on-grid SOC cutoff (10-90%, the canonical H105 range)."""
+        """Set the on-grid SOC cutoff (10-100%; only >100 is firmware-rejected, #603)."""
         int_value = _coerce_int_in_range(
             value,
             min_v=ONGRID_SOC_CUTOFF_MIN,

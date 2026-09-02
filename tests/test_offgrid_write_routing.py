@@ -866,12 +866,14 @@ class TestSweepExtendedProtectedRouting:
         )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("value", [10, 90], ids=["min-10", "max-90"])
+    @pytest.mark.parametrize(
+        "value", [10, 95, 100], ids=["min-10", "portal-95", "max-100"]
+    )
     async def test_offgrid_ongrid_soc_cutoff_boundaries_write_cloud(self, value):
-        """Review round 2 MED: the entity's advertised range now matches the
-        canonical H105 range (10-90) that pylxpweb's set_battery_soc_limits
-        enforces — both boundary values pass validation and land via the
-        cloud writer without a ValueError."""
+        """Review round 2 MED: the entity's advertised range matches the
+        canonical H105 range (10-100, #603) that pylxpweb's
+        set_battery_soc_limits enforces — both boundary values pass
+        validation and land via the cloud writer without a ValueError."""
         coordinator = _mock_coordinator(
             has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
         )
@@ -885,7 +887,7 @@ class TestSweepExtendedProtectedRouting:
         inverter.set_battery_soc_limits.assert_awaited_once_with(on_grid_limit=value)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("value", [9, 91], ids=["below-min", "above-max"])
+    @pytest.mark.parametrize("value", [9, 101], ids=["below-min", "above-max"])
     async def test_offgrid_ongrid_soc_cutoff_out_of_range_raises_clearly(self, value):
         """Out-of-range values fail at the entity with a clear
         HomeAssistantError BEFORE any writer runs — never pylxpweb's raw
@@ -896,7 +898,7 @@ class TestSweepExtendedProtectedRouting:
         entity = OnGridSOCCutoffNumber(coordinator, SERIAL)
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match=r"10-90"):
+        with pytest.raises(HomeAssistantError, match=r"10-100"):
             await entity.async_set_native_value(value)
 
         coordinator.write_named_parameter.assert_not_awaited()

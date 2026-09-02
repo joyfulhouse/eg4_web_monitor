@@ -2,6 +2,7 @@
 canonical-for: inverter-and-gridboss-register-ground-truth
 sources:
   - docs/DATA_MAPPING.md
+  - "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
   - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
@@ -48,12 +49,12 @@ verified-against:
   # cited by PR number (pylxpweb #273), not by pin.
   eg4_web_monitor: d8e2027
   pylxpweb: ab87902
-last-verified: 2026-08-30
+last-verified: 2026-09-02
 ---
 
 # Register ground truth
 
-> **Audited result: 41 of 346 counted current register claims are proven: 33 `firmware-proven` + 8 `hardware-toggle-proven` = 41; 33 + 8 + 170 `portal-correlated` + 135 `lineage-inferred` = 346.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
+> **Audited result: 41 of 348 counted current register claims are proven: 33 `firmware-proven` + 8 `hardware-toggle-proven` = 41; 33 + 8 + 171 `portal-correlated` + 135 `lineage-inferred` + 1 `inferred` = 348.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
@@ -66,12 +67,12 @@ The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.m
 | `firmware-proven` | 33 | yes |
 | `hardware-toggle-proven` | 8 | yes |
 | `app-write-path-proven` | 0 | no |
-| `portal-correlated` | 170 | no |
+| `portal-correlated` | 171 | no |
 | `lineage-inferred` | 135 | no |
-| `inferred` | 0 | no |
+| `inferred` | 1 | no |
 | `verified-against-code` | 0 | no |
 | `asserted-unverified` | 0 | no; candidate rows are excluded |
-| **Current total** | **346** | **41 proven (11.8%)** |
+| **Current total** | **348** | **41 proven (11.8%)** |
 
 The `Claim count` column is the machine-checkable contribution. One separately named semantic is one claim; a U32 low/high pair is one; family-specific meanings are separate; a compound packed-word contract is one claim unless its bits are separately exposed as independent semantics. Structural-only, candidate, unknown, and `asserted-unverified` rows contribute zero. Refuted historic labels are outside the counted ledger. The markers around the ledger allow an `awk -F'|'` sum of column 7 to reproduce every subtotal.
 
@@ -222,6 +223,8 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H101/H102 | Charge/discharge current limits, A | all | `lineage-inferred` | current | 2 | Canonical definitions; reviewed source contains no controlled capture. |
 | H103 | Maximum grid sell-back power, raw ×100 W / UI kW | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` raw/UI correlation; not percent. |
 | H105 | On-grid discharge SOC cutoff | grid-tied | `lineage-inferred` | current | 1 | Canonical holding definition. |
+| H105 | A portal-typed 95 is stored and read back (the 90 was the portal arrow-button hint, copied into pylxpweb and — beta.13, PR #600 round 2 — into the entity) | LXP-LB-US 10K (reporter unit, hybrid) | `portal-correlated` | current on the reported unit | 1 | [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter diagnostics (`HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`) + portal screenshot. Readback proves storage, not semantics. |
+| H105 | Exact write ceiling is 100 (101 rejected per the reporter; 96–100 never individually written) and the 10 floor is a portal hint only | LXP-LB-US 10K; other families unconfirmed | `inferred` | current | 1 | Bound adopted by [pylxpweb `c78ab7e`](https://github.com/joyfulhouse/pylxpweb/commit/c78ab7e) (PR #322, shipped 0.10.0b7) and the entity; this row is verified against that commit, not the page-level pylxpweb pin. The firmware exception stays the authoritative reject path. **Both ends unproven** — a delta-test at 100 and at 9 would settle it. |
 | H110 | Shared system-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_110_PARAM_KEYS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L642-L659) and [`REGISTER_TO_PARAM_KEYS[110]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L777-L782) define the structure. Never inherit a bit’s grade to the whole word or another family. |
 | H116 | Import threshold to start discharge, W | grid-tied; CT required | `portal-correlated` | current | 1 | `DATA_MAPPING.md`; whole watts, not ×100 W. |
 | H117 | Start-charge threshold, signed W | LOCAL/HYBRID | `asserted-unverified` | unresolved | 0 | [`DATA_MAPPING.md` H117 note](../../docs/DATA_MAPPING.md#power-control-registers); no cloud name or validated behavior. |
@@ -385,7 +388,7 @@ No raw wire evidence establishes a firmware-level FC16 rejection. The current in
 
 ## Must-not-regress register claims
 
-These historic claims are excluded from the 346-current-claim denominator. `refuted` is a status; **Evidence** grades the disproof.
+These historic claims are excluded from the 348-current-claim denominator. `refuted` is a status; **Evidence** grades the disproof.
 
 | Historic claim | Evidence | Status | Current bounded result | Durable basis |
 |---|---|---|---|---|
