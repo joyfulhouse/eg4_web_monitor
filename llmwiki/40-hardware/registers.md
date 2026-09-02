@@ -47,10 +47,12 @@ verified-against:
   # the sweep-extended rows now verify at the mainline pin below (inline
   # PR #600 / issue #570 citations remain as provenance). pylxpweb was
   # ab87902 (0.9.39b11) until the 2026-09-02 #603 ingest moved it to
-  # c78ab7e (0.10.0b7): between the two, the only holding-definition change
-  # is H105's ceiling (PR #322); the #271/#272 range fixes are cited by PR
-  # number (pylxpweb #273). Inline ab87902 blob links on older rows remain
-  # valid historical URLs and were not rewritten.
+  # c78ab7e (0.10.0b7). Holding-definition deltas between the two pins
+  # (git diff ab87902..c78ab7e -- registers/inverter_holding.py): H105
+  # ceiling 90 -> 100 (PR #322, this ingest); H66 max 15000 -> 10000 and
+  # H160 min 0 -> 1 (PR #273 for #271/#272 — already carried per claim by
+  # the H66/H160 rows below and shipped family-scoped in the integration).
+  # Inline ab87902 blob links on older rows remain valid historical URLs.
   eg4_web_monitor: d8e2027
   pylxpweb: c78ab7e
 last-verified: 2026-09-02

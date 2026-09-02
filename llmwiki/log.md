@@ -886,7 +886,7 @@ portal's arrow-button hint copied into pylxpweb's canonical H105 definition and
 `set_battery_soc_limits`; it blanked the stored 95 to unknown and refused writes
 above 90. Filed on [the registers keeper](40-hardware/registers.md) as two H105 rows: the stored-95 observation
 (`portal-correlated`, reporter unit only) and the exact 10–100 bound (`inferred`;
-both ends unproven). Accounting 346 → 348 claims, 41 proven; keeper pylxpweb pin moved ab87902 → c78ab7e (0.10.0b7; the only holding-definition change in between is H105). Library fix widens both
+both ends unproven). Accounting 346 → 348 claims, 41 proven; keeper pylxpweb pin moved ab87902 → c78ab7e (0.10.0b7; holding-definition deltas in between are H105 (this ingest) plus the PR #273 H66/H160 range fixes the keeper already carried per claim). Library fix widens both
 pylxpweb writers and the definition to 100; the entity read window is now the
 tolerant 0–100 while the write bounds track the writers. Same-class audit: reg 227
 (System Charge SOC Limit) carried an evidence-free 10 floor against a 0–101
