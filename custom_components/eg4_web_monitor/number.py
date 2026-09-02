@@ -353,9 +353,13 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         reachable before family resolution: AC charge SOC limit 67
         (family-rejected on resolved off-grid, #331), forced discharge
         power/SOC 82/83, grid sell-back 103, start-discharge threshold
-        116, and the RAW start-charge threshold 117 (no cloud path — its
-        write is refused outright on off-grid/unresolved). Grid
-        peak-shaving (H206) is gated at its entity (review round 6): an
+        116, the RAW start-charge threshold 117 (no cloud path — its
+        write is refused outright on off-grid/unresolved), and the daily
+        peak-shaving scalars 207/208/218/219/232 (period-1/2 SOC and
+        voltage floors, PS2 power — #592, created in the same fail-open
+        branch as PS1; all ``portal-correlated``, no off-grid write
+        evidence). Grid peak-shaving PS1 (H206) is gated at its entity
+        (review round 6): an
         earlier revision here claimed it was "cloud-only by construction",
         which the pinned pylxpweb wheel falsifies —
         ``set_grid_peak_shaving_power`` is TRANSPORT-FIRST onto raw H206;
@@ -1491,9 +1495,9 @@ class PeakShavingNumberSpec:
     before/after/restore tuple), so no row is treated as hardware-proven.
     """
 
-    #: Unique-id suffix (also the regime-gating control key when gated).
+    #: Unique-id suffix, translation key, and the regime-gating control key
+    #: when gated.
     key: str
-    translation_key: str
     #: Cloud holdParam name == transport name-map key.
     param_key: str
     register: int
@@ -1511,8 +1515,6 @@ class PeakShavingNumberSpec:
     div10: bool
     #: Battery-control-regime gating key (None => always shown).
     control_key: str | None
-    #: Register re-read after a cloud named write (acknowledged-but-unapplied).
-    verify_register: int
     #: Verify-then-block on FUNC_GRID_PEAK_SHAVING before writing (PS2 only:
     #: the firmware NAKs the POWER setpoint with the mode off, #328). The SOC
     #: and voltage rows do NOT pre-check — their NAK behaviour with the mode
@@ -1526,7 +1528,6 @@ class PeakShavingNumberSpec:
 PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
     PeakShavingNumberSpec(
         key="grid_peak_shaving_power_2",
-        translation_key="grid_peak_shaving_power_2",
         param_key=PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
         register=232,
         unit="kW",
@@ -1537,14 +1538,12 @@ PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
         read_max=GRID_PEAK_SHAVING_POWER_MAX,
         div10=True,
         control_key=None,
-        verify_register=232,
         mode_precheck=True,
         label="grid peak shaving power 2",
         icon="mdi:chart-bell-curve-cumulative",
     ),
     PeakShavingNumberSpec(
         key="grid_peak_shaving_soc",
-        translation_key="grid_peak_shaving_soc",
         param_key=PARAM_HOLD_GRID_PEAK_SHAVING_SOC,
         register=207,
         unit="%",
@@ -1555,14 +1554,12 @@ PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
         read_max=GRID_PEAK_SHAVING_SOC_MAX,
         div10=False,
         control_key="grid_peak_shaving_soc",
-        verify_register=207,
         mode_precheck=False,
         label="grid peak shaving SOC 1",
         icon="mdi:battery-arrow-down-outline",
     ),
     PeakShavingNumberSpec(
         key="grid_peak_shaving_soc_2",
-        translation_key="grid_peak_shaving_soc_2",
         param_key=PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2,
         register=218,
         unit="%",
@@ -1573,14 +1570,12 @@ PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
         read_max=GRID_PEAK_SHAVING_SOC_MAX,
         div10=False,
         control_key="grid_peak_shaving_soc_2",
-        verify_register=218,
         mode_precheck=False,
         label="grid peak shaving SOC 2",
         icon="mdi:battery-arrow-down-outline",
     ),
     PeakShavingNumberSpec(
         key="grid_peak_shaving_volt",
-        translation_key="grid_peak_shaving_volt",
         param_key=PARAM_HOLD_GRID_PEAK_SHAVING_VOLT,
         register=208,
         unit="V",
@@ -1591,14 +1586,12 @@ PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
         read_max=GRID_PEAK_SHAVING_VOLT_READ_MAX,
         div10=True,
         control_key="grid_peak_shaving_volt",
-        verify_register=208,
         mode_precheck=False,
         label="grid peak shaving voltage 1",
         icon="mdi:battery-arrow-down-outline",
     ),
     PeakShavingNumberSpec(
         key="grid_peak_shaving_volt_2",
-        translation_key="grid_peak_shaving_volt_2",
         param_key=PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
         register=219,
         unit="V",
@@ -1609,7 +1602,6 @@ PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
         read_max=GRID_PEAK_SHAVING_VOLT_READ_MAX,
         div10=True,
         control_key="grid_peak_shaving_volt_2",
-        verify_register=219,
         mode_precheck=False,
         label="grid peak shaving voltage 2",
         icon="mdi:battery-arrow-down-outline",
@@ -1654,7 +1646,7 @@ class PeakShavingNumber(EG4BaseNumberEntity):
         self._spec = spec
         self._control_key = spec.control_key
         super().__init__(coordinator, serial)
-        self._attr_translation_key = spec.translation_key
+        self._attr_translation_key = spec.key
         self._attr_unique_id = self._stable_control_unique_id(spec.key)
         self._attr_native_min_value = spec.min_value
         self._attr_native_max_value = spec.max_value
@@ -1717,7 +1709,9 @@ class PeakShavingNumber(EG4BaseNumberEntity):
                 spec.param_key,
                 write_value,
                 f"Failed to set {label}",
-                verify_register=spec.verify_register,
+                # Re-read the register after the cloud write
+                # (acknowledged-but-unapplied class).
+                verify_register=spec.register,
             ),
             label=label,
             local_write_blocked_reason=self._offgrid_cloud_only_reason(
@@ -2211,7 +2205,11 @@ async def _write_cloud_named_parameter(
     different value does not.
     """
     client = entity.coordinator.require_client()
-    result = await client.api.control.write_parameter(entity.serial, param, str(value))
+    # Ints go as-is (unchanged); floats use ``:g`` so the wire string matches
+    # every recorded cloud evidence shape ("12", "52", "4.1") and pylxpweb's
+    # own register->named cloud formatting — never "52.0".
+    wire = str(value) if isinstance(value, int) else f"{value:g}"
+    result = await client.api.control.write_parameter(entity.serial, param, wire)
     if not result.success:
         raise HomeAssistantError(error_message)
     if verify_register is not None:

@@ -4475,8 +4475,6 @@ class TestPeakShavingSpecTable:
             "grid_peak_shaving_volt_2": 219,
         }
         for spec in PEAK_SHAVING_NUMBER_SPECS:
-            assert spec.verify_register == spec.register
-            assert spec.translation_key == spec.key
             # The read window must contain the write window (#603).
             assert spec.read_min <= spec.min_value
             assert spec.max_value <= spec.read_max
@@ -4849,7 +4847,7 @@ class TestPeakShavingCloudWrites:
                 "grid_peak_shaving_volt_2",
                 PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
                 52.0,
-                "52.0",
+                "52",
                 "52",
             ),
             (
@@ -4871,7 +4869,9 @@ class TestPeakShavingCloudWrites:
     async def test_cloud_write_and_verified_readback(
         self, key, param, value, sent, readback
     ):
-        """Cloud-only: the named holdParam is written in engineering units and
+        """Cloud-only: the named holdParam is written in engineering units,
+        floats ``:g``-formatted on the wire (52.0 -> "52", 4.5 -> "4.5" — the
+        shape of every recorded cloud evidence string, never "52.0"), and
         the readback is verified — a float readback of 4.5 must VERIFY 4.5
         (the int-truncating comparison would read 4 and fail the write)."""
         coordinator = _mock_coordinator(has_local=False, has_http=True)

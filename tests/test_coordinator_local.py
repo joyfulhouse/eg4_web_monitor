@@ -456,7 +456,9 @@ class TestReadModbusParameters:
     # Never read: 213-217 (unmapped), 229-231 (231 is an unknown field —
     # the old PS1 mapping was wrong, eg4-gfu5) and 220-221 (LSP-bypass
     # bitmap on the SNA probe).
-    _PEAK_SHAVING_NEVER = frozenset(range(213, 218)) | frozenset(range(229, 232))
+    _PEAK_SHAVING_NEVER = (
+        frozenset(range(213, 218)) | {220, 221} | frozenset(range(229, 232))
+    )
 
     async def _read_registers(
         self, hass, local_config_entry, device_data: dict | None
@@ -1368,15 +1370,14 @@ class TestStickyParameterCarryForward:
 
 
 # Targeted parameter reads per cycle for the seeded FlexBOSS21 (model-fallback
-# family EG4_HYBRID): 13 base ranges in _read_modbus_parameters() plus the 3
-# family-gated schedule ranges — Peak Shaving (209,4), Generator (256,4) and
-# Off-Grid (269,6) — added by the beta.22 schedule families (GH #295 / PR
-# #312).  PR #313 landed these tests with the pre-#312 count of 13; both PRs
-# were green alone but the merged branch reads 16 (merge skew, not a bug).
-# 17th read: Grid Peak Shaving Power (206,1), hybrid-family-gated (#328 —
-# the 3.4.0-final sweep found the PS number unknown in LOCAL mode).
-# #592: (209,4) + (206,1) merged into one (206,7) read, and (218,2) + (232,1)
-# added for the period-2 floors and PS2 power — net +1 = 18.
+# family EG4_HYBRID): 13 base ranges in _read_modbus_parameters() plus the 5
+# family-gated ranges — the daily Peak Shaving block (206,7) [PS1 power +
+# period-1 SOC/voltage + both schedule windows], its period-2 floors (218,2)
+# and PS2 power (232,1) (#592), Generator (256,4) and Off-Grid (269,6) (GH
+# #295 / PR #312, #328) = 18. History: PR #313 landed these tests with the
+# pre-#312 count of 13, the merged branch read 16 (merge skew, not a bug),
+# #328's (206,1) made it 17, and #592 merged (209,4)+(206,1) into (206,7)
+# while adding (218,2)+(232,1) — net +1.
 _EXPECTED_HYBRID_READS = 18
 
 
