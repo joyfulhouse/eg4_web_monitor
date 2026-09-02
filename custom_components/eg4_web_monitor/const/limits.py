@@ -204,10 +204,12 @@ START_CHARGE_POWER_STEP = 1
 # =============================================================================
 # System Charge SOC Limit (%) — reg 227
 # =============================================================================
-# 0-101: pylxpweb's canonical definition and set_system_charge_soc_limit both
-# accept 0, and the ledger grades 0-101 hardware-toggle-proven on an 18kPV.
-# The former 10 floor had no evidence and blanked a portal-set 0-9 to unknown
-# (same defect class as #603).
+# 0-101 is the pinned LIBRARY contract: pylxpweb's canonical definition and
+# both set_system_charge_soc_limit writers accept 0. The only hardware capture
+# (18kPV, 80 -> 101 -> 80) proves the 101 top-balance end, not the 0 floor —
+# the floor is a library contract, not a hardware claim. The former entity
+# floor of 10 had no evidence either and would have blanked and refused a
+# portal-set 0-9 (same defect class as #603).
 
 SYSTEM_CHARGE_SOC_LIMIT_MIN = 0
 SYSTEM_CHARGE_SOC_LIMIT_MAX = 101

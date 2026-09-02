@@ -28,7 +28,12 @@ from pylxpweb.constants import (
 from pylxpweb.devices.inverters.hybrid import HybridInverter
 from pylxpweb.endpoints.control import ControlEndpoints
 from pylxpweb.registers.inverter_holding import BY_NAME as HOLDING_BY_NAME
+from pylxpweb.transports.protocol import BaseTransport
 
+from custom_components.eg4_web_monitor.const.modbus import (
+    PARAM_HOLD_ONGRID_DISCHG_SOC,
+    PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
+)
 from custom_components.eg4_web_monitor.const.limits import (
     ONGRID_SOC_CUTOFF_MAX,
     ONGRID_SOC_CUTOFF_MIN,
@@ -123,34 +128,86 @@ def _hybrid_inverter() -> tuple[HybridInverter, Mock]:
 
 
 @pytest.mark.asyncio
-async def test_pinned_cloud_writer_accepts_entity_max_and_rejects_next() -> None:
-    """Exercise the REAL pinned cloud writer with only its I/O seam mocked:
-    the entity ceiling passes its validation and ceiling+1 does not."""
+@pytest.mark.parametrize("value", [ONGRID_SOC_CUTOFF_MIN, ONGRID_SOC_CUTOFF_MAX])
+async def test_pinned_h105_writers_accept_entity_bounds(value: int) -> None:
+    """Exercise the REAL pinned cloud and Modbus writers with only their I/O
+    seams mocked: both entity bounds pass their validation and reach the
+    write with the exact value."""
     inverter, client = _hybrid_inverter()
-
-    assert await inverter.set_battery_soc_limits(on_grid_limit=ONGRID_SOC_CUTOFF_MAX)
+    assert await inverter.set_battery_soc_limits(on_grid_limit=value)
     client.api.control.write_parameter.assert_awaited_once_with(
-        "1234567890", "HOLD_DISCHG_CUT_OFF_SOC_EOD", str(ONGRID_SOC_CUTOFF_MAX)
+        "1234567890", "HOLD_DISCHG_CUT_OFF_SOC_EOD", str(value)
     )
-    with pytest.raises(ValueError):
-        await inverter.set_battery_soc_limits(on_grid_limit=ONGRID_SOC_CUTOFF_MAX + 1)
-    with pytest.raises(ValueError):
-        await inverter.set_battery_soc_limits(on_grid_limit=ONGRID_SOC_CUTOFF_MIN - 1)
 
-
-@pytest.mark.asyncio
-async def test_pinned_modbus_writer_accepts_entity_max_and_rejects_next() -> None:
     inverter, _ = _hybrid_inverter()
-
     with patch.object(
         inverter, "write_transport_register", AsyncMock(return_value=True)
     ) as write:
-        assert await inverter.set_on_grid_cutoff_soc(ONGRID_SOC_CUTOFF_MAX)
-        write.assert_awaited_once_with(105, ONGRID_SOC_CUTOFF_MAX)
-        with pytest.raises(ValueError):
-            await inverter.set_on_grid_cutoff_soc(ONGRID_SOC_CUTOFF_MAX + 1)
-        with pytest.raises(ValueError):
-            await inverter.set_on_grid_cutoff_soc(ONGRID_SOC_CUTOFF_MIN - 1)
+        assert await inverter.set_on_grid_cutoff_soc(value)
+        write.assert_awaited_once_with(105, value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "value", [ONGRID_SOC_CUTOFF_MIN - 1, ONGRID_SOC_CUTOFF_MAX + 1]
+)
+async def test_pinned_h105_writers_reject_one_step_outside_without_io(
+    value: int,
+) -> None:
+    inverter, client = _hybrid_inverter()
+    with pytest.raises(ValueError):
+        await inverter.set_battery_soc_limits(on_grid_limit=value)
+    client.api.control.write_parameter.assert_not_awaited()
+
+    inverter, _ = _hybrid_inverter()
+    with (
+        patch.object(
+            inverter, "write_transport_register", AsyncMock(return_value=True)
+        ) as write,
+        pytest.raises(ValueError),
+    ):
+        await inverter.set_on_grid_cutoff_soc(value)
+    write.assert_not_awaited()
+
+
+class _NameMapTransport(BaseTransport):
+    """Minimal concrete transport: only the physical write is stubbed, so the
+    name -> register resolution and serialization are the library's own."""
+
+    def __init__(self, family: str) -> None:
+        super().__init__("1234567890")
+        self._inverter_family = family
+        self._connected = True
+        self.written: list[dict[int, int]] = []
+
+    def _get_inverter_family(self) -> str | None:
+        return self._inverter_family
+
+    async def write_parameters(self, parameters: dict[int, int]) -> bool:
+        self.written.append(dict(parameters))
+        return True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("family", ["EG4_HYBRID", "EG4_OFFGRID"])
+async def test_named_local_writes_land_on_registers_105_and_227(family: str) -> None:
+    """The entities' LOCAL route is coordinator.write_named_parameter ->
+    transport.write_named_parameters; with only the physical write stubbed,
+    the pinned library must serialize the entity's parameter names to raw
+    {105: value} / {227: value} whole-percent writes."""
+    transport = _NameMapTransport(family)
+
+    assert await transport.write_named_parameters(
+        {PARAM_HOLD_ONGRID_DISCHG_SOC: ONGRID_SOC_CUTOFF_MAX}
+    )
+    assert await transport.write_named_parameters(
+        {PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: SYSTEM_CHARGE_SOC_LIMIT_MIN}
+    )
+
+    assert transport.written == [
+        {105: ONGRID_SOC_CUTOFF_MAX},
+        {227: SYSTEM_CHARGE_SOC_LIMIT_MIN},
+    ]
 
 
 @pytest.mark.asyncio
