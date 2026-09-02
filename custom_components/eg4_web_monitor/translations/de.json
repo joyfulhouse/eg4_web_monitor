@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "Netzeinspeiseleistung"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "Netz-Lastspitzenkappung Leistung 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "Netz-Lastspitzenkappung SOC 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "Netz-Lastspitzenkappung SOC 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "Netz-Lastspitzenkappung Spannung 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "Netz-Lastspitzenkappung Spannung 2"
+      },
       "start_discharge_power_threshold": {
         "name": "Entladestart-Leistungsschwelle"
       },

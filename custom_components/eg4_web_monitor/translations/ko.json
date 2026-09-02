@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "계통 판매 전력"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "그리드 피크 쉐이빙 전력 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "그리드 피크 쉐이빙 SOC 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "그리드 피크 쉐이빙 SOC 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "그리드 피크 쉐이빙 전압 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "그리드 피크 쉐이빙 전압 2"
+      },
       "start_discharge_power_threshold": {
         "name": "방전 시작 전력 임계값"
       },

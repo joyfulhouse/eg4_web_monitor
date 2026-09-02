@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "売電電力"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "グリッドピークシェービング電力 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "グリッドピークシェービング SOC 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "グリッドピークシェービング SOC 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "グリッドピークシェービング電圧 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "グリッドピークシェービング電圧 2"
+      },
       "start_discharge_power_threshold": {
         "name": "放電開始電力しきい値"
       },

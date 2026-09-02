@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "Terugleververmogen"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "Netpiekafvlakking vermogen 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "Netpiekafvlakking SOC 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "Netpiekafvlakking SOC 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "Netpiekafvlakking spanning 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "Netpiekafvlakking spanning 2"
+      },
       "start_discharge_power_threshold": {
         "name": "Vermogensdrempel start ontladen"
       },

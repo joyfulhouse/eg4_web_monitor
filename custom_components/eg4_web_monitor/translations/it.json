@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "Potenza di vendita alla rete"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "Potenza Peak Shaving Rete 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "SOC Peak Shaving Rete 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "SOC Peak Shaving Rete 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "Tensione Peak Shaving Rete 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "Tensione Peak Shaving Rete 2"
+      },
       "start_discharge_power_threshold": {
         "name": "Soglia di potenza di avvio scarica"
       },

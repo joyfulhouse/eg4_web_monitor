@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "Potência de venda à rede"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "Potência de Corte de Pico da Rede 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "SOC de Corte de Pico da Rede 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "SOC de Corte de Pico da Rede 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "Tensão de Corte de Pico da Rede 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "Tensão de Corte de Pico da Rede 2"
+      },
       "start_discharge_power_threshold": {
         "name": "Limite de potência para iniciar descarga"
       },

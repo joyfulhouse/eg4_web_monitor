@@ -120,6 +120,11 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_FORCED_DISCHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
     PARAM_HOLD_GRID_PEAK_SHAVING_POWER,
+    PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC,
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2,
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT,
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -1448,10 +1453,21 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_HOLD_STOP_DISCHARGE_VOLTAGE: (202, None),
     # Grid peak shaving power, period 1 (PS1): reg 206, NOT reg 231 (eg4-gfu5
     # 2026-06-12 sweep — single-register cloud reads name PS1 at (206,1) on an
-    # 18kPV and a FlexBOSS21; (231,1) names nothing on either). The control is
-    # cloud-write-only (raw encoding unverified), so this pin guards the
-    # canonical table; the transport map deliberately does not know the name.
+    # 18kPV and a FlexBOSS21; (231,1) names nothing on either). The raw
+    # deci-kW encoding is hybrid-verified (pylxpweb#158 raw 41 -> 4.1 kW) and
+    # the pinned wheel maps the name in BOTH tables; the entity writes through
+    # pylxpweb's transport-first setter on resolved non-off-grid families and
+    # the cloud named parameter elsewhere (#570 r6) — never the local name map.
     PARAM_HOLD_GRID_PEAK_SHAVING_POWER: (206, None),
+    # The rest of the daily peak-shaving set (#592): period-1 SOC/voltage,
+    # period-2 SOC/voltage/power. All `portal-correlated` in the llmwiki
+    # ledger (raw/portal correlation, no named-action write tuple); the
+    # POWER_2/VOLT rows carry pylxpweb's DIV_10 raw encoding.
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC: (207, None),
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT: (208, None),
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2: (218, None),
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2: (219, None),
+    PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2: (232, None),
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT: (227, None),
     PARAM_HOLD_SYSTEM_CHARGE_VOLT_LIMIT: (228, None),
     # Quick Charge duration in minutes (also the live remaining countdown).

@@ -55,7 +55,9 @@ from custom_components.eg4_web_monitor.number import (
     GridPeakShavingPowerNumber,
     OffGridSOCCutoffNumber,
     OnGridSOCCutoffNumber,
+    PEAK_SHAVING_NUMBER_SPECS,
     PVChargePowerNumber,
+    PeakShavingNumber,
     QuickChargeDurationNumber,
     StartChargePowerNumber,
     StartDischargePowerNumber,
@@ -1443,3 +1445,104 @@ class TestQuickChargePureLocalOffgrid:
 
         inverter = coordinator.get_inverter_object(SERIAL)
         inverter.enable_quick_charge.assert_called_once_with(minute=60)
+
+
+# ── #592: the daily Grid Peak Shaving set fails closed like reg 160 ─────
+
+
+UNKNOWN_FEATURES = {"features": {"inverter_family": "UNKNOWN"}}
+
+
+class TestPeakShavingSetOffgridRouting:
+    """Regs 207/208/218/219/232 have no off-grid write evidence at all: the
+    write is CLOUD-ONLY on EG4_OFFGRID and on an unresolved/UNKNOWN family,
+    local-first only on a positively resolved non-off-grid family."""
+
+    @staticmethod
+    def _entity(coordinator, key: str) -> PeakShavingNumber:
+        spec = next(s for s in PEAK_SHAVING_NUMBER_SPECS if s.key == key)
+        entity = PeakShavingNumber(coordinator, SERIAL, spec)
+        _prep(entity)
+        return entity
+
+    @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
+    @pytest.mark.parametrize(
+        ("device_data", "blocked"),
+        [
+            (dict(OFFGRID_FEATURES), True),
+            (dict(UNKNOWN_FEATURES), True),
+            ({}, True),
+            (dict(HYBRID_FEATURES), False),
+        ],
+        ids=["offgrid", "unknown-family", "no-features", "hybrid"],
+    )
+    def test_offgrid_cloud_only_reason_for_every_row(self, spec, device_data, blocked):
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, device_data=device_data
+        )
+        entity = self._entity(coordinator, spec.key)
+        reason = entity._offgrid_cloud_only_reason(spec.register, spec.label)
+        if blocked:
+            assert reason is not None and str(spec.register) in reason
+        else:
+            assert reason is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
+    @pytest.mark.parametrize(
+        "device_data",
+        [dict(OFFGRID_FEATURES), dict(UNKNOWN_FEATURES), {}],
+        ids=["offgrid", "unknown-family", "no-features"],
+    )
+    async def test_offgrid_or_unresolved_writes_cloud_named_never_local(
+        self, spec, device_data
+    ):
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=True, model="12000XP", device_data=device_data
+        )
+        entity = self._entity(coordinator, spec.key)
+        value = spec.min_value + spec.step
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_grid_peak_shaving_power.assert_not_awaited()
+        client_write = coordinator.client.api.control.write_parameter
+        client_write.assert_awaited_once()
+        assert client_write.await_args.args[:2] == (SERIAL, spec.param_key)
+        assert float(client_write.await_args.args[2]) == pytest.approx(value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
+    async def test_pure_local_offgrid_raises_without_local_write(self, spec):
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=False,
+            model="12000XP",
+            device_data=dict(OFFGRID_FEATURES),
+        )
+        entity = self._entity(coordinator, spec.key)
+
+        with pytest.raises(HomeAssistantError):
+            await entity.async_set_native_value(spec.min_value + spec.step)
+
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
+    async def test_resolved_hybrid_keeps_local_first(self, spec):
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            model="FlexBOSS21",
+            device_data=dict(HYBRID_FEATURES),
+        )
+        entity = self._entity(coordinator, spec.key)
+
+        await entity.async_set_native_value(spec.min_value + spec.step)
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        coordinator.client.api.control.write_parameter.assert_not_called()
+        inverter = coordinator.get_inverter_object(SERIAL)
+        inverter.set_grid_peak_shaving_power.assert_not_awaited()

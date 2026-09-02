@@ -9,9 +9,16 @@ from homeassistant.components.number import RestoreNumber
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
 from custom_components.eg4_web_monitor.const import (
+    GRID_PEAK_SHAVING_VOLT_MAX,
+    GRID_PEAK_SHAVING_VOLT_MIN,
     PARAM_FUNC_GRID_PEAK_SHAVING,
     PARAM_HOLD_AC_CHARGE_POWER,
     PARAM_HOLD_FORCED_CHG_POWER,
+    PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC,
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2,
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT,
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
 )
 from custom_components.eg4_web_monitor.number import (
     _READBACK_ATTEMPTS,
@@ -30,7 +37,9 @@ from custom_components.eg4_web_monitor.number import (
     GridPeakShavingPowerNumber,
     GridSellBackPowerNumber,
     OnGridSOCCutoffNumber,
+    PEAK_SHAVING_NUMBER_SPECS,
     PVChargePowerNumber,
+    PeakShavingNumber,
     QuickChargeDurationNumber,
     SMART_LOAD_NUMBER_SPECS,
     SmartLoadNumber,
@@ -260,8 +269,10 @@ class TestNumberPlatformSetup:
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 28
+        # +5 (#592): the rest of the daily Grid Peak Shaving set.
+        assert len(entities) == 33
         type_names = [type(e).__name__ for e in entities]
+        assert type_names.count("PeakShavingNumber") == 5
         assert "ACChargePowerNumber" in type_names
         # Quick Charge Duration preference (HTTP-only, #251)
         assert "QuickChargeDurationNumber" in type_names
@@ -453,6 +464,7 @@ class TestNumberPlatformSetup:
         # Off-grid family still omits the grid-tied-only controls
         assert "GridSellBackPowerNumber" not in type_names
         assert "GridPeakShavingPowerNumber" not in type_names
+        assert "PeakShavingNumber" not in type_names  # #592: same gate as PS1
         assert "ForcedDischargePowerNumber" not in type_names
         assert "StartDischargePowerNumber" not in type_names
         assert "StartChargePowerNumber" not in type_names
@@ -2434,6 +2446,7 @@ class TestOffgridGridTiedNumberSuppression:
 
         type_names = [type(e).__name__ for e in entities]
         assert "GridPeakShavingPowerNumber" not in type_names
+        assert "PeakShavingNumber" not in type_names  # #592: same gate as PS1
         assert "ForcedDischargePowerNumber" not in type_names
         assert "ForcedDischargeSOCLimitNumber" not in type_names
         # AC Charge SOC Limit (reg 67) is family-rejected on offgrid (GH #331)
@@ -2489,7 +2502,10 @@ class TestOffgridGridTiedNumberSuppression:
         # HTTP-only Quick Charge Duration preference (#251), the two AC
         # Couple SOC window numbers (GH #352) and the five Smart Load panel
         # numbers (GH #499) = 26
-        assert len(entities) == 26
+        # +5 (#592): the daily Grid Peak Shaving set is created in the same
+        # fail-open non-off-grid branch as PS1.
+        assert len(entities) == 31
+        assert type_names.count("PeakShavingNumber") == 5
 
     @pytest.mark.asyncio
     async def test_repairs_issue_for_previously_registered_numbers(self, hass):
@@ -4388,3 +4404,661 @@ class TestQuickChargeDurationNumber:
         assert coordinator._quick_charge_minutes["1234567890"] == 45
         get_last.assert_not_called()
         get_last_state.assert_not_called()
+
+
+# ── Daily Grid Peak Shaving set (#592) ────────────────────────────────
+
+
+def _peak_shaving_spec(key: str):
+    return next(spec for spec in PEAK_SHAVING_NUMBER_SPECS if spec.key == key)
+
+
+def _peak_shaving_entity(coordinator, key: str, serial: str = "1234567890"):
+    entity = PeakShavingNumber(coordinator, serial, _peak_shaving_spec(key))
+    _prep(entity)
+    return entity
+
+
+def _cloud_client(coordinator, readback: dict | list | None = None) -> MagicMock:
+    """Install a cloud client whose named write ACKs and whose readback
+    answers ``readback`` (a dict, or a list of dicts per attempt)."""
+    client = MagicMock()
+    client.api.control.write_parameter = AsyncMock(return_value=MagicMock(success=True))
+    if isinstance(readback, list):
+        client.api.control.read_parameters = AsyncMock(
+            side_effect=[MagicMock(parameters=r) for r in readback]
+        )
+    else:
+        client.api.control.read_parameters = AsyncMock(
+            return_value=MagicMock(parameters=readback or {})
+        )
+    coordinator.client = client
+    return client
+
+
+def _hybrid(coordinator, serial: str = "1234567890") -> None:
+    coordinator.data["devices"][serial]["features"] = {"inverter_family": "EG4_HYBRID"}
+
+
+class TestPeakShavingSpecTable:
+    """The five-row spec table and the entity attributes it drives."""
+
+    def test_table_covers_the_five_missing_keys(self):
+        rows = {spec.key: spec for spec in PEAK_SHAVING_NUMBER_SPECS}
+        assert set(rows) == {
+            "grid_peak_shaving_power_2",
+            "grid_peak_shaving_soc",
+            "grid_peak_shaving_soc_2",
+            "grid_peak_shaving_volt",
+            "grid_peak_shaving_volt_2",
+        }
+        assert rows["grid_peak_shaving_power_2"].param_key == (
+            PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2
+        )
+        assert (
+            rows["grid_peak_shaving_soc"].param_key == PARAM_HOLD_GRID_PEAK_SHAVING_SOC
+        )
+        assert rows["grid_peak_shaving_soc_2"].param_key == (
+            PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2
+        )
+        assert rows["grid_peak_shaving_volt"].param_key == (
+            PARAM_HOLD_GRID_PEAK_SHAVING_VOLT
+        )
+        assert rows["grid_peak_shaving_volt_2"].param_key == (
+            PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2
+        )
+        assert {spec.key: spec.register for spec in PEAK_SHAVING_NUMBER_SPECS} == {
+            "grid_peak_shaving_power_2": 232,
+            "grid_peak_shaving_soc": 207,
+            "grid_peak_shaving_soc_2": 218,
+            "grid_peak_shaving_volt": 208,
+            "grid_peak_shaving_volt_2": 219,
+        }
+        for spec in PEAK_SHAVING_NUMBER_SPECS:
+            assert spec.verify_register == spec.register
+            assert spec.translation_key == spec.key
+            # The read window must contain the write window (#603).
+            assert spec.read_min <= spec.min_value
+            assert spec.max_value <= spec.read_max
+        # DIV_10 rows are exactly the deci-unit registers; SOC rows are raw 1:1.
+        assert {s.key for s in PEAK_SHAVING_NUMBER_SPECS if s.div10} == {
+            "grid_peak_shaving_power_2",
+            "grid_peak_shaving_volt",
+            "grid_peak_shaving_volt_2",
+        }
+        # Only PS2 power pre-checks the mode (the SOC/VOLT NAK behaviour with
+        # the mode off is unverified); only power_2 is regime-neutral.
+        assert {s.key for s in PEAK_SHAVING_NUMBER_SPECS if s.mode_precheck} == {
+            "grid_peak_shaving_power_2"
+        }
+        assert {s.key for s in PEAK_SHAVING_NUMBER_SPECS if s.control_key is None} == {
+            "grid_peak_shaving_power_2"
+        }
+
+    @pytest.mark.parametrize(
+        ("key", "unit", "bounds", "step", "precision"),
+        [
+            ("grid_peak_shaving_power_2", "kW", (0.0, 25.5), 0.1, 1),
+            ("grid_peak_shaving_soc", "%", (0, 100), 1, 0),
+            ("grid_peak_shaving_soc_2", "%", (0, 100), 1, 0),
+            ("grid_peak_shaving_volt", "V", (40.0, 64.0), 0.1, 1),
+            ("grid_peak_shaving_volt_2", "V", (40.0, 64.0), 0.1, 1),
+        ],
+    )
+    def test_entity_attributes(self, key, unit, bounds, step, precision):
+        coordinator = _mock_coordinator()
+        entity = _peak_shaving_entity(coordinator, key)
+        assert entity.unique_id == f"1234567890_{key}"
+        assert entity.translation_key == key
+        assert entity.has_entity_name is True
+        # Names come from strings.json — never a hard-coded _attr_name.
+        assert not hasattr(entity, "_attr_name")
+        assert entity.native_unit_of_measurement == unit
+        assert (entity.native_min_value, entity.native_max_value) == bounds
+        assert entity.native_step == step
+        assert entity._attr_native_precision == precision
+        assert entity.entity_category == "config"
+
+    def test_power_2_not_disabled_in_local_only(self):
+        """Unlike PS1 (whose write needs a cloud client) the new rows write
+        locally by name, so pure-LOCAL must NOT register them disabled."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False, local_only=True)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+        assert entity.entity_registry_enabled_default is True
+        assert entity._control_key is None
+
+    @pytest.mark.parametrize(
+        ("key", "control_key"),
+        [
+            ("grid_peak_shaving_soc", "grid_peak_shaving_soc"),
+            ("grid_peak_shaving_soc_2", "grid_peak_shaving_soc_2"),
+            ("grid_peak_shaving_volt", "grid_peak_shaving_volt"),
+            ("grid_peak_shaving_volt_2", "grid_peak_shaving_volt_2"),
+        ],
+    )
+    def test_regime_gated_rows_carry_control_key(self, key, control_key):
+        coordinator = _mock_coordinator()
+        entity = _peak_shaving_entity(coordinator, key)
+        assert entity._control_key == control_key
+        # Default mock regime is SOC/SOC: the SOC floors are effective, the
+        # voltage floors are not — the discharge-side classification drives it.
+        attrs = entity.extra_state_attributes
+        assert attrs is not None
+        assert attrs["is_effective"] is key.startswith("grid_peak_shaving_soc")
+        assert attrs["control_regime"] == (
+            "soc" if key.startswith("grid_peak_shaving_soc") else "voltage"
+        )
+
+
+class TestPeakShavingReads:
+    """params-first reads in engineering units (no inverter attribute)."""
+
+    @pytest.mark.parametrize(
+        ("key", "param", "raw", "expected"),
+        [
+            (
+                "grid_peak_shaving_power_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+                "4.5",
+                4.5,
+            ),
+            (
+                "grid_peak_shaving_power_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+                "12",
+                12.0,
+            ),
+            ("grid_peak_shaving_soc", PARAM_HOLD_GRID_PEAK_SHAVING_SOC, "80", 80),
+            ("grid_peak_shaving_soc_2", PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2, 50, 50),
+            ("grid_peak_shaving_volt", PARAM_HOLD_GRID_PEAK_SHAVING_VOLT, "52.3", 52.3),
+            (
+                "grid_peak_shaving_volt_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
+                "52",
+                52.0,
+            ),
+        ],
+    )
+    def test_reads_cached_parameter(self, key, param, raw, expected):
+        coordinator = _mock_coordinator(parameters={param: raw})
+        entity = _peak_shaving_entity(coordinator, key)
+        assert entity.native_value == pytest.approx(expected)
+        if key.startswith("grid_peak_shaving_soc"):
+            assert isinstance(entity.native_value, int)
+
+    def test_reads_local_only_from_params(self):
+        """LOCAL: the transport's DIV_10 named read already surfaces kW / V,
+        so the cached value is used as-is (no ÷10 here)."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=False,
+            local_only=True,
+            parameters={
+                PARAM_HOLD_GRID_PEAK_SHAVING_VOLT: "52.3",
+                PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2: "4.5",
+            },
+        )
+        assert _peak_shaving_entity(
+            coordinator, "grid_peak_shaving_volt"
+        ).native_value == pytest.approx(52.3)
+        assert _peak_shaving_entity(
+            coordinator, "grid_peak_shaving_power_2"
+        ).native_value == pytest.approx(4.5)
+
+    def test_missing_parameter_reads_unknown(self):
+        coordinator = _mock_coordinator(parameters={})
+        for spec in PEAK_SHAVING_NUMBER_SPECS:
+            assert _peak_shaving_entity(coordinator, spec.key).native_value is None
+
+    @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
+    def test_reads_are_params_first_with_no_inverter_attribute(self, spec):
+        """No pylxpweb inverter attribute exists for these keys, so the read
+        must be wired params-first (the AC Charge Start/End SOC precedent)
+        with no inverter_attr fallback — an attribute name here would be a
+        fabrication (#592)."""
+        coordinator = _mock_coordinator(parameters={spec.param_key: "1"})
+        entity = _peak_shaving_entity(coordinator, spec.key)
+        with patch.object(
+            entity, "_read_param_value", wraps=entity._read_param_value
+        ) as read:
+            entity.native_value
+        read.assert_called_once()
+        kwargs = read.call_args.kwargs
+        assert kwargs["params_first"] is True
+        assert kwargs["param_key"] == spec.param_key
+        assert kwargs.get("inverter_attr") is None
+        assert kwargs.get("inverter_dict_attr") is None
+        assert kwargs["as_float"] is spec.div10
+        assert (kwargs["value_min"], kwargs["value_max"]) == (
+            spec.read_min,
+            spec.read_max,
+        )
+
+    def test_voltage_read_window_wider_than_write_window(self):
+        """#603 lesson: a portal-stored voltage outside the 40-64 V write
+        window must still render (read window 20-70 V), while an implausible
+        value blanks."""
+        coordinator = _mock_coordinator(
+            parameters={PARAM_HOLD_GRID_PEAK_SHAVING_VOLT: "30"}
+        )
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_volt")
+        assert entity.native_value == pytest.approx(30.0)
+        assert 30.0 < GRID_PEAK_SHAVING_VOLT_MIN
+        coordinator.data["parameters"]["1234567890"] = {
+            PARAM_HOLD_GRID_PEAK_SHAVING_VOLT: "75"
+        }
+        assert entity.native_value is None
+        assert 75.0 > GRID_PEAK_SHAVING_VOLT_MAX
+
+    def test_out_of_window_power_and_soc_read_unknown(self):
+        coordinator = _mock_coordinator(
+            parameters={
+                PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2: "30",
+                PARAM_HOLD_GRID_PEAK_SHAVING_SOC: "101",
+            }
+        )
+        assert (
+            _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2").native_value
+            is None
+        )
+        assert (
+            _peak_shaving_entity(coordinator, "grid_peak_shaving_soc").native_value
+            is None
+        )
+
+
+class TestPeakShavingLocalWrites:
+    """Local named writes carry engineering units — the transport does ×10."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("key", "param", "value", "written"),
+        [
+            (
+                "grid_peak_shaving_power_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+                4.5,
+                4.5,
+            ),
+            ("grid_peak_shaving_volt", PARAM_HOLD_GRID_PEAK_SHAVING_VOLT, 52.0, 52.0),
+            (
+                "grid_peak_shaving_volt_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
+                52.3,
+                52.3,
+            ),
+            ("grid_peak_shaving_soc", PARAM_HOLD_GRID_PEAK_SHAVING_SOC, 80, 80),
+            ("grid_peak_shaving_soc_2", PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2, 35.0, 35),
+        ],
+    )
+    async def test_div10_rows_never_prescaled_and_never_truncated(
+        self, key, param, value, written
+    ):
+        """A3(i): 4.5 kW must reach write_named_parameter as 4.5 — never 45
+        (double ×10 -> raw 450) and never int(4.5) == 4 (the
+        _write_parameter default). 52.0 V must be 52.0, never 520."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.client = None
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, key)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.write_named_parameter.assert_awaited_once_with(
+            param, written, serial="1234567890"
+        )
+        sent = coordinator.write_named_parameter.await_args.args[1]
+        assert sent == written
+        assert sent not in (45, 520, 523, 4)
+        if key.startswith("grid_peak_shaving_soc"):
+            assert isinstance(sent, int)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "key", ["grid_peak_shaving_volt", "grid_peak_shaving_volt_2"]
+    )
+    async def test_voltage_rows_never_use_write_voltage_register(self, key):
+        """A3(iii): _write_voltage_register sends decivolts and the transport
+        ×10s again (raw 5200) — the voltage rows must route through
+        _write_parameter with the plain volts value."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.client = None
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, key)
+        with patch.object(
+            entity, "_write_voltage_register", AsyncMock()
+        ) as voltage_writer:
+            await entity.async_set_native_value(52.0)
+        voltage_writer.assert_not_awaited()
+        coordinator.write_named_parameter.assert_awaited_once()
+        assert coordinator.write_named_parameter.await_args.args[1] == 52.0
+        coordinator.write_raw_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_never_uses_ps1_library_setter(self):
+        """The new keys are not PS1: pylxpweb's set_grid_peak_shaving_power
+        targets H206 and must never be reached for them."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        _cloud_client(coordinator)
+        _hybrid(coordinator)
+        for spec in PEAK_SHAVING_NUMBER_SPECS:
+            entity = _peak_shaving_entity(coordinator, spec.key)
+            await entity.async_set_native_value(spec.min_value + spec.step)
+        inverter = coordinator.get_inverter_object("1234567890")
+        inverter.set_grid_peak_shaving_power.assert_not_called()
+        assert coordinator.write_named_parameter.await_count == 5
+
+    @pytest.mark.asyncio
+    async def test_hybrid_local_failure_falls_back_to_cloud_named(self):
+        """HYBRID: a failed local write falls back to the cloud holdParam."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.write_named_parameter = AsyncMock(
+            side_effect=HomeAssistantError("link")
+        )
+        client = _cloud_client(coordinator, {PARAM_HOLD_GRID_PEAK_SHAVING_VOLT: "52.3"})
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_volt")
+
+        await entity.async_set_native_value(52.3)
+
+        client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", PARAM_HOLD_GRID_PEAK_SHAVING_VOLT, "52.3"
+        )
+        # The fallback seeds the parameter cache in engineering units (V) —
+        # the DIV_10 named read surfaces volts, so a decivolt seed would
+        # read back 10x.
+        coordinator.note_parameters_written.assert_called_once_with(
+            "1234567890", {PARAM_HOLD_GRID_PEAK_SHAVING_VOLT: 52.3}
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("key", "bad"),
+        [
+            ("grid_peak_shaving_power_2", 25.6),
+            ("grid_peak_shaving_power_2", -0.1),
+            ("grid_peak_shaving_volt", 39.9),
+            ("grid_peak_shaving_volt_2", 64.1),
+            ("grid_peak_shaving_soc", 101),
+            ("grid_peak_shaving_soc_2", -1),
+        ],
+    )
+    async def test_out_of_range_rejected_before_any_write(self, key, bad):
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.client = None
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, key)
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(bad)
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_soc_rejects_fractional(self):
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.client = None
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_soc")
+        with pytest.raises(HomeAssistantError, match="integer"):
+            await entity.async_set_native_value(80.5)
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_ineffective_regime_warns_without_attr_name(self, caplog):
+        """A regime-gated translation-key entity has no _attr_name; the
+        ineffective-regime warning must log (by key) rather than raise."""
+        coordinator = _mock_coordinator(has_local=True, has_http=False)
+        coordinator.client = None
+        _hybrid(coordinator)
+
+        def _live(_serial, *, discharge=False):
+            return "voltage" if discharge else "soc"
+
+        coordinator.get_live_control_mode = MagicMock(side_effect=_live)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_soc")
+        assert entity.is_control_effective is False
+
+        with caplog.at_level("WARNING"):
+            await entity.async_set_native_value(80)
+
+        coordinator.write_named_parameter.assert_awaited_once()
+        assert "grid_peak_shaving_soc changed" in caplog.text
+
+
+class TestPeakShavingCloudWrites:
+    """Cloud named holdParam write with a float-tolerant readback (A3 ii)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("key", "param", "value", "sent", "readback"),
+        [
+            (
+                "grid_peak_shaving_power_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+                4.5,
+                "4.5",
+                "4.5",
+            ),
+            (
+                "grid_peak_shaving_volt",
+                PARAM_HOLD_GRID_PEAK_SHAVING_VOLT,
+                52.3,
+                "52.3",
+                "52.3",
+            ),
+            (
+                "grid_peak_shaving_volt_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
+                52.0,
+                "52.0",
+                "52",
+            ),
+            (
+                "grid_peak_shaving_soc",
+                PARAM_HOLD_GRID_PEAK_SHAVING_SOC,
+                80,
+                "80",
+                "80.0",
+            ),
+            (
+                "grid_peak_shaving_soc_2",
+                PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2,
+                35,
+                "35",
+                "35",
+            ),
+        ],
+    )
+    async def test_cloud_write_and_verified_readback(
+        self, key, param, value, sent, readback
+    ):
+        """Cloud-only: the named holdParam is written in engineering units and
+        the readback is verified — a float readback of 4.5 must VERIFY 4.5
+        (the int-truncating comparison would read 4 and fail the write)."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        client = _cloud_client(coordinator, {param: readback})
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, key)
+
+        await entity.async_set_native_value(value)
+
+        client.api.control.write_parameter.assert_awaited_once_with(
+            "1234567890", param, sent
+        )
+        spec = _peak_shaving_spec(key)
+        client.api.control.read_parameters.assert_awaited_once_with(
+            "1234567890", spec.register, 1
+        )
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cloud_readback_persistent_mismatch_fails_float(self):
+        """A readback that STAYS at a different deci-value (4.4 for a 4.5 kW
+        write) fails the write — the tolerance is half a step, not a whole."""
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        client = _cloud_client(
+            coordinator,
+            [{PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2: "4.4"}] * _READBACK_ATTEMPTS,
+        )
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.number.asyncio.sleep", AsyncMock()
+            ),
+            pytest.raises(HomeAssistantError, match="still reads 4.4"),
+        ):
+            await entity.async_set_native_value(4.5)
+        assert client.api.control.read_parameters.await_count == _READBACK_ATTEMPTS
+
+    @pytest.mark.asyncio
+    async def test_cloud_write_failure_raises(self):
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        client = _cloud_client(coordinator)
+        client.api.control.write_parameter = AsyncMock(
+            return_value=MagicMock(success=False)
+        )
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_soc_2")
+        with pytest.raises(HomeAssistantError, match="Failed to set"):
+            await entity.async_set_native_value(35)
+
+
+class TestPeakShavingModePrecheck:
+    """Verify-then-block on FUNC_GRID_PEAK_SHAVING — PS2 power only (A4)."""
+
+    @staticmethod
+    def _live_read(coordinator, parameters) -> AsyncMock:
+        read = AsyncMock(return_value=MagicMock(parameters=parameters))
+        coordinator.client.api.control.read_parameters = read
+        return read
+
+    @pytest.mark.asyncio
+    async def test_power_2_cached_off_confirmed_off_blocks(self):
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={PARAM_FUNC_GRID_PEAK_SHAVING: False},
+        )
+        _cloud_client(coordinator)
+        live = self._live_read(coordinator, {PARAM_FUNC_GRID_PEAK_SHAVING: False})
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+
+        with pytest.raises(ServiceValidationError, match="Peak Shaving mode"):
+            await entity.async_set_native_value(4.5)
+
+        live.assert_awaited_once_with("1234567890", start_register=179, point_number=1)
+        coordinator.write_named_parameter.assert_not_called()
+        coordinator.client.api.control.write_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_power_2_cached_off_live_on_seeds_and_writes(self):
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={PARAM_FUNC_GRID_PEAK_SHAVING: 0},
+        )
+        _cloud_client(coordinator)
+        self._live_read(coordinator, {PARAM_FUNC_GRID_PEAK_SHAVING: True})
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+
+        await entity.async_set_native_value(4.5)
+
+        coordinator.note_parameters_written.assert_any_call(
+            "1234567890", {PARAM_FUNC_GRID_PEAK_SHAVING: True}
+        )
+        coordinator.write_named_parameter.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("live", ["raises", "absent"])
+    async def test_power_2_cached_off_live_uncertain_fails_open(self, live):
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={PARAM_FUNC_GRID_PEAK_SHAVING: False},
+        )
+        _cloud_client(coordinator)
+        if live == "raises":
+            coordinator.client.api.control.read_parameters = AsyncMock(
+                side_effect=TimeoutError()
+            )
+        else:
+            self._live_read(coordinator, {})
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+
+        await entity.async_set_native_value(4.5)
+
+        coordinator.write_named_parameter.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_power_2_mode_unknown_skips_live_read(self):
+        coordinator = _mock_coordinator(has_local=True, has_http=True, parameters={})
+        client = _cloud_client(coordinator)
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+
+        await entity.async_set_native_value(4.5)
+
+        client.api.control.read_parameters.assert_not_called()
+        coordinator.write_named_parameter.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_power_2_local_only_cached_off_blocks_without_cloud(self):
+        """Pure-LOCAL: no cloud client — the cached False alone blocks."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=False,
+            local_only=True,
+            parameters={PARAM_FUNC_GRID_PEAK_SHAVING: False},
+        )
+        coordinator.client = None
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+
+        with pytest.raises(ServiceValidationError, match="Peak Shaving mode"):
+            await entity.async_set_native_value(4.5)
+        coordinator.write_named_parameter.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_power_2_local_only_missing_cache_fails_open(self):
+        coordinator = _mock_coordinator(
+            has_local=True, has_http=False, local_only=True, parameters={}
+        )
+        coordinator.client = None
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2")
+
+        await entity.async_set_native_value(4.5)
+
+        coordinator.write_named_parameter.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "grid_peak_shaving_soc",
+            "grid_peak_shaving_soc_2",
+            "grid_peak_shaving_volt",
+            "grid_peak_shaving_volt_2",
+        ],
+    )
+    async def test_soc_and_voltage_rows_do_not_precheck(self, key):
+        """NAK behaviour with the mode off is unverified for these rows, so
+        the firmware stays the arbiter: no live reg-179 read, no block."""
+        coordinator = _mock_coordinator(
+            has_local=True,
+            has_http=True,
+            parameters={PARAM_FUNC_GRID_PEAK_SHAVING: False},
+        )
+        client = _cloud_client(coordinator)
+        _hybrid(coordinator)
+        entity = _peak_shaving_entity(coordinator, key)
+        spec = _peak_shaving_spec(key)
+
+        await entity.async_set_native_value(spec.min_value + spec.step)
+
+        client.api.control.read_parameters.assert_not_called()
+        coordinator.write_named_parameter.assert_awaited_once()

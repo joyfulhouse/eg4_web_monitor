@@ -5,6 +5,16 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **The rest of the daily Grid Peak Shaving parameter set** ([#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592)): five new number entities on grid-tied inverters — Grid Peak Shaving Power 2 (register 232), SOC 1 / SOC 2 (207 / 218) and Voltage 1 / Voltage 2 (208 / 219) — alongside the existing Power 1 (206), mode switch and four schedule times. They read locally, via the cloud and in hybrid mode, write locally by name on a positively resolved grid-tied family and through the cloud holdParam (with readback) otherwise; off-grid and unidentified units stay cloud-only. Power 2 shares Power 1's "Peak Shaving mode must be on" pre-check; the SOC / voltage floors follow the discharge battery-control mode (SOC vs Voltage). Local polling now reads registers 206–212 in one frame plus 218–219 and 232 on hybrid families. Register evidence for the five remains portal-correlated.
+
+### Fixed
+
+- `docs/DATA_MAPPING.md` no longer claims register 231 holds the peak-shaving power (H231 is unknown; PS1 is H206).
+
 ## [3.5.1-beta.14] - 2026-09-02
 
 Requires **[pylxpweb==0.10.0b7](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b7)**.

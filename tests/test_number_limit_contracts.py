@@ -35,6 +35,14 @@ from custom_components.eg4_web_monitor.const.modbus import (
     PARAM_HOLD_SYSTEM_CHARGE_SOC_LIMIT,
 )
 from custom_components.eg4_web_monitor.const.limits import (
+    GRID_PEAK_SHAVING_POWER_MAX,
+    GRID_PEAK_SHAVING_POWER_MIN,
+    GRID_PEAK_SHAVING_SOC_MAX,
+    GRID_PEAK_SHAVING_SOC_MIN,
+    GRID_PEAK_SHAVING_VOLT_MAX,
+    GRID_PEAK_SHAVING_VOLT_MIN,
+    GRID_PEAK_SHAVING_VOLT_READ_MAX,
+    GRID_PEAK_SHAVING_VOLT_READ_MIN,
     ONGRID_SOC_CUTOFF_MAX,
     ONGRID_SOC_CUTOFF_MIN,
     SOC_LIMIT_MAX,
@@ -247,3 +255,58 @@ async def test_pinned_reg227_writers_reject_one_step_outside(value: int) -> None
     inverter, _ = _hybrid_inverter()
     with pytest.raises(ValueError):
         await inverter.set_system_charge_soc_limit(value)
+
+
+# ── #592: the daily Grid Peak Shaving set ─────────────────────────────────
+
+
+def test_grid_peak_shaving_power_2_bounds_match_pinned_h232_definition() -> None:
+    """PS2 power (reg 232) advertises exactly the library row's 0-25.5 kW."""
+    definition = HOLDING_BY_NAME["grid_peak_shaving_power_2"]
+    assert definition.address == 232
+    assert (definition.min_value, definition.max_value) == (
+        GRID_PEAK_SHAVING_POWER_MIN,
+        GRID_PEAK_SHAVING_POWER_MAX,
+    )
+
+
+@pytest.mark.parametrize(
+    ("canonical_name", "address"),
+    [("grid_peak_shaving_soc", 207), ("grid_peak_shaving_soc_2", 218)],
+)
+def test_grid_peak_shaving_soc_bounds_match_pinned_definitions(
+    canonical_name: str, address: int
+) -> None:
+    definition = HOLDING_BY_NAME[canonical_name]
+    assert definition.address == address
+    assert (definition.min_value, definition.max_value) == (
+        GRID_PEAK_SHAVING_SOC_MIN,
+        GRID_PEAK_SHAVING_SOC_MAX,
+    )
+
+
+@pytest.mark.parametrize(
+    ("canonical_name", "address"),
+    [("grid_peak_shaving_volt", 208), ("grid_peak_shaving_volt_2", 219)],
+)
+def test_grid_peak_shaving_volt_bounds_are_a_maintainer_decision(
+    canonical_name: str, address: int
+) -> None:
+    """The pinned VOLT rows carry NO min/max, so the 40.0-64.0 V write window
+    is the maintainer's choice (the SYSTEM_CHARGE_VOLT_LIMIT shape). If the
+    library ever gains bounds this test must be revisited against them."""
+    definition = HOLDING_BY_NAME[canonical_name]
+    assert definition.address == address
+    assert definition.min_value is None
+    assert definition.max_value is None
+    assert (GRID_PEAK_SHAVING_VOLT_MIN, GRID_PEAK_SHAVING_VOLT_MAX) == (40.0, 64.0)
+
+
+def test_grid_peak_shaving_volt_read_window_contains_write_window() -> None:
+    """#603: a portal-stored voltage outside the write window must render."""
+    assert GRID_PEAK_SHAVING_VOLT_READ_MIN < GRID_PEAK_SHAVING_VOLT_MIN
+    assert GRID_PEAK_SHAVING_VOLT_MAX < GRID_PEAK_SHAVING_VOLT_READ_MAX
+    assert (GRID_PEAK_SHAVING_VOLT_READ_MIN, GRID_PEAK_SHAVING_VOLT_READ_MAX) == (
+        20.0,
+        70.0,
+    )

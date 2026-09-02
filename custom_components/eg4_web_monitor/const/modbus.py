@@ -180,6 +180,20 @@ PARAM_SNA_QUICK_CHARGE_MINUTE = "SNA_HOLD_QUICK_CHARGE_MINUTE"
 # transport name map.
 PARAM_HOLD_GRID_PEAK_SHAVING_POWER = "_12K_HOLD_GRID_PEAK_SHAVING_POWER"
 
+# The rest of the daily Grid Peak Shaving parameter set (#592). All five are
+# in the pinned pylxpweb's REGISTER_TO_PARAM_KEYS and canonical holding table;
+# the raw<->portal correlation is `portal-correlated` (llmwiki registers.md),
+# NOT hardware-proven — no named-action raw before/after/restore tuple exists.
+# POWER_2 / VOLT / VOLT_2 carry a DIV_10 raw encoding (deci-kW / decivolts):
+# the transport's named read scales them to engineering units and its named
+# write multiplies back, so the entity passes kW / V on BOTH paths and never
+# pre-scales (LOCAL_PARAM_SCALE_DIV10). The two SOC keys are raw 1:1 percent.
+PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2 = "_12K_HOLD_GRID_PEAK_SHAVING_POWER_2"  # reg 232
+PARAM_HOLD_GRID_PEAK_SHAVING_SOC = "_12K_HOLD_GRID_PEAK_SHAVING_SOC"  # reg 207
+PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2 = "_12K_HOLD_GRID_PEAK_SHAVING_SOC_2"  # reg 218
+PARAM_HOLD_GRID_PEAK_SHAVING_VOLT = "_12K_HOLD_GRID_PEAK_SHAVING_VOLT"  # reg 208
+PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2 = "_12K_HOLD_GRID_PEAK_SHAVING_VOLT_2"  # reg 219
+
 # =============================================================================
 # Battery control regime (register 179 bits 9/10) and voltage limits
 # =============================================================================

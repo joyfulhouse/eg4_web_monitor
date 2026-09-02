@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "并网售电功率"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "电网削峰功率 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "电网削峰 SOC 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "电网削峰 SOC 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "电网削峰电压 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "电网削峰电压 2"
+      },
       "start_discharge_power_threshold": {
         "name": "启动放电功率阈值"
       },

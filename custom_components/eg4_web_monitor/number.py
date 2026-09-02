@@ -57,6 +57,14 @@ from .const import (
     GRID_PEAK_SHAVING_POWER_MAX,
     GRID_PEAK_SHAVING_POWER_MIN,
     GRID_PEAK_SHAVING_POWER_STEP,
+    GRID_PEAK_SHAVING_SOC_MAX,
+    GRID_PEAK_SHAVING_SOC_MIN,
+    GRID_PEAK_SHAVING_SOC_STEP,
+    GRID_PEAK_SHAVING_VOLT_MAX,
+    GRID_PEAK_SHAVING_VOLT_MIN,
+    GRID_PEAK_SHAVING_VOLT_READ_MAX,
+    GRID_PEAK_SHAVING_VOLT_READ_MIN,
+    GRID_PEAK_SHAVING_VOLT_STEP,
     GRID_SELL_BACK_POWER_MAX,
     GRID_SELL_BACK_POWER_MIN,
     GRID_SELL_BACK_POWER_STEP,
@@ -74,6 +82,11 @@ from .const import (
     PARAM_HOLD_FORCED_DISCHG_POWER,
     PARAM_HOLD_FORCED_DISCHG_SOC_LIMIT,
     PARAM_HOLD_GRID_PEAK_SHAVING_POWER,
+    PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC,
+    PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2,
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT,
+    PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
     PARAM_HOLD_OFFGRID_DISCHG_SOC,
     PARAM_HOLD_OFFGRID_EOD_VOLTAGE,
     PARAM_HOLD_ONGRID_DISCHG_SOC,
@@ -269,7 +282,11 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         _LOGGER.warning(
             "%s changed, but %s control is in %s mode — this %s limit has no "
             "effect until the %s control mode is set to %s (serial %s)",
-            self._attr_name,
+            # Translation-key entities leave _attr_name unset (HA resolves
+            # the name from strings.json), so fall back to the key.
+            getattr(self, "_attr_name", None)
+            or getattr(self, "_attr_translation_key", None)
+            or self.entity_id,
             side,
             self._control_active_mode,
             regime,
@@ -815,6 +832,14 @@ def _create_number_entities(
                     entities.extend(
                         [
                             GridPeakShavingPowerNumber(coordinator, serial),
+                            # The rest of the daily peak-shaving set (#592):
+                            # PS2 power + period-1/2 SOC and voltage floors.
+                            # Same non-off-grid branch as PS1; no Repairs
+                            # suffix (never existed on off-grid registries).
+                            *(
+                                PeakShavingNumber(coordinator, serial, spec)
+                                for spec in PEAK_SHAVING_NUMBER_SPECS
+                            ),
                             ForcedDischargePowerNumber(coordinator, serial),
                             ForcedDischargeSOCLimitNumber(coordinator, serial),
                             # Reg 67 keeps working on grid-tied/unknown
@@ -1400,6 +1425,309 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         )
 
 
+async def _require_peak_shaving_mode_on(entity: EG4BaseNumberEntity) -> None:
+    """Refuse a Peak Shaving POWER write while the mode is known-off (#328).
+
+    Shared by PS1 (``GridPeakShavingPowerNumber``) and PS2
+    (``PeakShavingNumber`` with ``mode_precheck``). The firmware rejects the
+    power setpoint (DATAFRAME_TIMEOUT) while Peak Shaving mode
+    (FUNC_GRID_PEAK_SHAVING, reg 179 bit 7) is disabled and clears the
+    setpoint whenever the mode deactivates, so a write with the mode
+    known-off is refused up front with a clear message.
+
+    Verify-then-block: the parameter cache refreshes ~hourly, so a user who
+    just enabled the mode on the EG4 portal or the inverter LCD would
+    otherwise be locked out by a stale cached False until the next refresh.
+    With a cloud client the cached False is confirmed by a live
+    single-register cloud read (reg 179 carries the FUNC bit) before
+    refusing; if the read fails or omits the bit the write proceeds
+    fail-open (the firmware is the final arbiter), and a live True seeds the
+    parameter cache so the mode switch stops showing stale state. Without a
+    cloud client (pure-LOCAL) only the cached value can testify: a cached
+    False blocks, a missing value fails OPEN.
+    """
+    mode_state = entity._parameter_data.get(PARAM_FUNC_GRID_PEAK_SHAVING)
+    if mode_state is None or mode_state:
+        return
+    client = entity.coordinator.client
+    if client is not None:
+        try:
+            response = await client.api.control.read_parameters(
+                entity.serial, start_register=179, point_number=1
+            )
+            mode_state = response.parameters.get(PARAM_FUNC_GRID_PEAK_SHAVING)
+        except Exception as err:
+            _LOGGER.debug(
+                "Live Peak Shaving mode check for %s failed (%s); proceeding fail-open",
+                entity.serial,
+                err,
+            )
+            mode_state = None
+        if mode_state is None:
+            return
+        if mode_state:
+            # The cache said off but the device says ON — seed the fresh
+            # truth so the mode switch stops showing stale state until the
+            # next scheduled parameter refresh.
+            entity.coordinator.note_parameters_written(
+                entity.serial, {PARAM_FUNC_GRID_PEAK_SHAVING: True}
+            )
+            return
+    raise ServiceValidationError(
+        "Peak Shaving mode is disabled — enable it first: the "
+        "inverter rejects the power setpoint while the mode is "
+        "off, and the firmware clears the setpoint whenever the "
+        "mode deactivates."
+    )
+
+
+@dataclass(frozen=True)
+class PeakShavingNumberSpec:
+    """Declarative configuration for one daily Grid Peak Shaving number (#592).
+
+    Covers the five daily peak-shaving holding registers PS1 (reg 206,
+    ``GridPeakShavingPowerNumber``) does not: PS2 power and the period-1/2
+    SOC and voltage floors. Every row is in the pinned pylxpweb's
+    ``REGISTER_TO_PARAM_KEYS`` and canonical holding table, graded
+    ``portal-correlated`` (raw/portal correlation only — no named-action raw
+    before/after/restore tuple), so no row is treated as hardware-proven.
+    """
+
+    #: Unique-id suffix (also the regime-gating control key when gated).
+    key: str
+    translation_key: str
+    #: Cloud holdParam name == transport name-map key.
+    param_key: str
+    register: int
+    unit: str
+    min_value: float
+    max_value: float
+    step: float
+    #: Read plausibility window — never tighter than any writer (#603).
+    read_min: float
+    read_max: float
+    #: True when the register stores deci-units (deci-kW / decivolts). The
+    #: transport's named read scales to engineering units and its named
+    #: write multiplies back (pylxpweb LOCAL_PARAM_SCALE_DIV10), so the
+    #: entity passes kW / V unchanged on BOTH paths — never pre-scaled.
+    div10: bool
+    #: Battery-control-regime gating key (None => always shown).
+    control_key: str | None
+    #: Register re-read after a cloud named write (acknowledged-but-unapplied).
+    verify_register: int
+    #: Verify-then-block on FUNC_GRID_PEAK_SHAVING before writing (PS2 only:
+    #: the firmware NAKs the POWER setpoint with the mode off, #328). The SOC
+    #: and voltage rows do NOT pre-check — their NAK behaviour with the mode
+    #: off is unverified, so the firmware stays the arbiter.
+    mode_precheck: bool
+    #: Human label for logs and error messages.
+    label: str
+    icon: str
+
+
+PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
+    PeakShavingNumberSpec(
+        key="grid_peak_shaving_power_2",
+        translation_key="grid_peak_shaving_power_2",
+        param_key=PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
+        register=232,
+        unit="kW",
+        min_value=GRID_PEAK_SHAVING_POWER_MIN,
+        max_value=GRID_PEAK_SHAVING_POWER_MAX,
+        step=GRID_PEAK_SHAVING_POWER_STEP,
+        read_min=GRID_PEAK_SHAVING_POWER_MIN,
+        read_max=GRID_PEAK_SHAVING_POWER_MAX,
+        div10=True,
+        control_key=None,
+        verify_register=232,
+        mode_precheck=True,
+        label="grid peak shaving power 2",
+        icon="mdi:chart-bell-curve-cumulative",
+    ),
+    PeakShavingNumberSpec(
+        key="grid_peak_shaving_soc",
+        translation_key="grid_peak_shaving_soc",
+        param_key=PARAM_HOLD_GRID_PEAK_SHAVING_SOC,
+        register=207,
+        unit="%",
+        min_value=GRID_PEAK_SHAVING_SOC_MIN,
+        max_value=GRID_PEAK_SHAVING_SOC_MAX,
+        step=GRID_PEAK_SHAVING_SOC_STEP,
+        read_min=GRID_PEAK_SHAVING_SOC_MIN,
+        read_max=GRID_PEAK_SHAVING_SOC_MAX,
+        div10=False,
+        control_key="grid_peak_shaving_soc",
+        verify_register=207,
+        mode_precheck=False,
+        label="grid peak shaving SOC 1",
+        icon="mdi:battery-arrow-down-outline",
+    ),
+    PeakShavingNumberSpec(
+        key="grid_peak_shaving_soc_2",
+        translation_key="grid_peak_shaving_soc_2",
+        param_key=PARAM_HOLD_GRID_PEAK_SHAVING_SOC_2,
+        register=218,
+        unit="%",
+        min_value=GRID_PEAK_SHAVING_SOC_MIN,
+        max_value=GRID_PEAK_SHAVING_SOC_MAX,
+        step=GRID_PEAK_SHAVING_SOC_STEP,
+        read_min=GRID_PEAK_SHAVING_SOC_MIN,
+        read_max=GRID_PEAK_SHAVING_SOC_MAX,
+        div10=False,
+        control_key="grid_peak_shaving_soc_2",
+        verify_register=218,
+        mode_precheck=False,
+        label="grid peak shaving SOC 2",
+        icon="mdi:battery-arrow-down-outline",
+    ),
+    PeakShavingNumberSpec(
+        key="grid_peak_shaving_volt",
+        translation_key="grid_peak_shaving_volt",
+        param_key=PARAM_HOLD_GRID_PEAK_SHAVING_VOLT,
+        register=208,
+        unit="V",
+        min_value=GRID_PEAK_SHAVING_VOLT_MIN,
+        max_value=GRID_PEAK_SHAVING_VOLT_MAX,
+        step=GRID_PEAK_SHAVING_VOLT_STEP,
+        read_min=GRID_PEAK_SHAVING_VOLT_READ_MIN,
+        read_max=GRID_PEAK_SHAVING_VOLT_READ_MAX,
+        div10=True,
+        control_key="grid_peak_shaving_volt",
+        verify_register=208,
+        mode_precheck=False,
+        label="grid peak shaving voltage 1",
+        icon="mdi:battery-arrow-down-outline",
+    ),
+    PeakShavingNumberSpec(
+        key="grid_peak_shaving_volt_2",
+        translation_key="grid_peak_shaving_volt_2",
+        param_key=PARAM_HOLD_GRID_PEAK_SHAVING_VOLT_2,
+        register=219,
+        unit="V",
+        min_value=GRID_PEAK_SHAVING_VOLT_MIN,
+        max_value=GRID_PEAK_SHAVING_VOLT_MAX,
+        step=GRID_PEAK_SHAVING_VOLT_STEP,
+        read_min=GRID_PEAK_SHAVING_VOLT_READ_MIN,
+        read_max=GRID_PEAK_SHAVING_VOLT_READ_MAX,
+        div10=True,
+        control_key="grid_peak_shaving_volt_2",
+        verify_register=219,
+        mode_precheck=False,
+        label="grid peak shaving voltage 2",
+        icon="mdi:battery-arrow-down-outline",
+    ),
+)
+
+
+class PeakShavingNumber(EG4BaseNumberEntity):
+    """Spec-driven number for the daily Grid Peak Shaving set beyond PS1 (#592).
+
+    Modelled on the AC Charge Start/End SOC precedent, NOT on PS1: the value
+    is read ``params_first`` (no inverter attribute exists for these keys)
+    and written through ``_write_parameter`` — a local named write on a
+    positively resolved non-off-grid family, the cloud named holdParam
+    (with an equality-checked readback) as the cloud path and HYBRID
+    fallback. Off-grid and UNKNOWN families fail CLOSED to cloud-only via
+    ``_offgrid_cloud_only_reason`` (#558): none of these registers has any
+    off-grid write evidence. Unlike PS1 the entity is NOT registered
+    disabled in pure-LOCAL mode — PS1's write needs a cloud client, these
+    write locally by name (like reg 160).
+
+    Scaling: the deci-unit rows (POWER_2 / VOLT / VOLT_2) hand the
+    engineering value (kW / V) to BOTH paths. The transport's named write
+    multiplies by 10 itself (pylxpweb ``LOCAL_PARAM_SCALE_DIV10``), so
+    pre-scaling here — or routing the voltage rows through
+    ``_write_voltage_register``, which sends decivolts — would land raw
+    ×100 in the register (52.0 V -> raw 5200).
+
+    Mode coupling: only the POWER_2 row pre-checks FUNC_GRID_PEAK_SHAVING
+    (verify-then-block shared with PS1). Whether the firmware NAKs the SOC
+    and voltage rows with the mode off is unverified, so they do not
+    pre-check and the firmware remains the arbiter.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        spec: PeakShavingNumberSpec,
+    ) -> None:
+        """Initialize a peak-shaving number entity from its spec."""
+        self._spec = spec
+        self._control_key = spec.control_key
+        super().__init__(coordinator, serial)
+        self._attr_translation_key = spec.translation_key
+        self._attr_unique_id = self._stable_control_unique_id(spec.key)
+        self._attr_native_min_value = spec.min_value
+        self._attr_native_max_value = spec.max_value
+        self._attr_native_step = spec.step
+        self._attr_native_unit_of_measurement = spec.unit
+        self._attr_icon = spec.icon
+        self._attr_native_precision = 1 if spec.div10 else 0
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the cached engineering value (kW / V / %), params first.
+
+        Both the cloud holdParam and the transport's DIV_10-scaled named
+        read surface kW / V for the deci-unit rows and whole percent for
+        the SOC rows, so no path-specific scaling applies here.
+        """
+        spec = self._spec
+        return self._read_param_value(
+            param_key=spec.param_key,
+            value_min=spec.read_min,
+            value_max=spec.read_max,
+            as_float=spec.div10,
+            params_first=True,
+        )
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Write the value (local named write, cloud named holdParam fallback)."""
+        spec = self._spec
+        write_value: int | float
+        if spec.div10:
+            if value < spec.min_value or value > spec.max_value:
+                raise HomeAssistantError(
+                    f"{spec.label.capitalize()} must be between "
+                    f"{spec.min_value}-{spec.max_value} {spec.unit}, got {value}"
+                )
+            write_value = round(value, 1)
+            shown = f"{write_value:.1f} {spec.unit}"
+        else:
+            write_value = _coerce_int_in_range(
+                value,
+                min_v=int(spec.min_value),
+                max_v=int(spec.max_value),
+                label=spec.label.capitalize(),
+                require_integer=True,
+            )
+            shown = f"{write_value}{spec.unit}"
+        if spec.mode_precheck:
+            await _require_peak_shaving_mode_on(self)
+        label = f"{spec.label} to {shown}"
+        await self._write_parameter(
+            value,
+            local_param=spec.param_key,
+            # Engineering units on the local path too: the transport's named
+            # write does the x10 for the deci-unit rows (see class docstring).
+            # Passing this explicitly matters — _write_parameter's default is
+            # int(value), which would truncate 4.5 kW to 4.
+            local_value=write_value,
+            cloud_write=lambda: _write_cloud_named_parameter(
+                self,
+                spec.param_key,
+                write_value,
+                f"Failed to set {label}",
+                verify_register=spec.verify_register,
+            ),
+            label=label,
+            local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                spec.register, spec.label
+            ),
+        )
+
+
 class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
     """Number entity for Grid Peak Shaving Power control.
 
@@ -1488,42 +1816,7 @@ class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
                 "path targeted the wrong register). Add cloud credentials to "
                 "this integration entry to use this control."
             )
-        mode_state = self._parameter_data.get(PARAM_FUNC_GRID_PEAK_SHAVING)
-        if mode_state is not None and not mode_state:
-            # Verify-then-block: the parameter cache refreshes ~hourly, so a
-            # user who just enabled Peak Shaving mode on the EG4 portal or
-            # the inverter LCD would otherwise be locked out by a stale
-            # cached False until the next refresh. Confirm with a live
-            # single-register cloud read (reg 179 carries the FUNC bit)
-            # before refusing; if the read fails or omits the bit, fail
-            # open — the firmware is the final arbiter of the write.
-            try:
-                response = await client.api.control.read_parameters(
-                    self.serial, start_register=179, point_number=1
-                )
-                mode_state = response.parameters.get(PARAM_FUNC_GRID_PEAK_SHAVING)
-            except Exception as err:
-                _LOGGER.debug(
-                    "Live Peak Shaving mode check for %s failed (%s); "
-                    "proceeding fail-open",
-                    self.serial,
-                    err,
-                )
-                mode_state = None
-            if mode_state is not None and not mode_state:
-                raise ServiceValidationError(
-                    "Peak Shaving mode is disabled — enable it first: the "
-                    "inverter rejects the power setpoint while the mode is "
-                    "off, and the firmware clears the setpoint whenever the "
-                    "mode deactivates."
-                )
-            if mode_state:
-                # The cache said off but the device says ON — seed the
-                # fresh truth so the mode switch stops showing stale state
-                # until the next scheduled parameter refresh.
-                self.coordinator.note_parameters_written(
-                    self.serial, {PARAM_FUNC_GRID_PEAK_SHAVING: True}
-                )
+        await _require_peak_shaving_mode_on(self)
         _LOGGER.info(
             "Setting grid peak shaving power to %.1f kW for %s", value, self.serial
         )
@@ -1880,14 +2173,25 @@ _READBACK_SETTLE_SECONDS = 2.0
 _READBACK_ATTEMPTS = 2
 
 
+# Readback tolerance for float-valued (deci-unit) holdParams: half of the
+# 0.1 kW / 0.1 V step, so "4.5" verifies 4.5 and "4.4" does not.
+_FLOAT_READBACK_TOLERANCE = 0.05
+
+
 async def _write_cloud_named_parameter(
     entity: EG4BaseNumberEntity,
     param: str,
-    value: int,
+    value: int | float,
     error_message: str,
     verify_register: int | None = None,
 ) -> None:
     """Write a cloud holdParam value through the generic named-write API.
+
+    ``value`` may be an int (whole-unit params, compared by truncated int
+    readback — unchanged) or a float (deci-unit params such as the peak
+    shaving power/voltage rows, #592, compared within
+    ``_FLOAT_READBACK_TOLERANCE`` so a 4.5 kW write is not failed by the
+    int-truncating comparison reading 4).
 
     Bare writer — logging, optimistic state and the related-entity refresh are
     provided by the callers' write wrappers.
@@ -1941,10 +2245,16 @@ async def _write_cloud_named_parameter(
                 verified = None  # key absent — cannot testify
                 break
             try:
-                verified = int(float(readback)) == value
+                numeric = float(readback)
             except (TypeError, ValueError):
                 verified = None  # non-numeric readback proves nothing
                 break
+            if isinstance(value, float):
+                verified = math.isclose(
+                    numeric, value, abs_tol=_FLOAT_READBACK_TOLERANCE
+                )
+            else:
+                verified = int(numeric) == value
             if verified:
                 break
             # A mismatch on the first read may just be propagation lag; loop to

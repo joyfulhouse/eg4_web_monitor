@@ -638,6 +638,11 @@ if reg1 & 0x100:
 | 116 | `start_discharge_power_threshold` | number | W | 50-10000 |
 | 117 | `start_charge_power_threshold` | number | W (signed) | -10000-10000 |
 | 206 | `grid_peak_shaving_power` | number | kW | 0-25.5 |
+| 207 | `grid_peak_shaving_soc` | number | % | 0-100 |
+| 208 | `grid_peak_shaving_volt` | number | V | 40.0-64.0 write, 20-70 read |
+| 218 | `grid_peak_shaving_soc_2` | number | % | 0-100 |
+| 219 | `grid_peak_shaving_volt_2` | number | V | 40.0-64.0 write, 20-70 read |
+| 232 | `grid_peak_shaving_power_2` | number | kW | 0-25.5 |
 
 > **`forced_discharge_power` (reg 82) / `forced_discharge_soc_limit` (reg 83)**
 > ([#207](https://github.com/joyfulhouse/eg4_web_monitor/issues/207), PR #249).
@@ -652,6 +657,23 @@ if reg1 & 0x100:
 > (`const/modbus.py:161-163`). The entity pre-checks `FUNC_GRID_PEAK_SHAVING`
 > (reg 179 bit 7) with verify-then-block, because the firmware NAKs writes and
 > zeroes the setpoint while the mode is off. **Grid-tied families only.**
+
+> **Daily peak-shaving set — regs 207/208/218/219/232**
+> ([#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592)): Grid
+> Peak Shaving SOC 1/2 (whole percent, raw 1:1), Voltage 1/2 (decivolts) and
+> Power 2 (deci-kW). Created in the same grid-tied branch as PS1 and
+> spec-driven (`PeakShavingNumber`). Unlike PS1 they write through the shared
+> router: a local **named** write on a positively resolved non-off-grid family
+> (the transport scales kW / V to deci-units itself — `LOCAL_PARAM_SCALE_DIV10`
+> in pylxpweb — so the entity never pre-scales), the cloud holdParam with an
+> equality-checked readback otherwise; off-grid / unresolved families are
+> cloud-only (#558). Only Power 2 pre-checks `FUNC_GRID_PEAK_SHAVING`; whether
+> the firmware NAKs the SOC / voltage rows with the mode off is unverified. The
+> voltage write bounds 40.0-64.0 V are a maintainer decision (pylxpweb's rows
+> carry no min/max); the read window is 20-70 V so a portal-stored value never
+> blanks. LOCAL reads: one `(206, 7)` frame (PS1 + period-1 floors + both
+> schedule windows), `(218, 2)` and `(232, 1)`, all `EG4_HYBRID`-gated. Evidence
+> for all five is `portal-correlated` (`llmwiki/40-hardware/registers.md`).
 
 > **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
 > cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
@@ -920,7 +942,11 @@ per boundary). Cloud param names take the window suffix
 > (`switch._local_params_can_carry`) keeps it cloud-parameter-mode only. The
 > register contract harness pins the name to (179, 3).
 
-Related: Register 231 holds `grid_peak_shaving_power` (32-bit kW value).
+Related: PS1 `grid_peak_shaving_power` is holding register **206** (deci-kW),
+not 231 — H231 is an unknown field (single-register cloud reads name nothing
+there; eg4-gfu5). The rest of the daily peak-shaving set is H207/H208 (period-1
+SOC / voltage), H218/H219 (period-2 SOC / voltage) and H232 (PS2 power); see the
+number table above ([#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592)).
 
 > **Family availability:** the Grid Peak Shaving switch/power number and the
 > Forced Discharge switch/power/SOC-limit numbers are **not created for

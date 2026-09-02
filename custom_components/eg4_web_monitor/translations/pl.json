@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "Moc sprzedaży do sieci"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "Moc redukcji szczytów sieci 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "SOC redukcji szczytów sieci 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "SOC redukcji szczytów sieci 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "Napięcie redukcji szczytów sieci 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "Napięcie redukcji szczytów sieci 2"
+      },
       "start_discharge_power_threshold": {
         "name": "Próg mocy rozpoczęcia rozładowania"
       },
