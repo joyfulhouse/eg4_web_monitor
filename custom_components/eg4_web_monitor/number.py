@@ -1675,11 +1675,13 @@ class PeakShavingNumber(EG4BaseNumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Write the value (local named write, cloud named holdParam fallback)."""
         spec = self._spec
+        # Not .capitalize(): that lowercases the "SOC" acronym.
+        error_label = f"{spec.label[0].upper()}{spec.label[1:]}"
         write_value: int | float
         if spec.div10:
             if value < spec.min_value or value > spec.max_value:
                 raise HomeAssistantError(
-                    f"{spec.label[0].upper()}{spec.label[1:]} must be between "
+                    f"{error_label} must be between "
                     f"{spec.min_value}-{spec.max_value} {spec.unit}, got {value}"
                 )
             write_value = round(value, 1)
@@ -1689,8 +1691,7 @@ class PeakShavingNumber(EG4BaseNumberEntity):
                 value,
                 min_v=int(spec.min_value),
                 max_v=int(spec.max_value),
-                # Not .capitalize(): that lowercases the "SOC" acronym.
-                label=f"{spec.label[0].upper()}{spec.label[1:]}",
+                label=error_label,
                 require_integer=True,
             )
             shown = f"{write_value}{spec.unit}"
