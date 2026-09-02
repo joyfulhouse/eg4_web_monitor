@@ -568,10 +568,8 @@ class LocalTransportMixin(_MixinBase):
                 # Daily Grid Peak Shaving block (#592): PS1 power (206,
                 # deci-kW — encoding hardware-verified in #328), period-1
                 # SOC/voltage floors (207/208) and the two schedule windows
-                # (209-212) in ONE contiguous read — it replaces the former
-                # separate (209, 4) + (206, 1) reads at the same Modbus
-                # budget. Family-gated: the SNA probe shows the PS params
-                # absent from the offgrid template.
+                # (209-212) in ONE contiguous read. Family-gated: the SNA
+                # probe shows the PS params absent from the offgrid template.
                 hybrid_schedule_ranges.append((206, 7))  # Peak Shaving PS1
             if is_hybrid or is_offgrid:
                 hybrid_schedule_ranges.append((256, 4))  # Generator charge

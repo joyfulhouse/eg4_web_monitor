@@ -284,9 +284,7 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
             "effect until the %s control mode is set to %s (serial %s)",
             # Translation-key entities leave _attr_name unset (HA resolves
             # the name from strings.json), so fall back to the key.
-            getattr(self, "_attr_name", None)
-            or getattr(self, "_attr_translation_key", None)
-            or self.entity_id,
+            getattr(self, "_attr_name", None) or self.translation_key or self.entity_id,
             side,
             self._control_active_mode,
             regime,
