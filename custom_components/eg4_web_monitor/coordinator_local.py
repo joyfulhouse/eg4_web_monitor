@@ -565,21 +565,26 @@ class LocalTransportMixin(_MixinBase):
             is_offgrid = is_offgrid_family(device_data or {})
             hybrid_schedule_ranges: list[tuple[int, int]] = []
             if is_hybrid:
-                hybrid_schedule_ranges.append((209, 4))  # Peak Shaving
+                # Daily Grid Peak Shaving block (#592): PS1 power (206,
+                # deci-kW — encoding hardware-verified in #328), period-1
+                # SOC/voltage floors (207/208) and the two schedule windows
+                # (209-212) in ONE contiguous read. Family-gated: the SNA
+                # probe shows the PS params absent from the offgrid template.
+                hybrid_schedule_ranges.append((206, 7))  # Peak Shaving PS1
             if is_hybrid or is_offgrid:
                 hybrid_schedule_ranges.append((256, 4))  # Generator charge
             if is_hybrid:
                 hybrid_schedule_ranges.append((269, 6))  # Off-Grid
-                # Grid Peak Shaving Power (PS1, reg 206, deci-kW — encoding
-                # hardware-verified in #328): consumed by the Grid Peak
-                # Shaving Power number, which was cloud/hybrid-only until
-                # pylxpweb 0.9.36b27 mapped the register; without this read
-                # the entity sat unknown in LOCAL mode (3.4.0-final sweep).
-                # Family-gated like the (209, 4) schedule read above — the
-                # SNA probe shows the PS params absent from the offgrid
-                # template. Older pylxpweb surfaces the raw "206" key,
-                # which nothing consumes until the pin bump.
-                hybrid_schedule_ranges.append((206, 1))
+                # Period-2 SOC/voltage floors (218/219). Deliberately NOT
+                # spanned from 206 (213-217 are unmapped) and stops at 219:
+                # the SNA off-grid probe co-locates a 48-bit LSP-bypass bitmap
+                # onto 219-221 (pylxpweb registers.py, the AC-couple SOC
+                # note), which is why this read stays hybrid-gated.
+                hybrid_schedule_ranges.append((218, 2))  # Peak Shaving PS2 floors
+                # PS2 power (232, deci-kW). Single register: 229-231 are not
+                # spanned (231 is an unknown field, never PS1) and 233 is the
+                # quick-charge/extended bit word read elsewhere.
+                hybrid_schedule_ranges.append((232, 1))  # Peak Shaving PS2 power
 
             # Read all parameter ranges using library's register-to-name mapping
             # The library handles bit field extraction automatically
@@ -647,9 +652,11 @@ class LocalTransportMixin(_MixinBase):
                 (227, 2),  # System charge SOC limit (227) + voltage limit (228)
                 # Registers 231-232 were once read here as "grid peak shaving
                 # power" — removed (eg4-gfu5): PS1 actually lives at reg 206
-                # (231 is an unknown, unnamed register). Since #328 verified
-                # the deci-kW encoding, reg 206 is read via the family-gated
-                # (206, 1) entry in hybrid_schedule_ranges above.
+                # (231 is an unknown, unnamed register). Reg 206 is read via
+                # the family-gated (206, 7) daily peak-shaving frame in
+                # hybrid_schedule_ranges above (PS1 power + period-1 SOC /
+                # voltage + both schedule windows, #328/#592); PS2 power (232)
+                # has its own single-register entry there.
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
                 # Peak Shaving / Generator / Off-Grid schedules — EG4_HYBRID
                 # only (209-212, 256-274). See hybrid_schedule_ranges above.

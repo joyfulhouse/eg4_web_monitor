@@ -237,6 +237,14 @@ parameter sync.
 - Grid Sell Back Power (kW cap) — grid-tied families only (register 103; #135)
 - Grid Peak Shaving Power (not on the EG4 Off-Grid family — see the working
   modes note above)
+- Grid Peak Shaving Power 2 (kW; the portal's "Grid Peak-Shaving Power 2"),
+  Grid Peak Shaving SOC 1 / SOC 2 (%; the portal's "Start Peak-Shaving SOC
+  1/2") and Grid Peak Shaving Voltage 1 / Voltage 2 (V; the SOC pair's
+  voltage-mode counterparts) — the rest of the daily peak-shaving set,
+  same grid-tied families as Grid Peak Shaving Power (#592). The SOC pair is
+  gated by the discharge battery-control mode like the cut-offs below and the
+  voltage pair by its voltage counterpart; Power 2 is refused while Peak
+  Shaving mode is off, exactly like Power 1
 - Forced Discharge Power (kW) and Forced Discharge SOC Limit (%) (not on the
   EG4 Off-Grid family)
 - Start Discharge Power Threshold (W) — CT-equipped grid-tied inverters, all

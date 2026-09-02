@@ -902,3 +902,26 @@ mainline as `041032f`; the [registers keeper](40-hardware/registers.md) is re-pi
 to it with `last-verified: 2026-09-02` (its pylxpweb pin moved to `c78ab7e` in the
 #603 ingest above). Performed in the v3.5.1-beta.14 release change set (pylxpweb
 pin 0.10.0b7).
+
+## [2026-09-02] ingest | #592 — the daily Grid Peak Shaving set: five router entities, one local frame
+
+Source: [#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592) and the
+pinned pylxpweb `c78ab7e` (0.10.0b7) tables — `REGISTER_TO_PARAM_KEYS` names
+H207/H208/H218/H219/H232 and `LOCAL_PARAM_SCALE_DIV10` covers the three
+deci-unit names. The integration exposed 6 of the 11 daily keys; the five
+missing ones are now `PeakShavingNumber` spec rows on the router (a local named
+write on a positively resolved non-off-grid family, cloud holdParam + readback
+otherwise, cloud-only on off-grid/unresolved via `_offgrid_cloud_only_reason`).
+Filed on [controls-and-writes](10-integration/controls-and-writes.md): a §0.4
+inventory row, the §1 protected-set list extended with 207/208/218/219/232, a
+§6 exception for the two voltage rows, and landmine #10 — a DIV_10-scaled name
+must be handed engineering units on both paths, because the transport does the
+×10 (pre-scaling would land raw ×100) and the cloud readback must compare as a
+float (the int-truncating compare read 4 for a 4.5 kW write). Local reads
+become one `(206, 7)` frame plus `(218, 2)` and `(232, 1)`, hybrid-gated
+(219-221 is the LSP-bypass bitmap on the SNA probe). **No grade moved**: the
+[registers keeper](40-hardware/registers.md) already carries all five at
+`portal-correlated` and this change set adds no hardware evidence, so the
+keeper is untouched. Also corrected: `docs/DATA_MAPPING.md` claimed register
+231 holds the peak-shaving power (H231 is unknown; PS1 is H206) — that claim
+was already refuted on the keeper and had rotted only in the docs copy.

@@ -372,6 +372,14 @@ DISCHARGE_SOC_CONTROLS: frozenset[str] = frozenset(
         # The companion power command (reg 82, kW) is a power level, not a
         # stop limit, so it is deliberately NOT regime-gated (GH #207).
         "forced_discharge_soc_limit",
+        # Grid Peak Shaving SOC 1/2 (regs 207/218, #592): the SOC floor
+        # below which peak-shaving battery discharge stops. The
+        # discharge-side classification is INFERRED from the portal's
+        # SOC-vs-voltage pairing of the fields (each SOC has a voltage
+        # twin at 208/219) — no reg-179 bit-10 gating evidence exists for
+        # these registers specifically.
+        "grid_peak_shaving_soc",
+        "grid_peak_shaving_soc_2",
     }
 )
 DISCHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(
@@ -382,6 +390,11 @@ DISCHARGE_VOLTAGE_CONTROLS: frozenset[str] = frozenset(
         # voltage-regime counterpart of forced_discharge_soc_limit (the
         # cloud UI gates the field with disChgVoltEnable). Bead eg4-aa3t.
         "stop_discharge_voltage",
+        # Grid Peak Shaving Voltage 1/2 (regs 208/219, #592): the voltage-
+        # regime twins of grid_peak_shaving_soc/_2 — discharge-side
+        # classification inferred, see the SOC pair above.
+        "grid_peak_shaving_volt",
+        "grid_peak_shaving_volt_2",
     }
 )
 

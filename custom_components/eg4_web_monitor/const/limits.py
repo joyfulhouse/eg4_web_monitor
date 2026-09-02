@@ -46,6 +46,23 @@ GRID_PEAK_SHAVING_POWER_MIN = 0.0
 GRID_PEAK_SHAVING_POWER_MAX = 25.5
 GRID_PEAK_SHAVING_POWER_STEP = 0.1
 
+# Grid Peak Shaving SOC 1/2 (regs 207/218, whole percent, raw 1:1). Bounds
+# equal the pinned pylxpweb holding rows (0-100).
+GRID_PEAK_SHAVING_SOC_MIN = 0
+GRID_PEAK_SHAVING_SOC_MAX = 100
+GRID_PEAK_SHAVING_SOC_STEP = 1
+
+# Grid Peak Shaving Voltage 1/2 (regs 208/219, decivolts). The pinned
+# pylxpweb rows carry NO min/max, so the write bounds are a maintainer
+# decision copying SYSTEM_CHARGE_VOLT_LIMIT_* (48 V bank window with margin).
+# The READ window is deliberately wider than the write window so a value the
+# portal stored outside 40-64 renders instead of blanking to unknown (#603).
+GRID_PEAK_SHAVING_VOLT_MIN = 40.0
+GRID_PEAK_SHAVING_VOLT_MAX = 64.0
+GRID_PEAK_SHAVING_VOLT_STEP = 0.1
+GRID_PEAK_SHAVING_VOLT_READ_MIN = 20.0
+GRID_PEAK_SHAVING_VOLT_READ_MAX = 70.0
+
 # =============================================================================
 # Battery Charge/Discharge Current (A)
 # =============================================================================

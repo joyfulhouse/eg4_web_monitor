@@ -804,6 +804,21 @@
       "grid_sell_back_power": {
         "name": "Puissance de revente au réseau"
       },
+      "grid_peak_shaving_power_2": {
+        "name": "Puissance d'écrêtage réseau 2"
+      },
+      "grid_peak_shaving_soc": {
+        "name": "SOC d'écrêtage réseau 1"
+      },
+      "grid_peak_shaving_soc_2": {
+        "name": "SOC d'écrêtage réseau 2"
+      },
+      "grid_peak_shaving_volt": {
+        "name": "Tension d'écrêtage réseau 1"
+      },
+      "grid_peak_shaving_volt_2": {
+        "name": "Tension d'écrêtage réseau 2"
+      },
       "start_discharge_power_threshold": {
         "name": "Seuil de puissance de début de décharge"
       },

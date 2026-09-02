@@ -19,7 +19,14 @@ from custom_components.eg4_web_monitor.const import (
     control_side_and_mode,
     is_control_active,
 )
+from custom_components.eg4_web_monitor.const.device_types import (
+    DISCHARGE_SOC_CONTROLS,
+    DISCHARGE_VOLTAGE_CONTROLS,
+    REGIME_GATED_CONTROLS,
+)
 from custom_components.eg4_web_monitor.number import (
+    PEAK_SHAVING_NUMBER_SPECS,
+    PeakShavingNumber,
     EG4VoltageNumber,
     StopDischargeVoltageNumber,
     SystemChargeSOCLimitNumber,
@@ -431,3 +438,110 @@ class TestBatteryControlSelects:
         )
         coordinator.refresh_inverter_params_if_linked.assert_not_awaited()
         coordinator.refresh_all_device_parameters.assert_awaited_once_with()
+
+
+# ── #592: the peak-shaving SOC/voltage floors join the discharge regime ─────
+
+
+def _peak_shaving_number(coordinator: MagicMock, key: str) -> PeakShavingNumber:
+    spec = next(spec for spec in PEAK_SHAVING_NUMBER_SPECS if spec.key == key)
+    return PeakShavingNumber(coordinator, "1234567890", spec)
+
+
+class TestPeakShavingRegimeGating:
+    """grid_peak_shaving_soc/_2 -> discharge/SOC; grid_peak_shaving_volt/_2 ->
+    discharge/voltage (classification inferred from the portal's SOC-vs-
+    voltage pairing, see const/device_types.py)."""
+
+    def test_regime_gated_set_includes_the_four_floors(self) -> None:
+        assert {"grid_peak_shaving_soc", "grid_peak_shaving_soc_2"} <= (
+            DISCHARGE_SOC_CONTROLS
+        )
+        assert {"grid_peak_shaving_volt", "grid_peak_shaving_volt_2"} <= (
+            DISCHARGE_VOLTAGE_CONTROLS
+        )
+        assert {
+            "grid_peak_shaving_soc",
+            "grid_peak_shaving_soc_2",
+            "grid_peak_shaving_volt",
+            "grid_peak_shaving_volt_2",
+        } <= REGIME_GATED_CONTROLS
+        # PS1/PS2 power are power levels, not stop limits — never gated.
+        assert "grid_peak_shaving_power" not in REGIME_GATED_CONTROLS
+        assert "grid_peak_shaving_power_2" not in REGIME_GATED_CONTROLS
+
+    @pytest.mark.parametrize(
+        ("key", "expected"),
+        [
+            ("grid_peak_shaving_soc", ("discharge", "soc")),
+            ("grid_peak_shaving_soc_2", ("discharge", "soc")),
+            ("grid_peak_shaving_volt", ("discharge", "voltage")),
+            ("grid_peak_shaving_volt_2", ("discharge", "voltage")),
+        ],
+    )
+    def test_classification(self, key: str, expected: tuple[str, str]) -> None:
+        assert control_side_and_mode(key) == expected
+        assert is_control_active(key, CONTROL_MODE_SOC, expected[1]) is True
+        other = CONTROL_MODE_VOLTAGE if expected[1] == "soc" else CONTROL_MODE_SOC
+        assert is_control_active(key, CONTROL_MODE_SOC, other) is False
+        assert control_side_and_mode("grid_peak_shaving_power_2") is None
+
+    @pytest.mark.parametrize(
+        ("soc_key", "volt_key"),
+        [
+            ("grid_peak_shaving_soc", "grid_peak_shaving_volt"),
+            ("grid_peak_shaving_soc_2", "grid_peak_shaving_volt_2"),
+        ],
+    )
+    def test_enabled_default_follows_configured_discharge_mode(
+        self, soc_key: str, volt_key: str
+    ) -> None:
+        soc_coordinator = _mock_coordinator(
+            configured=(CONTROL_MODE_SOC, CONTROL_MODE_SOC)
+        )
+        assert (
+            _peak_shaving_number(
+                soc_coordinator, soc_key
+            ).entity_registry_enabled_default
+            is True
+        )
+        assert (
+            _peak_shaving_number(
+                soc_coordinator, volt_key
+            ).entity_registry_enabled_default
+            is False
+        )
+
+        # Discharge side only: the CHARGE regime must not affect these.
+        volt_coordinator = _mock_coordinator(
+            configured=(CONTROL_MODE_SOC, CONTROL_MODE_VOLTAGE)
+        )
+        assert (
+            _peak_shaving_number(
+                volt_coordinator, soc_key
+            ).entity_registry_enabled_default
+            is False
+        )
+        assert (
+            _peak_shaving_number(
+                volt_coordinator, volt_key
+            ).entity_registry_enabled_default
+            is True
+        )
+        charge_volt = _mock_coordinator(
+            configured=(CONTROL_MODE_VOLTAGE, CONTROL_MODE_SOC)
+        )
+        assert (
+            _peak_shaving_number(charge_volt, soc_key).entity_registry_enabled_default
+            is True
+        )
+
+    def test_live_effectiveness_exposed(self) -> None:
+        coordinator = _mock_coordinator(live=(CONTROL_MODE_SOC, CONTROL_MODE_VOLTAGE))
+        entity = _peak_shaving_number(coordinator, "grid_peak_shaving_soc")
+        assert entity.is_control_effective is False
+        assert entity.extra_state_attributes == {
+            "control_regime": "soc",
+            "active_control_mode": CONTROL_MODE_VOLTAGE,
+            "is_effective": False,
+        }

@@ -193,8 +193,8 @@ class TestReadModbusParameters:
             (227, 2),
             # (231, 2) removed: PS1 is reg 206, reg 231 unknown (eg4-gfu5)
             (233, 1),
-            # (209, 4)/(256, 4)/(269, 6)/(206, 1) absent: Peak Shaving/
-            # Generator/Off-Grid schedules and the PS power register are
+            # (206, 7)/(218, 2)/(232, 1)/(256, 4)/(269, 6) absent: the daily
+            # Peak Shaving block (#592), Generator and Off-Grid schedules are
             # EG4_HYBRID/OFFGRID-gated (pylxpweb #209, #328).
         ]
         assert "PARAM_A" in result
@@ -229,11 +229,11 @@ class TestReadModbusParameters:
         ] == []
 
     async def test_hybrid_device_reads_schedule_ranges(self, hass, local_config_entry):
-        """EG4_HYBRID devices additionally poll Peak Shaving (209-212),
-        Generator (256-259) and Off-Grid (269-274) as three separate reads —
-        the Generator read is split from Off-Grid to skip the
-        deliberately-unmapped 260-268 zone. AC First (152, 6) stays absent
-        (EG4_OFFGRID-only)."""
+        """EG4_HYBRID devices additionally poll the daily Peak Shaving block
+        (206-212 in one read, 218-219, 232 — #592), Generator (256-259) and
+        Off-Grid (269-274) as separate reads — the Generator read is split
+        from Off-Grid to skip the deliberately-unmapped 260-268 zone. AC
+        First (152, 6) stays absent (EG4_OFFGRID-only)."""
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
 
@@ -248,12 +248,15 @@ class TestReadModbusParameters:
         called_ranges = [
             call.args for call in mock_transport.read_named_parameters.call_args_list
         ]
-        assert (209, 4) in called_ranges
+        # #592: PS1 power + period-1 SOC/voltage + the two windows in ONE
+        # read (replaces the former (209, 4) + (206, 1) pair).
+        assert (206, 7) in called_ranges
+        assert (209, 4) not in called_ranges
+        assert (206, 1) not in called_ranges
+        assert (218, 2) in called_ranges  # period-2 SOC/voltage
+        assert (232, 1) in called_ranges  # PS2 power
         assert (256, 4) in called_ranges
         assert (269, 6) in called_ranges
-        # Grid Peak Shaving Power (reg 206, #328): without this read the
-        # PS power number sat unknown in LOCAL mode (3.4.0-final sweep).
-        assert (206, 1) in called_ranges
         # Never a span that crosses the unmapped 260-268 zone.
         assert (256, 19) not in called_ranges
         assert (152, 6) not in called_ranges
@@ -279,10 +282,12 @@ class TestReadModbusParameters:
             call.args for call in mock_transport.read_named_parameters.call_args_list
         ]
         assert (256, 4) in called_ranges
-        assert (209, 4) not in called_ranges
         assert (269, 6) not in called_ranges
-        # PS power (206) params are likewise absent on the SNA probe.
-        assert (206, 1) not in called_ranges
+        # The daily Peak Shaving block (#592) is likewise absent on the SNA
+        # probe — and 219-221 there is the LSP-bypass bitmap.
+        assert (206, 7) not in called_ranges
+        assert (218, 2) not in called_ranges
+        assert (232, 1) not in called_ranges
 
     async def test_offgrid_device_reads_ac_first_range(self, hass, local_config_entry):
         """EG4_OFFGRID devices additionally poll the AC First schedule
@@ -444,31 +449,63 @@ class TestReadModbusParameters:
             assert (158, 2) in called_ranges
             assert (158, 4) not in called_ranges
 
-    async def test_peak_shaving_registers_not_read_locally(
-        self, hass, local_config_entry
-    ):
-        """Registers 231-232 must not be in the local parameter read plan.
+    # The daily Grid Peak Shaving frame (#592): PS1 power/SOC/voltage
+    # (206-208), the two schedule windows (209-212), period-2 SOC/voltage
+    # (218-219) and PS2 power (232).
+    _PEAK_SHAVING_FRAME = frozenset(range(206, 213)) | {218, 219, 232}
+    # Never read: 213-217 (unmapped), 229-231 (231 is an unknown field —
+    # the old PS1 mapping was wrong, eg4-gfu5) and 220-221 (LSP-bypass
+    # bitmap on the SNA probe).
+    _PEAK_SHAVING_NEVER = (
+        frozenset(range(213, 218)) | {220, 221} | frozenset(range(229, 232))
+    )
 
-        eg4-gfu5: 231 is an unknown register (the old PS1 mapping was wrong)
-        and the true PS family registers (206-208/218-219/232) stay unread
-        until their raw encodings are verified.
-        """
+    async def _read_registers(
+        self, hass, local_config_entry, device_data: dict | None
+    ) -> set[int]:
         local_config_entry.add_to_hass(hass)
         coordinator = EG4DataUpdateCoordinator(hass, local_config_entry)
-
         mock_transport = make_transport_spec()
         mock_transport.read_named_parameters.return_value = {}
-
-        await coordinator._read_modbus_parameters(mock_transport)
-
+        await coordinator._read_modbus_parameters(mock_transport, device_data)
         read_registers: set[int] = set()
         for call in mock_transport.read_named_parameters.call_args_list:
             start, count = call.args
             read_registers.update(range(start, start + count))
-        assert 231 not in read_registers
-        assert 232 not in read_registers
-        # True PS1 register also unread until raw encoding is verified
-        assert 206 not in read_registers
+        return read_registers
+
+    @pytest.mark.parametrize(
+        "device_data",
+        [None, {}, {"features": {"inverter_family": "EG4_OFFGRID"}}],
+        ids=["no-device-data", "unknown-family", "offgrid"],
+    )
+    async def test_peak_shaving_registers_not_read_locally(
+        self, hass, local_config_entry, device_data
+    ):
+        """The daily Peak Shaving frame is hybrid-gated (#592): none of
+        206-212/218-219/232 is read on an unknown or off-grid family (the SNA
+        probe shows the PS params absent and 219-221 as the LSP-bypass
+        bitmap), and 231 is never read on any family (eg4-gfu5)."""
+        read_registers = await self._read_registers(
+            hass, local_config_entry, device_data
+        )
+        assert not (read_registers & self._PEAK_SHAVING_FRAME), sorted(
+            read_registers & self._PEAK_SHAVING_FRAME
+        )
+        assert not (read_registers & self._PEAK_SHAVING_NEVER)
+
+    async def test_peak_shaving_frame_read_on_hybrid(self, hass, local_config_entry):
+        """EG4_HYBRID reads exactly the daily Peak Shaving frame (#592) and
+        never spans the unmapped 213-217 or 229-231 gaps."""
+        read_registers = await self._read_registers(
+            hass, local_config_entry, {"features": {"inverter_family": "EG4_HYBRID"}}
+        )
+        assert self._PEAK_SHAVING_FRAME <= read_registers, sorted(
+            self._PEAK_SHAVING_FRAME - read_registers
+        )
+        assert not (read_registers & self._PEAK_SHAVING_NEVER), sorted(
+            read_registers & self._PEAK_SHAVING_NEVER
+        )
 
     async def test_partial_failure_continues(self, hass, local_config_entry):
         """One register range failing doesn't stop the rest."""
@@ -1333,14 +1370,15 @@ class TestStickyParameterCarryForward:
 
 
 # Targeted parameter reads per cycle for the seeded FlexBOSS21 (model-fallback
-# family EG4_HYBRID): 13 base ranges in _read_modbus_parameters() plus the 3
-# family-gated schedule ranges — Peak Shaving (209,4), Generator (256,4) and
-# Off-Grid (269,6) — added by the beta.22 schedule families (GH #295 / PR
-# #312).  PR #313 landed these tests with the pre-#312 count of 13; both PRs
-# were green alone but the merged branch reads 16 (merge skew, not a bug).
-# 17th read: Grid Peak Shaving Power (206,1), hybrid-family-gated (#328 —
-# the 3.4.0-final sweep found the PS number unknown in LOCAL mode).
-_EXPECTED_HYBRID_READS = 17
+# family EG4_HYBRID): 13 base ranges in _read_modbus_parameters() plus the 5
+# family-gated ranges — the daily Peak Shaving block (206,7) [PS1 power +
+# period-1 SOC/voltage + both schedule windows], its period-2 floors (218,2)
+# and PS2 power (232,1) (#592), Generator (256,4) and Off-Grid (269,6) (GH
+# #295 / PR #312, #328) = 18. History: PR #313 landed these tests with the
+# pre-#312 count of 13, the merged branch read 16 (merge skew, not a bug),
+# #328's (206,1) made it 17, and #592 merged (209,4)+(206,1) into (206,7)
+# while adding (218,2)+(232,1) — net +1.
+_EXPECTED_HYBRID_READS = 18
 
 
 class TestLinkDownParameterGateCycle:
