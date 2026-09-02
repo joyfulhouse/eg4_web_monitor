@@ -894,3 +894,11 @@ library/keeper range — floor set to 0; reg 160's hybrid-side 90 write cap is t
 same evidence tier and is now annotated as such in the entity docstring, not
 changed. Rule recorded: a read plausibility window must never be tighter than the
 widest bound any writer accepts.
+
+## [2026-09-02] repin | Release-cut re-pin — PR #605 merged as 041032f
+
+The #603 fix (two H105 keeper rows, reg 227 floor, contract tests) merged to
+mainline as `041032f`; the [registers keeper](40-hardware/registers.md) is re-pinned
+to it with `last-verified: 2026-09-02` (its pylxpweb pin moved to `c78ab7e` in the
+#603 ingest above). Performed in the v3.5.1-beta.14 release change set (pylxpweb
+pin 0.10.0b7).

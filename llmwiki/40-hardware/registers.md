@@ -35,6 +35,7 @@ sources:
   - https://github.com/joyfulhouse/pylxpweb/issues/272
   - https://github.com/joyfulhouse/pylxpweb/pull/273
 verified-against:
+  # Re-pinned at the 2026-09-02 beta.14 release cut: PR #605 merged as 041032f.
   # The pin is commit-only per _conventions.md (machine tooling passes it to
   # git show) and covers the pre-existing claims, verified at e9853eb
   # (v3.5.1-beta.12 mainline, contains the PR #569 routing). Rows
@@ -53,7 +54,7 @@ verified-against:
   # H160 min 0 -> 1 (PR #273 for #271/#272 — already carried per claim by
   # the H66/H160 rows below and shipped family-scoped in the integration).
   # Inline ab87902 blob links on older rows remain valid historical URLs.
-  eg4_web_monitor: d8e2027
+  eg4_web_monitor: 041032f
   pylxpweb: c78ab7e
 last-verified: 2026-09-02
 ---
