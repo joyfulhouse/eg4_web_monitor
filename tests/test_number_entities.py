@@ -4786,9 +4786,13 @@ class TestPeakShavingLocalWrites:
         coordinator.client = None
         _hybrid(coordinator)
         entity = _peak_shaving_entity(coordinator, key)
-        with pytest.raises(HomeAssistantError, match="must be between"):
+        with pytest.raises(HomeAssistantError, match="must be between") as err:
             await entity.async_set_native_value(bad)
         coordinator.write_named_parameter.assert_not_called()
+        # User-facing text keeps the "SOC" acronym (no .capitalize()).
+        if key.startswith("grid_peak_shaving_soc"):
+            assert "SOC" in str(err.value)
+        assert str(err.value)[0] == "G"
 
     @pytest.mark.asyncio
     async def test_soc_rejects_fractional(self):
@@ -4796,9 +4800,10 @@ class TestPeakShavingLocalWrites:
         coordinator.client = None
         _hybrid(coordinator)
         entity = _peak_shaving_entity(coordinator, "grid_peak_shaving_soc")
-        with pytest.raises(HomeAssistantError, match="integer"):
+        with pytest.raises(HomeAssistantError, match="integer") as err:
             await entity.async_set_native_value(80.5)
         coordinator.write_named_parameter.assert_not_called()
+        assert "Grid peak shaving SOC 1" in str(err.value)
 
     @pytest.mark.asyncio
     async def test_ineffective_regime_warns_without_attr_name(self, caplog):

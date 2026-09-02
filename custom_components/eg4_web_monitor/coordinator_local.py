@@ -652,9 +652,11 @@ class LocalTransportMixin(_MixinBase):
                 (227, 2),  # System charge SOC limit (227) + voltage limit (228)
                 # Registers 231-232 were once read here as "grid peak shaving
                 # power" — removed (eg4-gfu5): PS1 actually lives at reg 206
-                # (231 is an unknown, unnamed register). Since #328 verified
-                # the deci-kW encoding, reg 206 is read via the family-gated
-                # (206, 1) entry in hybrid_schedule_ranges above.
+                # (231 is an unknown, unnamed register). Reg 206 is read via
+                # the family-gated (206, 7) daily peak-shaving frame in
+                # hybrid_schedule_ranges above (PS1 power + period-1 SOC /
+                # voltage + both schedule windows, #328/#592); PS2 power (232)
+                # has its own single-register entry there.
                 (233, 1),  # Extended functions 2 (FUNC_BATTERY_BACKUP_CTRL, etc.)
                 # Peak Shaving / Generator / Off-Grid schedules — EG4_HYBRID
                 # only (209-212, 256-274). See hybrid_schedule_ranges above.

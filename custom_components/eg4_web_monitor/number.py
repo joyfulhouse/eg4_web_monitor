@@ -1679,7 +1679,7 @@ class PeakShavingNumber(EG4BaseNumberEntity):
         if spec.div10:
             if value < spec.min_value or value > spec.max_value:
                 raise HomeAssistantError(
-                    f"{spec.label.capitalize()} must be between "
+                    f"{spec.label[0].upper()}{spec.label[1:]} must be between "
                     f"{spec.min_value}-{spec.max_value} {spec.unit}, got {value}"
                 )
             write_value = round(value, 1)
@@ -1689,7 +1689,8 @@ class PeakShavingNumber(EG4BaseNumberEntity):
                 value,
                 min_v=int(spec.min_value),
                 max_v=int(spec.max_value),
-                label=spec.label.capitalize(),
+                # Not .capitalize(): that lowercases the "SOC" acronym.
+                label=f"{spec.label[0].upper()}{spec.label[1:]}",
                 require_integer=True,
             )
             shown = f"{write_value}{spec.unit}"
