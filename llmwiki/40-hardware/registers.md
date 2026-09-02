@@ -2,6 +2,8 @@
 canonical-for: inverter-and-gridboss-register-ground-truth
 sources:
   - docs/DATA_MAPPING.md
+  - "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
+  - "pylxpweb PR #322 / c78ab7e (0.10.0b7): H105 canonical ceiling 100"
   - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
@@ -43,17 +45,22 @@ verified-against:
   # survives branch deletion; embedded SHAs staled twice in review).
   # Re-pinned at the 2026-08-30 release cut: PR #600 merged as d8e2027, so
   # the sweep-extended rows now verify at the mainline pin below (inline
-  # PR #600 / issue #570 citations remain as provenance). pylxpweb stays
-  # ab87902 (0.9.39b11); the #271/#272 range fixes merged after it and are
-  # cited by PR number (pylxpweb #273), not by pin.
+  # PR #600 / issue #570 citations remain as provenance). pylxpweb was
+  # ab87902 (0.9.39b11) until the 2026-09-02 #603 ingest moved it to
+  # c78ab7e (0.10.0b7). Holding-definition deltas between the two pins
+  # (git diff ab87902..c78ab7e -- registers/inverter_holding.py): H105
+  # ceiling 90 -> 100 (PR #322, this ingest); H66 max 15000 -> 10000 and
+  # H160 min 0 -> 1 (PR #273 for #271/#272 — already carried per claim by
+  # the H66/H160 rows below and shipped family-scoped in the integration).
+  # Inline ab87902 blob links on older rows remain valid historical URLs.
   eg4_web_monitor: d8e2027
-  pylxpweb: ab87902
-last-verified: 2026-08-30
+  pylxpweb: c78ab7e
+last-verified: 2026-09-02
 ---
 
 # Register ground truth
 
-> **Audited result: 41 of 346 counted current register claims are proven: 33 `firmware-proven` + 8 `hardware-toggle-proven` = 41; 33 + 8 + 170 `portal-correlated` + 135 `lineage-inferred` = 346.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
+> **Audited result: 41 of 348 counted current register claims are proven: 33 `firmware-proven` + 8 `hardware-toggle-proven` = 41; 33 + 8 + 171 `portal-correlated` + 135 `lineage-inferred` + 1 `inferred` = 348.** The arithmetic and row contributions are reproducible from the audit command below; this accounting assertion is `asserted-unverified`, not a code-behavior claim. Register semantics retain their own row grades.
 
 This page is canonical for register semantics and evidence status. **When it conflicts with [`docs/DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), this page wins.** `DATA_MAPPING.md` remains a useful implementation/derivation source, but its names and derivations are subordinate to the family scope, evidence grade, and status recorded here.
 
@@ -66,12 +73,12 @@ The grade vocabulary is owned by the [llmwiki evidence-grade legend](../README.m
 | `firmware-proven` | 33 | yes |
 | `hardware-toggle-proven` | 8 | yes |
 | `app-write-path-proven` | 0 | no |
-| `portal-correlated` | 170 | no |
+| `portal-correlated` | 171 | no |
 | `lineage-inferred` | 135 | no |
-| `inferred` | 0 | no |
+| `inferred` | 1 | no |
 | `verified-against-code` | 0 | no |
 | `asserted-unverified` | 0 | no; candidate rows are excluded |
-| **Current total** | **346** | **41 proven (11.8%)** |
+| **Current total** | **348** | **41 proven (11.8%)** |
 
 The `Claim count` column is the machine-checkable contribution. One separately named semantic is one claim; a U32 low/high pair is one; family-specific meanings are separate; a compound packed-word contract is one claim unless its bits are separately exposed as independent semantics. Structural-only, candidate, unknown, and `asserted-unverified` rows contribute zero. Refuted historic labels are outside the counted ledger. The markers around the ledger allow an `awk -F'|'` sum of column 7 to reproduce every subtotal.
 
@@ -222,6 +229,8 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H101/H102 | Charge/discharge current limits, A | all | `lineage-inferred` | current | 2 | Canonical definitions; reviewed source contains no controlled capture. |
 | H103 | Maximum grid sell-back power, raw ×100 W / UI kW | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` raw/UI correlation; not percent. |
 | H105 | On-grid discharge SOC cutoff | grid-tied | `lineage-inferred` | current | 1 | Canonical holding definition. |
+| H105 | A portal-typed 95 is stored and read back (the 90 was the portal arrow-button hint, copied into pylxpweb and — beta.13, PR #600 round 2 — into the entity) | LXP-LB-US 10K (reporter unit, hybrid) | `portal-correlated` | current on the reported unit | 1 | [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter diagnostics (`HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`) + portal screenshot. Readback proves storage, not semantics. |
+| H105 | Exact write ceiling is 100 (101 rejected per the reporter; 96–100 never individually written) and the 10 floor is a portal hint only | LXP-LB-US 10K; other families unconfirmed | `inferred` | current | 1 | Bound adopted by [pylxpweb `c78ab7e`](https://github.com/joyfulhouse/pylxpweb/commit/c78ab7e) (PR #322, shipped 0.10.0b7) and the entity; the page-level pylxpweb pin is that commit. The firmware exception stays the authoritative reject path. **Both ends unproven** — a delta-test at 100 and at 9 would settle it. |
 | H110 | Shared system-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_110_PARAM_KEYS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L642-L659) and [`REGISTER_TO_PARAM_KEYS[110]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L777-L782) define the structure. Never inherit a bit’s grade to the whole word or another family. |
 | H116 | Import threshold to start discharge, W | grid-tied; CT required | `portal-correlated` | current | 1 | `DATA_MAPPING.md`; whole watts, not ×100 W. |
 | H117 | Start-charge threshold, signed W | LOCAL/HYBRID | `asserted-unverified` | unresolved | 0 | [`DATA_MAPPING.md` H117 note](../../docs/DATA_MAPPING.md#power-control-registers); no cloud name or validated behavior. |
@@ -248,7 +257,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H209-H212 | Peak-shaving window 1-2 packed times | `EG4_HYBRID` | `portal-correlated` | current | 4 | `SCHEDULE_TIME_TYPES` records FlexBOSS21 FAAB-2525 01:05 → H211 raw 1281. |
 | H218 | Peak-shaving period-2 SOC, % | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
 | H219 | Peak-shaving period-2 voltage, 0.1 V | `EG4_HYBRID` | `portal-correlated` | current | 1 | Raw/portal correlation in canonical holding map. |
-| H227 | System charge SOC limit, 0-101% | tested 18kPV | `hardware-toggle-proven` | current on tested unit; cross-family write risk unresolved | 1 | Named System Charge SOC Limit action and raw 80→101→80 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/soc-charge-limit-101-top-balance.md`. Shipped-path fact (`verified-against-code`): `_create_number_entities` adds `SystemChargeSOCLimitNumber` to the always-on block for every supported inverter reaching it, with no family gate. Routing since the [#570 audit](https://github.com/joyfulhouse/eg4_web_monitor/issues/570) (this change set): the write passes `local_write_blocked_reason` from `_offgrid_cloud_only_reason`, so EG4_OFFGRID and unresolved/UNKNOWN families route CLOUD-ONLY and pure-LOCAL raises; a positively resolved non-off-grid family keeps the local-first route (HYBRID may fall back to cloud; LOCAL has no fallback). Code anchors: `number.py::SystemChargeSOCLimitNumber.async_set_native_value`, `number.py::_offgrid_cloud_only_reason`, `utils.py::async_write_with_cloud_fallback`. Residual risk (`inferred`): the local-first route on resolved non-off-grid families still exceeds the tested-unit evidence scope — do not assume a local write is established on FlexBOSS21, 12kPV, or another untested target. History: escalated on [issue #558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558#issuecomment-5232409553); pre-#570 the write was local-first with no family gate at all. |
+| H227 | System charge SOC limit; the 101 top-balance end is the proven part (0–101 is the pinned library range — the 0 floor is untested) | tested 18kPV | `hardware-toggle-proven` | current on tested unit; cross-family write risk unresolved | 1 | Named System Charge SOC Limit action and raw 80→101→80 restoration; component firmware version unrecorded — scope limited to the tested unit. `memory/soc-charge-limit-101-top-balance.md`. Shipped-path fact (`verified-against-code`): `_create_number_entities` adds `SystemChargeSOCLimitNumber` to the always-on block for every supported inverter reaching it, with no family gate. Routing since the [#570 audit](https://github.com/joyfulhouse/eg4_web_monitor/issues/570) (this change set): the write passes `local_write_blocked_reason` from `_offgrid_cloud_only_reason`, so EG4_OFFGRID and unresolved/UNKNOWN families route CLOUD-ONLY and pure-LOCAL raises; a positively resolved non-off-grid family keeps the local-first route (HYBRID may fall back to cloud; LOCAL has no fallback). Code anchors: `number.py::SystemChargeSOCLimitNumber.async_set_native_value`, `number.py::_offgrid_cloud_only_reason`, `utils.py::async_write_with_cloud_fallback`. Residual risk (`inferred`): the local-first route on resolved non-off-grid families still exceeds the tested-unit evidence scope — do not assume a local write is established on FlexBOSS21, 12kPV, or another untested target. History: escalated on [issue #558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558#issuecomment-5232409553); pre-#570 the write was local-first with no family gate at all. |
 | H228 | System charge voltage limit, 0.1 V | voltage-control units | `portal-correlated` | current | 1 | The source preserves raw 595 ↔ cloud 59.5 V at baseline, but the 59.5→59.4→59.5 V action/restoration is recorded only as scaled engineering values; integer register words for the changed and restored states were not preserved; target family unrecorded. `memory/voltage-param-scaling-cloud-vs-local.md`; `memory/cloud-raw-register-write-broken.md`. |
 | H231 | Unknown field; historic peak-shaving/high-word label false | tested hybrid | `portal-correlated` | unresolved | 0 | Single-register reads and quantization contradict the old label; no current semantic is counted. |
 | H232 | Peak-shaving period-2 power, 0.1 kW | `EG4_HYBRID` | `portal-correlated` | current | 1 | `memory/live-write-window-findings.md`; not H231’s high word. |
@@ -385,7 +394,7 @@ No raw wire evidence establishes a firmware-level FC16 rejection. The current in
 
 ## Must-not-regress register claims
 
-These historic claims are excluded from the 346-current-claim denominator. `refuted` is a status; **Evidence** grades the disproof.
+These historic claims are excluded from the 348-current-claim denominator. `refuted` is a status; **Evidence** grades the disproof.
 
 | Historic claim | Evidence | Status | Current bounded result | Durable basis |
 |---|---|---|---|---|

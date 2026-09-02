@@ -688,9 +688,79 @@ class TestReadParamValueDict:
         entity = OnGridSOCCutoffNumber(coordinator, "1234567890")
         assert entity.native_value == 15
 
+    @pytest.mark.parametrize("stored", [95, 100, 5])
+    def test_reads_portal_stored_value_outside_write_bounds(self, stored):
+        """#603: the read window is 0-100, wider than the 10-100 write bounds.
+
+        The portal stores any value the firmware accepts (a typed 95 on an
+        LXP-LB-US 10K); the entity must display it, never blank to unknown.
+        """
+        coordinator = _mock_coordinator(
+            inverter_attrs={"battery_soc_limits": {"on_grid_limit": stored}},
+        )
+        entity = OnGridSOCCutoffNumber(coordinator, "1234567890")
+        assert entity.native_value == stored
+        assert entity.native_max_value == 100
+
+    def test_rejects_value_above_100_as_implausible(self):
+        """101+ is outside anything the firmware stores (inverter rejects >100)."""
+        coordinator = _mock_coordinator(
+            inverter_attrs={"battery_soc_limits": {"on_grid_limit": 101}},
+        )
+        entity = OnGridSOCCutoffNumber(coordinator, "1234567890")
+        assert entity.native_value is None
+
 
 class TestReadParamValueParamsFirst:
     """Test _read_param_value with params_first=True (via SystemChargeSOCLimitNumber)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [0.0, 9.0])
+    async def test_writes_below_former_10_floor(self, value):
+        """The WRITE path accepts 0-9 too (reg 227 is 0-101) — the beta.13
+        entity hardcoded a 10 floor in async_set_native_value that the read
+        test alone did not exercise (review on the #603 fix)."""
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        coordinator.is_transport_link_down = MagicMock(return_value=True)
+        result = MagicMock()
+        result.success = True
+        coordinator.client = MagicMock()
+        coordinator.client.api.control.set_system_charge_soc_limit = AsyncMock(
+            return_value=result
+        )
+        entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.client.api.control.set_system_charge_soc_limit.assert_awaited_once()
+        assert (
+            coordinator.client.api.control.set_system_charge_soc_limit.await_args.args[
+                1
+            ]
+            == int(value)
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [-1.0, 102.0])
+    async def test_rejects_outside_0_101(self, value):
+        coordinator = _mock_coordinator(has_local=True, has_http=True)
+        entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError, match=r"0-101"):
+            await entity.async_set_native_value(value)
+
+    @pytest.mark.parametrize("stored", [0, 5, 9])
+    def test_reads_below_former_10_floor(self, stored):
+        """Reg 227 is 0-101 (library + hardware-proven); a portal-set 0-9 must
+        display and the slider must advertise 0 (same defect class as #603)."""
+        coordinator = _mock_coordinator(
+            parameters={"HOLD_SYSTEM_CHARGE_SOC_LIMIT": stored},
+        )
+        entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
+        assert entity.native_value == stored
+        assert entity.native_min_value == 0
 
     def test_params_first_order(self):
         """With params_first, reads params before inverter."""
@@ -1217,15 +1287,15 @@ class TestSystemChargeSOCWrite:
 
     @pytest.mark.asyncio
     async def test_write_below_range_raises(self):
-        """Below 10% raises HomeAssistantError."""
+        """Below 0% raises HomeAssistantError (the floor is 0, not 10 — #603)."""
         coordinator = _mock_coordinator()
         entity = SystemChargeSOCLimitNumber(coordinator, "1234567890")
         entity.hass = MagicMock()
 
         with pytest.raises(
-            HomeAssistantError, match="must be an integer between 10-101"
+            HomeAssistantError, match="must be an integer between 0-101"
         ):
-            await entity.async_set_native_value(5.0)
+            await entity.async_set_native_value(-1.0)
 
 
 # ── Forced discharge controls (regs 82/83, GH #207 / PR #249) ────────

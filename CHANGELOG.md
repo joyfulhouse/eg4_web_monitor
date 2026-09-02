@@ -5,6 +5,15 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Requires **[pylxpweb==0.10.0b7](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b7)**.
+
+### Fixed
+
+- **On-Grid SOC Cut-Off accepts 91–100 % again and no longer reads unknown for portal-set values** ([#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603)): beta.13 (PR [#600](https://github.com/joyfulhouse/eg4_web_monitor/pull/600) review round 2) matched the entity to pylxpweb's 10–90 bound for register 105, but that 90 was the portal's arrow-button hint, not a firmware limit — the inverter stores a portal-typed 95 and rejects 101 (96–100 are inferred from that pair). The write ceiling is 100 (companion fix in pylxpweb 0.10.0b7), and the read plausibility window is the full 0–100 so a stored value never blanks. Users who keep batteries full ahead of outages can set the cut-off from HA again.
+- **System Charge SOC Limit accepts 0–9 %** — the same class of defect: an evidence-free 10 floor against pylxpweb's 0–101 range would have blanked a portal-set value below 10 to unknown and refused to write one.
+
 ## [3.5.1-beta.13] - 2026-08-30
 
 Requires **[pylxpweb==0.10.0b5](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b5)**.
@@ -19,7 +28,7 @@ Requires **[pylxpweb==0.10.0b5](https://github.com/joyfulhouse/pylxpweb/releases
 
 ### Changed
 
-- **Off-grid write-evidence audit — every off-grid-writable control derived and fail-closed** ([#570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570), PR [#600](https://github.com/joyfulhouse/eg4_web_monitor/pull/600)): the #558 protected set is now *derived*, not spot-checked. All writable scalars, the quick-charge switch/status path, schedule time entities, and Grid Peak-Shaving Power route cloud-only on EG4_OFFGRID **and unresolved** families (fail-closed, verified against the pinned pylxpweb wheel); resolved non-off-grid families keep local-first behavior. Entity ranges now respect firmware-proven off-grid limits (H66 ≤ 10 kW, H158 39–57 V, H159 48–59 V, H160 ≥ 1 %, H161 ≥ 20 %, H105 10–90 %) with family-scoped bounds. Cloud-routed writes converge cleanly via per-key write-seed settle windows with a one-shot settle-expiry recheck. The llmwiki register ledger carries per-register write-evidence grades from the firmware RE + live hardware sweep, including the H161 write anomaly and the H233 CEAA/CCAA split.
+- **Off-grid write-evidence audit — every off-grid-writable control derived and fail-closed** ([#570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570), PR [#600](https://github.com/joyfulhouse/eg4_web_monitor/pull/600)): the #558 protected set is now *derived*, not spot-checked. All writable scalars, the quick-charge switch/status path, schedule time entities, and Grid Peak-Shaving Power route cloud-only on EG4_OFFGRID **and unresolved** families (fail-closed, verified against the pinned pylxpweb wheel); resolved non-off-grid families keep local-first behavior. Entity ranges now respect firmware-proven off-grid limits (H66 ≤ 10 kW, H158 39–57 V, H159 48–59 V, H160 ≥ 1 %, H161 ≥ 20 %, H105 10–90 % — the H105 ceiling was the then-pinned library bound, not firmware-proven; superseded by #603 in the next beta) with family-scoped bounds. Cloud-routed writes converge cleanly via per-key write-seed settle windows with a one-shot settle-expiry recheck. The llmwiki register ledger carries per-register write-evidence grades from the firmware RE + live hardware sweep, including the H161 write anomaly and the H233 CEAA/CCAA split.
 - **Immutable raw-register snapshot store (Phase A3)** ([#583](https://github.com/joyfulhouse/eg4_web_monitor/issues/583), PR [#586](https://github.com/joyfulhouse/eg4_web_monitor/pull/586)): eligible LOCAL/HYBRID owners publish exactly one immutable latest-complete raw frame per (endpoint, unit) — atomic publication only when every invoked read contributed and coverage held, O(1) storage, monotonic freshness policy, zero additional Modbus reads, redacted metrics only, and clean teardown (shared-owner-safe forced release on unload).
 
 ## [3.5.1-beta.12] - 2026-08-28

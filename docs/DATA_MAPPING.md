@@ -780,7 +780,7 @@ per boundary). Cloud param names take the window suffix
 |-----|---------------|-------------|------|-------|
 | 101 | `charge_current` | number | A | 0-140 |
 | 102 | `discharge_current` | number | A | 0-140 |
-| 105 | `ongrid_discharge_soc` | number | % | 10-90 |
+| 105 | `ongrid_discharge_soc` | number | % | 10-100 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
 | 160 | `ac_charge_start_battery_soc` | number | % | 0-90 |
 | 161 | `ac_charge_end_battery_soc` | number | % | 0-100 |
@@ -964,11 +964,11 @@ integration 3.4.0 / pylxpweb 0.9.36b1.
 | Reg | EG4 Param Key | HA Entity Key | Side / Mode | Unit | Range |
 |-----|---------------|---------------|-------------|------|-------|
 | 67  | `HOLD_AC_CHARGE_SOC_LIMIT` | `ac_charge_soc_limit` | charge / SOC | % | 0-100 |
-| 227 | `HOLD_SYSTEM_CHARGE_SOC_LIMIT` | `system_charge_soc_limit` | charge / SOC | % | 10-101 |
+| 227 | `HOLD_SYSTEM_CHARGE_SOC_LIMIT` | `system_charge_soc_limit` | charge / SOC | % | 0-101 |
 | 228 | `HOLD_SYSTEM_CHARGE_VOLT_LIMIT` | `system_charge_volt_limit` | charge / Voltage | V | 40-64 |
 | 158 | `HOLD_AC_CHARGE_START_BATTERY_VOLTAGE` | `ac_charge_start_voltage` | charge / Voltage | V | 38-60 |
 | 159 | `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` | `ac_charge_end_voltage` | charge / Voltage | V | 38-60 |
-| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 10-90 |
+| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 10-100 |
 | 125 | `HOLD_SOC_LOW_LIMIT_EPS_DISCHG` | `off_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
 | 169 | `HOLD_ON_GRID_EOD_VOLTAGE` | `on_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
 | 100 | `HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT` | `off_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |

@@ -62,14 +62,19 @@ SOC_LIMIT_MIN = 0
 SOC_LIMIT_MAX = 100
 SOC_LIMIT_STEP = 1
 
-# On-grid discharge cutoff (reg 105). Narrower than the shared SOC_LIMIT_*:
-# the canonical H105 definition (pylxpweb inverter_holding.py, address 105)
-# and the cloud writer set_battery_soc_limits both enforce 10-90%, so the
-# entity must advertise the same range or off-grid cloud-only routes surface
-# a raw ValueError at the boundaries (#570 review round 2). The off-grid
-# cutoff (reg 125) is genuinely 0-100 and keeps SOC_LIMIT_*.
+# On-grid discharge cutoff (reg 105) WRITE bounds. These mirror pylxpweb's
+# canonical H105 definition and set_battery_soc_limits so an off-grid
+# cloud-only route never surfaces a raw ValueError at a boundary (#570
+# review round 2). The 90 ceiling that round copied from the library was the
+# portal's arrow-button hint, not a firmware bound: a portal-typed 95 is
+# stored (reporter diagnostics, LXP-LB-US 10K, #603) and only >100 is
+# rejected by the inverter, so the ceiling is 100. The 10 floor is the same
+# kind of hint — unproven either way — and is kept as shipped. The READ
+# plausibility window is the tolerant SOC_LIMIT_* 0-100 regardless, so a
+# register value the portal stored never blanks to unknown (#603). The
+# off-grid cutoff (reg 125) is genuinely 0-100 and keeps SOC_LIMIT_*.
 ONGRID_SOC_CUTOFF_MIN = 10
-ONGRID_SOC_CUTOFF_MAX = 90
+ONGRID_SOC_CUTOFF_MAX = 100
 
 # AC Charge SOC Limit (reg 67). Separate from the shared SOC_LIMIT_* (used by
 # the on-grid/off-grid discharge cutoffs) because the inverter accepts 101% =
@@ -197,10 +202,16 @@ START_CHARGE_POWER_MAX = 10000
 START_CHARGE_POWER_STEP = 1
 
 # =============================================================================
-# System Charge SOC Limit (%)
+# System Charge SOC Limit (%) — reg 227
 # =============================================================================
+# 0-101 is the pinned LIBRARY contract: pylxpweb's canonical definition and
+# both set_system_charge_soc_limit writers accept 0. The only hardware capture
+# (18kPV, 80 -> 101 -> 80) proves the 101 top-balance end, not the 0 floor —
+# the floor is a library contract, not a hardware claim. The former entity
+# floor of 10 had no evidence either and would have blanked and refused a
+# portal-set 0-9 (same defect class as #603).
 
-SYSTEM_CHARGE_SOC_LIMIT_MIN = 10
+SYSTEM_CHARGE_SOC_LIMIT_MIN = 0
 SYSTEM_CHARGE_SOC_LIMIT_MAX = 101
 SYSTEM_CHARGE_SOC_LIMIT_STEP = 1
 
