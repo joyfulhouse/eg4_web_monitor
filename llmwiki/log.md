@@ -925,3 +925,13 @@ become one `(206, 7)` frame plus `(218, 2)` and `(232, 1)`, hybrid-gated
 keeper is untouched. Also corrected: `docs/DATA_MAPPING.md` claimed register
 231 holds the peak-shaving power (H231 is unknown; PS1 is H206) — that claim
 was already refuted on the keeper and had rotted only in the docs copy.
+
+## [2026-09-02] ingest | v3.5.1-beta.15 release cut — #608 and pylxpweb 0.10.0b8
+
+PR [#608](https://github.com/joyfulhouse/eg4_web_monitor/pull/608) merged as
+`5092b5b`; companion pylxpweb [#327](https://github.com/joyfulhouse/pylxpweb/pull/327)
+merged as `80e8221` and shipped in 0.10.0b8. The
+[registers keeper](40-hardware/registers.md) is re-pinned to both commits. The
+library delta gives H208/H219 the same 40.0–64.0 V bounds as the integration
+(`verified-against-code`); the peak-shaving register semantics remain
+`portal-correlated`, and no evidence grade changed.
