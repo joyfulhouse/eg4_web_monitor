@@ -289,17 +289,18 @@ def test_grid_peak_shaving_soc_bounds_match_pinned_definitions(
     ("canonical_name", "address"),
     [("grid_peak_shaving_volt", 208), ("grid_peak_shaving_volt_2", 219)],
 )
-def test_grid_peak_shaving_volt_bounds_are_a_maintainer_decision(
+def test_grid_peak_shaving_volt_bounds_match_pinned_definitions(
     canonical_name: str, address: int
 ) -> None:
-    """The pinned VOLT rows carry NO min/max, so the 40.0-64.0 V write window
-    is the maintainer's choice (the SYSTEM_CHARGE_VOLT_LIMIT shape). If the
-    library ever gains bounds this test must be revisited against them."""
+    """The pinned VOLT rows and integration share the 40.0-64.0 V bounds."""
     definition = HOLDING_BY_NAME[canonical_name]
     assert definition.address == address
-    assert definition.min_value is None
-    assert definition.max_value is None
-    assert (GRID_PEAK_SHAVING_VOLT_MIN, GRID_PEAK_SHAVING_VOLT_MAX) == (40.0, 64.0)
+    library_bounds = (definition.min_value, definition.max_value)
+    assert library_bounds == (40.0, 64.0)
+    assert library_bounds == (
+        GRID_PEAK_SHAVING_VOLT_MIN,
+        GRID_PEAK_SHAVING_VOLT_MAX,
+    )
 
 
 def test_grid_peak_shaving_volt_read_window_contains_write_window() -> None:

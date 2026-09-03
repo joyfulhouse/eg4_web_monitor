@@ -4,6 +4,9 @@ sources:
   - docs/DATA_MAPPING.md
   - "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
   - "pylxpweb PR #322 / c78ab7e (0.10.0b7): H105 canonical ceiling 100"
+  - "pylxpweb PR #327 / 80e8221 (0.10.0b8): H207/H208/H218/H219 constants, five peak-shaving entity keys, and H208/H219 bounds"
+  - "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H208 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1534-L1544"
+  - "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H219 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1572-L1582"
   - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
@@ -35,6 +38,8 @@ sources:
   - https://github.com/joyfulhouse/pylxpweb/issues/272
   - https://github.com/joyfulhouse/pylxpweb/pull/273
 verified-against:
+  # Re-pinned at the 2026-09-02 beta.15 release cut: PR #608 merged as
+  # 5092b5b and pylxpweb PR #327 merged as 80e8221 (released in 0.10.0b8).
   # Re-pinned at the 2026-09-02 beta.14 release cut: PR #605 merged as 041032f.
   # The pin is commit-only per _conventions.md (machine tooling passes it to
   # git show) and covers the pre-existing claims, verified at e9853eb
@@ -48,14 +53,23 @@ verified-against:
   # the sweep-extended rows now verify at the mainline pin below (inline
   # PR #600 / issue #570 citations remain as provenance). pylxpweb was
   # ab87902 (0.9.39b11) until the 2026-09-02 #603 ingest moved it to
-  # c78ab7e (0.10.0b7). Holding-definition deltas between the two pins
-  # (git diff ab87902..c78ab7e -- registers/inverter_holding.py): H105
+  # c78ab7e (0.10.0b7), then to 80e8221 (0.10.0b8) for the complete
+  # Grid Peak Shaving library surface. Holding-definition deltas from
+  # ab87902 to c78ab7e (git diff ab87902..c78ab7e --
+  # registers/inverter_holding.py): H105
   # ceiling 90 -> 100 (PR #322, this ingest); H66 max 15000 -> 10000 and
   # H160 min 0 -> 1 (PR #273 for #271/#272 — already carried per claim by
   # the H66/H160 rows below and shipped family-scoped in the integration).
+  # The c78ab7e..80e8221 holding-definition delta adds entity keys for
+  # H207/H208/H218/H219/H232 and 40.0-64.0 V bounds to H208/H219; register
+  # semantics and their portal-correlated grades are unchanged. The H208/H219
+  # rows in src/pylxpweb/registers/inverter_holding.py state that these bounds
+  # are a maintainer-chosen guard with no firmware/portal bound captured, so
+  # `verified-against-code` attests only that the rows carry the bounds, not
+  # that the window is hardware-correct (see the two pinned blob sources).
   # Inline ab87902 blob links on older rows remain valid historical URLs.
-  eg4_web_monitor: 041032f
-  pylxpweb: c78ab7e
+  eg4_web_monitor: 5092b5b
+  pylxpweb: 80e8221
 last-verified: 2026-09-02
 ---
 
@@ -231,7 +245,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H103 | Maximum grid sell-back power, raw ×100 W / UI kW | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` raw/UI correlation; not percent. |
 | H105 | On-grid discharge SOC cutoff | grid-tied | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H105 | A portal-typed 95 is stored and read back (the 90 was the portal arrow-button hint, copied into pylxpweb and — beta.13, PR #600 round 2 — into the entity) | LXP-LB-US 10K (reporter unit, hybrid) | `portal-correlated` | current on the reported unit | 1 | [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter diagnostics (`HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`) + portal screenshot. Readback proves storage, not semantics. |
-| H105 | Exact write ceiling is 100 (101 rejected per the reporter; 96–100 never individually written) and the 10 floor is a portal hint only | LXP-LB-US 10K; other families unconfirmed | `inferred` | current | 1 | Bound adopted by [pylxpweb `c78ab7e`](https://github.com/joyfulhouse/pylxpweb/commit/c78ab7e) (PR #322, shipped 0.10.0b7) and the entity; the page-level pylxpweb pin is that commit. The firmware exception stays the authoritative reject path. **Both ends unproven** — a delta-test at 100 and at 9 would settle it. |
+| H105 | Exact write ceiling is 100 (101 rejected per the reporter; 96–100 never individually written) and the 10 floor is a portal hint only | LXP-LB-US 10K; other families unconfirmed | `inferred` | current | 1 | Bound adopted by [pylxpweb `c78ab7e`](https://github.com/joyfulhouse/pylxpweb/commit/c78ab7e) (PR #322, shipped 0.10.0b7) and the entity, and retained at the page-level pylxpweb pin. The firmware exception stays the authoritative reject path. **Both ends unproven** — a delta-test at 100 and at 9 would settle it. |
 | H110 | Shared system-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_110_PARAM_KEYS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L642-L659) and [`REGISTER_TO_PARAM_KEYS[110]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L777-L782) define the structure. Never inherit a bit’s grade to the whole word or another family. |
 | H116 | Import threshold to start discharge, W | grid-tied; CT required | `portal-correlated` | current | 1 | `DATA_MAPPING.md`; whole watts, not ×100 W. |
 | H117 | Start-charge threshold, signed W | LOCAL/HYBRID | `asserted-unverified` | unresolved | 0 | [`DATA_MAPPING.md` H117 note](../../docs/DATA_MAPPING.md#power-control-registers); no cloud name or validated behavior. |
