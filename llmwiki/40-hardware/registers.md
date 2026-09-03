@@ -5,6 +5,8 @@ sources:
   - "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
   - "pylxpweb PR #322 / c78ab7e (0.10.0b7): H105 canonical ceiling 100"
   - "pylxpweb PR #327 / 80e8221 (0.10.0b8): H207/H208/H218/H219 constants, five peak-shaving entity keys, and H208/H219 bounds"
+  - "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H208 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1534-L1544"
+  - "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H219 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1572-L1582"
   - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
@@ -60,7 +62,11 @@ verified-against:
   # the H66/H160 rows below and shipped family-scoped in the integration).
   # The c78ab7e..80e8221 holding-definition delta adds entity keys for
   # H207/H208/H218/H219/H232 and 40.0-64.0 V bounds to H208/H219; register
-  # semantics and their portal-correlated grades are unchanged.
+  # semantics and their portal-correlated grades are unchanged. The H208/H219
+  # rows in src/pylxpweb/registers/inverter_holding.py state that these bounds
+  # are a maintainer-chosen guard with no firmware/portal bound captured, so
+  # `verified-against-code` attests only that the rows carry the bounds, not
+  # that the window is hardware-correct (see the two pinned blob sources).
   # Inline ab87902 blob links on older rows remain valid historical URLs.
   eg4_web_monitor: 5092b5b
   pylxpweb: 80e8221
