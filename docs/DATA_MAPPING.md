@@ -669,7 +669,7 @@ if reg1 & 0x100:
 > equality-checked readback otherwise; off-grid / unresolved families are
 > cloud-only (#558). Only Power 2 pre-checks `FUNC_GRID_PEAK_SHAVING`; whether
 > the firmware NAKs the SOC / voltage rows with the mode off is unverified. The
-> voltage write bounds 40.0–64.0 V are shared with the pinned pylxpweb 0.10.0b8
+> voltage write bounds 40.0–64.0 V are shared with the pinned pylxpweb 0.10.0b9
 > rows ([pylxpweb PR #327](https://github.com/joyfulhouse/pylxpweb/pull/327));
 > both are a maintainer-chosen bracket with no firmware/portal bound captured.
 > The read window is 20-70 V, so any plausible portal-stored

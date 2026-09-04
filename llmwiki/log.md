@@ -952,3 +952,14 @@ pylxpweb's battery protocol classifier. A match now tells the user the device is
 battery and points to #176; a non-match preserves the original error. The integration
 behavior and both flow mappings are `verified-against-code` at `c411499`; the issue's
 hardware observations remain `asserted-unverified` and were not promoted.
+
+## [2026-09-04] ingest | v3.5.1-beta.16 release cut — #574 and pylxpweb 0.10.0b9
+
+The release cut includes the #574 standalone-battery discovery fix from `c411499`
+and its mainline documentation at `1d09823`. The pylxpweb
+[v0.10.0b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b9) tag is
+`f3ced1a` and carries [PR #330](https://github.com/joyfulhouse/pylxpweb/pull/330)
+for issue [#329](https://github.com/joyfulhouse/pylxpweb/issues/329). The
+[registers keeper](40-hardware/registers.md) is re-pinned to both release inputs;
+the pylxpweb delta from `80e8221` to `f3ced1a` changes transport and release files
+but no register definitions, so no register claim or evidence grade changed.

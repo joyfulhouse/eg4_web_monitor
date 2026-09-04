@@ -5,7 +5,13 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.5.1-beta.16] - 2026-09-04
+
+Requires **[pylxpweb==0.10.0b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b9)**.
+
+### Changed
+
+- **Two devices on one WiFi dongle no longer fight for its single local TCP slot** (pylxpweb [#329](https://github.com/joyfulhouse/pylxpweb/issues/329) / PR [#330](https://github.com/joyfulhouse/pylxpweb/pull/330)): Home Assistant now uses one shared, serialized socket per dongle, so the second device should stop being dropped and replies should stop landing on the wrong device. This affects WiFi-dongle LOCAL and HYBRID setups with two or more devices on one dongle; cloud-only, Modbus TCP, serial RS485, and one-device-per-dongle installs are unchanged. No configuration change is needed. As one watch-for, pointing two different dongle serials at the same host:port now fails at connect with a mismatch error instead of silently colliding.
 
 ### Fixed
 
