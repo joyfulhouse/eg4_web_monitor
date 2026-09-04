@@ -3,6 +3,7 @@ canonical-for:
   - the _config_flow package layout and the config_flow.py shim
   - real config-flow step names (onboarding, reauth, reconfigure, options)
   - connection-type derivation
+  - Modbus discovery error classification
   - unique-id construction, conflict detection, entry migration
 sources:
   - custom_components/eg4_web_monitor/_config_flow/__init__.py
@@ -12,9 +13,11 @@ sources:
   - custom_components/eg4_web_monitor/__init__.py
   - tests/conftest.py
   - tests/test_config_flow.py
+  - tests/test_config_flow_scan.py
   - eg4_web_monitor issue #275
-verified-against: 9f6d6e2
-last-verified: 2026-08-08
+  - eg4_web_monitor issue #574
+verified-against: c411499
+last-verified: 2026-09-04
 see-also:
   - architecture.md
   - ../00-orientation/repo-map.md
@@ -131,7 +134,34 @@ user (MENU)                                                    :219
 ```
 
 Evidence: `verified-against-code` — every `async_step_*` method enumerated from
-`_config_flow/__init__.py` at `9f6d6e2`.
+`_config_flow/__init__.py` at `c411499`.
+
+### 4.1 Modbus TCP discovery classifies a standalone battery explicitly
+
+The normal inverter path starts with `EndpointBusCapability.read_serial_number()`, whose
+first wire request is for input registers 115–119. If that call raises a timeout, OS error,
+or pylxpweb `TransportError`, `discover_modbus_device` makes one bounded holding-register
+read of H0–H41 before preserving the original failure. It accepts a battery classification
+only when the full block exists, pylxpweb's `detect_protocol` selects `eg4_master` or
+`eg4_slave`, and the corresponding voltage, SOC, 16-cell count and (for a slave) sixteen
+cell-voltage fields pass the map-specific plausibility checks. An all-zero, incomplete, or
+otherwise non-battery response re-raises the original discovery error unchanged.
+
+On a match, discovery raises `StandaloneBatteryDetectedError`; both
+`async_step_local_modbus` and `async_step_reconfigure_add_modbus` map it to
+`standalone_battery_not_supported`. Every shipped locale explains that the target is a
+battery and points to issue #176 instead of presenting the generic Modbus timeout.
+
+`verified-against-code` — `_config_flow/discovery.py` →
+`_detect_standalone_battery_protocol`, `discover_modbus_device`;
+`_config_flow/__init__.py` → both exception mappings; `tests/test_config_flow_scan.py` →
+master/slave and non-battery regression cases; `tests/test_config_flow.py` → both form
+mappings, all at `c411499`.
+
+Issue #574 preserves the motivating master/slave holding-register dumps and the failed
+input-register request. Those device observations are `asserted-unverified`; the code and
+tests prove only how the integration classifies matching responses, not a general hardware
+claim about every EG4 battery.
 
 ## 5. Reauth
 

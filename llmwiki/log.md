@@ -940,3 +940,15 @@ Those rows themselves state the bounds are a maintainer-chosen guard with no
 firmware/portal bound captured, so the grade attests only that the code carries
 the bounds, not that the window is hardware-correct. The peak-shaving register
 semantics remain `portal-correlated`, and no evidence grade changed.
+
+## [2026-09-04] ingest | #574 — holding-only batteries get an explicit discovery error
+
+Source: [#574](https://github.com/joyfulhouse/eg4_web_monitor/issues/574), including
+the reporter's EG4 master/slave H0–H41 captures and the failed inverter input-register
+serial request. Filed the resulting behavior on
+[config-flow](10-integration/config-flow.md): after the inverter serial probe fails,
+Modbus TCP discovery checks a complete, plausibility-gated holding-register block using
+pylxpweb's battery protocol classifier. A match now tells the user the device is a
+battery and points to #176; a non-match preserves the original error. The integration
+behavior and both flow mappings are `verified-against-code` at `c411499`; the issue's
+hardware observations remain `asserted-unverified` and were not promoted.
