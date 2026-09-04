@@ -940,6 +940,31 @@ async def test_owned_endpoint_discovery_maps_to_redacted_form_error(
     assert result["errors"] == {"base": "endpoint_in_use"}
 
 
+@pytest.mark.parametrize("step_name", ["local_modbus", "reconfigure_add_modbus"])
+async def test_standalone_battery_discovery_shows_supported_path(
+    hass: HomeAssistant,
+    step_name: str,
+) -> None:
+    """A battery response points users to #176 instead of reporting a timeout."""
+    from custom_components.eg4_web_monitor._config_flow import EG4ConfigFlow
+    from custom_components.eg4_web_monitor._config_flow.discovery import (
+        StandaloneBatteryDetectedError,
+    )
+
+    flow = EG4ConfigFlow()
+    flow.hass = hass
+    with patch(
+        "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+        new=AsyncMock(side_effect=StandaloneBatteryDetectedError("eg4_slave")),
+    ):
+        result = await getattr(flow, f"async_step_{step_name}")(
+            {"modbus_host": "192.0.2.10", "modbus_port": 502, "modbus_unit_id": 3}
+        )
+
+    assert result["type"] == data_entry_flow.FlowResultType.FORM
+    assert result["errors"] == {"base": "standalone_battery_not_supported"}
+
+
 # =====================================================
 # async_step_local_modbus
 # =====================================================

@@ -341,6 +341,7 @@
       "timeout": "Verbindung zu {brand_name} Web Monitor hat das Zeitlimit überschritten. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.",
       "modbus_not_installed": "Die pymodbus-Bibliothek ist nicht installiert. Bitte installieren Sie sie mit: pip install pymodbus",
       "modbus_timeout": "Modbus-Verbindung hat das Zeitlimit überschritten. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass das Modbus-Gateway eingeschaltet und verbunden ist.",
+      "standalone_battery_not_supported": "Dieses Gerät ist eine Batterie. Direkte Verbindungen zu eigenständigen Batterien werden noch nicht unterstützt; siehe GitHub-Issue #176.",
       "modbus_connection_failed": "Verbindung zum Modbus-Gateway fehlgeschlagen. Bitte überprüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 502 ist nicht blockiert, (3) Modbus TCP ist am Gateway aktiviert.",
       "dongle_timeout": "WiFi-Dongle-Verbindung hat das Zeitlimit überschritten. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass der Dongle mit Ihrem Netzwerk verbunden ist.",
       "dongle_connection_failed": "Verbindung zum WiFi-Dongle fehlgeschlagen. Bitte überprüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 8000 ist nicht blockiert, (3) Dongle-Firmware unterstützt lokalen Zugriff (neuere Updates können dies blockieren).",

@@ -341,6 +341,7 @@
       "timeout": "Przekroczono limit czasu polaczenia z {brand_name} Web Monitor. Sprawdz polaczenie internetowe i sprobuj ponownie.",
       "modbus_not_installed": "Biblioteka pymodbus nie jest zainstalowana. Zainstaluj ja poleceniem: pip install pymodbus",
       "modbus_timeout": "Przekroczono limit czasu polaczenia Modbus. Sprawdz adres IP i upewnij sie, ze bramka Modbus jest wlaczona i podlaczona.",
+      "standalone_battery_not_supported": "To urządzenie jest baterią. Bezpośrednie połączenia z samodzielnymi bateriami nie są jeszcze obsługiwane; zobacz issue GitHub #176.",
       "modbus_connection_failed": "Nie udalo sie polaczyc z bramka Modbus. Sprawdz: (1) czy adres IP jest poprawny, (2) czy port 502 nie jest zablokowany, (3) czy Modbus TCP jest wlaczony na bramce.",
       "dongle_timeout": "Przekroczono limit czasu polaczenia z dongle WiFi. Sprawdz adres IP i upewnij sie, ze dongle jest podlaczony do sieci.",
       "dongle_connection_failed": "Nie udalo sie polaczyc z dongle WiFi. Sprawdz: (1) czy adres IP jest poprawny, (2) czy port 8000 nie jest zablokowany, (3) czy oprogramowanie dongle obsluguje lokalny dostep (ostatnie aktualizacje moga go blokowac).",

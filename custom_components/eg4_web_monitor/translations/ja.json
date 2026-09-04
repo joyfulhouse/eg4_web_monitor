@@ -341,6 +341,7 @@
       "timeout": "{brand_name} Web Monitorへの接続がタイムアウトしました。インターネット接続を確認して、再試行してください。",
       "modbus_not_installed": "pymodbusライブラリがインストールされていません。次のコマンドでインストールしてください：pip install pymodbus",
       "modbus_timeout": "Modbus接続がタイムアウトしました。IPアドレスを確認し、Modbusゲートウェイの電源が入っていて接続されていることを確認してください。",
+      "standalone_battery_not_supported": "このデバイスはバッテリーです。スタンドアロンバッテリーへの直接接続はまだサポートされていません。GitHub issue #176 を参照してください。",
       "modbus_connection_failed": "Modbusゲートウェイへの接続に失敗しました。確認事項：(1) IPアドレスが正しい、(2) ポート502がブロックされていない、(3) ゲートウェイでModbus TCPが有効になっている。",
       "dongle_timeout": "WiFiドングル接続がタイムアウトしました。IPアドレスを確認し、ドングルがネットワークに接続されていることを確認してください。",
       "dongle_connection_failed": "WiFiドングルへの接続に失敗しました。確認事項：(1) IPアドレスが正しい、(2) ポート8000がブロックされていない、(3) ドングルのファームウェアがローカルアクセスをサポートしている（最近の更新でブロックされる場合があります）。",

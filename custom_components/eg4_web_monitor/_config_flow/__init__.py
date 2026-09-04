@@ -36,6 +36,7 @@ from pylxpweb.transports import TransportError, TransportTimeoutError
 
 from .discovery import (
     DiscoveredDevice,
+    StandaloneBatteryDetectedError,
     build_device_config,
     detect_grid_type,
     discover_dongle_device,
@@ -510,6 +511,8 @@ class EG4ConfigFlow(
                         unit_id,
                         endpoint_bus_registry=get_endpoint_bus_registry(self.hass),
                     )
+                except StandaloneBatteryDetectedError:
+                    errors["base"] = "standalone_battery_not_supported"
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
                 except EndpointOwnerInUseError:
@@ -1134,6 +1137,8 @@ class EG4ConfigFlow(
                         unit_id,
                         endpoint_bus_registry=get_endpoint_bus_registry(self.hass),
                     )
+                except StandaloneBatteryDetectedError:
+                    errors["base"] = "standalone_battery_not_supported"
                 except (TimeoutError, TransportTimeoutError):
                     errors["base"] = "modbus_timeout"
                 except EndpointOwnerInUseError:

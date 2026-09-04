@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pylxpweb.battery_protocols import detect_protocol
+from pylxpweb.transports import TransportError
 from pylxpweb.transports.config import TransportConfig, TransportType
 
 from ..const import (
@@ -40,6 +42,60 @@ DEVICE_TYPE_CODE_EG4_HYBRID = 2092  # 18kPV, 12kPV
 DEVICE_TYPE_CODE_FLEXBOSS = 10284  # FlexBOSS21, FlexBOSS18
 DEVICE_TYPE_CODE_LXP_EU = 12  # LXP-EU 12K
 DEVICE_TYPE_CODE_LXP_BR = 44  # LXP-LB-BR 10K
+
+_BATTERY_DETECTION_REGISTER_COUNT = 42
+_BATTERY_CELL_COUNT = 16
+_BATTERY_VOLTAGE_RAW_RANGE = range(4000, 6501)
+_BATTERY_CELL_VOLTAGE_RAW_RANGE = range(2000, 4501)
+
+
+class StandaloneBatteryDetectedError(Exception):
+    """Raised when inverter discovery reaches a standalone battery BMS."""
+
+    def __init__(self, protocol_name: str) -> None:
+        super().__init__(
+            f"Detected unsupported standalone battery protocol: {protocol_name}"
+        )
+        self.protocol_name = protocol_name
+
+
+def _detect_standalone_battery_protocol(registers: dict[int, int]) -> str | None:
+    """Return the EG4 battery protocol name for one plausible BMS register block.
+
+    ``detect_protocol`` classifies any dictionary, including an empty one, so
+    discovery also checks the physical fields that distinguish the two known
+    battery maps. This keeps an unrelated holding-register-only device from
+    being mislabeled as a battery.
+    """
+    if not all(
+        address in registers for address in range(_BATTERY_DETECTION_REGISTER_COUNT)
+    ):
+        return None
+
+    protocol_name = detect_protocol(registers).name
+    if protocol_name == "eg4_master":
+        if (
+            registers[41] == _BATTERY_CELL_COUNT
+            and registers[22] in _BATTERY_VOLTAGE_RAW_RANGE
+            and 0 <= registers[21] <= 100
+        ):
+            return protocol_name
+        return None
+
+    if protocol_name == "eg4_slave":
+        plausible_cells = sum(
+            registers[address] in _BATTERY_CELL_VOLTAGE_RAW_RANGE
+            for address in range(2, 18)
+        )
+        if (
+            registers[36] == _BATTERY_CELL_COUNT
+            and registers[0] in _BATTERY_VOLTAGE_RAW_RANGE
+            and 0 <= registers[24] <= 100
+            and plausible_cells == _BATTERY_CELL_COUNT
+        ):
+            return protocol_name
+
+    return None
 
 
 @dataclass
@@ -241,7 +297,24 @@ async def discover_modbus_device(
         await transport.async_ensure_connected()
 
         # Read serial number from input registers 115-119
-        serial = await transport.read_serial_number()
+        try:
+            serial = await transport.read_serial_number()
+        except (TimeoutError, OSError, TransportError):
+            # Standalone EG4 batteries serve the BMS map through holding
+            # registers only, so the inverter serial probe (input 115-119)
+            # times out. A bounded signature check turns that known mismatch
+            # into an actionable config-flow error while #176 is pending.
+            try:
+                battery_registers = await transport.read_parameters(
+                    0, _BATTERY_DETECTION_REGISTER_COUNT
+                )
+            except Exception as err:
+                _LOGGER.debug("Battery protocol fallback probe failed: %s", err)
+            else:
+                protocol_name = _detect_standalone_battery_protocol(battery_registers)
+                if protocol_name is not None:
+                    raise StandaloneBatteryDetectedError(protocol_name) from None
+            raise
         if not serial:
             raise ValueError("Failed to read serial number from device")
 

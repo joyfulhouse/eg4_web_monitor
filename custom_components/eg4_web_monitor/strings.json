@@ -341,6 +341,7 @@
       "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again.",
       "modbus_not_installed": "The pymodbus library is not installed. Please install it using: pip install pymodbus",
       "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
+      "standalone_battery_not_supported": "This device is a battery. Direct standalone battery connections are not supported yet; see GitHub issue #176.",
       "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
       "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
       "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",

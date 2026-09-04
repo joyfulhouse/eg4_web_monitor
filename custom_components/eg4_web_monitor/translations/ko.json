@@ -341,6 +341,7 @@
       "timeout": "{brand_name} 웹 모니터 연결 시간이 초과되었습니다. 인터넷 연결을 확인하고 다시 시도하세요.",
       "modbus_not_installed": "pymodbus 라이브러리가 설치되지 않았습니다. 다음 명령으로 설치하세요: pip install pymodbus",
       "modbus_timeout": "Modbus 연결 시간이 초과되었습니다. IP 주소를 확인하고 Modbus 게이트웨이의 전원이 켜져 있고 연결되어 있는지 확인하세요.",
+      "standalone_battery_not_supported": "이 장치는 배터리입니다. 독립형 배터리 직접 연결은 아직 지원되지 않습니다. GitHub issue #176을 참조하세요.",
       "modbus_connection_failed": "Modbus 게이트웨이에 연결하지 못했습니다. 다음을 확인하세요: (1) IP 주소가 올바른지, (2) 포트 502가 차단되지 않았는지, (3) 게이트웨이에서 Modbus TCP가 활성화되어 있는지.",
       "dongle_timeout": "WiFi 동글 연결 시간이 초과되었습니다. IP 주소를 확인하고 동글이 네트워크에 연결되어 있는지 확인하세요.",
       "dongle_connection_failed": "WiFi 동글에 연결하지 못했습니다. 다음을 확인하세요: (1) IP 주소가 올바른지, (2) 포트 8000이 차단되지 않았는지, (3) 동글 펌웨어가 로컬 액세스를 지원하는지 (최근 업데이트로 차단될 수 있음).",

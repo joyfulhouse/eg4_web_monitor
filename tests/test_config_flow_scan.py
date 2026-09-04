@@ -380,3 +380,104 @@ class TestDiscoveryModelInfo:
         assert device.parallel_number == 2
         assert device.parallel_master_slave == 1  # master
         assert device.parallel_phase == 1
+
+
+class TestStandaloneBatteryDetection:
+    """Regression coverage for holding-register-only batteries (#574)."""
+
+    @pytest.mark.parametrize(
+        ("registers", "protocol_name"),
+        [
+            (
+                {
+                    **{address: 0 for address in range(42)},
+                    19: 97,
+                    21: 59,
+                    22: 5254,
+                    24: 26,
+                    25: 30000,
+                    30: 19,
+                    32: 100,
+                    37: 3288,
+                    38: 3283,
+                    41: 16,
+                },
+                "eg4_master",
+            ),
+            (
+                {
+                    **{address: 0 for address in range(42)},
+                    0: 5259,
+                    1: 0,
+                    **{address: 3286 + (address % 4) for address in range(2, 18)},
+                    18: 26,
+                    21: 171,
+                    22: 140,
+                    23: 100,
+                    24: 61,
+                    30: 18,
+                    36: 16,
+                    37: 2800,
+                },
+                "eg4_slave",
+            ),
+        ],
+    )
+    async def test_modbus_discovery_identifies_battery_after_inverter_probe_fails(
+        self,
+        registers: dict[int, int],
+        protocol_name: str,
+    ) -> None:
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            StandaloneBatteryDetectedError,
+            discover_modbus_device,
+        )
+
+        transport = MagicMock()
+        transport.async_ensure_connected = AsyncMock()
+        transport.read_serial_number = AsyncMock(
+            side_effect=TimeoutError("input registers not served")
+        )
+        transport.read_parameters = AsyncMock(return_value=registers)
+        registry = MagicMock()
+        registry.async_retry_failed_shutdowns = AsyncMock()
+        registry.create_discovery_capability.return_value = transport
+        registry.async_shutdown_capabilities = AsyncMock()
+
+        with pytest.raises(StandaloneBatteryDetectedError) as error:
+            await discover_modbus_device(
+                "192.0.2.10",
+                unit_id=3,
+                endpoint_bus_registry=registry,
+            )
+
+        assert error.value.protocol_name == protocol_name
+        transport.read_parameters.assert_awaited_once_with(0, 42)
+        registry.async_shutdown_capabilities.assert_awaited_once_with((transport,))
+
+    async def test_non_battery_holding_registers_preserve_original_failure(
+        self,
+    ) -> None:
+        from custom_components.eg4_web_monitor._config_flow.discovery import (
+            discover_modbus_device,
+        )
+
+        original_error = TimeoutError("input registers not served")
+        transport = MagicMock()
+        transport.async_ensure_connected = AsyncMock()
+        transport.read_serial_number = AsyncMock(side_effect=original_error)
+        transport.read_parameters = AsyncMock(
+            return_value={address: 0 for address in range(42)}
+        )
+        registry = MagicMock()
+        registry.async_retry_failed_shutdowns = AsyncMock()
+        registry.create_discovery_capability.return_value = transport
+        registry.async_shutdown_capabilities = AsyncMock()
+
+        with pytest.raises(TimeoutError) as error:
+            await discover_modbus_device(
+                "192.0.2.10",
+                endpoint_bus_registry=registry,
+            )
+
+        assert error.value is original_error

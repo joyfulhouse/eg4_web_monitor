@@ -341,6 +341,7 @@
       "timeout": "連線 {brand_name} Web Monitor 逾時。請檢查您的網路連線並重試。",
       "modbus_not_installed": "pymodbus 程式庫未安裝。請使用以下指令安裝：pip install pymodbus",
       "modbus_timeout": "Modbus 連線逾時。請驗證 IP 位址並確保 Modbus 閘道已開機並連線。",
+      "standalone_battery_not_supported": "此裝置是電池。目前尚不支援直接連線獨立電池；請參閱 GitHub issue #176。",
       "modbus_connection_failed": "無法連線到 Modbus 閘道。請檢查：(1) IP 位址是否正確，(2) 連接埠 502 是否未被阻擋，(3) 閘道上是否已啟用 Modbus TCP。",
       "dongle_timeout": "WiFi Dongle 連線逾時。請驗證 IP 位址並確保 Dongle 已連線到您的網路。",
       "dongle_connection_failed": "無法連線到 WiFi Dongle。請檢查：(1) IP 位址是否正確，(2) 連接埠 8000 是否未被阻擋，(3) Dongle 韌體是否支援本機存取（最近的更新可能會阻擋此功能）。",

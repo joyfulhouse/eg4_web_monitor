@@ -341,6 +341,7 @@
       "timeout": "La conexion a {brand_name} Web Monitor ha expirado. Por favor verifique su conexion a internet e intente de nuevo.",
       "modbus_not_installed": "La libreria pymodbus no esta instalada. Por favor instalela usando: pip install pymodbus",
       "modbus_timeout": "La conexion Modbus ha expirado. Por favor verifique la direccion IP y asegurese de que el gateway Modbus este encendido y conectado.",
+      "standalone_battery_not_supported": "Este dispositivo es una batería. Las conexiones directas a baterías independientes aún no son compatibles; consulte el issue #176 de GitHub.",
       "modbus_connection_failed": "Fallo la conexion al gateway Modbus. Por favor verifique: (1) la direccion IP es correcta, (2) el puerto 502 no esta bloqueado, (3) Modbus TCP esta habilitado en el gateway.",
       "dongle_timeout": "La conexion del WiFi dongle ha expirado. Por favor verifique la direccion IP y asegurese de que el dongle esta conectado a su red.",
       "dongle_connection_failed": "Fallo la conexion al WiFi dongle. Por favor verifique: (1) la direccion IP es correcta, (2) el puerto 8000 no esta bloqueado, (3) el firmware del dongle soporta acceso local (actualizaciones recientes pueden bloquear esto).",

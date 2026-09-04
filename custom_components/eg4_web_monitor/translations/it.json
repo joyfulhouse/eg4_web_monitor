@@ -341,6 +341,7 @@
       "timeout": "Connessione a {brand_name} Web Monitor scaduta. Controlla la connessione internet e riprova.",
       "modbus_not_installed": "La libreria pymodbus non e installata. Installala usando: pip install pymodbus",
       "modbus_timeout": "Connessione Modbus scaduta. Verifica l'indirizzo IP e assicurati che il gateway Modbus sia acceso e connesso.",
+      "standalone_battery_not_supported": "Questo dispositivo è una batteria. Le connessioni dirette a batterie autonome non sono ancora supportate; consulta l'issue GitHub #176.",
       "modbus_connection_failed": "Impossibile connettersi al gateway Modbus. Verifica: (1) l'indirizzo IP sia corretto, (2) la porta 502 non sia bloccata, (3) Modbus TCP sia abilitato sul gateway.",
       "dongle_timeout": "Connessione al dongle WiFi scaduta. Verifica l'indirizzo IP e assicurati che il dongle sia connesso alla rete.",
       "dongle_connection_failed": "Impossibile connettersi al dongle WiFi. Verifica: (1) l'indirizzo IP sia corretto, (2) la porta 8000 non sia bloccata, (3) il firmware del dongle supporti l'accesso locale (aggiornamenti recenti potrebbero bloccare questa funzionalita).",

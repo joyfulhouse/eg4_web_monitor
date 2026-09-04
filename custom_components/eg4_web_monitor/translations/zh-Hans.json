@@ -341,6 +341,7 @@
       "timeout": "连接 {brand_name} Web Monitor 超时。请检查您的网络连接并重试。",
       "modbus_not_installed": "pymodbus 库未安装。请使用以下命令安装：pip install pymodbus",
       "modbus_timeout": "Modbus 连接超时。请验证 IP 地址并确保 Modbus 网关已开机并连接。",
+      "standalone_battery_not_supported": "此设备是电池。目前尚不支持直接连接独立电池；请参阅 GitHub issue #176。",
       "modbus_connection_failed": "无法连接到 Modbus 网关。请检查：(1) IP 地址是否正确，(2) 端口 502 是否未被阻止，(3) 网关上是否已启用 Modbus TCP。",
       "dongle_timeout": "WiFi Dongle 连接超时。请验证 IP 地址并确保 Dongle 已连接到您的网络。",
       "dongle_connection_failed": "无法连接到 WiFi Dongle。请检查：(1) IP 地址是否正确，(2) 端口 8000 是否未被阻止，(3) Dongle 固件是否支持本地访问（最近的更新可能会阻止此功能）。",

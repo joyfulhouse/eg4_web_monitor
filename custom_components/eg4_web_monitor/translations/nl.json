@@ -341,6 +341,7 @@
       "timeout": "Verbinding met {brand_name} Web Monitor is verlopen. Controleer uw internetverbinding en probeer het opnieuw.",
       "modbus_not_installed": "De pymodbus-bibliotheek is niet geïnstalleerd. Installeer deze met: pip install pymodbus",
       "modbus_timeout": "Modbus-verbinding is verlopen. Controleer het IP-adres en zorg ervoor dat de Modbus-gateway is ingeschakeld en verbonden.",
+      "standalone_battery_not_supported": "Dit apparaat is een batterij. Directe verbindingen met zelfstandige batterijen worden nog niet ondersteund; zie GitHub-issue #176.",
       "modbus_connection_failed": "Kan geen verbinding maken met Modbus-gateway. Controleer: (1) IP-adres is correct, (2) poort 502 is niet geblokkeerd, (3) Modbus TCP is ingeschakeld op de gateway.",
       "dongle_timeout": "WiFi-dongle-verbinding is verlopen. Controleer het IP-adres en zorg ervoor dat de dongle is verbonden met uw netwerk.",
       "dongle_connection_failed": "Kan geen verbinding maken met WiFi-dongle. Controleer: (1) IP-adres is correct, (2) poort 8000 is niet geblokkeerd, (3) dongle-firmware ondersteunt lokale toegang (recente updates kunnen dit blokkeren).",
