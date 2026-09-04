@@ -38,6 +38,10 @@ sources:
   - https://github.com/joyfulhouse/pylxpweb/issues/272
   - https://github.com/joyfulhouse/pylxpweb/pull/273
 verified-against:
+  # Re-pinned at the 2026-09-04 beta.16 release cut: eg4_web_monitor main
+  # is 1d09823 and pylxpweb tag v0.10.0b9 is f3ced1a. The pylxpweb delta
+  # since 80e8221 is transport-only (#329 / PR #330), so register
+  # definitions, semantics, and evidence grades are unchanged.
   # Re-pinned at the 2026-09-02 beta.15 release cut: PR #608 merged as
   # 5092b5b and pylxpweb PR #327 merged as 80e8221 (released in 0.10.0b8).
   # Re-pinned at the 2026-09-02 beta.14 release cut: PR #605 merged as 041032f.
@@ -68,9 +72,9 @@ verified-against:
   # `verified-against-code` attests only that the rows carry the bounds, not
   # that the window is hardware-correct (see the two pinned blob sources).
   # Inline ab87902 blob links on older rows remain valid historical URLs.
-  eg4_web_monitor: 5092b5b
-  pylxpweb: 80e8221
-last-verified: 2026-09-02
+  eg4_web_monitor: 1d09823
+  pylxpweb: f3ced1a
+last-verified: 2026-09-04
 ---
 
 # Register ground truth

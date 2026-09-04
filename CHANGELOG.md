@@ -5,7 +5,13 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.5.1-beta.16] - 2026-09-04
+
+Requires **[pylxpweb==0.10.0b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b9)**.
+
+### Changed
+
+- **One serialized TCP socket per physical dongle endpoint** (pylxpweb [#329](https://github.com/joyfulhouse/pylxpweb/issues/329) / PR [#330](https://github.com/joyfulhouse/pylxpweb/pull/330)): the pinned library now shares one serialized TCP socket per physical dongle endpoint across all devices on that dongle, so two devices on one dongle no longer contend for its single TCP slot. This is library-side and needs no integration configuration.
 
 ### Fixed
 
