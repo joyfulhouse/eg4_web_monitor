@@ -10,6 +10,7 @@ Monitor and control EG4 solar inverters, GridBOSS, and batteries in Home Assista
 [![Project Maintenance][maintenance-shield]][maintenance]
 [![GitHub Sponsors][sponsors-shield]][sponsors]
 [![Ko-fi][kofi-shield]][kofi]
+[![Built with Omnigent][omnigent-shield]][omnigent]
 
 [![Dashboard Screenshot](images/dashboard.png)](dashboards/eg4_solar_monitor.yaml)
 
@@ -493,6 +494,14 @@ This integration was inspired by and built upon the work of
 extend our sincere gratitude for their pioneering efforts in EG4 device
 integration for Home Assistant.
 
+---
+
+<p align="center">
+  <a href="https://github.com/omnigent-ai/omnigent"><img src="https://raw.githubusercontent.com/joyfulhouse/.github/main/assets/badges/built-with-omnigent.svg" alt="Built with Omnigent"></a>
+  <br>
+  <sub>Built with <a href="https://github.com/omnigent-ai/omnigent">Omnigent</a> — the open-source AI agent framework and meta-harness.</sub>
+</p>
+
 <!-- Badge links -->
 [releases-shield]: https://img.shields.io/github/release/joyfulhouse/eg4_web_monitor.svg?style=for-the-badge
 [releases]: https://github.com/joyfulhouse/eg4_web_monitor/releases
@@ -511,3 +520,5 @@ integration for Home Assistant.
 [sponsors]: https://github.com/sponsors/btli
 [kofi-shield]: https://img.shields.io/badge/Ko--fi-donate-FF5E5B.svg?style=for-the-badge&logo=ko-fi&logoColor=white
 [kofi]: https://ko-fi.com/bryanli
+[omnigent-shield]: https://raw.githubusercontent.com/joyfulhouse/.github/main/assets/badges/built-with-omnigent.svg
+[omnigent]: https://github.com/omnigent-ai/omnigent
