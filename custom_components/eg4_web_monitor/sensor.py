@@ -205,7 +205,9 @@ async def async_setup_entry(
     2. Phase 2: Inverter, gridboss, and battery bank entities (via_device → parallel group)
     3. Phase 3: Individual battery entities (via_device → battery bank)
 
-    This ordering prevents HA warning about non-existing via_device references.
+    This ordering is load-bearing: a parent device must be registered before a
+    child is added, or the child is created without its parent link (on HA
+    2026.8+ the via_device_id lookup cannot resolve an unregistered parent).
     See: https://github.com/joyfulhouse/eg4_web_monitor/issues/81
     See: https://github.com/joyfulhouse/eg4_web_monitor/issues/154
     """
