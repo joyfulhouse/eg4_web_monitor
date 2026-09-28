@@ -127,6 +127,7 @@ def test_provided_identifiers_shapes_and_classes():
     assert provided == {
         LIVE_INVERTER: "device",
         LIVE_GRIDBOSS: "device",
+        **{f"{LIVE_GRIDBOSS}_smart_port_{port}": "device" for port in range(1, 5)},
         "parallel_group_a": "device",
         f"{LIVE_INVERTER}_battery_bank": "battery",
         f"{LIVE_INVERTER}-01": "battery",

@@ -56,6 +56,7 @@ from .cloud_requests import (
 from .endpoint_bus import EndpointBusCapability
 from .coordinator_mappings import (
     CLOUD_SUPPLEMENTAL_LOST_KEYS,
+    SMART_PORT_READ_KEY,
     SMART_PORT_VALIDATED_KEY,
     _apply_grid_type_override,
     _apply_model_family_fallback,
@@ -73,6 +74,7 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     drop_offgrid_cloud_output_power,
     get_battery_bank_property_map,
+    smart_port_device_identifier,
 )
 from .utils import (
     _resolve_chart_day_timezone,
@@ -3819,6 +3821,9 @@ class DeviceProcessingMixin(_MixinBase):
                 # registry removal (codex r2 HIGH), nor partial reads where
                 # some ports were never validated (codex r2 MEDIUM).
                 sensors[SMART_PORT_VALIDATED_KEY] = True
+                refreshed = getattr(mid_device, "_last_refresh", None)
+                if isinstance(refreshed, datetime):
+                    sensors[SMART_PORT_READ_KEY] = refreshed.timestamp()
         elif serial in _last_good_smart_port_statuses:
             # Corrupt read -- fall back to cached statuses
             _LOGGER.debug(
@@ -4204,6 +4209,28 @@ class DeviceInfoMixin(_MixinBase):
 
         if link:
             cache[serial] = device_info
+        return device_info
+
+    def get_smart_port_device_info(self, serial: str, port: int) -> DeviceInfo | None:
+        """Get device information for one GridBOSS smart port.
+
+        The port device exists regardless of the port's mode: its mode select
+        always lives there, and the mode only decides which sensors (Smart
+        Load vs AC Couple, none when unused) are attached to it.
+        """
+        if not self.data or "devices" not in self.data:
+            return None
+        device_data = self.data["devices"].get(serial)
+        if not device_data:
+            return None
+        model = device_data.get("model") or "GridBOSS"
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, smart_port_device_identifier(serial, port))},
+            name=f"Smart Port {port} {serial}",
+            manufacturer=MANUFACTURER,
+            model=f"{model} Smart Port",
+        )
+        device_info.update(self.via_device_link(serial))
         return device_info
 
     def get_station_device_info(self) -> DeviceInfo | None:

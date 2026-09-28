@@ -2,11 +2,13 @@
 
 import logging
 import re
-from typing import TYPE_CHECKING, Any
+from collections.abc import Collection
+from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 if TYPE_CHECKING:
@@ -20,6 +22,7 @@ from .base_entity import (
     EG4BaseSensor,
     EG4BatteryBankEntity,
     EG4StationEntity,
+    device_present_and_healthy,
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
@@ -43,7 +46,22 @@ from .coordinator import (
 )
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
+    GRIDBOSS_SMART_PORT_KEY_TO_PORT,
     _supports_three_phase_context,
+)
+from .smart_port_devices import (
+    ACTIVE_PORT_MODES,
+    LOCAL_ONLY_KEY_SUFFIXES,
+    PORT_SENSOR_SPECS,
+    PORT_SENSOR_SPECS_BY_ID,
+    PortSensorEnablement,
+    PortSensorSpec,
+    async_migrate_to_port_sensors,
+    deferred_port_sensors,
+    port_sensor_unique_id,
+    resolve_port_mode,
+    set_deferred_port_sensors,
+    spec_serves,
 )
 from .utils import is_supported_control_model
 
@@ -203,7 +221,8 @@ async def async_setup_entry(
     Entity registration is split into three phases to ensure proper device hierarchy:
     1. Phase 1: Station + parallel group entities (root devices, no via_device)
     2. Phase 2: Inverter, gridboss, and battery bank entities (via_device → parallel group)
-    3. Phase 3: Individual battery entities (via_device → battery bank)
+    3. Phase 3: Individual battery entities (via_device → battery bank) and
+       GridBOSS smart port sensors (via_device → GridBOSS)
 
     This ordering is load-bearing: a parent device must be registered before a
     child is added, or the child is created without its parent link (on HA
@@ -217,7 +236,8 @@ async def async_setup_entry(
     phase1_entities: list[SensorEntity] = []
     # Phase 2 entities: inverters, gridboss, battery banks (via_device → parallel group)
     phase2_entities: list[SensorEntity] = []
-    # Phase 3 entities: individual batteries (via_device → battery bank)
+    # Phase 3 entities: individual batteries (via_device → battery bank) and
+    # smart port sensors (via_device → GridBOSS)
     phase3_entities: list[SensorEntity] = []
 
     if not coordinator.data:
@@ -275,8 +295,18 @@ async def async_setup_entry(
         elif device_type == "gridboss":
             phase2_entities.extend(
                 _create_simple_device_sensors(
-                    coordinator, serial, device_data, device_type
+                    coordinator,
+                    serial,
+                    device_data,
+                    device_type,
+                    # The per-mode port keys are served by each port device's
+                    # mode-neutral sensors (created below).
+                    exclude=GRIDBOSS_SMART_PORT_KEY_TO_PORT.keys(),
                 )
+            )
+            # Phase 3: port devices hang off the GridBOSS device.
+            phase3_entities.extend(
+                _create_smart_port_sensors(coordinator, serial, device_data)
             )
         else:
             _LOGGER.warning(
@@ -300,11 +330,15 @@ async def async_setup_entry(
             len(phase2_entities),
         )
 
-    # Phase 3: Register individual battery entities (reference battery bank via via_device)
+    # Phase 3: Register entities of devices nested under a Phase 2 device
+    # (individual batteries, smart ports) via via_device
     if phase3_entities:
         async_add_entities(phase3_entities, True)
+        port_count = sum(isinstance(e, EG4SmartPortSensor) for e in phase3_entities)
         _LOGGER.info(
-            "Phase 3: Added %d individual battery sensor entities", len(phase3_entities)
+            "Phase 3: Added %d individual battery and %d smart port sensor entities",
+            len(phase3_entities) - port_count,
+            port_count,
         )
 
     if not phase1_entities and not phase2_entities and not phase3_entities:
@@ -386,6 +420,8 @@ async def async_setup_entry(
                     continue
                 if sensor_key in known:
                     continue
+                if sensor_key in GRIDBOSS_SMART_PORT_KEY_TO_PORT:
+                    continue  # served by the static port-device sensors
                 known.add(sensor_key)
                 if sensor_key in SENSOR_TYPES:
                     new_entities.append(
@@ -551,6 +587,44 @@ async def async_setup_entry(
         )
     )
 
+    # Contested port sensors deferred at setup: adopt and add them once a
+    # validated read says which mode's entry is the port's.
+    @callback
+    def _async_add_deferred_port_sensors() -> None:
+        pending = deferred_port_sensors(coordinator)
+        if not pending:
+            return
+        remaining = async_migrate_to_port_sensors(
+            hass, entry, coordinator.data, coordinator.has_configured_local_transport
+        )
+        set_deferred_port_sensors(coordinator, pending & remaining)
+        new_entities: list[SensorEntity] = [
+            EG4SmartPortSensor(
+                coordinator, serial, port, PORT_SENSOR_SPECS_BY_ID[suffix]
+            )
+            for serial, port, suffix in sorted(pending - remaining)
+        ]
+        if new_entities:
+            _LOGGER.info(
+                "Adding %d smart port sensors adopted after a validated read",
+                len(new_entities),
+            )
+            async_add_entities(new_entities, True)
+
+    entry.async_on_unload(
+        coordinator.async_add_listener(_async_add_deferred_port_sensors)
+    )
+
+    # Port sensors follow their port's mode: disabled while they don't serve it.
+    port_sync = PortSensorEnablement(hass, entry, coordinator)
+
+    @callback
+    def _async_sync_port_sensors() -> None:
+        port_sync.async_sync(coordinator.data)
+
+    _async_sync_port_sensors()
+    entry.async_on_unload(coordinator.async_add_listener(_async_sync_port_sensors))
+
 
 def _create_inverter_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
@@ -668,6 +742,7 @@ def _create_simple_device_sensors(
     serial: str,
     device_data: dict[str, Any],
     device_type: str,
+    exclude: Collection[str] = (),
 ) -> list[SensorEntity]:
     """Create sensor entities for a GridBOSS or Parallel Group device."""
     return [
@@ -678,7 +753,26 @@ def _create_simple_device_sensors(
             device_type=device_type,
         )
         for sensor_key in device_data.get("sensors", {})
-        if sensor_key in SENSOR_TYPES
+        if sensor_key in SENSOR_TYPES and sensor_key not in exclude
+    ]
+
+
+def _create_smart_port_sensors(
+    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
+) -> list[SensorEntity]:
+    """Create the fixed sensor set for each GridBOSS smart port.
+
+    Sensors whose adoption waits for a validated read (a contested power or
+    current sensor, see async_migrate_to_port_sensors) are created later.
+    """
+    has_local = coordinator.has_configured_local_transport(serial)
+    deferred = deferred_port_sensors(coordinator)
+    return [
+        EG4SmartPortSensor(coordinator, serial, port, spec)
+        for port in range(1, 5)
+        for spec in PORT_SENSOR_SPECS
+        if (has_local or spec.key_suffix not in LOCAL_ONLY_KEY_SUFFIXES)
+        and (serial, port, spec.id_suffix) not in deferred
     ]
 
 
@@ -693,6 +787,76 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
     """
 
     pass  # All functionality provided by EG4BaseSensor
+
+
+class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):
+    """One sensor of a GridBOSS smart port device.
+
+    A mode-neutral sensor (power, current) reads the key of whichever mode the
+    port is in (the status label is the key prefix); an energy sensor serves
+    one mode and reads only that mode's counter, so no ``total_increasing``
+    entity ever switches counters.  Unavailable while it doesn't serve the
+    port's mode; the registry sync in smart_port_devices disables it then.
+    """
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        port: int,
+        spec: PortSensorSpec,
+    ) -> None:
+        """Initialize the smart port sensor."""
+        # Unit / device class / state class are identical for both modes, so
+        # a mode-neutral sensor takes them from the Smart Load key.
+        super().__init__(
+            coordinator=coordinator,
+            serial=serial,
+            sensor_key=f"{spec.mode or 'smart_load'}{port}_{spec.key_suffix}",
+            device_type="gridboss",
+        )
+        self._port = port
+        self._spec = spec
+        self._attr_unique_id = port_sensor_unique_id(serial, port, spec.id_suffix)
+        self._attr_name = spec.name
+
+    def _port_sensors(self) -> dict[str, Any]:
+        devices = (self.coordinator.data or {}).get("devices", {})
+        sensors: dict[str, Any] = devices.get(self._serial, {}).get("sensors", {})
+        return sensors
+
+    def _get_raw_value(self) -> Any:
+        """Return the value for the port's mode, or None when not served."""
+        sensors = self._port_sensors()
+        if not spec_serves(self._spec, sensors, self._port):
+            return None
+        mode = self._spec.mode or resolve_port_mode(sensors, self._port)
+        return sensors.get(f"{mode}{self._port}_{self._spec.key_suffix}")
+
+    @property
+    def available(self) -> bool:
+        """Available only while the sensor serves the port's mode."""
+        return device_present_and_healthy(self.coordinator, self._serial) and (
+            spec_serves(self._spec, self._port_sensors(), self._port)
+        )
+
+    @property
+    def icon(self) -> str | None:
+        """Use the icon of the mode being read (mode-neutral sensors)."""
+        mode = resolve_port_mode(self._port_sensors(), self._port)
+        if self._spec.mode is None and mode in ACTIVE_PORT_MODES:
+            config = cast(
+                "dict[str, Any]",
+                SENSOR_TYPES.get(f"{mode}{self._port}_{self._spec.key_suffix}", {}),
+            )
+            if config.get("icon"):
+                return str(config["icon"])
+        return self._attr_icon
+
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Return the port's own device."""
+        return self.coordinator.get_smart_port_device_info(self._serial, self._port)
 
 
 class EG4LastEventSensor(EG4InverterSensor):

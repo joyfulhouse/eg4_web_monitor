@@ -14,6 +14,7 @@ from custom_components.eg4_web_monitor.select import (
     OPERATING_MODE_OPTIONS,
     SMART_PORT_MODE_OPTIONS,
 )
+from custom_components.eg4_web_monitor.const import DOMAIN
 from tests.conftest import wire_coordinator_write_helpers
 
 
@@ -356,12 +357,28 @@ class TestSmartPortModeSelect:
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
         assert select.available is False
 
-    def test_entity_name(self):
-        """Name includes port number."""
+    def test_lives_on_port_device(self):
+        """The select sits on its port's own device, named just "Mode"."""
         coordinator = _mock_gridboss_coordinator()
+        port_info = {"identifiers": {(DOMAIN, "gb123_smart_port_3")}}
+        coordinator.get_smart_port_device_info = MagicMock(return_value=port_info)
+        device_data = coordinator.data["devices"]["gb123"]
+        select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=3)
+        assert select.name == "Mode"
+        assert select.device_info == port_info
+        coordinator.get_smart_port_device_info.assert_called_with("gb123", 3)
+        # Unique ID unchanged from the GridBOSS-device era: upgrades re-parent.
+        assert select.unique_id.endswith("gb123_smart_port3_mode")
+
+    def test_gridboss_fallback_without_port_device(self):
+        """No port device info (GridBOSS not reported): stay on the GridBOSS."""
+        coordinator = _mock_gridboss_coordinator()
+        coordinator.get_smart_port_device_info = MagicMock(return_value=None)
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=3)
         assert select.name == "Smart Port 3 Mode"
+        assert select.device_info is not None
+        assert select.device_info["identifiers"] == {(DOMAIN, "gb123")}
 
     @pytest.mark.asyncio
     async def test_select_option_local(self):

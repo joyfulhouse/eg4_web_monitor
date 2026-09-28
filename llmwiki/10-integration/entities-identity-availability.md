@@ -338,9 +338,19 @@ these strings are real and stable.
 | Switch | `generate_unique_id(serial, entity_key)` | `base_entity.py:1272` |
 | Select | `generate_unique_id(serial, "operating_mode")` (etc.) | `select.py:179` |
 | Number / time (via `EG4OptimisticEntity`) | `generate_unique_id(self._retention_serial.lower(), entity_key)` | `base_entity.py:780-782` |
+| GridBOSS smart port sensor | `f"{serial}_smart_port{port}_{id_suffix}"`: `power`, `power_l1`, `power_l2`, `current_l1`, `current_l2` (mode-neutral) and `{mode}_today`, `{mode}_total` for each mode | `smart_port_devices.py` → `PORT_SENSOR_SPECS`, `port_sensor_unique_id` ¹ |
 
 All rows: `verified-against-code`. `utils.generate_unique_id` (`utils.py:722-738`) is literally
 `f"{serial}_{entity_type}"` plus an optional `_{suffix}`.
+
+¹ Added and verified in the change that made smart ports their own devices (branch
+`feat/smart-port-devices`), not at this page's `e42ed86` pin. It replaces the per-mode
+`f"{serial}_smart_load{n}_{suffix}"` / `f"{serial}_ac_couple{n}_{suffix}"` device sensors: setup
+rewrites those registry entries to these unique IDs (`smart_port_devices.py` →
+`async_migrate_to_port_sensors`), keeping entity ID and history. Energy entries map one-to-one
+(one per mode). For a power/current sensor that had entries for both modes, only one can be
+adopted, decided by a validated status read (the sensor is not created until then); the other
+keeps its old unique ID and is disabled and marked, not deleted.
 
 > ⚠️ **Case divergence.** `_stable_control_unique_id` lowercases the serial; switch and select
 > unique IDs do not. Lettered serials therefore differ in case **between platforms**. This is why
@@ -373,6 +383,7 @@ also recorded as **S1** in
 | individual battery | `(DOMAIN, battery_key)` | `f"{serial}_battery_bank"` | `coordinator_mixins.py` → `DeviceInfoMixin.get_battery_device_info` |
 | battery bank | `(DOMAIN, f"{serial}_battery_bank")` | the inverter, `serial` | `coordinator_mixins.py` → `DeviceInfoMixin.get_battery_bank_device_info` |
 | station | `(DOMAIN, f"station_{plant_id}")` | — | `coordinator_mixins.py` → `DeviceInfoMixin.get_station_device_info` |
+| GridBOSS smart port | `(DOMAIN, f"{serial}_smart_port_{n}")`, n = 1–4 | the GridBOSS, `serial` | `coordinator_mixins.py` → `DeviceInfoMixin.get_smart_port_device_info` ² |
 
 All rows: `verified-against-code`. Cloud PG naming is
 `f"parallel_group_{group.name.lower()}"` (`coordinator_mixins.py` →
@@ -385,7 +396,8 @@ the legacy `via_device` identifier tuple on older HA. The switch is feature-dete
 helper. From HA 2026.9.0 a legacy `via_device` add raises when attributed to core or to no
 integration (a UI entity-ID rename re-add), which drops the entity until the entry reloads.
 This table and paragraph were re-verified in the change that introduced `via_device_link`
-(branch `fix/via-device-id`); the rest of the page stays pinned at `e42ed86`.
+([#631](https://github.com/joyfulhouse/eg4_web_monitor/pull/631), squash-merged as `4683d58`); the rest of the page stays pinned at `e42ed86`.
+² Added and verified with the smart-port devices change (branch `feat/smart-port-devices`).
 
 Because of the parent chain, the `SENSOR` platform must be forwarded **before** every other
 platform — it creates the parent devices, and on HA ≥ 2026.8 an unregistered parent leaves the

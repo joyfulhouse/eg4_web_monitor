@@ -1017,3 +1017,31 @@ and the outer HA-stop wrapper, closing the client twice; the existing session
 ordering test caught it. The corrected path calls the inner teardown and keeps
 one outer session owner. This corrects the call-site description, not the
 terminal-debouncer contract or the previous targeted regression results.
+
+## [2026-09-28] ingest | GridBOSS smart ports become their own devices (breaking)
+
+Each GridBOSS smart port is now a device `(DOMAIN, f"{serial}_smart_port_{n}")` under the
+GridBOSS (#630), holding the port's Mode select, mode-neutral power/current sensors that read the
+port's current mode, and one energy pair per mode (a single energy entity switching firmware
+counters would corrupt HA's long-term statistics: the recorder reads the jump as consumption, a
+negative delta, or a meter reset). Entities that don't serve the port's mode are
+integration-disabled, only on two consecutive validated reads, and only entities the sync itself
+disabled are re-enabled (marked in registry entity options). Setup adopts the old per-mode
+registry entries by rewriting unique IDs, before the #217 cleanup (now limited to the cross-port
+totals); superseded entries are disabled, never deleted. Agreed with the maintainer as a breaking
+change with no opt-out. An opt-in option and a one-time entity-ID rename action were built and
+live-tested first, then removed: HA's device page offers ⋮ → "Recreate entity IDs"
+(frontend `ha-config-device-page.ts` → `reset_entity_ids` → `regenerateEntityIds`, present in both
+the 2026.1 and 2026.9 frontends; renaming a device does not regenerate IDs). Two adversarial
+reviews found defects fixed here: energy statistics, adoption deleting or guessing the live entry
+(contested power/current is now decided only by a validated read, deferred until then; LOCAL's
+first load never has one, and `created_at` is restored on re-created entries and epoch 0 on
+migrated registries), cleanup ordering, the #195/#248 skip path, and a sync debounce that counted
+coordinator updates instead of GridBOSS reads (reads now carry `SMART_PORT_READ_KEY`, the MID
+device's last successful refresh). After a Mode-select write the coordinator reads the GridBOSS
+every cycle until a read confirms the mode, and the sync acts on that one confirming read. Live-tested earlier builds
+on a HYBRID GridBOSS: adoption of 28 entries, Unused → disable, mode → enable + ~30 s reload.
+Updated [entities §5–§6](10-integration/entities-identity-availability.md) and
+[architecture §4.1](10-integration/architecture.md) (rows footnoted to this change, not the page
+pins), and `docs/DATA_MAPPING.md` §11. Rebased onto `main` after #631 merged (squash `4683d58`);
+the §6 parent-link footnote now cites that commit instead of the `fix/via-device-id` branch.

@@ -1757,7 +1757,8 @@ For each port (1-4), based on `smart_port{N}_status`:
 | **2 (AC Couple)** | All removed | Power: `setdefault(0.0)` | `smart_load{N}_current_l{1,2}` → `ac_couple{N}_current_l{1,2}` |
 
 - **Correct-type** power sensors: Ensures key exists with real value or 0.0
-- **Unused** ports: All keys removed → no entities created
+- **Unused** ports: All keys removed; the port device's sensors read nothing and
+  are disabled (see Entities below)
 - **AC Couple current remap**: Current register values are always in `smart_load{N}` keys
   from the mapping function; for AC couple ports, the filter pops the smart_load current
   value and inserts it under the ac_couple current key
@@ -1784,11 +1785,18 @@ ac_couple{1-4}_total            (per-port energy lifetime)
 When both L1 and L2 are `None` (wrong-type port), the per-port aggregate is also
 set to `None` instead of computing `0.0`. Total aggregates only sum correct-type ports.
 
-### Late Registration
+### Entities
 
-Smart port power entities are NOT created during static entity creation. They
-are dynamically registered via a coordinator listener in `sensor.py` when
-smart port data first becomes available.
+Per-port keys are not GridBOSS entities. Each port is its own device
+(`smart_port_devices.py`) with a fixed sensor set created at setup: mode-neutral
+power/current sensors that read `{mode}{N}_{suffix}` for the port's current mode
+(`smart_port{N}_status` is the key prefix), and one energy pair per mode
+(`smart_load{N}_today/total`, `ac_couple{N}_today/total`). Sensors that don't
+serve the port's mode are disabled in the entity registry.
+
+Only the cross-port totals (`smart_load_power`, `ac_couple_power`) are still
+registered dynamically, via a coordinator listener in `sensor.py`, when a port
+first reports that mode.
 
 ---
 

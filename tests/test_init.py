@@ -1014,16 +1014,34 @@ class TestSmartPortCleanupOnReboot:
     GRIDBOSS_SERIAL = "SYNTH10001"
     # Keys an automation may be pinned to (port 1 = active smart load)
     ACTIVE_KEYS = ("smart_load1_power_l1", "smart_load1_power", "smart_load_power")
-    # Key for a port that is genuinely inactive (stale, should be cleaned)
+    # Per-mode key for a genuinely inactive port: adopted as that port's
+    # sensor (the port sensor sync disables it), never deleted
     STALE_KEY = "ac_couple2_power_l1"
+    # Cross-port total for a mode no port is in: the cleanup removes it
+    STALE_TOTAL_KEY = "ac_couple_power"
     # Non-smart-port GridBOSS sensor (must never be touched)
     PLAIN_KEY = "grid_power"
+
+    def _assert_stale_port_adopted_and_total_removed(self, registry, seeded):
+        """Setup adopted the inactive port's per-mode entry as that port's
+        sensor (same registry entry; never deleted); the cleanup removed the
+        total for a mode no port is in."""
+        adopted = registry.async_get(seeded[self.STALE_KEY].entity_id)
+        assert adopted is not None
+        assert adopted.id == seeded[self.STALE_KEY].id
+        assert adopted.unique_id == f"{self.GRIDBOSS_SERIAL}_smart_port2_power_l1"
+        assert registry.async_get(seeded[self.STALE_TOTAL_KEY].entity_id) is None
 
     def _seed_registry(self, hass, entry):
         """Pre-create registry entries as they exist after a previous session."""
         registry = er.async_get(hass)
         entries = {}
-        for key in (*self.ACTIVE_KEYS, self.STALE_KEY, self.PLAIN_KEY):
+        for key in (
+            *self.ACTIVE_KEYS,
+            self.STALE_KEY,
+            self.STALE_TOTAL_KEY,
+            self.PLAIN_KEY,
+        ):
             entries[key] = registry.async_get_or_create(
                 "sensor",
                 DOMAIN,
@@ -1140,10 +1158,10 @@ class TestSmartPortCleanupOnReboot:
         # the family-resolution recleanup listener, #563)
         assert self._smart_port_deferred(coordinator) is not None
 
-    async def test_deferred_cleanup_preserves_active_and_removes_stale(
+    async def test_deferred_cleanup_preserves_active_and_removes_stale_total(
         self, hass: HomeAssistant, mock_config_entry
     ):
-        """When real data arrives, stale keys go but active entries keep their ID."""
+        """When real data arrives, a stale total goes; everything else keeps its ID."""
         mock_config_entry.add_to_hass(hass)
         seeded = self._seed_registry(hass, mock_config_entry)
 
@@ -1164,7 +1182,7 @@ class TestSmartPortCleanupOnReboot:
             assert current is not None, f"active key {key} was removed"
             assert current.id == seeded[key].id, f"registry ID churned for {key}"
         assert registry.async_get(seeded[self.PLAIN_KEY].entity_id) is not None
-        assert registry.async_get(seeded[self.STALE_KEY].entity_id) is None
+        self._assert_stale_port_adopted_and_total_removed(registry, seeded)
 
         # Listener unsubscribed after authoritative cleanup; re-firing is a no-op
         unsub.assert_called_once()
@@ -1210,7 +1228,7 @@ class TestSmartPortCleanupOnReboot:
             assert current is not None, f"active key {key} was removed"
             assert current.id == seeded[key].id
         assert registry.async_get(seeded[self.PLAIN_KEY].entity_id) is not None
-        assert registry.async_get(seeded[self.STALE_KEY].entity_id) is None
+        self._assert_stale_port_adopted_and_total_removed(registry, seeded)
 
         # No pending GridBOSS serials => no deferred smart-port listener (the
         # family-resolution recleanup listener, #563, is always registered)

@@ -20,6 +20,7 @@ from custom_components.eg4_web_monitor.sensor import (
     EG4BatterySensor,
     EG4InverterSensor,
     EG4QuickChargeRemainingSensor,
+    EG4SmartPortSensor,
     EG4StationSensor,
     _create_inverter_sensors,
     _create_simple_device_sensors,
@@ -674,12 +675,16 @@ class TestAsyncSetupEntry:
 
         await async_setup_entry(hass, mock_entry, mock_add)
 
-        assert len(phases) == 2
+        # Phase 3 holds the GridBOSS smart port sensors, whose port devices
+        # hang off the GridBOSS registered in phase 2.
+        assert len(phases) == 3
         phase1_serials = {e._serial for e in phases[0]}
         phase2_serials = {e._serial for e in phases[1]}
         assert "parallel_group_a" in phase1_serials
         assert "GB001" in phase2_serials
         assert "GB001" not in phase1_serials
+        assert phases[2]
+        assert all(isinstance(e, EG4SmartPortSensor) for e in phases[2])
 
     async def test_gridboss_device_creates_sensors(self, hass, mock_entry):
         """GridBOSS device creates sensors via _create_simple_device_sensors."""
@@ -703,7 +708,11 @@ class TestAsyncSetupEntry:
         await async_setup_entry(
             hass, mock_entry, lambda entities, _: added.extend(entities)
         )
-        assert len(added) == len(valid_keys)
+        gridboss = [e for e in added if not isinstance(e, EG4SmartPortSensor)]
+        ports = [e for e in added if isinstance(e, EG4SmartPortSensor)]
+        assert len(gridboss) == len(valid_keys)
+        # Every GridBOSS gets its four port devices' sensors.
+        assert {e._port for e in ports} == {1, 2, 3, 4}
 
     async def test_late_battery_registration_callback(self, hass, mock_entry):
         """Late battery registration discovers batteries added after setup."""

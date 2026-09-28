@@ -102,6 +102,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from .const import CONNECTION_TYPE_HTTP, CONNECTION_TYPE_HYBRID, DOMAIN
+from .coordinator_mappings import smart_port_device_identifier
 from .coordinator_mixins import BATTERY_CARRY_FORWARD_MAX_AGE
 
 if TYPE_CHECKING:
@@ -136,8 +137,8 @@ def _iter_provided(
     """Yield ``(identifier, class, parent_serial)`` for everything provided.
 
     The single source of truth for what the integration registers: the
-    device-table keys (inverters, GridBOSS, parallel groups), each device's
-    battery keys VERBATIM, the battery-bank identifier only under the #169
+    device-table keys (inverters, GridBOSS, parallel groups), each GridBOSS's
+    four smart-port devices, each device's battery keys VERBATIM, the battery-bank identifier only under the #169
     device-info gate, and ``station_{plant_id}`` while station data is present.
     Device-class identifiers have no parent (``None``); every battery-class
     identifier carries the serial of the device that provides it, so a battery
@@ -148,6 +149,12 @@ def _iter_provided(
         yield parent, _CLASS_DEVICE, None
         if not isinstance(device_data, dict):
             continue
+        if device_data.get("type") == "gridboss":
+            # Every GridBOSS has all four smart-port devices (the mode select
+            # lives there even when a port is unused), so they are provided
+            # exactly as long as their GridBOSS is.
+            for port in range(1, 5):
+                yield smart_port_device_identifier(parent, port), _CLASS_DEVICE, None
         sensors = device_data.get("sensors") or {}
         # Bank gate -- must stay in lockstep with
         # DeviceInfoMixin.get_battery_bank_device_info (#169): bank sensors

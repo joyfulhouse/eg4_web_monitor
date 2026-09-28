@@ -115,8 +115,9 @@ class TestLateBatteryRegistration:
         await async_setup_entry(hass, local_config_entry, mock_add_entities)
 
         # Verify listeners registered (batteries + smart ports + device
-        # sensors + battery bank sensors)
-        assert mock_coordinator_static.async_add_listener.call_count == 4
+        # sensors + battery bank sensors + deferred smart-port adoption +
+        # smart-port enablement sync)
+        assert mock_coordinator_static.async_add_listener.call_count == 6
 
         # Simulate second refresh: batteries appear
         battery_sensors = {
@@ -550,4 +551,7 @@ class TestSmartPortListenerOwnership:
         assert not duplicates, f"duplicate unique IDs registered: {duplicates}"
         # The reporter's automation entity is registered exactly once
         assert all_unique_ids.count(f"{self.GRIDBOSS_SERIAL}_smart_load_power") == 1
-        assert all_unique_ids.count(f"{self.GRIDBOSS_SERIAL}_smart_load1_power_l1") == 1
+        # Per-port values are served by the port device's mode-neutral
+        # sensor, registered once at setup; the per-mode key never is.
+        assert all_unique_ids.count(f"{self.GRIDBOSS_SERIAL}_smart_port1_power_l1") == 1
+        assert all_unique_ids.count(f"{self.GRIDBOSS_SERIAL}_smart_load1_power_l1") == 0
