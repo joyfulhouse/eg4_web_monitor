@@ -60,6 +60,11 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
+from .const.midbox import (
+    MIDBOX_OPTION_READ_BLOCKS,
+    MIDBOX_REG_SMART_PORT_FUNCTIONS,
+    decode_midbox_options,
+)
 from .endpoint_bus import EndpointBusCapability
 from .smart_port_devices import serials_awaiting_port_mode
 from .utils import (
@@ -102,6 +107,13 @@ ATTACH_RETRY_INTERVAL_SECONDS = 60.0
 
 _LOCAL_TRANSPORT_LINK_DOWN_ERROR = "Local transport link down"
 _LOCAL_DATA_PROCESSING_ERROR = "Local data processing failed"
+
+# GridBOSS smart port option reads (_read_midbox_smart_port_options): each
+# block gets one immediate retry, and a full read that lost a block is
+# retried this soon instead of waiting out the parameter refresh interval.
+_MIDBOX_READ_ATTEMPTS = 2
+_MIDBOX_READ_RETRY_DELAY = 0.5
+_MIDBOX_OPTION_RETRY_SECONDS = 120.0
 
 
 def _stale_parallel_member_error(
@@ -713,6 +725,114 @@ class LocalTransportMixin(_MixinBase):
 
         return params, complete
 
+    async def _read_midbox_block(
+        self, transport: EndpointBusCapability, start: int, count: int
+    ) -> dict[int, int]:
+        """Read a block of GridBOSS holding registers, retrying once.
+
+        The GridBOSS dongle is shared with the cloud connection, and a read
+        occasionally fails on a response routed to the cloud request
+        instead ("misrouted cloud response"); an immediate retry clears it.
+        A result missing any requested register counts as a failure.
+
+        Raises:
+            Exception: The last read failure after the retry.
+        """
+        from pylxpweb.transports.exceptions import TransportReadError
+
+        wanted = range(start, start + count)
+        for attempt in range(1, _MIDBOX_READ_ATTEMPTS + 1):
+            try:
+                raw = await transport.read_parameters(start, count)
+                if isinstance(raw, dict) and all(
+                    isinstance(raw.get(register), int) for register in wanted
+                ):
+                    return {register: raw[register] for register in wanted}
+                raise TransportReadError(
+                    f"GridBOSS read {start}+{count} returned incomplete data"
+                )
+            except Exception:
+                if attempt == _MIDBOX_READ_ATTEMPTS:
+                    raise
+                await asyncio.sleep(_MIDBOX_READ_RETRY_DELAY)
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    async def _read_midbox_smart_port_options(
+        self,
+        transport: EndpointBusCapability,
+        serial: str,
+        *,
+        poll_functions: bool = True,
+    ) -> dict[str, Any]:
+        """Read a GridBOSS's smart port option registers for the parameter store.
+
+        Returns the decoded cloud-named option values (layout and evidence in
+        const/midbox.py) merged over the previous cycle's values.
+
+        Cadence: register 229 — the per-port enables, which switch port
+        power immediately — is read on every GridBOSS poll when
+        ``poll_functions`` is set; the full option blocks (229-317, 2101)
+        on the parameter refresh interval, retried after
+        ``_MIDBOX_OPTION_RETRY_SECONDS`` when any block fails. Writes seed
+        the store from their own verify read (write_midbox_options).
+
+        A failed block carries its previous values forward (#282: a partial
+        read must not blank known parameter values); entities stay on
+        last-known state until a read lands, and show unavailable until the
+        first one ever does.
+        """
+        previous = (self.data or {}).get("parameters", {}).get(serial) or {}
+        now = time.monotonic()
+        deadline = self._midbox_option_next_read.get(serial)
+        full_read = deadline is None or now >= deadline
+        if full_read:
+            blocks = MIDBOX_OPTION_READ_BLOCKS
+        elif poll_functions:
+            blocks = ((MIDBOX_REG_SMART_PORT_FUNCTIONS, 1),)
+        else:
+            return dict(previous)
+
+        read_generation = self._parameter_write_generation
+        raw: dict[int, int] = {}
+        failed = False
+        try:
+            if not transport.is_connected:
+                await transport.connect()
+            for start, count in blocks:
+                try:
+                    raw.update(await self._read_midbox_block(transport, start, count))
+                except Exception as err:
+                    failed = True
+                    _LOGGER.debug(
+                        "GridBOSS %s option read %s+%s failed: %s; carrying forward",
+                        serial,
+                        start,
+                        count,
+                        err,
+                    )
+        except Exception as err:
+            failed = True
+            _LOGGER.debug(
+                "GridBOSS %s option read failed: %s; carrying forward", serial, err
+            )
+
+        if full_read:
+            self._midbox_option_next_read[serial] = now + (
+                _MIDBOX_OPTION_RETRY_SECONDS
+                if failed
+                else self._parameter_refresh_interval.total_seconds()
+            )
+
+        decoded = decode_midbox_options(raw)
+        decoded = self._reconcile_parameter_read(
+            serial,
+            decoded,
+            read_complete=False,
+            read_generation=read_generation,
+            observed_keys=decoded,
+        )
+        return {**previous, **decoded}
+
     def _build_local_device_data(
         self,
         inverter: BaseInverter,
@@ -1226,7 +1346,9 @@ class LocalTransportMixin(_MixinBase):
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
-                processed["parameters"][serial] = {}
+                processed["parameters"][
+                    serial
+                ] = await self._read_midbox_smart_port_options(transport, serial)
 
                 _LOGGER.debug(
                     "LOCAL: Updated GridBOSS %s (%s) - FW: %s, Grid: %sW, Load: %sW",

@@ -442,6 +442,35 @@ class HTTPUpdateMixin(_MixinBase):
 
         return data
 
+    async def _update_midbox_smart_port_options(
+        self, processed: dict[str, Any]
+    ) -> None:
+        """Refresh smart port option params for GridBOSS devices.
+
+        HYBRID only in practice: the read rides each MID device's attached
+        local transport. Pure-cloud MID devices have no transport and are
+        skipped — the option entities exist only for a GridBOSS with a
+        local transport, and the cloud has no settings getter for them. A
+        down link is skipped the same way; the previous cycle's values are
+        already carried in ``processed["parameters"]`` (#282 semantics),
+        and a failed read inside the helper carries forward too.
+        """
+        station = self.station
+        if station is None:
+            return
+        params_store = processed.setdefault("parameters", {})
+        devices = processed.get("devices", {})
+        for mid in getattr(station, "all_mid_devices", None) or []:
+            serial = str(mid.serial_number)
+            if serial not in devices:
+                continue
+            transport = getattr(mid, "transport", None)
+            if transport is None or is_transport_link_down(mid):
+                continue
+            params_store[serial] = await self._read_midbox_smart_port_options(
+                transport, serial
+            )
+
     async def _async_update_http_data(
         self,
         include_mid_refresh: bool = True,
@@ -1368,6 +1397,10 @@ class HTTPUpdateMixin(_MixinBase):
         # Check if we need to refresh parameters for any inverters
         if "parameters" not in processed:
             processed["parameters"] = {}
+
+        # GridBOSS smart port options: read through each MID device's
+        # attached local transport (cadence in the helper).
+        await self._update_midbox_smart_port_options(processed)
 
         inverters_needing_params = []
         for serial, device_data in processed["devices"].items():
