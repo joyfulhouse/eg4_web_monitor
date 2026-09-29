@@ -33,6 +33,7 @@ import homeassistant.helpers.entity_registry as er
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
+from .const.midbox import PORT_OPTION_SPECS
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_KEY_TO_PORT,
     SMART_PORT_READ_KEY,
@@ -356,7 +357,11 @@ def port_status_signature(data: dict[str, Any] | None) -> tuple[Any, ...]:
 
 
 class PortSensorEnablement:
-    """Disable port sensors that don't serve the port's mode; re-enable them.
+    """Disable port entities that don't serve the port's mode; re-enable them.
+
+    Covers the port sensors (``PORT_SENSOR_SPECS``) and the smart port option
+    controls (``const.midbox.PORT_OPTION_SPECS``), each of which belongs to
+    one mode.
 
     - Acts only on VALIDATED status reads (the #217 authority marker), and
       only after ``REQUIRED_READS`` consecutive validated READS agree
@@ -435,6 +440,19 @@ class PortSensorEnablement:
                             registry,
                             entity_id,
                             spec_is_active(spec, mode),
+                            self._entry.entry_id,
+                        )
+                for option in PORT_OPTION_SPECS:
+                    entity_id = registry.async_get_entity_id(
+                        option.platform,
+                        DOMAIN,
+                        port_sensor_unique_id(serial, port, option.id_suffix),
+                    )
+                    if entity_id is not None:
+                        _apply(
+                            registry,
+                            entity_id,
+                            option.mode == mode,
                             self._entry.entry_id,
                         )
 
