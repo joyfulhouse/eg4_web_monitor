@@ -21,6 +21,7 @@ from .control_discovery import setup_control_entity_discovery
 from .coordinator import EG4DataUpdateCoordinator
 from .base_entity import EG4BaseSelect, _get_model_from_coordinator
 from .smart_port_devices import PORT_MODE_SELECT_NAME, note_port_mode_written
+from .smart_port_options import create_port_option_entities
 from .utils import (
     async_write_with_cloud_fallback,
     create_device_info,
@@ -142,6 +143,9 @@ def _create_select_entities(
                 serial,
                 device_type,
             )
+
+    # Per-port smart port options (GridBOSS with a local transport only).
+    entities.extend(create_port_option_entities(coordinator, "select"))
 
     return entities
 

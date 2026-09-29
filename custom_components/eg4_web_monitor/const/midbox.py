@@ -221,3 +221,175 @@ def encode_midbox_field(field: MidboxField, raw: int, value: Any) -> int:
     if not 0 <= word <= 0xFFFF:
         raise ValueError(f"register value out of range: {value!r}")
     return word
+
+
+# =============================================================================
+# Smart port option entities
+# =============================================================================
+# One spec per entity on each Smart Port N device. The unique ID is
+# ``{serial}_smart_port{n}_{id_suffix}``; ``param`` is the option name with
+# ``{port}`` for the port number (for a time window, the name without its
+# ``_HOUR_{w}`` / ``_MINUTE_{w}`` tail, ``w`` = ``window``).
+#
+# ``mode`` is the port mode the entity belongs to: the entity registry sync
+# (smart_port_devices.PortSensorEnablement) disables it while the port is in
+# another mode. ``gates`` mirror the portal, which greys a field out
+# (the entity shows unavailable) unless:
+#   - GATE_TIME_BASED: the port's "based on" is Time
+#   - GATE_SHEDDING:   power shedding is on for the port
+#   - GATE_SOC / GATE_VOLT: the inverters' battery control regime is SOC /
+#     voltage (register 179: the discharge bit for Smart Load and shedding
+#     thresholds, the charge bit for AC Couple thresholds)
+PORT_MODE_SMART_LOAD = "smart_load"
+PORT_MODE_AC_COUPLE = "ac_couple"
+
+GATE_TIME_BASED = "time_based"
+GATE_SHEDDING = "shedding"
+GATE_SOC = "soc"
+GATE_VOLT = "volt"
+
+
+@dataclass(frozen=True)
+class PortOptionSpec:
+    """One smart port option entity."""
+
+    platform: Literal["switch", "select", "number", "time"]
+    id_suffix: str
+    name: str
+    mode: str
+    param: str
+    gates: tuple[str, ...] = ()
+    window: int = 0
+    icon: str | None = None
+
+    def param_name(self, port: int) -> str:
+        """Option name of this entity's field for ``port``."""
+        return self.param.format(port=port)
+
+
+def _threshold_specs(
+    id_prefix: str,
+    name_prefix: str,
+    mode: str,
+    param_prefix: str,
+    gates: tuple[str, ...],
+) -> tuple[PortOptionSpec, ...]:
+    return tuple(
+        PortOptionSpec(
+            "number",
+            f"{id_prefix}_{edge.lower()}_{unit_id}",
+            f"{name_prefix} {edge.title()} {unit_name}",
+            mode,
+            f"{param_prefix}_{edge}_{unit_param}_{{port}}",
+            (*gates, gate),
+        )
+        for unit_id, unit_name, unit_param, gate in (
+            ("soc", "SOC", "SOC", GATE_SOC),
+            ("voltage", "Voltage", "VOLT", GATE_VOLT),
+        )
+        for edge in ("START", "END")
+    )
+
+
+def _window_specs(
+    id_prefix: str,
+    name_prefix: str,
+    mode: str,
+    param_prefix: str,
+    gates: tuple[str, ...],
+) -> tuple[PortOptionSpec, ...]:
+    return tuple(
+        PortOptionSpec(
+            "time",
+            f"{id_prefix}_{edge.lower()}_time_{window}",
+            f"{name_prefix} {edge.title()} Time {window}",
+            mode,
+            f"{param_prefix}_{{port}}_{edge}",
+            gates,
+            window=window,
+        )
+        for window in (1, 2, 3)
+        for edge in ("START", "END")
+    )
+
+
+PORT_OPTION_SPECS: tuple[PortOptionSpec, ...] = (
+    # Smart Load
+    PortOptionSpec(
+        "switch",
+        "smart_load_enable",
+        "Smart Load Enable",
+        PORT_MODE_SMART_LOAD,
+        "FUNC_SMART_LOAD_EN_{port}",
+        icon="mdi:power-plug-outline",
+    ),
+    PortOptionSpec(
+        "switch",
+        "grid_always_on",
+        "Grid Always On",
+        PORT_MODE_SMART_LOAD,
+        "FUNC_SMART_LOAD_GRID_ON_{port}",
+        icon="mdi:transmission-tower",
+    ),
+    PortOptionSpec(
+        "switch",
+        "power_shedding",
+        "Power Shedding",
+        PORT_MODE_SMART_LOAD,
+        "FUNC_SHEDDING_MODE_EN_{port}",
+        icon="mdi:transmission-tower-off",
+    ),
+    PortOptionSpec(
+        "select",
+        "based_on",
+        "Based On",
+        PORT_MODE_SMART_LOAD,
+        "BIT_SMART_LOAD_BASE_ON_{port}",
+        icon="mdi:tune-variant",
+    ),
+    *_threshold_specs(
+        "smart_load", "Smart Load", PORT_MODE_SMART_LOAD, "MIDBOX_HOLD_SL", ()
+    ),
+    PortOptionSpec(
+        "number",
+        "shedding_start_pv_power",
+        "Shedding Start PV Power",
+        PORT_MODE_SMART_LOAD,
+        "MIDBOX_HOLD_SL_START_PV_P_{port}",
+        (GATE_SHEDDING,),
+    ),
+    *_threshold_specs(
+        "shedding",
+        "Shedding",
+        PORT_MODE_SMART_LOAD,
+        "MIDBOX_HOLD_SL_PS",
+        (GATE_SHEDDING,),
+    ),
+    *_window_specs(
+        "smart_load",
+        "Smart Load",
+        PORT_MODE_SMART_LOAD,
+        "HOLD_MIDBOX_SL",
+        (GATE_TIME_BASED,),
+    ),
+    # AC Couple
+    PortOptionSpec(
+        "switch",
+        "ac_couple_enable",
+        "AC Couple Enable",
+        PORT_MODE_AC_COUPLE,
+        "FUNC_AC_COUPLE_EN_{port}",
+        icon="mdi:solar-power-variant",
+    ),
+    *_threshold_specs(
+        "ac_couple", "AC Couple", PORT_MODE_AC_COUPLE, "MIDBOX_HOLD_AC", ()
+    ),
+    *_window_specs(
+        "ac_couple", "AC Couple", PORT_MODE_AC_COUPLE, "HOLD_MIDBOX_AC_COUPLE", ()
+    ),
+)
+
+
+def port_option_specs(platform: str) -> tuple[PortOptionSpec, ...]:
+    """The option specs of one platform."""
+    return tuple(spec for spec in PORT_OPTION_SPECS if spec.platform == platform)
