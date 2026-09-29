@@ -1,5 +1,7 @@
 """Tests for the GridBOSS smart port option entities (smart_port_options.py)."""
 
+from datetime import time
+
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -30,6 +32,7 @@ from custom_components.eg4_web_monitor.smart_port_options import (
     EG4SmartPortBasedOnSelect,
     EG4SmartPortOptionNumber,
     EG4SmartPortOptionSwitch,
+    EG4SmartPortWindowTime,
     battery_regime_is_voltage,
     create_port_option_entities,
 )
@@ -403,3 +406,102 @@ async def test_number_rejects_fractional_soc():
             80.5
         )
     coordinator.write_midbox_options.assert_not_awaited()
+
+
+# ── Time windows ─────────────────────────────────────────────────────
+
+# Time-based Smart Load port 3 with windows 04:05-05:04, 07:06-06:07,
+# 08:09-09:08 (the pinning test, registers 282-287), and AC Couple port 4
+# window 1 end 01:02 (register 313).
+WINDOW_PARAMS = decode_midbox_options(
+    {
+        229: 0x0875,
+        2101: 0x30,
+        282: 0x0504,
+        283: 0x0405,
+        284: 0x0607,
+        285: 0x0706,
+        286: 0x0908,
+        287: 0x0809,
+        312: 0,
+        313: 0x0201,
+        288: 0x3B18,  # hour 24: not a clock time
+        289: 0,
+    }
+)
+
+
+def _time(coordinator: MagicMock, port: int, id_suffix: str):
+    entity = EG4SmartPortWindowTime(coordinator, GB, port, SPECS[id_suffix])
+    entity.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    return entity
+
+
+def _window_coordinator() -> MagicMock:
+    return _coordinator(
+        modes=("smart_load", "smart_load", "smart_load", "ac_couple"),
+        params=WINDOW_PARAMS,
+    )
+
+
+def test_factory_builds_windows():
+    """6 Smart Load + 6 AC Couple window edges per port."""
+    times = create_port_option_entities(_coordinator(), "time")
+    assert len(times) == 4 * 12
+    unique_ids = {entity.unique_id for entity in times}
+    assert f"{GB}_smart_port3_smart_load_start_time_1" in unique_ids
+    assert f"{GB}_smart_port4_ac_couple_end_time_3" in unique_ids
+
+
+@pytest.mark.parametrize(
+    ("port", "id_suffix", "expected"),
+    [
+        (3, "smart_load_start_time_1", time(4, 5)),
+        (3, "smart_load_end_time_1", time(5, 4)),
+        (3, "smart_load_start_time_2", time(7, 6)),
+        (3, "smart_load_end_time_3", time(9, 8)),
+        (4, "ac_couple_start_time_1", time(0, 0)),
+        (4, "ac_couple_end_time_1", time(1, 2)),
+    ],
+)
+def test_window_values(port, id_suffix, expected):
+    """Low byte hour, high byte minute."""
+    assert _time(_window_coordinator(), port, id_suffix).native_value == expected
+
+
+def test_window_rejects_non_clock_values():
+    """An hour above 23 reads as unknown, not a wrapped time."""
+    assert (
+        _time(_window_coordinator(), 4, "smart_load_start_time_1").native_value is None
+    )
+
+
+def test_window_gating():
+    """SL windows need "based on" = Time; AC windows are always available."""
+    time_based = _window_coordinator()
+    assert _time(time_based, 3, "smart_load_start_time_1").available is True
+    assert _time(time_based, 4, "ac_couple_end_time_1").available is True
+    soc_volt = decode_midbox_options({**{282: 0x0504, 283: 0}, 229: 0x3077, 2101: 0x3E})
+    assert (
+        _time(_coordinator(params=soc_volt), 3, "smart_load_start_time_1").available
+        is False
+    )
+
+
+def test_window_unavailable_until_both_bytes_read():
+    """A window whose register was never read is unavailable."""
+    params = {"BIT_SMART_LOAD_BASE_ON_3": 0, "HOLD_MIDBOX_SL_3_START_HOUR_1": 4}
+    entity = _time(_coordinator(params=params), 3, "smart_load_start_time_1")
+    assert entity.available is False
+
+
+async def test_window_writes_hour_and_minute_together():
+    """One write carries both bytes of the window register."""
+    coordinator = _window_coordinator()
+    entity = _time(coordinator, 3, "smart_load_end_time_2")
+    await entity.async_set_value(time(22, 30, 15))
+    coordinator.write_midbox_options.assert_awaited_once_with(
+        GB,
+        {"HOLD_MIDBOX_SL_3_END_HOUR_2": 22, "HOLD_MIDBOX_SL_3_END_MINUTE_2": 30},
+    )
+    assert entity._optimistic_value is None

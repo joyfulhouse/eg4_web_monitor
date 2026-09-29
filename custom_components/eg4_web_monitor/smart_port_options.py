@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import time as dt_time
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.number import (
@@ -35,6 +36,7 @@ from homeassistant.components.number import (
     NumberEntity,
     NumberMode,
 )
+from homeassistant.components.time import TimeEntity
 from homeassistant.const import (
     PERCENTAGE,
     EntityCategory,
@@ -48,6 +50,7 @@ from .base_entity import (
     EG4BaseNumber,
     EG4BaseSelect,
     EG4BaseSwitch,
+    EG4BaseTime,
     EG4OptimisticEntity,
 )
 from .const import (
@@ -410,8 +413,61 @@ class EG4SmartPortOptionNumber(PortOptionEntity, EG4BaseNumber, NumberEntity):
             self.async_write_ha_state()
 
 
+class EG4SmartPortWindowTime(PortOptionEntity, EG4BaseTime, TimeEntity):
+    """One edge (start or end) of a Smart Load / AC Couple time window."""
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        port: int,
+        spec: PortOptionSpec,
+    ) -> None:
+        """Initialize the time entity for one port."""
+        super().__init__(coordinator, serial)
+        self._serial = serial
+        self._init_port_option(port, spec)
+        prefix = spec.param_name(port)
+        self._hour_name = f"{prefix}_HOUR_{spec.window}"
+        self._minute_name = f"{prefix}_MINUTE_{spec.window}"
+
+    def _option_names(self) -> tuple[str, ...]:
+        return (self._hour_name, self._minute_name)
+
+    @property
+    def available(self) -> bool:
+        """Portal-equivalent availability."""
+        return self._option_available()
+
+    @property
+    def native_value(self) -> dt_time | None:
+        """Return the window edge; None for a value that is not a clock time."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        hour = self._option_value(self._hour_name)
+        minute = self._option_value(self._minute_name)
+        if not isinstance(hour, int) or not isinstance(minute, int):
+            return None
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            return None
+        return dt_time(hour, minute)
+
+    async def async_set_value(self, value: dt_time) -> None:
+        """Write the hour and minute together (one register)."""
+        self._optimistic_value = value.replace(second=0, microsecond=0)
+        self.async_write_ha_state()
+        try:
+            await self._write_options(
+                {self._hour_name: value.hour, self._minute_name: value.minute}
+            )
+        finally:
+            self._optimistic_value = None
+            self.async_write_ha_state()
+
+
 _PLATFORM_CLASSES: dict[str, type[Any]] = {
     "switch": EG4SmartPortOptionSwitch,
     "select": EG4SmartPortBasedOnSelect,
     "number": EG4SmartPortOptionNumber,
+    "time": EG4SmartPortWindowTime,
 }
