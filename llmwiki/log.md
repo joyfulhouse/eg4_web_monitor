@@ -1091,3 +1091,19 @@ wrong: "Modbus-only" came from a code comment, not from the library; and "adopti
 assumed the fallback rule was evidence, when on the skip path it is a tie-break. Updated
 [architecture §4.1](10-integration/architecture.md) and
 [entities §5](10-integration/entities-identity-availability.md).
+
+## [2026-09-29] ingest | GridBOSS smart port option registers (229-317, 2101)
+
+Pinned the per-port smart port settings (enables, "based on", SOC / voltage thresholds,
+shedding, time windows) on a live GridBOSS (fw IAAB-1300) by making one portal or app change
+at a time and diffing dongle reads of 229-317 and 2099-2104. The cloud range read already names
+every register, which fixes register → field; the diffs pinned byte order (low byte = start SOC,
+= window hour), scales, and bit positions. Only the port 2 shedding / based-on round trip was
+restored, so only it meets `hardware-toggle-proven`; the rest is `portal-correlated` or
+`inferred`. The mobile app over local WiFi was not a reliable readback (showed port 3 shedding off
+while register and portal had it on), so the portal was the reference. Open: port 4's based-on
+bit (2101 b4) collides with a mobile-app "Time+SOC/Volt" write on port 3, and the bit positions of
+the cloud's `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` are unknown. Added the
+[GridBOSS ledger rows](40-hardware/registers.md#gridboss-register-ledger) (footnoted to this
+change's `const/midbox.py`, not the page pin); `docs/DATA_MAPPING.md` §5 and
+`docs/CONFIGURATION.md` "Smart port settings" describe the shipped entities.

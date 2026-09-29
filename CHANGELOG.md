@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **GridBOSS smart port settings**: with a local connection to the GridBOSS, each smart port device now carries the port's settings from the EG4 portal:
+  - Smart Load: Smart Load Enable, Grid Always On, Power Shedding, Based On (Time / SOC/Volt), start/end SOC and voltage, the shedding thresholds (start PV power, start/end SOC and voltage), and three start/end time windows.
+  - AC Couple: AC Couple Enable, start/end SOC and voltage, and three start/end time windows.
+
+  Settings for the port's other mode are disabled, as the port sensors are. A setting the portal greys out, such as the Smart Load times when Based On is SOC/Volt or the shedding settings with Power Shedding off, shows unavailable. Changes made in the portal or app show up on the parameter refresh interval (the enables, on every GridBOSS update). See [Smart port settings](docs/CONFIGURATION.md#smart-port-settings).
+
 ### Changed
 
 - **Breaking — GridBOSS smart ports are now their own devices** ([#630](https://github.com/joyfulhouse/eg4_web_monitor/issues/630)): each of the four ports is a "Smart Port N <serial>" device under the GridBOSS, holding that port's Mode select, Power, Power L1/L2 and Current L1/L2 that read whichever mode the port is in (current on Cloud too, where the portal reports it), plus Smart Load and AC Couple Energy Today/Total, one pair per mode so the Energy dashboard's statistics stay correct. Entities that don't serve the port's current mode are disabled, and re-enabled when the port returns to that mode; entities you disabled yourself are left alone. On the first load after upgrading, the per-mode sensors that used to sit on the GridBOSS (e.g. `sensor.grid_boss_<serial>_smart_load_1_power_l1`) move to their port devices and keep their entity IDs and history. Where a port had power/current sensors for both modes, the port's current mode decides which one is kept (once a status read confirms the mode, or, where the port status hasn't read as valid for five minutes, provisionally by the mode its readings are reported under, swapped back if a confirmed read later shows the other mode); the other is kept but disabled, not deleted. After a mode change through the Mode select, the GridBOSS is read on every update until the new mode is confirmed, so the port's sensors follow within seconds rather than a transport interval. Downgrading afterwards re-creates the old per-mode sensors under new entity IDs without their history. To move to the new entity-ID format, use the port device's ⋮ → **Recreate entity IDs**. See [GridBOSS smart port devices](docs/CONFIGURATION.md#gridboss-smart-port-devices).

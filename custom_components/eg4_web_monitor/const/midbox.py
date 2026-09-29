@@ -50,14 +50,18 @@ register in 229-317 and 2099-2104 unchanged:
   and p2 set exactly bits 0 and 1.
 - 2101 based-on: portal Time → SOC/Volt set only bit 3 (p3), only bit 2
   (p2, reverted round-trip) and bit 1 (p1, set together with p2 / p3).
-  p4 (bit 4) follows the pattern and is not change-tested.
+  p4 (bit 4) follows the pattern and is not change-tested — and is
+  ambiguous: the mobile app set bit 4 when "Time+SOC/Volt" was chosen for
+  p3 (2101 0x22 → 0x32), so bit 4 may belong to that option instead.
 - Voltage words read 540 / 480 against the cloud's "54" / "48" (÷10). Not
   change-tested: the unit runs SOC control, where the portal greys them.
 
-Bits 5-8 of 2101 are the cloud's ``BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n``
-— the mobile app's "Time+SOC/Volt" option, which the web portal does not
-offer. They are not exposed, and every write preserves them (writes mask
-one field of a freshly read register).
+The cloud also names ``BIT_MID_INSTALL_POSITION`` and
+``BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n`` (the mobile app's "Time+SOC/Volt"
+option, which the web portal does not offer) in 2101; their bit positions
+are not pinned (bit 5 reads set on the live unit, meaning unknown). They are
+not exposed, and every write preserves them (writes mask one field of a
+freshly read register).
 
 A readback proves storage and transport, not semantics: what the firmware
 does with these values is described by the GridBOSS user manual (v1.1.2
