@@ -24,6 +24,7 @@ else:
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseSwitch
+from .smart_port_options import create_port_option_entities
 from .const import (
     FUNCTION_PARAM_MAPPING,
     PARAM_FUNC_AC_CHARGE,
@@ -379,6 +380,9 @@ def _create_switch_entities(
                             mode_config=mode_config,
                         )
                     )
+
+    # Per-port smart port options (GridBOSS with a local transport only).
+    entities.extend(create_port_option_entities(coordinator, "switch"))
 
     return entities
 

@@ -75,21 +75,25 @@ class TestSelectPlatformSetup:
         assert "EG4BatteryDischargeControlSelect" in type_names
 
     @pytest.mark.asyncio
-    async def test_setup_creates_gridboss_selects(self, hass):
-        """GridBOSS devices get 4 smart port mode select entities."""
+    @pytest.mark.parametrize("local", [False, True])
+    async def test_setup_creates_gridboss_selects(self, hass, local):
+        """GridBOSS devices get 4 smart port mode selects, plus 4 based-on
+        selects when the GridBOSS has a local transport."""
         coordinator = _mock_coordinator()
         coordinator.data["devices"] = {
             "gb123": {"type": "gridboss", "model": "GridBOSS"}
         }
+        coordinator.has_configured_local_transport = MagicMock(return_value=local)
         entry = MagicMock()
         entry.runtime_data = coordinator
 
         entities = []
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert len(entities) == 4
         type_names = [type(e).__name__ for e in entities]
-        assert all(name == "EG4SmartPortModeSelect" for name in type_names)
+        assert type_names.count("EG4SmartPortModeSelect") == 4
+        assert type_names.count("EG4SmartPortBasedOnSelect") == (4 if local else 0)
+        assert len(entities) == (8 if local else 4)
 
     @pytest.mark.asyncio
     async def test_setup_skips_unsupported_model(self, hass):
