@@ -27,16 +27,42 @@ Availability mirrors the portal:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
-from homeassistant.const import EntityCategory
+from homeassistant.components.number import (
+    NumberDeviceClass,
+    NumberEntity,
+    NumberMode,
+)
+from homeassistant.const import (
+    PERCENTAGE,
+    EntityCategory,
+    UnitOfElectricPotential,
+    UnitOfPower,
+)
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .base_entity import EG4BaseSelect, EG4BaseSwitch, EG4OptimisticEntity
+from .base_entity import (
+    EG4BaseNumber,
+    EG4BaseSelect,
+    EG4BaseSwitch,
+    EG4OptimisticEntity,
+)
 from .const import (
     DEVICE_TYPE_GRIDBOSS,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
+    SMART_LOAD_PV_POWER_MAX,
+    SMART_LOAD_PV_POWER_MIN,
+    SMART_LOAD_PV_POWER_STEP,
+    SMART_LOAD_SOC_MAX,
+    SMART_LOAD_SOC_MIN,
+    SMART_LOAD_SOC_STEP,
+    SMART_LOAD_VOLT_MAX,
+    SMART_LOAD_VOLT_MIN,
+    SMART_LOAD_VOLT_STEP,
 )
 from .const.midbox import (
     GATE_SHEDDING,
@@ -286,7 +312,106 @@ class EG4SmartPortBasedOnSelect(PortOptionEntity, EG4BaseSelect):
             self.async_write_ha_state()
 
 
+@dataclass(frozen=True)
+class _NumberFormat:
+    unit: str
+    minimum: float
+    maximum: float
+    step: float
+    device_class: NumberDeviceClass | None = None
+
+
+# Bounds shared with the inverter Smart Load panel (const/limits.py): the
+# wire carries SOC as a byte and volts / kW at 0.1 resolution with no
+# documented ceiling, and a too-narrow range would render a legal portal
+# value as unknown. The manual gives shedding start PV power as "0 – 360W";
+# the portal and register use kW at 0.1, so no firmware ceiling is pinned.
+_NUMBER_FORMATS: dict[str, _NumberFormat] = {
+    "SOC": _NumberFormat(
+        PERCENTAGE, SMART_LOAD_SOC_MIN, SMART_LOAD_SOC_MAX, SMART_LOAD_SOC_STEP
+    ),
+    "VOLT": _NumberFormat(
+        UnitOfElectricPotential.VOLT,
+        SMART_LOAD_VOLT_MIN,
+        SMART_LOAD_VOLT_MAX,
+        SMART_LOAD_VOLT_STEP,
+        NumberDeviceClass.VOLTAGE,
+    ),
+    "PV_P": _NumberFormat(
+        UnitOfPower.KILO_WATT,
+        SMART_LOAD_PV_POWER_MIN,
+        SMART_LOAD_PV_POWER_MAX,
+        SMART_LOAD_PV_POWER_STEP,
+        NumberDeviceClass.POWER,
+    ),
+}
+
+
+def _number_format(spec: PortOptionSpec) -> _NumberFormat:
+    for field_type, number_format in _NUMBER_FORMATS.items():
+        if f"_{field_type}_" in spec.param:
+            return number_format
+    raise ValueError(f"No number format for {spec.param}")
+
+
+class EG4SmartPortOptionNumber(PortOptionEntity, EG4BaseNumber, NumberEntity):
+    """A smart port threshold: SOC, voltage or shedding start PV power."""
+
+    _attr_mode = NumberMode.BOX
+
+    def __init__(
+        self,
+        coordinator: EG4DataUpdateCoordinator,
+        serial: str,
+        port: int,
+        spec: PortOptionSpec,
+    ) -> None:
+        """Initialize the number for one port."""
+        super().__init__(coordinator, serial)
+        self._serial = serial
+        self._init_port_option(port, spec)
+        number_format = _number_format(spec)
+        self._integer = number_format.step == 1
+        self._attr_native_unit_of_measurement = number_format.unit
+        self._attr_native_min_value = number_format.minimum
+        self._attr_native_max_value = number_format.maximum
+        self._attr_native_step = number_format.step
+        self._attr_device_class = number_format.device_class
+
+    @property
+    def available(self) -> bool:
+        """Portal-equivalent availability."""
+        return self._option_available()
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the threshold."""
+        if self._optimistic_value is not None:
+            return self._optimistic_value
+        value = self._option_value(self._spec.param_name(self._port))
+        return float(value) if isinstance(value, int | float) else None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Write the threshold."""
+        if self._integer:
+            if value != int(value):
+                raise ServiceValidationError(
+                    f"{self._spec.name} must be a whole number, got {value}"
+                )
+            written: float = int(value)
+        else:
+            written = round(value, 1)
+        self._optimistic_value = written
+        self.async_write_ha_state()
+        try:
+            await self._write_options({self._spec.param_name(self._port): written})
+        finally:
+            self._optimistic_value = None
+            self.async_write_ha_state()
+
+
 _PLATFORM_CLASSES: dict[str, type[Any]] = {
     "switch": EG4SmartPortOptionSwitch,
     "select": EG4SmartPortBasedOnSelect,
+    "number": EG4SmartPortOptionNumber,
 }

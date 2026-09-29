@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import homeassistant.helpers.entity_registry as er
 import pytest
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import DOMAIN
@@ -28,6 +28,7 @@ from custom_components.eg4_web_monitor.smart_port_options import (
     BASED_ON_SOC_VOLT,
     BASED_ON_TIME,
     EG4SmartPortBasedOnSelect,
+    EG4SmartPortOptionNumber,
     EG4SmartPortOptionSwitch,
     battery_regime_is_voltage,
     create_port_option_entities,
@@ -40,7 +41,21 @@ INTEGRATION = er.RegistryEntryDisabler.INTEGRATION
 # Live read (dump 10): ports 1-3 Smart Load, enabled, grid-on, SOC/Volt;
 # shedding on ports 1-2; port 4 unused.
 LIVE_PARAMS = decode_midbox_options(
-    {229: 0x3077, 2101: 0x3E, 230: 0x4650, 254: 0, 258: 0x2850, 270: 0, 271: 0}
+    {
+        229: 0x3077,
+        2101: 0x3E,
+        230: 0x4650,
+        232: 0x325A,
+        234: 0x21C,
+        235: 0x1E0,
+        245: 0x540A,
+        254: 0,
+        256: 3,
+        258: 0x2850,
+        260: 0x3C5A,
+        270: 0,
+        271: 0,
+    }
 )
 SPECS = {spec.id_suffix: spec for spec in PORT_OPTION_SPECS}
 
@@ -302,3 +317,89 @@ async def test_registry_sync_covers_option_entities(hass: HomeAssistant):
     assert registry.async_get(sl_switch.entity_id).disabled_by is INTEGRATION
     assert registry.async_get(ac_switch.entity_id).disabled_by is None
     assert registry.async_get(ac_time.entity_id).disabled_by is None
+
+
+# ── Numbers ──────────────────────────────────────────────────────────
+
+
+def _number(coordinator: MagicMock, port: int, id_suffix: str):
+    entity = EG4SmartPortOptionNumber(coordinator, GB, port, SPECS[id_suffix])
+    entity.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    return entity
+
+
+def test_factory_builds_numbers():
+    """13 thresholds per port."""
+    numbers = create_port_option_entities(_coordinator(), "number")
+    assert len(numbers) == 4 * 13
+    assert all(isinstance(entity, EG4SmartPortOptionNumber) for entity in numbers)
+
+
+@pytest.mark.parametrize(
+    ("id_suffix", "unit", "step", "value"),
+    [
+        ("smart_load_start_soc", "%", 1, 80.0),
+        ("smart_load_end_soc", "%", 1, 70.0),
+        ("smart_load_start_voltage", "V", 0.1, 54.0),
+        ("smart_load_end_voltage", "V", 0.1, 48.0),
+        ("shedding_start_pv_power", "kW", 0.1, 0.0),
+        ("shedding_start_soc", "%", 1, 80.0),
+        ("shedding_end_soc", "%", 1, 40.0),
+    ],
+)
+def test_number_format_and_value(id_suffix, unit, step, value):
+    """Units, step and decoded values for port 1 of the live read."""
+    entity = _number(_coordinator(), 1, id_suffix)
+    assert entity.native_unit_of_measurement == unit
+    assert entity.native_step == step
+    assert entity.native_min_value == 0
+    assert entity.native_value == value
+
+
+def test_number_values_for_other_ports():
+    """Port 3 PV power 0.3 kW; port 4 AC start SOC in the low byte."""
+    coordinator = _coordinator(modes=("smart_load",) * 3 + ("ac_couple",))
+    assert _number(coordinator, 3, "shedding_start_pv_power").native_value == 0.3
+    assert _number(coordinator, 3, "smart_load_end_soc").native_value == 50.0
+    assert _number(coordinator, 4, "ac_couple_start_soc").native_value == 10.0
+    assert _number(coordinator, 4, "ac_couple_start_soc").available is True
+
+
+def test_number_gating():
+    """Shedding thresholds need shedding on; voltage needs a voltage regime."""
+    coordinator = _coordinator(inverter_regimes=(False,))
+    assert _number(coordinator, 1, "shedding_start_soc").available is True
+    assert _number(coordinator, 3, "shedding_start_soc").available is False
+    assert _number(coordinator, 1, "smart_load_start_voltage").available is False
+    assert _number(coordinator, 1, "smart_load_start_soc").available is True
+
+
+async def test_number_writes():
+    """SOC writes an int, voltage and power round to 0.1."""
+    coordinator = _coordinator()
+    await _number(coordinator, 3, "smart_load_end_soc").async_set_native_value(60.0)
+    coordinator.write_midbox_options.assert_awaited_with(
+        GB, {"MIDBOX_HOLD_SL_END_SOC_3": 60}
+    )
+    await _number(coordinator, 1, "smart_load_start_voltage").async_set_native_value(
+        52.46
+    )
+    coordinator.write_midbox_options.assert_awaited_with(
+        GB, {"MIDBOX_HOLD_SL_START_VOLT_1": 52.5}
+    )
+    entity = _number(coordinator, 1, "shedding_start_pv_power")
+    await entity.async_set_native_value(0.4)
+    coordinator.write_midbox_options.assert_awaited_with(
+        GB, {"MIDBOX_HOLD_SL_START_PV_P_1": 0.4}
+    )
+    assert entity._optimistic_value is None
+
+
+async def test_number_rejects_fractional_soc():
+    """A fractional SOC is a validation error, not a silent truncation."""
+    coordinator = _coordinator()
+    with pytest.raises(ServiceValidationError):
+        await _number(coordinator, 1, "smart_load_start_soc").async_set_native_value(
+            80.5
+        )
+    coordinator.write_midbox_options.assert_not_awaited()
