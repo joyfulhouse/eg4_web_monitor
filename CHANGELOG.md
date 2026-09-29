@@ -37,6 +37,14 @@ Requires **[pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/release
 
 - **GridBOSS smart port entities can no longer be switched on or off by one portal reading counted twice** ([#641](https://github.com/joyfulhouse/eg4_web_monitor/issues/641)): the integration waits for two GridBOSS reads to agree on a port's mode before disabling or re-enabling that port's entities. When the GridBOSS's data came from the cloud and Home Assistant refreshed more often than the HTTP polling interval, the same cached portal response could be counted as both reads. That happens in Hybrid mode when the GridBOSS has no local connection or its local link is down, and on any extra refresh such as the one after changing a setting. A cloud reading counts again only when the portal returns a new record. Local (Modbus, dongle, serial) reads are unchanged. A healthy local transport read with missing smart-port statuses does not count its cloud fallback as a new read. If the local link later fails, an older cloud record superseded by local data cannot authorize entity cleanup or decisions that require validated port data, including when the fallback request fails or its data is rejected. A newly accepted, distinct cloud record with complete, valid port statuses restores that authority. Also, when a port sensor adopted on upgrade has an entity ID naming the port's other mode, the log now says so and how to rename it; its readings and history were always right.
 
+### Added
+
+- **GridBOSS smart port settings**: with a local connection to the GridBOSS, each smart port device now carries the port's settings from the EG4 portal:
+  - Smart Load: Smart Load Enable, Grid Always On, Power Shedding, Based On (Time / SOC/Volt), start/end SOC and voltage, the shedding thresholds (start PV power, start/end SOC and voltage), and three start/end time windows.
+  - AC Couple: AC Couple Enable, start/end SOC and voltage, and three start/end time windows.
+
+  Settings for the port's other mode are disabled, as the port sensors are. A setting the portal greys out, such as the Smart Load times when Based On is SOC/Volt or the shedding settings with Power Shedding off, shows unavailable. Changes made in the portal or app show up on the parameter refresh interval (the enables, on every GridBOSS update). See [Smart port settings](docs/CONFIGURATION.md#smart-port-settings).
+
 ## [3.5.1-beta.17] - 2026-10-04
 
 Requires **[pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**.

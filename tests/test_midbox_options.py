@@ -145,7 +145,7 @@ def test_decode_pinned_register_changes():
     [
         ("FUNC_SMART_LOAD_EN_2", 0x3075, True, 0x3077),
         ("FUNC_SHEDDING_MODE_EN_2", 0x7875, False, 0x5875),
-        # Based-on keeps the unexposed Time+SOC/Volt bits (4, 5) intact.
+        # Based-on changes only its own bit; bits 4 and 5 (meaning unpinned) stay.
         ("BIT_SMART_LOAD_BASE_ON_3", 0x32, 1, 0x3A),
         ("BIT_SMART_LOAD_BASE_ON_3", 0x3A, 0, 0x32),
         ("MIDBOX_HOLD_AC_START_SOC_4", 0x5408, 10, 0x540A),
@@ -421,7 +421,7 @@ async def test_write_masks_field_and_seeds_cache(coordinator):
 
 
 async def test_write_preserves_unexposed_based_on_bits(coordinator):
-    """Based-on writes keep bits 4-8 (mobile-only Time+SOC/Volt) intact."""
+    """Based-on writes change only their bit; the unpinned bits 4-5 stay set."""
     transport = FakeTransport({2101: 0x30})
     _attach(coordinator, transport)
     await coordinator.write_midbox_options(
