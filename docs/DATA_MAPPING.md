@@ -1251,13 +1251,19 @@ per-field evidence. Parameter keys are the cloud's own names
   one based-on bit and preserve the rest.
 - **Port 4's based-on bit is ambiguous.** Bit 4 fits the pattern, but the
   mobile app set bit 4 when "Time+SOC/Volt" was chosen for port 3, so bit 4
-  may belong to the combined option instead. It has not been change-tested
-  with port 4 in Smart Load mode.
-- Register 229 is read on every GridBOSS refresh, and the full set (blocks
-  229+40, 269+40, 309+9, 2101+1) on the parameter refresh interval. Each block
-  gets one retry, and a failed block carries its previous values forward.
+  may belong to the combined option instead. Until a change test pins it, it
+  is left out of the field map (`UNPINNED_BASED_ON_PORTS`): no port 4 Based
+  On entity reads or writes it.
+- Register 229 is read on every GridBOSS refresh (HYBRID: every cycle that
+  refreshes the MID over the dongle), and the full set (blocks 229+40,
+  269+40, 309+9, 2101+1) on the parameter refresh interval. Each block gets
+  one retry, and a failed block carries its previous values forward; a full
+  read that lost a block is retried after 2, 4, 8 … minutes, capped at the
+  refresh interval.
 - Writes are a locked read-modify-write of one register against a fresh read,
-  followed by a verify read.
+  then a verify read 1.5 s later (the firmware reverts a rejected function
+  bit within a second). The GridBOSS's transport is resolved from the LOCAL
+  MID cache or, in HYBRID, from the station's MID device.
 - Port 4's shedding bit (229 bit 15) and the voltage scale follow the
   pattern of the change-tested fields but were not changed themselves.
 

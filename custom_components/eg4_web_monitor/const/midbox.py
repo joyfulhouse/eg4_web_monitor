@@ -30,29 +30,36 @@ every one of these registers by name (pylxpweb
 which fixes the register → field assignment; byte order, scale and bit
 positions are pinned by controlled changes on a live unit.
 
-Evidence — GridBOSS 5044850330 (fw IAAB-1300), dongle reads 2026-09-29,
-each change made in the portal or app and read back with every other
-register in 229-317 and 2099-2104 unchanged:
+Evidence — GridBOSS 5044850330 (fw IAAB-1300), dongle reads of 20,
+229-317 and 2099-2104 on 2026-09-29, one read before and one after each
+portal or app change. Raw before → after pairs, with every register that
+changed in that step listed:
 
-- SOC byte order: AC start SOC p4 8 → 10 moved only the LOW byte of 245
-  (0x5408 → 0x540a); SL end SOC p3 70 → 33 moved only the HIGH byte of 232.
-  Shedding SOC p1 read lo 80 / hi 40 against portal start 80 / end 40.
-- Windows: AC window 2 p4 00:00-00:00 → 02:01-02:02 wrote 314 = 0x0102 and
-  315 = 0x0202 (lo = hour, hi = minute); SL windows p3 set to 04:05-05:04,
-  07:06-06:07, 08:09-09:08 read back exactly at 282-287.
-- Shedding start PV power: portal 0.4 kW (p1) and 0.3 kW (p3) read 4 and 3
-  at 254 / 256 (×0.1 kW).
-- 229 shedding bits: portal Shedding Disable → Enable on p2 set only bit 13
-  and the revert cleared only bit 13; p1 / p3 (bits 12 / 14) match the
-  portal. p4 (bit 15) follows the pattern and is not change-tested.
-- 229 enable / grid-on / AC couple bits: pinned for f2725ee (raw↔named
-  across three systems) and re-confirmed here — enabling Smart Load on p1
-  and p2 set exactly bits 0 and 1.
-- 2101 based-on: portal Time → SOC/Volt set only bit 3 (p3), only bit 2
-  (p2, reverted round-trip) and bit 1 (p1, set together with p2 / p3).
-  p4 (bit 4) follows the pattern and is not change-tested — and is
-  ambiguous: the mobile app set bit 4 when "Time+SOC/Volt" was chosen for
-  p3 (2101 0x22 → 0x32), so bit 4 may belong to that option instead.
+- App, port 4 AC start SOC 8 → 10 and AC window 2 00:00-00:00 →
+  02:01-02:02: 245 0x5408 → 0x540a (LOW byte = start SOC), 314 0x0000 →
+  0x0102 and 315 0x0000 → 0x0202 (low byte = hour, high byte = minute).
+  Nothing else changed.
+- App, several fields on ports 1-3 at once (not one change per step):
+  232 0x465a → 0x215a (port 3 end SOC 70 → 33, HIGH byte = end SOC);
+  254 0x0 → 0x4 and 256 0x0 → 0x3 (shedding start PV power 0.4 / 0.3 kW,
+  ×0.1 kW); 258 0x3c5a → 0x2850 (port 1 shedding start 80 / end 40);
+  282-287 0 → 0x0504, 0x0405, 0x0607, 0x0706, 0x0908, 0x0809 (port 3
+  windows 04:05-05:04, 07:06-06:07, 08:09-09:08); 229 0x0875 → 0x5875;
+  2101 0x18 → 0x22. The 229 / 2101 changes of this step are not
+  attributed bit by bit (several ports changed together).
+- Portal, port 3 based on Time → SOC/Volt: 2101 0x32 → 0x3a (bit 3 only).
+- Portal, port 2 Shedding Disable → Enable and based on Time → SOC/Volt:
+  229 0x5875 → 0x7875 (bit 13 only), 2101 0x3a → 0x3e (bit 2 only).
+  Reverted in the portal: 229 0x7875 → 0x5875, 2101 0x3e → 0x3a — the
+  original state restored.
+- Portal, Smart Load enable on ports 1 and 2 and based on SOC/Volt on
+  ports 1-3: 229 0x3074 → 0x3077 (bits 0, 1), 2101 0x30 → 0x3e (bits 1-3).
+- 229 grid-on / AC couple bits: pinned for f2725ee (raw↔named across three
+  systems). Shedding bits 12 / 14 (ports 1 / 3) agree with the portal;
+  port 4's bit 15 follows the pattern and is not change-tested.
+- 2101 bit 4 (port 4 based on by pattern) is ambiguous: the app's port 3
+  "Time+SOC/Volt" choice set it (2101 0x22 → 0x32, bit 4 only), so it may
+  belong to that option. It is left unmapped (UNPINNED_BASED_ON_PORTS).
 - Voltage words read 540 / 480 against the cloud's "54" / "48" (÷10). Not
   change-tested: the unit runs SOC control, where the portal greys them.
 
@@ -70,6 +77,7 @@ does with these values is described by the GridBOSS user manual (v1.1.2
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -111,6 +119,12 @@ MIDBOX_SMART_PORT_FUNCTION_BASE_BITS: dict[str, int] = {
     "FUNC_SHEDDING_MODE_EN": 12,
 }
 
+# Ports whose based-on bit is not mapped: port 4's (2101 bit 4 by pattern) is
+# ambiguous with the mobile app's Time+SOC/Volt option (module docstring), and
+# a wrong-bit write would read back as written (#476), so it is neither read
+# nor written until a change test pins it.
+UNPINNED_BASED_ON_PORTS: frozenset[int] = frozenset({4})
+
 # Value of BIT_SMART_LOAD_BASE_ON_n.
 SMART_LOAD_BASE_ON_TIME = 0
 SMART_LOAD_BASE_ON_SOC_VOLT = 1
@@ -147,9 +161,10 @@ def _build_fields() -> dict[str, MidboxField]:
             fields[f"{prefix}_{port}"] = MidboxField(
                 MIDBOX_REG_SMART_PORT_FUNCTIONS, "flag", bit=base + port - 1
             )
-        fields[f"BIT_SMART_LOAD_BASE_ON_{port}"] = MidboxField(
-            MIDBOX_REG_SMART_LOAD_BASE_ON, "bit", bit=port
-        )
+        if port not in UNPINNED_BASED_ON_PORTS:
+            fields[f"BIT_SMART_LOAD_BASE_ON_{port}"] = MidboxField(
+                MIDBOX_REG_SMART_LOAD_BASE_ON, "bit", bit=port
+            )
         fields.update(_soc_pair("MIDBOX_HOLD_SL", 229 + port, port))
         fields.update(_volt_pair("MIDBOX_HOLD_SL", 232 + 2 * port, port))
         fields.update(_soc_pair("MIDBOX_HOLD_AC", 241 + port, port))
@@ -210,8 +225,8 @@ def encode_midbox_field(field: MidboxField, raw: int, value: Any) -> int:
         ValueError: If ``value`` does not fit the field.
     """
     if field.kind in ("flag", "bit"):
-        if field.kind == "bit" and value not in (0, 1):
-            raise ValueError(f"bit value must be 0 or 1, got {value!r}")
+        if value not in (0, 1) or not isinstance(value, bool | int):
+            raise ValueError(f"bit value must be 0/1 or a bool, got {value!r}")
         mask = 1 << field.bit
         return (raw | mask) if value else (raw & ~mask & 0xFFFF)
     if field.kind in ("lo", "hi"):
@@ -221,7 +236,8 @@ def encode_midbox_field(field: MidboxField, raw: int, value: Any) -> int:
         if field.kind == "lo":
             return (raw & 0xFF00) | byte
         return (raw & 0x00FF) | (byte << 8)
-    word = int(round(value * field.divisor))
+    # Half-up, not round()'s half-to-even: 0.05 kW must not become 0.
+    word = int(math.floor(value * field.divisor + 0.5))
     if not 0 <= word <= 0xFFFF:
         raise ValueError(f"register value out of range: {value!r}")
     return word

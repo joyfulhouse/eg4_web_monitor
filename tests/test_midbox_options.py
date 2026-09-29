@@ -5,6 +5,7 @@ retry, carry-forward) and the masked read-modify-write writer.
 """
 
 from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -84,7 +85,9 @@ def test_every_field_is_covered_by_a_read_block():
 def test_field_count():
     """Per port: 4 enables, based-on, 3 SOC pairs, 3 volt pairs, PV, 2x6 windows."""
     per_port = 4 + 1 + 6 + 6 + 1 + 2 * 6 * 2
-    assert len(MIDBOX_OPTION_FIELDS) == 4 * per_port
+    # Port 4's based-on bit is unpinned and deliberately unmapped.
+    assert len(MIDBOX_OPTION_FIELDS) == 4 * per_port - 1
+    assert "BIT_SMART_LOAD_BASE_ON_4" not in MIDBOX_OPTION_FIELDS
 
 
 def test_decode_live_read_matches_portal():
@@ -110,7 +113,7 @@ def test_decode_live_read_matches_portal():
     # Port 4: AC start SOC 10 in the low byte, end 84 in the high byte.
     assert values["MIDBOX_HOLD_AC_START_SOC_4"] == 10
     assert values["MIDBOX_HOLD_AC_END_SOC_4"] == 84
-    assert values["BIT_SMART_LOAD_BASE_ON_4"] == 1
+    assert "BIT_SMART_LOAD_BASE_ON_4" not in values  # 2101 bit 4 unpinned
     # Voltages ÷10.
     assert values["MIDBOX_HOLD_SL_START_VOLT_2"] == 54.0
     assert values["MIDBOX_HOLD_SL_END_VOLT_2"] == 48.0
@@ -132,12 +135,7 @@ def test_decode_pinned_register_changes():
     # Shedding p2 enable = bit 13 only; based-on p2 = bit 2 only.
     assert decode_midbox_options({229: 1 << 13})["FUNC_SHEDDING_MODE_EN_2"] is True
     based_on = decode_midbox_options({2101: 1 << 2})
-    assert [based_on[f"BIT_SMART_LOAD_BASE_ON_{p}"] for p in (1, 2, 3, 4)] == [
-        0,
-        1,
-        0,
-        0,
-    ]
+    assert [based_on[f"BIT_SMART_LOAD_BASE_ON_{p}"] for p in (1, 2, 3)] == [0, 1, 0]
 
 
 @pytest.mark.parametrize(
@@ -153,6 +151,9 @@ def test_decode_pinned_register_changes():
         ("MIDBOX_HOLD_SL_START_VOLT_1", 540, 52.5, 525),
         ("MIDBOX_HOLD_SL_START_PV_P_1", 0, 0.4, 4),
         ("HOLD_MIDBOX_SL_3_START_MINUTE_1", 0x0004, 5, 0x0504),
+        # Half-up: 0.05 kW is 1, not round()'s half-to-even 0.
+        ("MIDBOX_HOLD_SL_START_PV_P_1", 0, 0.05, 1),
+        ("MIDBOX_HOLD_SL_START_PV_P_1", 0, 0.25, 3),
     ],
 )
 def test_encode_masks_one_field(name: str, raw: int, value: Any, expected: int):
@@ -167,6 +168,8 @@ def test_encode_masks_one_field(name: str, raw: int, value: Any, expected: int):
         ("MIDBOX_HOLD_SL_START_SOC_1", -1),
         ("MIDBOX_HOLD_SL_START_SOC_1", 50.5),
         ("BIT_SMART_LOAD_BASE_ON_1", 2),
+        ("FUNC_SMART_LOAD_EN_1", "off"),
+        ("FUNC_SMART_LOAD_EN_1", 1.0),
         ("MIDBOX_HOLD_SL_START_VOLT_1", -0.1),
     ],
 )
@@ -248,15 +251,25 @@ async def coordinator(hass, hybrid_config_entry):
         "devices": {GRIDBOSS_SERIAL: {"type": "gridboss"}},
         "parameters": {GRIDBOSS_SERIAL: {}},
     }
-    with patch(
-        "custom_components.eg4_web_monitor.coordinator_local._MIDBOX_READ_RETRY_DELAY",
-        0,
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.coordinator_local._MIDBOX_READ_RETRY_DELAY",
+            0,
+        ),
+        patch("custom_components.eg4_web_monitor.coordinator._MIDBOX_VERIFY_DELAY", 0),
     ):
         yield coord
 
 
-def _attach(coord: EG4DataUpdateCoordinator, transport: FakeTransport) -> None:
-    coord.get_local_transport = MagicMock(return_value=transport)  # type: ignore[method-assign]
+def _attach(coord: EG4DataUpdateCoordinator, transport: FakeTransport | None) -> None:
+    """Attach the transport the way HYBRID does: on the station's MID device.
+
+    Not a mocked lookup — the HYBRID write path must find the MID's transport
+    through the real resolution (review finding: ``get_local_transport``
+    never searches ``station.all_mid_devices``).
+    """
+    mid = SimpleNamespace(serial_number=GRIDBOSS_SERIAL, transport=transport)
+    coord.station = SimpleNamespace(all_mid_devices=[mid])  # type: ignore[assignment]
 
 
 # ── Read path ────────────────────────────────────────────────────────
@@ -396,7 +409,7 @@ async def test_http_pass_reads_only_live_transport_mids():
     }
     await HTTPUpdateMixin._update_midbox_smart_port_options(mock_self, processed)
     mock_self._read_midbox_smart_port_options.assert_awaited_once_with(
-        live_mid.transport, GRIDBOSS_SERIAL
+        live_mid.transport, GRIDBOSS_SERIAL, poll_functions=True
     )
     assert processed["parameters"] == {GRIDBOSS_SERIAL: decoded}
 
@@ -479,7 +492,7 @@ async def test_silent_revert_raises_after_seeding_truth(coordinator):
 
 async def test_write_errors(coordinator):
     """No transport, bad value, read failure and cross-register calls fail."""
-    coordinator.get_local_transport = MagicMock(return_value=None)  # type: ignore[method-assign]
+    _attach(coordinator, None)
     with pytest.raises(HomeAssistantError, match="No local transport"):
         await coordinator.write_midbox_options(
             GRIDBOSS_SERIAL, {"FUNC_SMART_LOAD_EN_1": True}
@@ -518,3 +531,136 @@ async def test_later_read_confirms_write_seed(coordinator):
         transport, GRIDBOSS_SERIAL
     )
     assert params["MIDBOX_HOLD_SL_START_SOC_2"] == 95
+
+
+# ── Review regressions ───────────────────────────────────────────────
+
+
+async def test_hybrid_write_ignores_legacy_inverter_transport(coordinator):
+    """A legacy single-device transport belongs to an inverter, never a GridBOSS."""
+    coordinator._dongle_transport = FakeTransport(LIVE_REGISTERS)
+    coordinator.station = SimpleNamespace(all_mid_devices=[])  # type: ignore[assignment]
+    assert coordinator._midbox_transport(GRIDBOSS_SERIAL) is None
+
+
+async def test_local_write_uses_mid_device_cache(coordinator):
+    """LOCAL: the transport comes from the MID device cache."""
+    transport = FakeTransport(LIVE_REGISTERS)
+    coordinator._mid_device_cache[GRIDBOSS_SERIAL] = SimpleNamespace(
+        transport=transport
+    )
+    await coordinator.write_midbox_options(
+        GRIDBOSS_SERIAL, {"FUNC_SMART_LOAD_EN_1": False}
+    )
+    assert transport.writes == [{229: 0x3076}]
+
+
+async def test_verify_waits_before_reading_back(coordinator):
+    """The verify read comes after the settle delay, so a revert is caught."""
+    transport = FakeTransport({229: 0x3074})
+    _attach(coordinator, transport)
+    order: list[str] = []
+    original_read = transport.read_parameters
+
+    async def read(start: int, count: int) -> dict[int, int]:
+        order.append("read")
+        return await original_read(start, count)
+
+    async def sleep(_delay: float) -> None:
+        order.append("sleep")
+        transport.registers[229] = 0x3074  # the firmware reverts the bit
+
+    transport.read_parameters = read  # type: ignore[method-assign]
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.coordinator._MIDBOX_VERIFY_DELAY", 1.5
+        ),
+        patch("custom_components.eg4_web_monitor.coordinator.asyncio.sleep", sleep),
+        pytest.raises(HomeAssistantError, match="rejected"),
+    ):
+        await coordinator.write_midbox_options(
+            GRIDBOSS_SERIAL, {"FUNC_SMART_LOAD_EN_4": True}
+        )
+    assert order == ["read", "sleep", "read"]
+
+
+async def test_fresh_read_after_write_is_not_held_by_settle_window(coordinator):
+    """A portal change right after a local write shows on the next read."""
+    transport = FakeTransport(LIVE_REGISTERS)
+    _attach(coordinator, transport)
+    await coordinator.write_midbox_options(
+        GRIDBOSS_SERIAL, {"FUNC_SMART_LOAD_EN_1": False}
+    )
+    transport.registers[229] = 0x3077  # changed back in the portal
+    params = await coordinator._read_midbox_smart_port_options(
+        transport, GRIDBOSS_SERIAL
+    )
+    assert params["FUNC_SMART_LOAD_EN_1"] is True
+
+
+async def test_in_flight_read_does_not_publish_pre_write_value(coordinator):
+    """A read that began before the write keeps the written value."""
+    transport = FakeTransport(LIVE_REGISTERS)
+    _attach(coordinator, transport)
+    stale = decode_midbox_options({229: 0x3077})
+    generation = coordinator._parameter_write_generation
+    await coordinator.write_midbox_options(
+        GRIDBOSS_SERIAL, {"FUNC_SMART_LOAD_EN_1": False}
+    )
+    reconciled = coordinator._reconcile_parameter_read(
+        GRIDBOSS_SERIAL,
+        stale,
+        read_complete=False,
+        read_generation=generation,
+        observed_keys=stale,
+    )
+    assert reconciled["FUNC_SMART_LOAD_EN_1"] is False
+
+
+async def test_failed_full_reads_back_off_and_warn(coordinator, caplog):
+    """Persistent block failures back off to the refresh interval, warn once."""
+    coordinator._parameter_refresh_interval = timedelta(minutes=60)
+    transport = FakeTransport(LIVE_REGISTERS)
+    boom = TimeoutError("rejected")
+    deadlines = []
+    now = 1000.0
+    for _ in range(7):
+        transport.fail_reads = [None, None, None, boom, boom]  # 2101 fails
+        with patch(
+            "custom_components.eg4_web_monitor.coordinator_local.time.monotonic",
+            return_value=now,
+        ):
+            await coordinator._read_midbox_smart_port_options(
+                transport, GRIDBOSS_SERIAL
+            )
+        deadlines.append(coordinator._midbox_option_next_read[GRIDBOSS_SERIAL] - now)
+        now = coordinator._midbox_option_next_read[GRIDBOSS_SERIAL]
+    assert deadlines == [120, 240, 480, 960, 1920, 3600, 3600]
+    assert caplog.text.count("could not be fully read") == 1
+
+    transport.fail_reads = []
+    with patch(
+        "custom_components.eg4_web_monitor.coordinator_local.time.monotonic",
+        return_value=now,
+    ):
+        await coordinator._read_midbox_smart_port_options(transport, GRIDBOSS_SERIAL)
+    assert GRIDBOSS_SERIAL not in coordinator._midbox_option_failures
+    assert coordinator._midbox_option_next_read[GRIDBOSS_SERIAL] == now + 3600
+
+
+async def test_hybrid_function_poll_follows_dongle_gate():
+    """HYBRID passes the MID-refresh decision through as poll_functions."""
+    mid = MagicMock()
+    mid.serial_number = GRIDBOSS_SERIAL
+    mid.transport = MagicMock()
+    mid.transport_link_down = False
+    mock_self = MagicMock()
+    mock_self.station.all_mid_devices = [mid]
+    mock_self._read_midbox_smart_port_options = AsyncMock(return_value={})
+    processed: dict = {"devices": {GRIDBOSS_SERIAL: {}}, "parameters": {}}
+    await HTTPUpdateMixin._update_midbox_smart_port_options(
+        mock_self, processed, poll_functions=False
+    )
+    mock_self._read_midbox_smart_port_options.assert_awaited_once_with(
+        mid.transport, GRIDBOSS_SERIAL, poll_functions=False
+    )
