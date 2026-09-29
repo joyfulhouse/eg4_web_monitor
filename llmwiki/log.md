@@ -1107,3 +1107,17 @@ the cloud's `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` are unknown. Added the
 [GridBOSS ledger rows](40-hardware/registers.md#gridboss-register-ledger) (footnoted to this
 change's `const/midbox.py`, not the page pin); `docs/DATA_MAPPING.md` §5 and
 `docs/CONFIGURATION.md` "Smart port settings" describe the shipped entities.
+
+## [2026-09-29] ingest | Smart port options — adversarial review corrections
+
+Two adversarial reviews of the smart port options change found defects the entry above
+recorded as fine. Code: HYBRID writes all failed (`get_local_transport` never searches
+`station.all_mid_devices`; the tests mocked that lookup); the verify read came before the
+GridBOSS's sub-second revert window, and the write seed's 30 s settle window then hid a revert
+or portal change. Evidence: the `hardware-toggle-proven` row cited `const/midbox.py`, which then
+held prose, not the raw before/after pair the grade requires — the docstring now records every
+raw pair, and the step that changed several ports at once is marked not attributable bit by
+bit. Ledger counts were wrong (b13 double-graded in the b0-b14 row; 230-269 counted 36).
+Port 4's based-on bit (2101 b4, `inferred`/unresolved) is no longer read or written at all
+(`UNPINNED_BASED_ON_PORTS`), rather than shipped with a doc caveat: a wrong-bit write would
+read back as written (#476), so no verify could catch it.

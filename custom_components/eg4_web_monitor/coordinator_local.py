@@ -114,6 +114,7 @@ _LOCAL_DATA_PROCESSING_ERROR = "Local data processing failed"
 _MIDBOX_READ_ATTEMPTS = 2
 _MIDBOX_READ_RETRY_DELAY = 0.5
 _MIDBOX_OPTION_RETRY_SECONDS = 120.0
+_MIDBOX_OPTION_WARN_FAILURES = 3
 
 
 def _stale_parallel_member_error(
@@ -817,11 +818,27 @@ class LocalTransportMixin(_MixinBase):
             )
 
         if full_read:
-            self._midbox_option_next_read[serial] = now + (
-                _MIDBOX_OPTION_RETRY_SECONDS
-                if failed
-                else self._parameter_refresh_interval.total_seconds()
-            )
+            interval = self._parameter_refresh_interval.total_seconds()
+            if failed:
+                # Back off (2, 4, 8 … min, capped at the refresh interval) so a
+                # block the firmware keeps rejecting doesn't poll forever.
+                failures = self._midbox_option_failures.get(serial, 0) + 1
+                self._midbox_option_failures[serial] = failures
+                delay = min(
+                    _MIDBOX_OPTION_RETRY_SECONDS * 2 ** (failures - 1), interval
+                )
+                if failures == _MIDBOX_OPTION_WARN_FAILURES:
+                    _LOGGER.warning(
+                        "GridBOSS %s smart port settings could not be fully read "
+                        "%d times in a row; retrying every %.0f s at most",
+                        serial,
+                        failures,
+                        interval,
+                    )
+            else:
+                self._midbox_option_failures.pop(serial, None)
+                delay = interval
+            self._midbox_option_next_read[serial] = now + delay
 
         decoded = decode_midbox_options(raw)
         decoded = self._reconcile_parameter_read(
@@ -1346,6 +1363,9 @@ class LocalTransportMixin(_MixinBase):
                 processed["devices"][serial] = device_data
                 device_availability[serial] = True
 
+                # Inside the snapshot refresh: a block read that fails and is
+                # retried marks this cycle's raw snapshot incomplete (health
+                # metric only; the retried values are used as normal).
                 processed["parameters"][
                     serial
                 ] = await self._read_midbox_smart_port_options(transport, serial)

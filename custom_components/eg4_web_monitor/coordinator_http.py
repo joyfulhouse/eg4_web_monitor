@@ -443,7 +443,7 @@ class HTTPUpdateMixin(_MixinBase):
         return data
 
     async def _update_midbox_smart_port_options(
-        self, processed: dict[str, Any]
+        self, processed: dict[str, Any], *, poll_functions: bool = True
     ) -> None:
         """Refresh smart port option params for GridBOSS devices.
 
@@ -468,7 +468,7 @@ class HTTPUpdateMixin(_MixinBase):
             if transport is None or is_transport_link_down(mid):
                 continue
             params_store[serial] = await self._read_midbox_smart_port_options(
-                transport, serial
+                transport, serial, poll_functions=poll_functions
             )
 
     async def _async_update_http_data(
@@ -583,6 +583,14 @@ class HTTPUpdateMixin(_MixinBase):
             # Process and structure the device data
             processed_data = await self._process_station_data()
             processed_data["connection_type"] = CONNECTION_TYPE_HTTP
+
+            # GridBOSS smart port options, through each MID device's attached
+            # local transport: register 229 only on cycles that refresh the
+            # MID over the dongle (the dongle interval gate), the full set on
+            # the parameter interval (cadence in the helper).
+            await self._update_midbox_smart_port_options(
+                processed_data, poll_functions=include_mid_refresh
+            )
 
             # Set transport label for all devices (skip virtual devices)
             for device_data in processed_data.get("devices", {}).values():
@@ -1397,10 +1405,6 @@ class HTTPUpdateMixin(_MixinBase):
         # Check if we need to refresh parameters for any inverters
         if "parameters" not in processed:
             processed["parameters"] = {}
-
-        # GridBOSS smart port options: read through each MID device's
-        # attached local transport (cadence in the helper).
-        await self._update_midbox_smart_port_options(processed)
 
         inverters_needing_params = []
         for serial, device_data in processed["devices"].items():

@@ -378,7 +378,7 @@ them.
 | Smart Load Enable | switch | Smart Load |
 | Grid Always On | switch | Smart Load |
 | Power Shedding | switch | Smart Load |
-| Based On (Time / SOC/Volt) | select | Smart Load |
+| Based On (Time / SOC/Volt), ports 1–3 | select | Smart Load |
 | Smart Load Start / End SOC, Start / End Voltage | number | Smart Load |
 | Shedding Start PV Power, Shedding Start / End SOC, Start / End Voltage | number | Smart Load |
 | Smart Load Start / End Time 1–3 | time | Smart Load |
@@ -398,18 +398,21 @@ them.
     the inverters disagree, or haven't reported it, both are available.
 - A setting also shows unavailable while the GridBOSS's local link is down or
   before its value has first been read.
-- **Smart Load Enable switches the port's power immediately**, and turning it
-  off cuts the load even with Grid Always On set.
-- Register 229 (the four enables) is read on every GridBOSS update. The other
-  settings are read on the **parameter refresh interval** (see
+- On the unit this was built on, turning **Smart Load Enable** on or off
+  switched the port's power at once, including with Grid Always On set
+  (observed, not documented by EG4).
+- The four enables are read on every GridBOSS update (in HYBRID, every update
+  that reads the GridBOSS over its dongle). The other settings are read on the **parameter refresh interval** (see
   [Configuration Options](#configuration-options-refresh-intervals)), so a
   change made in the portal or app can take that long to show up. A change
   made in Home Assistant shows immediately: each write is read back from the
   GridBOSS, and a value the GridBOSS doesn't keep raises an error.
 - The mobile app also offers a combined "Time+SOC/Volt" option that the web
-  portal doesn't. It isn't exposed here. Port 4's Based On has not been
-  verified on hardware and may share a register bit with that option; set it
-  in the portal if in doubt.
+  portal doesn't. It isn't exposed here.
+- **Port 4 has no Based On select yet.** Its register bit hasn't been verified
+  on hardware and may belong to the app's "Time+SOC/Volt" option, so it is
+  neither read nor written; set it in the portal. Port 4's Smart Load times
+  are therefore always available.
 
 What each setting does is described in the GridBOSS user manual (§8.4 Smart
 Load / AC Couple). As the manual describes them:

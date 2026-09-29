@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **GridBOSS smart port settings**: with a local connection to the GridBOSS, each smart port device now carries the port's settings from the EG4 portal:
-  - Smart Load: Smart Load Enable, Grid Always On, Power Shedding, Based On (Time / SOC/Volt), start/end SOC and voltage, the shedding thresholds (start PV power, start/end SOC and voltage), and three start/end time windows.
+  - Smart Load: Smart Load Enable, Grid Always On, Power Shedding, Based On (Time / SOC/Volt; ports 1–3 for now), start/end SOC and voltage, the shedding thresholds (start PV power, start/end SOC and voltage), and three start/end time windows.
   - AC Couple: AC Couple Enable, start/end SOC and voltage, and three start/end time windows.
 
   Settings for the port's other mode are disabled, as the port sensors are. A setting the portal greys out, such as the Smart Load times when Based On is SOC/Volt or the shedding settings with Power Shedding off, shows unavailable. Changes made in the portal or app show up on the parameter refresh interval (the enables, on every GridBOSS update). See [Smart port settings](docs/CONFIGURATION.md#smart-port-settings).

@@ -845,8 +845,8 @@ if TYPE_CHECKING:
         _param_attempted_this_cycle: bool
         _parameter_refresh_interval: timedelta
         _parameter_write_generation: int
-        _midbox_option_locks: dict[str, asyncio.Lock]
         _midbox_option_next_read: dict[str, float]
+        _midbox_option_failures: dict[str, int]
         _parameter_write_seeds: dict[str, dict[str, tuple[Any, int]]]
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta

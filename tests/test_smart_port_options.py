@@ -141,7 +141,9 @@ def test_factory_builds_per_port_entities():
     switches = create_port_option_entities(coordinator, "switch")
     selects = create_port_option_entities(coordinator, "select")
     assert len(switches) == 4 * len(port_option_specs("switch")) == 16
-    assert len(selects) == 4
+    # Port 4's based-on bit is unpinned: no select for it.
+    assert len(selects) == 3
+    assert f"{GB}_smart_port4_based_on" not in {e.unique_id for e in selects}
     unique_ids = {entity.unique_id for entity in switches + selects}
     assert f"{GB}_smart_port1_smart_load_enable" in unique_ids
     assert f"{GB}_smart_port4_ac_couple_enable" in unique_ids
@@ -505,3 +507,10 @@ async def test_window_writes_hour_and_minute_together():
         {"HOLD_MIDBOX_SL_3_END_HOUR_2": 22, "HOLD_MIDBOX_SL_3_END_MINUTE_2": 30},
     )
     assert entity._optimistic_value is None
+
+
+def test_port4_windows_not_greyed_while_based_on_unpinned():
+    """With port 4's based-on unmapped, its Smart Load windows aren't gated."""
+    params = decode_midbox_options({229: 0x0008, 2101: 0x10, 288: 0x0102, 289: 0})
+    coordinator = _coordinator(modes=("unused",) * 3 + ("smart_load",), params=params)
+    assert _time(coordinator, 4, "smart_load_start_time_1").available is True

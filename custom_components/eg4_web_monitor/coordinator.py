@@ -137,6 +137,10 @@ from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
 
+# GridBOSS option writes: wait this long before the verify read, so a bit the
+# firmware reverts (it does so within a second) reads back reverted.
+_MIDBOX_VERIFY_DELAY = 1.5
+
 # Acknowledged local-raw parameter writes are retained (as overlay seeds)
 # until an authoritative read observes them — but never longer than this.
 PARAMETER_WRITE_SEED_TTL = 1800.0  # seconds
@@ -636,11 +640,11 @@ class EG4DataUpdateCoordinator(
         self._removal_battery_observed_since: float | None = None
         self._removal_battery_parent_since: dict[str, float | None] = {}
 
-        # GridBOSS smart port options (const/midbox.py): per-serial locks
-        # serializing write_midbox_options' read-modify-write, and the
-        # monotonic deadline of each GridBOSS's next full option read.
-        self._midbox_option_locks: dict[str, asyncio.Lock] = {}
+        # GridBOSS smart port options (const/midbox.py): the monotonic
+        # deadline of each GridBOSS's next full option read, and the count
+        # of consecutive failed full reads (retry backoff).
         self._midbox_option_next_read: dict[str, float] = {}
+        self._midbox_option_failures: dict[str, int] = {}
 
         # Round-robin battery cache for LOCAL/HYBRID Modbus.
         # Some inverter firmware rotates which physical batteries appear in the
@@ -2003,16 +2007,24 @@ class EG4DataUpdateCoordinator(
         live in the same holding register. The register is unmapped in
         pylxpweb's MIDBOX name map, so this is a read-modify-write against a
         FRESH read — a cached base could clobber sibling fields changed in
-        the portal since the last poll — under a per-serial lock, so two
-        rapid writes cannot interleave their read/write pairs. Only the
-        named fields' bits change.
+        the portal since the last poll — under a per-register transaction
+        lock (reload-safe, like the other multi-call controls), so two rapid
+        writes cannot interleave their read/write pairs. Only the named
+        fields' bits change.
 
-        The post-write verify read is the state source: its decode seeds the
-        parameter cache (entities converge without waiting for the next
-        option read), and a field that does not read back as written raises
-        — the firmware-NAK class where a write echoes OK but silently does
-        not stick (#251/#331 precedent; the GridBOSS reverts a function bit
-        that does not match the port's mode within a second).
+        The verify read waits ``_MIDBOX_VERIFY_DELAY`` first: the GridBOSS
+        reverts a function bit that does not match the port's mode within a
+        second, and an immediate read-back would still show the written
+        value. Its decode is the state source: it seeds the parameter cache
+        (entities converge without waiting for the next option read), and a
+        field that does not read back as written raises — the firmware-NAK
+        class where a write echoes OK but silently does not stick
+        (#251/#331 precedent).
+
+        The seed is marked confirmed at once. It still repairs a read that
+        was in flight during the write, but the next fresh read wins
+        outright: the 30 s settle window exists for cloud writes still
+        propagating, and would hide a later revert or portal change here.
 
         Raises:
             HomeAssistantError: If no local transport is available, a value
@@ -2025,9 +2037,8 @@ class EG4DataUpdateCoordinator(
             raise ValueError(f"Options span more than one register: {sorted(values)}")
         register = registers.pop()
         names = ", ".join(sorted(values))
-        lock = self._midbox_option_locks.setdefault(serial, asyncio.Lock())
-        async with lock:
-            transport = self.get_local_transport(serial)
+        async with self.control_transaction_lock(serial, f"midbox_{register}"):
+            transport: EndpointBusCapability | None = self._midbox_transport(serial)
             if not transport:
                 raise HomeAssistantError(
                     "No local transport available for GridBOSS smart port write"
@@ -2041,6 +2052,7 @@ class EG4DataUpdateCoordinator(
                     new_raw = encode_midbox_field(fields[name], new_raw, value)
                 if new_raw != raw:
                     await transport.write_parameters({register: new_raw})
+                    await asyncio.sleep(_MIDBOX_VERIFY_DELAY)
                 verified_raw = (await self._read_midbox_block(transport, register, 1))[
                     register
                 ]
@@ -2052,9 +2064,11 @@ class EG4DataUpdateCoordinator(
 
         # Post-write truth for every field in the register — a concurrent
         # portal-side change of a sibling field lands here too.
-        self.note_parameters_written(
-            serial, decode_midbox_options({register: verified_raw}), seed=True
-        )
+        verified = decode_midbox_options({register: verified_raw})
+        self.note_parameters_written(serial, verified, seed=True)
+        confirmed_at = time.monotonic()
+        for key in verified:
+            self._parameter_seed_confirmed[(serial, key)] = confirmed_at
         rejected = [
             name
             for name, field in fields.items()
@@ -2067,6 +2081,25 @@ class EG4DataUpdateCoordinator(
                 f"(register {register} reads 0x{verified_raw:04x})"
             )
         _LOGGER.debug("Wrote %s for %s (register %s)", values, serial, register)
+
+    def _midbox_transport(self, serial: str) -> Any | None:
+        """The GridBOSS's local transport: LOCAL device cache, else the station MID.
+
+        ``get_local_transport`` does not cover a HYBRID GridBOSS (its
+        transport hangs off ``station.all_mid_devices``, which that lookup
+        never searches) and falls back to a legacy single-device transport
+        that belongs to an inverter, so GridBOSS option I/O resolves here.
+        """
+        mid_device = self._mid_device_cache.get(serial)
+        candidate = getattr(mid_device, "transport", None)
+        if candidate is not None:
+            return candidate
+        station = self.station
+        for mid in getattr(station, "all_mid_devices", None) or []:
+            if str(mid.serial_number) == serial:
+                candidate = getattr(mid, "transport", None)
+                return candidate
+        return None
 
     # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
 
