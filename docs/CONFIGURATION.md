@@ -388,6 +388,13 @@ them.
 
 - Like the port sensors, a setting for the other mode is disabled while the
   port is in this one, and re-enabled when the port changes mode.
+- The SOC and voltage thresholds follow the **Battery Charge Control** /
+  **Battery Discharge Control** options, like the inverter's limit controls:
+  with SOC selected the voltage thresholds are disabled, and with Voltage the
+  SOC thresholds. Smart Load and shedding thresholds follow Battery Discharge
+  Control; AC Couple thresholds follow Battery Charge Control. Changing the
+  option re-enables the other set. As with mode changes, a threshold you
+  disable or re-enable yourself keeps your choice.
 - A setting the portal greys out shows **unavailable**:
   - the Smart Load times unless Based On is Time;
   - the shedding settings unless Power Shedding is on;
