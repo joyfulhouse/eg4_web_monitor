@@ -17,9 +17,13 @@ Availability mirrors the portal:
   The entity registry sync disables it while the port is in another mode,
   and it shows unavailable until the sync catches up.
 - **Portal greying.** A field the portal greys out shows unavailable: the
-  Smart Load time windows unless "based on" is Time, the shedding fields
-  unless power shedding is on, and the SOC or voltage thresholds per the
-  inverters' battery control regime (``GATE_*`` in const/midbox.py).
+  Smart Load time windows unless "based on" is Time, and the shedding fields
+  unless power shedding is on.
+- **SOC vs voltage.** The SOC or voltage thresholds follow the configured
+  Battery Charge / Discharge Control option: the registry sync disables the
+  unselected set. The inverters' live regime is reported as attributes
+  (``active_control_mode``, ``is_effective``), not as unavailability, as the
+  inverter's own limit controls do.
 - **Local link.** A down local link, or a value never read, shows
   unavailable rather than a stale or fake value.
 """
@@ -55,6 +59,8 @@ from .base_entity import (
     EG4OptimisticEntity,
 )
 from .const import (
+    CONTROL_MODE_SOC,
+    CONTROL_MODE_VOLTAGE,
     DEVICE_TYPE_GRIDBOSS,
     PARAM_FUNC_BAT_CHARGE_CONTROL,
     PARAM_FUNC_BAT_DISCHARGE_CONTROL,
@@ -225,13 +231,11 @@ class PortOptionEntity(EG4OptimisticEntity):
             elif gate == GATE_SHEDDING:
                 if self._option_value(f"FUNC_SHEDDING_MODE_EN_{port}") is not True:
                     return False
-            elif gate in (GATE_SOC, GATE_VOLT):
-                voltage = battery_regime_is_voltage(
-                    self._coordinator,
-                    discharge=regime_side(self._spec) == "discharge",
-                )
-                if voltage is not None and voltage != (gate == GATE_VOLT):
-                    return False
+            # GATE_SOC / GATE_VOLT are not availability gates: the configured
+            # Battery Charge / Discharge Control option decides which set is
+            # enabled (registry sync), and the live regime is reported as
+            # attributes (EG4SmartPortOptionNumber.extra_state_attributes),
+            # as the inverter's own limit controls do.
         return True
 
     async def _write_options(self, values: dict[str, Any]) -> None:
@@ -400,6 +404,33 @@ class EG4SmartPortOptionNumber(PortOptionEntity, EG4BaseNumber, NumberEntity):
     def available(self) -> bool:
         """Portal-equivalent availability."""
         return self._option_available()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Whether the inverters' live regime uses this SOC / voltage threshold.
+
+        Same attributes as the inverter's regime-gated limits.
+        ``active_control_mode`` and ``is_effective`` are None while no
+        inverter has reported its regime, or the inverters disagree.
+        """
+        if GATE_SOC in self._spec.gates:
+            regime = CONTROL_MODE_SOC
+        elif GATE_VOLT in self._spec.gates:
+            regime = CONTROL_MODE_VOLTAGE
+        else:
+            return None
+        voltage = battery_regime_is_voltage(
+            self._coordinator, discharge=regime_side(self._spec) == "discharge"
+        )
+        if voltage is None:
+            active = None
+        else:
+            active = CONTROL_MODE_VOLTAGE if voltage else CONTROL_MODE_SOC
+        return {
+            "control_regime": regime,
+            "active_control_mode": active,
+            "is_effective": None if active is None else active == regime,
+        }
 
     @property
     def native_value(self) -> float | None:
