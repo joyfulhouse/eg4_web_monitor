@@ -11,7 +11,7 @@ sources:
   - custom_components/eg4_web_monitor/__init__.py
   - memory/architecture-patterns.md
 verified-against: 9f6d6e2
-# HA-stop lifecycle row below re-verified at d1392ab; other sections retain this pin.
+# HA-stop lifecycle row below re-verified at a79b8eb; other sections retain this pin.
 last-verified: 2026-09-29
 see-also:
   - data-flow-by-mode.md
@@ -283,7 +283,7 @@ Whole table: `verified-against-code` — `__init__.py` at `9f6d6e2`.
 | Phase | Actions | Grade |
 |---|---|---|
 | Unload | Unload platforms → `coordinator.async_shutdown()` (disconnect transports, cancel background tasks) → close the HTTP client → unregister library logging | `verified-against-code` (`__init__.py` → `async_unload_entry`) |
-| HA stop | Mark the one-shot stop listener consumed, then run the full `async_shutdown()` teardown, including base coordinator/debouncer shutdown; cancelling only the current timer lets an in-flight refresh schedule another while unwinding | `verified-against-code` at `d1392ab` (`coordinator_mixins.py` → `BackgroundTaskMixin._async_handle_shutdown_work`; `tests/test_coordinator_ha_stop.py` → `test_ha_stop_terminally_shuts_down_inflight_debounced_refresh`) |
+| HA stop | Mark the one-shot stop listener consumed, then run the shared `_async_shutdown_work()` teardown, including base coordinator/debouncer shutdown; the outer coordinator HA-stop wrapper closes the cloud client/session once | `verified-against-code` at `a79b8eb` (`coordinator_mixins.py` → `BackgroundTaskMixin._async_handle_shutdown_work`; `coordinator.py` → `_async_handle_shutdown`; `tests/test_coordinator_ha_stop.py` and `tests/test_cloud_session_isolation.py` → stop regressions) |
 | Removal | Purge recorder statistics for all entities, remove entity/device registry ownership (**shared devices are detached, not deleted**), remove the PV lifetime `Store` | `verified-against-code` (`__init__.py` → `async_remove_entry`) |
 
 Per-device removal — the user deleting one device from the UI — is a separate, ledger-governed

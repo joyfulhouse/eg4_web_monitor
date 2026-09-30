@@ -1000,3 +1000,20 @@ could create another in its `finally` block because the base coordinator and
 debouncer had not been marked shut down. HA stop now uses the full unload
 teardown. The regression and cancellation tests passed on minimum and current
 HA; no hardware claim is involved. Only this lifecycle row was re-verified.
+
+## [2026-09-29] ingest | Current-HA fixtures and fail-closed required CI summaries
+
+Read `c94b18c` / `d320f5d` and their regression tests. Updated
+[quality-gates](50-operations/quality-gates.md): registry fixtures now respect
+config-entry-scoped identity, offline Modbus failures are explicit, and the
+negative wall-clock test restores time before HA teardown. Required summaries
+run even after dependency failure and reject every result other than success;
+previously skipped required summaries allowed a merge despite failed coverage.
+No socket or timer-cleanup checks were weakened.
+
+Also re-verified the HA-stop row in [architecture](10-integration/architecture.md)
+at `a79b8eb`. The first shared-teardown fix entered both the public unload wrapper
+and the outer HA-stop wrapper, closing the client twice; the existing session
+ordering test caught it. The corrected path calls the inner teardown and keeps
+one outer session owner. This corrects the call-site description, not the
+terminal-debouncer contract or the previous targeted regression results.

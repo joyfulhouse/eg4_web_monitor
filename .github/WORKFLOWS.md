@@ -60,6 +60,12 @@ and its matching test plugin because the plugin itself pins HA. Update the two
 latest pins together when adopting a new stable release. Matrix fail-fast is
 disabled so both environments report their results.
 
+Required tier summaries run with `always()` and explicitly reject any dependency
+result other than `success`, including skipped or cancelled jobs. This prevents
+a failed coverage job from producing skipped required checks that GitHub treats
+as merge-safe. The guard is `scripts/check_ci_dependencies.py`; its regression
+tests exercise both the result policy and the workflow wiring.
+
 The auxiliary Platinum tests and tier validator use the latest constraints too.
 Mypy follows the active interpreter so it can parse each HA version's syntax.
 To reproduce the latest test environment locally:

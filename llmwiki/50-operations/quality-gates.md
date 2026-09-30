@@ -9,6 +9,8 @@ sources:
   - .github/workflows/home-assistant-validation.yml
   - tests/constraints-ha-minimum.txt
   - tests/constraints-ha-latest.txt
+  - scripts/check_ci_dependencies.py
+  - tests/test_ci_summary_gates.py
 verified-against: 9f6d6e2
 # Python/HA CI matrix below re-verified at 7b0a237; other sections retain this pin.
 last-verified: 2026-09-29
@@ -135,6 +137,20 @@ the active interpreter's Python version instead of forcing dependency parsing
 to Python 3.13. HA's aiodns pin selects the compatible pycares major version.
 
 ## Blocking vs advisory (quality-validation.yml)
+
+**Required summaries fail closed** (`verified-against-code` at `d320f5d` — the
+four tier-summary jobs and `scripts/check_ci_dependencies.py`): they run with
+`always()` and fail unless every dependency reports `success`. Failure, skipped,
+cancelled and missing results all block them. Previously an upstream failure
+skipped the summaries, which GitHub accepted as satisfying required checks.
+`tests/test_ci_summary_gates.py` locks both the policy and workflow wiring.
+
+**Modern-HA test fixtures** (`verified-against-code` at `c94b18c` and `d320f5d`):
+`tests/ha_registry.py` scopes device lookup and parent links to their config
+entry, retaining the older registry API only where required. Static-data tests
+use explicit offline Modbus connection failures rather than attempting fixture
+IPs. `test_raw_snapshot.py` restores the negative wall-clock patch before HA
+teardown. Socket blocking and lingering-task/timer checks are not relaxed.
 
 ### Blocking (job fails / `exit 1`)
 
