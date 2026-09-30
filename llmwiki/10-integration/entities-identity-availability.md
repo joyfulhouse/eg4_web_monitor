@@ -367,18 +367,29 @@ also recorded as **S1** in
 
 ## 6. Device identifiers (`DeviceInfo.identifiers`)
 
-| Device | `identifiers` | `via_device` | Cite |
+| Device | `identifiers` | Parent device | Cite |
 |---|---|---|---|
-| inverter / gridboss / parallel_group | `(DOMAIN, serial)` — PG serial is `parallel_group_<name>` | `(DOMAIN, parallel_group_serial)` when a group is found | `coordinator_mixins.py:3919`, `:3934-3936` |
-| individual battery | `(DOMAIN, battery_key)` | `(DOMAIN, f"{serial}_battery_bank")` | `coordinator_mixins.py:3993-4001` |
-| battery bank | `(DOMAIN, f"{serial}_battery_bank")` | `(DOMAIN, serial)` | `coordinator_mixins.py:4048-4053` |
-| station | `(DOMAIN, f"station_{plant_id}")` | — | `coordinator_mixins.py:4077-4078` |
+| inverter / gridboss / parallel_group | `(DOMAIN, serial)` — PG serial is `parallel_group_<name>` | the parallel group, when one is found | `coordinator_mixins.py` → `DeviceInfoMixin.get_device_info` |
+| individual battery | `(DOMAIN, battery_key)` | `f"{serial}_battery_bank"` | `coordinator_mixins.py` → `DeviceInfoMixin.get_battery_device_info` |
+| battery bank | `(DOMAIN, f"{serial}_battery_bank")` | the inverter, `serial` | `coordinator_mixins.py` → `DeviceInfoMixin.get_battery_bank_device_info` |
+| station | `(DOMAIN, f"station_{plant_id}")` | — | `coordinator_mixins.py` → `DeviceInfoMixin.get_station_device_info` |
 
 All rows: `verified-against-code`. Cloud PG naming is
-`f"parallel_group_{group.name.lower()}"` (`coordinator_mixins.py:3957`).
+`f"parallel_group_{group.name.lower()}"` (`coordinator_mixins.py` →
+`DeviceInfoMixin._get_parallel_group_for_device`).
 
-Because of the `via_device` chain, the `SENSOR` platform must be forwarded **before** every other
-platform — it is what creates the parent devices (`verified-against-code` — `__init__.py:1360-1363`).
+**How the parent is linked depends on the HA version** (`verified-against-code` —
+`coordinator_mixins.py` → `DeviceInfoMixin.via_device_link`): `via_device_id`, the parent's
+registry device ID from `device_registry.async_get_device_id_by_identifier`, on HA ≥ 2026.8.0b0;
+the legacy `via_device` identifier tuple on older HA. The switch is feature-detected on that
+helper. From HA 2026.9.0 a legacy `via_device` add raises when attributed to core or to no
+integration (a UI entity-ID rename re-add), which drops the entity until the entry reloads.
+This table and paragraph were re-verified in the change that introduced `via_device_link`
+(branch `fix/via-device-id`); the rest of the page stays pinned at `e42ed86`.
+
+Because of the parent chain, the `SENSOR` platform must be forwarded **before** every other
+platform — it creates the parent devices, and on HA ≥ 2026.8 an unregistered parent leaves the
+child unlinked (`verified-against-code` — `__init__.py` → `SENSOR_PLATFORM` / `OTHER_PLATFORMS`).
 
 **Battery identity is serial-first across all three modes**, with in-place registry migration
 (`battery_migration.py`), so switching modes no longer duplicates battery devices (#252). Identity

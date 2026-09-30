@@ -243,7 +243,7 @@ Whole table: `verified-against-code` — method definitions read in the cited mo
 | 4 | Snapshot existing `parallel_group_*` device identifiers **before** the first refresh | `__init__.py` → `_async_setup_entry_logged` |
 | 5 | Construct the coordinator, load the PV-string lifetime `Store`, then `await coordinator.async_config_entry_first_refresh()` | `__init__.py` → `_async_setup_entry_logged` |
 | 6 | **Registry hygiene passes** — all AFTER the first refresh (§4.1) | see below |
-| 7 | **Ordered platform forwarding**: `SENSOR` first (it creates the parent devices that `via_device` needs), then the remaining platforms concurrently | `__init__.py` → `PLATFORMS_FIRST` / `PLATFORMS_REST` |
+| 7 | **Ordered platform forwarding**: `SENSOR` first (it creates the parent devices that child devices link to), then the remaining platforms concurrently | `__init__.py` → `PLATFORMS_FIRST` / `PLATFORMS_REST` |
 | 8 | Write `sw_version` from firmware into the device registry | `__init__.py` → `_async_update_device_registry` |
 | 9 | Register the options-update listener; any options save triggers a **full entry reload** | `__init__.py` → `_async_options_updated` |
 

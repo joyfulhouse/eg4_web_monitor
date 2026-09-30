@@ -55,7 +55,9 @@ async def async_setup_entry(
     1. Phase 1: Station and device refresh buttons (creates parent devices first)
     2. Phase 2: Individual battery refresh buttons (can safely reference battery bank)
 
-    This ordering prevents HA warning about non-existing via_device references.
+    This ordering is load-bearing: a parent device must be registered before a
+    child is added, or the child is created without its parent link (on HA
+    2026.8+ the via_device_id lookup cannot resolve an unregistered parent).
     See: https://github.com/joyfulhouse/eg4_web_monitor/issues/81
     """
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data

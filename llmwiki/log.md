@@ -964,6 +964,20 @@ for issue [#329](https://github.com/joyfulhouse/pylxpweb/issues/329). The
 the pylxpweb delta from `80e8221` to `f3ced1a` changes transport and release files
 but no register definitions, so no register claim or evidence grade changed.
 
+## [2026-09-28] ingest | via_device → via_device_id parent links (HA 2026.8+)
+
+`DeviceInfoMixin.via_device_link` now links child devices (batteries, battery bank,
+parallel-group members) with `via_device_id` on HA ≥ 2026.8.0b0 and keeps `via_device` on
+older HA, feature-detected on `device_registry.async_get_device_id_by_identifier`. Found live:
+an entity-ID rename from the UI on HA 2026.9 raised on the legacy `via_device` (core-attributed
+add) and the entity stayed stateless until reload. Version facts were checked against PyPI
+wheels 2026.2.0–2026.9.4, not docs: the helper and `via_device_id` both first appear in
+2026.8.0b0 (which also removed `DEVICE_INFO_KEYS`); the raising deprecation first appears in
+2026.9.0. Updated [entities §6](10-integration/entities-identity-availability.md) (column was
+`via_device`, now "Parent device" plus a version paragraph; cites moved from line numbers to
+symbols), [what-this-project-is](00-orientation/what-this-project-is.md) and
+[architecture](10-integration/architecture.md), which both said `via_device` unconditionally.
+
 ## [2026-09-29] ingest | Explicit minimum/latest HA CI matrix
 
 Read the CI implementation at `7b0a237` and updated the Python/HA matrix owned by

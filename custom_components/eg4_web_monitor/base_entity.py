@@ -645,13 +645,14 @@ class EG4BatteryBankEntity(EG4DeviceEntity):
         device_info = self.coordinator.get_battery_bank_device_info(self._serial)
         if device_info is None:
             # Construct fallback DeviceInfo if coordinator returns None
-            return DeviceInfo(
+            fallback = DeviceInfo(
                 identifiers={(DOMAIN, f"{self._serial}_battery_bank")},
                 name=f"Battery Bank ({self._serial})",
                 manufacturer=MANUFACTURER,
                 model="Battery Bank",
-                via_device=(DOMAIN, self._serial),
             )
+            fallback.update(self.coordinator.via_device_link(self._serial))
+            return fallback
         return device_info
 
     @property
@@ -1022,8 +1023,15 @@ class EG4BaseNumber(EG4OptimisticEntity):
         self.serial = serial
         self._optimistic_value: float | None = None
 
-        # Device info
-        self._attr_device_info = coordinator.get_device_info(serial)
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Return device info, resolved at each add rather than snapshotted.
+
+        On HA 2026.8+ the parent link is a registry device ID; a snapshot
+        taken at construction would keep a stale ID across re-adds (an
+        entity-ID rename), which HA rejects with DeviceInfoError.
+        """
+        return self.coordinator.get_device_info(self.serial)
 
     @property
     def _retention_serial(self) -> str:
@@ -1108,8 +1116,15 @@ class EG4BaseTime(EG4OptimisticEntity):
         self.serial = serial
         self._optimistic_value: dt_time | None = None
 
-        # Device info
-        self._attr_device_info = coordinator.get_device_info(serial)
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Return device info, resolved at each add rather than snapshotted.
+
+        On HA 2026.8+ the parent link is a registry device ID; a snapshot
+        taken at construction would keep a stale ID across re-adds (an
+        entity-ID rename), which HA rejects with DeviceInfoError.
+        """
+        return self.coordinator.get_device_info(self.serial)
 
     @property
     def _retention_serial(self) -> str:
