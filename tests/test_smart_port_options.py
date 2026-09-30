@@ -208,16 +208,12 @@ def test_shedding_gate_follows_shedding_switch():
     assert _gated(coordinator, 3, GATE_SHEDDING) is False
 
 
-def test_regime_gate_follows_inverters():
-    """SOC fields need an SOC regime, voltage fields a voltage regime."""
-    soc = _coordinator(inverter_regimes=(False,))
-    assert _gated(soc, 1, GATE_SOC) is True
-    assert _gated(soc, 1, GATE_VOLT) is False
-    volt = _coordinator(inverter_regimes=(True, True))
-    assert _gated(volt, 1, GATE_SOC) is False
-    assert _gated(volt, 1, GATE_VOLT) is True
-    # Unknown or disagreeing inverters: nothing is gated.
-    for coordinator in (_coordinator(), _coordinator(inverter_regimes=(True, False))):
+def test_live_regime_never_makes_thresholds_unavailable():
+    """The configured option (registry sync) decides SOC vs voltage; the live
+    regime never greys a threshold out, whatever the inverters report."""
+    regimes = ((False,), (True, True), (), (True, False))
+    for inverter_regimes in regimes:
+        coordinator = _coordinator(inverter_regimes=inverter_regimes)
         assert _gated(coordinator, 1, GATE_SOC) is True
         assert _gated(coordinator, 1, GATE_VOLT) is True
 
@@ -370,12 +366,74 @@ def test_number_values_for_other_ports():
 
 
 def test_number_gating():
-    """Shedding thresholds need shedding on; voltage needs a voltage regime."""
-    coordinator = _coordinator(inverter_regimes=(False,))
+    """Shedding thresholds need shedding on; SOC and voltage both stay
+    available under a voltage regime (the option decides, via the registry)."""
+    coordinator = _coordinator(inverter_regimes=(True,))
     assert _number(coordinator, 1, "shedding_start_soc").available is True
     assert _number(coordinator, 3, "shedding_start_soc").available is False
-    assert _number(coordinator, 1, "smart_load_start_voltage").available is False
+    assert _number(coordinator, 1, "smart_load_start_voltage").available is True
     assert _number(coordinator, 1, "smart_load_start_soc").available is True
+
+
+@pytest.mark.parametrize(
+    ("id_suffix", "inverter_regimes", "expected"),
+    [
+        (
+            "smart_load_start_soc",
+            (True,),
+            {
+                "control_regime": "soc",
+                "active_control_mode": "voltage",
+                "is_effective": False,
+            },
+        ),
+        (
+            "smart_load_start_voltage",
+            (True,),
+            {
+                "control_regime": "voltage",
+                "active_control_mode": "voltage",
+                "is_effective": True,
+            },
+        ),
+        (
+            "shedding_end_soc",
+            (False,),
+            {
+                "control_regime": "soc",
+                "active_control_mode": "soc",
+                "is_effective": True,
+            },
+        ),
+        (
+            "smart_load_start_soc",
+            (),
+            {
+                "control_regime": "soc",
+                "active_control_mode": None,
+                "is_effective": None,
+            },
+        ),
+        ("shedding_start_pv_power", (True,), None),
+    ],
+)
+def test_number_effectiveness_attributes(id_suffix, inverter_regimes, expected):
+    """Live regime is reported like the inverter's own limit controls."""
+    coordinator = _coordinator(inverter_regimes=inverter_regimes)
+    assert _number(coordinator, 1, id_suffix).extra_state_attributes == expected
+
+
+def test_ac_couple_effectiveness_uses_charge_side():
+    """AC Couple thresholds read the charge-side regime."""
+    coordinator = _coordinator(inverter_regimes=(False,))
+    inverter = next(s for s in coordinator.data["parameters"] if s != GB)
+    coordinator.data["parameters"][inverter]["FUNC_BAT_CHARGE_CONTROL"] = True
+    attrs = _number(coordinator, 4, "ac_couple_start_soc").extra_state_attributes
+    assert attrs == {
+        "control_regime": "soc",
+        "active_control_mode": "voltage",
+        "is_effective": False,
+    }
 
 
 async def test_number_writes():

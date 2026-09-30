@@ -394,22 +394,21 @@ them.
   SOC thresholds. Smart Load and shedding thresholds follow Battery Discharge
   Control; AC Couple thresholds follow Battery Charge Control. Changing the
   option re-enables the other set. As with mode changes, a threshold you
-  disable or re-enable yourself keeps your choice.
+  disable or re-enable yourself keeps your choice. If the inverter itself is
+  in the other mode (the Battery Charge / Discharge Control selects show what
+  it reports), the thresholds stay available and their `is_effective`
+  attribute is `false`; `active_control_mode` shows the inverter's mode.
 - A setting the portal greys out shows **unavailable**:
   - the Smart Load times unless Based On is Time;
-  - the shedding settings unless Power Shedding is on;
-  - the SOC settings while the inverters regulate the battery by voltage, and
-    the voltage settings while they regulate it by SOC. This follows
-    [Battery control mode](#battery-control-mode-soc-vs-voltage): the discharge
-    setting for Smart Load and shedding, the charge setting for AC Couple. If
-    the inverters disagree, or haven't reported it, both are available.
+  - the shedding settings unless Power Shedding is on.
 - A setting also shows unavailable while the GridBOSS's local link is down or
   before its value has first been read.
 - On the unit this was built on, turning **Smart Load Enable** on or off
   switched the port's power at once, including with Grid Always On set
   (observed, not documented by EG4).
 - The four enables are read on every GridBOSS update (in HYBRID, every update
-  that reads the GridBOSS over its dongle). The other settings are read on the **parameter refresh interval** (see
+  that reads the GridBOSS over its dongle). The other settings are read on the
+  **parameter refresh interval** (see
   [Configuration Options](#configuration-options-refresh-intervals)), so a
   change made in the portal or app can take that long to show up. A change
   made in Home Assistant shows immediately: each write is read back from the
