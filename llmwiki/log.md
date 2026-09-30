@@ -990,3 +990,13 @@ Mypy follows the interpreter; requirements permit HA's pycares 5.x dependency.
 Only these subsections were re-verified; the rest retains its historical pins.
 The CI change remains a draft until existing latest-HA failures are resolved;
 this entry records the implementation, not a claim that the new gates pass.
+
+## [2026-09-29] ingest | HA stop terminally shuts down the refresh producer
+
+Read `d1392ab` and its failing-before/passing-after debouncer regression. Filed
+the HA-stop lifecycle in [architecture](10-integration/architecture.md): the
+previous handler cancelled the current timer, but a cancelled in-flight refresh
+could create another in its `finally` block because the base coordinator and
+debouncer had not been marked shut down. HA stop now uses the full unload
+teardown. The regression and cancellation tests passed on minimum and current
+HA; no hardware claim is involved. Only this lifecycle row was re-verified.

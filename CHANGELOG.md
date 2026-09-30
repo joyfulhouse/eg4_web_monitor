@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Home Assistant shutdown now terminally stops coordinator refreshes, preventing an in-flight debounced refresh from leaving a timer behind after it is cancelled.
+
 - **Renaming an entity ID no longer makes battery, battery-bank or parallel-group entities disappear on Home Assistant 2026.9+**: those devices now link to their parent with `via_device_id` on HA 2026.8 and newer, instead of the `via_device` form HA 2026.9 rejects. Previously, editing such an entity's ID in the UI left it without a state until the integration was reloaded. Older HA versions keep the previous behavior.
 
 ## [3.5.1-beta.16] - 2026-09-04
