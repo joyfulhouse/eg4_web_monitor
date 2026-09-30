@@ -977,3 +977,13 @@ wheels 2026.2.0–2026.9.4, not docs: the helper and `via_device_id` both first 
 `via_device`, now "Parent device" plus a version paragraph; cites moved from line numbers to
 symbols), [what-this-project-is](00-orientation/what-this-project-is.md) and
 [architecture](10-integration/architecture.md), which both said `via_device` unconditionally.
+
+## [2026-09-29] ingest | HA stop terminally shuts down the refresh producer
+
+Read `d1392ab` and its failing-before/passing-after debouncer regression. Filed
+the HA-stop lifecycle in [architecture](10-integration/architecture.md): the
+previous handler cancelled the current timer, but a cancelled in-flight refresh
+could create another in its `finally` block because the base coordinator and
+debouncer had not been marked shut down. HA stop now uses the full unload
+teardown. The regression and cancellation tests passed on minimum and current
+HA; no hardware claim is involved. Only this lifecycle row was re-verified.
