@@ -55,8 +55,16 @@ changed in that step listed:
 - Portal, Smart Load enable on ports 1 and 2 and based on SOC/Volt on
   ports 1-3: 229 0x3074 → 0x3077 (bits 0, 1), 2101 0x30 → 0x3e (bits 1-3).
 - 229 grid-on / AC couple bits: pinned for f2725ee (raw↔named across three
-  systems). Shedding bits 12 / 14 (ports 1 / 3) agree with the portal;
-  port 4's bit 15 follows the pattern and is not change-tested.
+  systems). Shedding bits 12 / 14 (ports 1 / 3) agree with the portal.
+- Home Assistant write test, port 4 in Smart Load (2026-09-30, build
+  +smartports.11, each write read back over the dongle and reverted; the
+  full 20 / 229-317 / 2099-2104 set matched the pre-test read afterwards):
+  Smart Load enable 229 0x3077 → 0x307f (bit 3); Grid Always On → 0x30f7
+  (bit 7); Power Shedding → 0xb077 (bit 15), shown by the portal as "Smart
+  Load 4 Use Shedding Mode: Enable"; SL start / end SOC 85 / 55 → 233
+  0x3c55 / 0x3755; based on Time → 2101 0x2e; SL start time 1 01:02 → 288
+  0x0201; shedding start PV power 0.5 kW → 257 0x0005; shedding start SOC
+  88 → 261 0x3c58.
 - Portal, port 4 (switched Unused → Smart Load first: 20 0x15 → 0x55,
   2101 unchanged) based on SOC/Volt → Time: 2101 0x3e → 0x2e (bit 4 only,
   nothing else changed). Reverted in the portal (SOC/Volt, then Unused):
@@ -257,7 +265,9 @@ def encode_midbox_field(field: MidboxField, raw: int, value: Any) -> int:
 #   - GATE_SOC / GATE_VOLT: SOC / voltage thresholds. Not availability gates:
 #     the configured Battery Charge / Discharge Control option decides which
 #     set is enabled (option_matches_control_modes, via the registry sync),
-#     and the live regime is reported as entity attributes
+#     and the inverters' live regime is reported as entity attributes. Which
+#     regime the GridBOSS applies is unproven: the portal greyed a port's
+#     voltage fields while the inverter reported voltage control.
 PORT_MODE_SMART_LOAD = "smart_load"
 PORT_MODE_AC_COUPLE = "ac_couple"
 
