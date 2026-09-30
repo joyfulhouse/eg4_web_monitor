@@ -82,7 +82,12 @@ class EndpointBusStatus:
 
 
 class _RawLocalTransport(Protocol):
-    """Complete raw surface consumed only inside this ownership module."""
+    """Required raw surface consumed only inside this ownership module.
+
+    Optional operations (currently ``check_link``) are deliberately not
+    members: they are probed at runtime via ``_EndpointBusOwner.supports()``
+    and forwarded through ``invoke()`` only when the raw transport has them.
+    """
 
     serial: str
     is_connected: bool
