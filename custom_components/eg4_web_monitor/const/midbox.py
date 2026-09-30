@@ -57,9 +57,13 @@ changed in that step listed:
 - 229 grid-on / AC couple bits: pinned for f2725ee (raw↔named across three
   systems). Shedding bits 12 / 14 (ports 1 / 3) agree with the portal;
   port 4's bit 15 follows the pattern and is not change-tested.
-- 2101 bit 4 (port 4 based on by pattern) is ambiguous: the app's port 3
-  "Time+SOC/Volt" choice set it (2101 0x22 → 0x32, bit 4 only), so it may
-  belong to that option. It is left unmapped (UNPINNED_BASED_ON_PORTS).
+- Portal, port 4 (switched Unused → Smart Load first: 20 0x15 → 0x55,
+  2101 unchanged) based on SOC/Volt → Time: 2101 0x3e → 0x2e (bit 4 only,
+  nothing else changed). Reverted in the portal (SOC/Volt, then Unused):
+  2101 0x2e → 0x3e, 20 0x55 → 0x15 — the original state restored.
+  (Earlier, the mobile app's port 3 "Time+SOC/Volt" choice also set bit 4:
+  2101 0x22 → 0x32. That is the app writing port 4's bit, not a separate
+  field; the app was not a reliable readback either.)
 - Voltage words read 540 / 480 against the cloud's "54" / "48" (÷10). Not
   change-tested: the unit runs SOC control, where the portal greys them.
 
@@ -119,12 +123,6 @@ MIDBOX_SMART_PORT_FUNCTION_BASE_BITS: dict[str, int] = {
     "FUNC_SHEDDING_MODE_EN": 12,
 }
 
-# Ports whose based-on bit is not mapped: port 4's (2101 bit 4 by pattern) is
-# ambiguous with the mobile app's Time+SOC/Volt option (module docstring), and
-# a wrong-bit write would read back as written (#476), so it is neither read
-# nor written until a change test pins it.
-UNPINNED_BASED_ON_PORTS: frozenset[int] = frozenset({4})
-
 # Value of BIT_SMART_LOAD_BASE_ON_n.
 SMART_LOAD_BASE_ON_TIME = 0
 SMART_LOAD_BASE_ON_SOC_VOLT = 1
@@ -161,10 +159,9 @@ def _build_fields() -> dict[str, MidboxField]:
             fields[f"{prefix}_{port}"] = MidboxField(
                 MIDBOX_REG_SMART_PORT_FUNCTIONS, "flag", bit=base + port - 1
             )
-        if port not in UNPINNED_BASED_ON_PORTS:
-            fields[f"BIT_SMART_LOAD_BASE_ON_{port}"] = MidboxField(
-                MIDBOX_REG_SMART_LOAD_BASE_ON, "bit", bit=port
-            )
+        fields[f"BIT_SMART_LOAD_BASE_ON_{port}"] = MidboxField(
+            MIDBOX_REG_SMART_LOAD_BASE_ON, "bit", bit=port
+        )
         fields.update(_soc_pair("MIDBOX_HOLD_SL", 229 + port, port))
         fields.update(_volt_pair("MIDBOX_HOLD_SL", 232 + 2 * port, port))
         fields.update(_soc_pair("MIDBOX_HOLD_AC", 241 + port, port))

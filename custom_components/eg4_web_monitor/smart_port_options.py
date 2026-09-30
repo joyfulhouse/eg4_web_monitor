@@ -72,7 +72,6 @@ from .const.midbox import (
     GATE_SOC,
     GATE_TIME_BASED,
     GATE_VOLT,
-    MIDBOX_OPTION_FIELDS,
     PORT_MODE_AC_COUPLE,
     SMART_LOAD_BASE_ON_SOC_VOLT,
     SMART_LOAD_BASE_ON_TIME,
@@ -139,17 +138,8 @@ def create_port_option_entities(
             entity_class(coordinator, serial, port, spec)
             for port in SMART_PORT_NUMBERS
             for spec in port_option_specs(platform)
-            if _spec_mapped(spec, port)
         )
     return entities
-
-
-def _spec_mapped(spec: PortOptionSpec, port: int) -> bool:
-    """Whether the spec's field exists for ``port`` (see UNPINNED_BASED_ON_PORTS)."""
-    name = spec.param_name(port)
-    if spec.platform == "time":
-        name = f"{name}_HOUR_{spec.window}"
-    return name in MIDBOX_OPTION_FIELDS
 
 
 class PortOptionEntity(EG4OptimisticEntity):
@@ -214,10 +204,8 @@ class PortOptionEntity(EG4OptimisticEntity):
         port = self._port
         for gate in self._spec.gates:
             if gate == GATE_TIME_BASED:
-                based_on_name = f"BIT_SMART_LOAD_BASE_ON_{port}"
-                if based_on_name not in MIDBOX_OPTION_FIELDS:
-                    continue  # based-on unpinned for this port: don't grey out
-                if self._option_value(based_on_name) != SMART_LOAD_BASE_ON_TIME:
+                based_on = self._option_value(f"BIT_SMART_LOAD_BASE_ON_{port}")
+                if based_on != SMART_LOAD_BASE_ON_TIME:
                     return False
             elif gate == GATE_SHEDDING:
                 if self._option_value(f"FUNC_SHEDDING_MODE_EN_{port}") is not True:

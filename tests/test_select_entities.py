@@ -77,8 +77,8 @@ class TestSelectPlatformSetup:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("local", [False, True])
     async def test_setup_creates_gridboss_selects(self, hass, local):
-        """GridBOSS devices get 4 smart port mode selects, plus based-on
-        selects for ports 1-3 when the GridBOSS has a local transport."""
+        """GridBOSS devices get 4 smart port mode selects, plus 4 based-on
+        selects when the GridBOSS has a local transport."""
         coordinator = _mock_coordinator()
         coordinator.data["devices"] = {
             "gb123": {"type": "gridboss", "model": "GridBOSS"}
@@ -92,9 +92,8 @@ class TestSelectPlatformSetup:
 
         type_names = [type(e).__name__ for e in entities]
         assert type_names.count("EG4SmartPortModeSelect") == 4
-        # Port 4's based-on bit is unpinned, so it gets no based-on select.
-        assert type_names.count("EG4SmartPortBasedOnSelect") == (3 if local else 0)
-        assert len(entities) == (7 if local else 4)
+        assert type_names.count("EG4SmartPortBasedOnSelect") == (4 if local else 0)
+        assert len(entities) == (8 if local else 4)
 
     @pytest.mark.asyncio
     async def test_setup_skips_unsupported_model(self, hass):

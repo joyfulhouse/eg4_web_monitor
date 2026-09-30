@@ -1249,11 +1249,6 @@ per-field evidence. Parameter keys are the cloud's own names
   `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` (the mobile app's "Time+SOC/Volt"
   option) in 2101; their bit positions are not pinned. Writes change only the
   one based-on bit and preserve the rest.
-- **Port 4's based-on bit is ambiguous.** Bit 4 fits the pattern, but the
-  mobile app set bit 4 when "Time+SOC/Volt" was chosen for port 3, so bit 4
-  may belong to the combined option instead. Until a change test pins it, it
-  is left out of the field map (`UNPINNED_BASED_ON_PORTS`): no port 4 Based
-  On entity reads or writes it.
 - Register 229 is read on every GridBOSS refresh (HYBRID: every cycle that
   refreshes the MID over the dongle), and the full set (blocks 229+40,
   269+40, 309+9, 2101+1) on the parameter refresh interval. Each block gets
