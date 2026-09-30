@@ -571,3 +571,16 @@ async def test_registry_sync_follows_configured_control_mode(hass: HomeAssistant
     run(entry)
     assert registry.async_get(soc.entity_id).disabled_by is INTEGRATION
     assert registry.async_get(volt.entity_id).disabled_by is None
+
+
+def test_no_write_while_registry_disabled():
+    """A coordinator update doesn't write an entity the sync just disabled."""
+    coordinator = _coordinator()
+    entity = _switch(coordinator, 1, "ac_couple_enable")
+    entity.registry_entry = MagicMock(disabled_by=INTEGRATION)
+    entity._handle_coordinator_update()
+    entity.async_write_ha_state.assert_not_called()
+
+    entity.registry_entry = MagicMock(disabled_by=None)
+    entity._handle_coordinator_update()
+    entity.async_write_ha_state.assert_called_once()
