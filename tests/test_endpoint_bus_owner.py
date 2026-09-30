@@ -13,8 +13,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 from pylxpweb.devices.inverters.base import BaseInverter
-import pylxpweb.transports as pylxpweb_transports
-from pylxpweb.transports import TerminalInverterTransport
+from pylxpweb.transports import (
+    DongleTransport,
+    ModbusSerialTransport,
+    ModbusTransport,
+    TerminalInverterTransport,
+)
 from pylxpweb.transports.capabilities import TransportCapabilities
 from pylxpweb.transports.config import TransportConfig, TransportType
 
@@ -489,12 +493,10 @@ async def test_check_link_without_raw_probe_keeps_full_read_fallback() -> None:
 
 
 @pytest.mark.parametrize(
-    "transport_class",
-    ["ModbusTransport", "ModbusSerialTransport", "DongleTransport"],
+    "raw_class", [ModbusTransport, ModbusSerialTransport, DongleTransport]
 )
-def test_every_factory_raw_transport_offers_check_link(transport_class: str) -> None:
+def test_every_factory_raw_transport_offers_check_link(raw_class: type) -> None:
     """The pinned factory's raw transports all implement the probe."""
-    raw_class = getattr(pylxpweb_transports, transport_class)
     assert callable(getattr(raw_class, "check_link", None))
 
 
