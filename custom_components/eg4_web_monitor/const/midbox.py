@@ -254,9 +254,10 @@ def encode_midbox_field(field: MidboxField, raw: int, value: Any) -> int:
 # (the entity shows unavailable) unless:
 #   - GATE_TIME_BASED: the port's "based on" is Time
 #   - GATE_SHEDDING:   power shedding is on for the port
-#   - GATE_SOC / GATE_VOLT: the inverters' battery control regime is SOC /
-#     voltage (register 179: the discharge bit for Smart Load and shedding
-#     thresholds, the charge bit for AC Couple thresholds)
+#   - GATE_SOC / GATE_VOLT: SOC / voltage thresholds. Not availability gates:
+#     the configured Battery Charge / Discharge Control option decides which
+#     set is enabled (option_matches_control_modes, via the registry sync),
+#     and the live regime is reported as entity attributes
 PORT_MODE_SMART_LOAD = "smart_load"
 PORT_MODE_AC_COUPLE = "ac_couple"
 
