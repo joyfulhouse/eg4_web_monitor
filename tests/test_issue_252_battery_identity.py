@@ -52,6 +52,7 @@ from custom_components.eg4_web_monitor.utils import (
 from pylxpweb.transports.data import BatteryBankData, BatteryData
 
 from tests.conftest import make_real_inverter
+from tests.ha_registry import get_registry_device
 
 INV = "4394012345"
 BAT_SN_1 = "029200112233"
@@ -412,8 +413,15 @@ class TestPositionalKeyMigration:
         # The positional identifier no longer resolves; the canonical one
         # resolves to the SAME device row (re-identified in place).
         device_registry = dr.async_get(hass)
-        assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
-        new_device = device_registry.async_get_device({(DOMAIN, new_key)})
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, old_key), mock_config_entry.entry_id
+            )
+            is None
+        )
+        new_device = get_registry_device(
+            device_registry, (DOMAIN, new_key), mock_config_entry.entry_id
+        )
         assert new_device is not None
         assert new_device.id == seeded_device_id  # device UUID preserved
         assert new_device.area_id == area.id
@@ -467,8 +475,18 @@ class TestPositionalKeyMigration:
         assert button_entry is not None
         assert button_entry.unique_id == f"{INV}_{new_key}_refresh_data"
         # Positional device removed, cloud device still there.
-        assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
-        assert device_registry.async_get_device({(DOMAIN, new_key)}) is not None
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, old_key), mock_config_entry.entry_id
+            )
+            is None
+        )
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, new_key), mock_config_entry.entry_id
+            )
+            is not None
+        )
 
     async def test_hybrid_path_migrates_positional_entities(
         self, hass, mock_config_entry
@@ -628,13 +646,20 @@ class TestPositionalKeyMigration:
         coordinator = EG4DataUpdateCoordinator(hass, mock_config_entry)
         coordinator._merge_round_robin_batteries(INV, [_transport_battery(0, BAT_SN_1)])
 
-        surviving = device_registry.async_get_device({(DOMAIN, new_key)})
+        surviving = get_registry_device(
+            device_registry, (DOMAIN, new_key), mock_config_entry.entry_id
+        )
         assert surviving is not None
         # Area backfilled from the positional device (canonical had none)...
         assert surviving.area_id == area.id
         # ...but the canonical user name wins over the positional one.
         assert surviving.name_by_user == "Cloud Name"
-        assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, old_key), mock_config_entry.entry_id
+            )
+            is None
+        )
 
 
 # ── P0: no-serial → serial cold-start sequence (third review) ─────────
@@ -687,8 +712,18 @@ class TestNoSerialThenSerialSequence:
             assert entry_ is not None
             assert new_key in entry_.unique_id
         device_registry = dr.async_get(hass)
-        assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
-        assert device_registry.async_get_device({(DOMAIN, new_key)}) is not None
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, old_key), mock_config_entry.entry_id
+            )
+            is None
+        )
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, new_key), mock_config_entry.entry_id
+            )
+            is not None
+        )
 
     async def test_exposed_fallback_then_serial_still_single_identity(
         self, hass, mock_config_entry
@@ -872,8 +907,18 @@ class TestShiftedSlotRetirement:
             assert entry_ is not None
             assert new_key in entry_.unique_id
         device_registry = dr.async_get(hass)
-        assert device_registry.async_get_device({(DOMAIN, old_key)}) is None
-        assert device_registry.async_get_device({(DOMAIN, new_key)}) is not None
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, old_key), mock_config_entry.entry_id
+            )
+            is None
+        )
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, new_key), mock_config_entry.entry_id
+            )
+            is not None
+        )
 
     async def test_shift_retirement_log_is_one_shot_per_key(
         self, hass, mock_config_entry, caplog
@@ -1316,8 +1361,15 @@ class TestSetupOrderingInvariant:
 
             # Exactly one battery device: the seeded one, re-identified.
             device_registry = dr.async_get(hass)
-            assert device_registry.async_get_device({(EG4_DOMAIN, old_key)}) is None
-            new_device = device_registry.async_get_device({(EG4_DOMAIN, new_key)})
+            assert (
+                get_registry_device(
+                    device_registry, (EG4_DOMAIN, old_key), mock_config_entry.entry_id
+                )
+                is None
+            )
+            new_device = get_registry_device(
+                device_registry, (EG4_DOMAIN, new_key), mock_config_entry.entry_id
+            )
             assert new_device is not None
             assert new_device.id == seeded_device_id
 

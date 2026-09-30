@@ -89,6 +89,7 @@ from tests.conftest import (
     make_real_mid,
     make_transport_spec,
 )
+from tests.ha_registry import get_registry_device
 
 
 @pytest.fixture
@@ -1712,6 +1713,15 @@ class TestCacheTTLAdherence:
 class TestStaticLocalData:
     """Tests for static device data pre-population (zero-read first refresh)."""
 
+    @pytest.fixture(autouse=True)
+    def offline_modbus(self):
+        """Exercise connection failures without opening real fixture addresses."""
+        with patch(
+            "pylxpweb.transports.modbus.ModbusTransport.connect",
+            new=AsyncMock(side_effect=LuxpowerConnectionError("offline test endpoint")),
+        ):
+            yield
+
     @pytest.fixture
     def local_config_entry(self):
         """Config entry for LOCAL connection type with one inverter."""
@@ -1909,10 +1919,8 @@ class TestStaticLocalData:
         # a background refresh that set the timestamp).
         coordinator._last_modbus_poll = 0.0
 
-        # Second refresh: should attempt real Modbus reads.
-        # Without real transports, this will raise UpdateFailed because
-        # all devices fail to connect — which proves it entered the
-        # normal register-read code path.
+        # The second refresh enters the normal transport-read path, where
+        # the synthetic offline connection fails rather than opening a socket.
         with pytest.raises(UpdateFailed, match="All .* local transports failed"):
             await coordinator._async_update_local_data()
 
@@ -4193,11 +4201,16 @@ class TestPerTransportIntervals:
 
         # Modbus device will be attempted but fail (no real transport)
         # → dongle device should still have cached data
-        try:
-            await coordinator._async_update_local_data()
-        except Exception:
-            # Modbus poll may fail, but dongle data should be cached
-            pass
+        with patch(
+            "pylxpweb.transports.modbus.ModbusTransport.connect",
+            new=AsyncMock(side_effect=LuxpowerConnectionError("offline test endpoint")),
+        ) as connect:
+            try:
+                await coordinator._async_update_local_data()
+            except UpdateFailed:
+                # A synthetic Modbus failure must not require a real socket.
+                pass
+            connect.assert_awaited()
 
         # Verify dongle device retained cached data
         # (This is tested via the pre-population logic)
@@ -6237,8 +6250,8 @@ class TestStaticParallelGroupDeviceRegistration:
         assert "parallel_group_a" in result["devices"]
 
         device_registry = dr.async_get(hass)
-        device = device_registry.async_get_device(
-            identifiers={(DOMAIN, "parallel_group_a")}
+        device = get_registry_device(
+            device_registry, (DOMAIN, "parallel_group_a"), entry.entry_id
         )
         assert device is not None
         assert device.name == "Parallel Group A"

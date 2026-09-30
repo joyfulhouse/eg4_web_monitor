@@ -8,6 +8,7 @@ import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+from tests.ha_registry import get_registry_device
 
 from custom_components.eg4_web_monitor import async_setup_entry
 from custom_components.eg4_web_monitor.const import (
@@ -117,8 +118,18 @@ async def test_two_groups_migrate_by_member_not_lexical_order(
     assert device_registry.async_get(old_200.id).identifiers == {
         (DOMAIN, "parallel_group_a")
     }
-    assert device_registry.async_get_device({(DOMAIN, "parallel_group_100")}) is None
-    assert device_registry.async_get_device({(DOMAIN, "parallel_group_200")}) is None
+    assert (
+        get_registry_device(
+            device_registry, (DOMAIN, "parallel_group_100"), entry.entry_id
+        )
+        is None
+    )
+    assert (
+        get_registry_device(
+            device_registry, (DOMAIN, "parallel_group_200"), entry.entry_id
+        )
+        is None
+    )
 
 
 async def test_no_authoritative_group_is_non_destructive(

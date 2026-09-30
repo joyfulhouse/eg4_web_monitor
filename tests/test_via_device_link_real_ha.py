@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 import pytest
+from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -83,6 +84,10 @@ def _platform(hass: HomeAssistant, entry: MockConfigEntry) -> MockEntityPlatform
     return platform
 
 
+@pytest.mark.skipif(
+    (MAJOR_VERSION, MINOR_VERSION) < (2026, 9),
+    reason="legacy via_device rejection starts in HA 2026.9",
+)
 async def test_legacy_via_device_entity_is_dropped(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
