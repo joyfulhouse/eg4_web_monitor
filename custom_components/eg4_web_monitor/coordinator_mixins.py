@@ -4789,16 +4789,10 @@ class BackgroundTaskMixin(_MixinBase):
         # Mark removal function as used - the one-time listener auto-removes itself
         self._shutdown_listener_remove = None
 
-        await self._disconnect_all_transports()
-
-        if hasattr(self, "_debounced_refresh") and self._debounced_refresh:
-            self._debounced_refresh.async_cancel()
-            await asyncio.sleep(0)
-            _LOGGER.debug("Cancelled debounced refresh")
-
-        await self._cancel_background_tasks()
-        self._release_shared_cloud_request_budget()
-        await self._release_shared_firmware_status()
+        # Cancelling the current timer is not terminal: an in-flight refresh
+        # can schedule another when it unwinds. Use unload's full teardown,
+        # including DataUpdateCoordinator's debouncer shutdown and session close.
+        await self.async_shutdown()
         _LOGGER.debug("All background tasks cancelled and cleaned up")
 
     async def async_shutdown(self) -> None:
