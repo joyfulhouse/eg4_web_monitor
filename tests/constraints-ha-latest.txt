@@ -1,0 +1,4 @@
+# Latest stable HA verified on 2026-09-29; update both pins together.
+# The test plugin pins Home Assistant itself, so upgrading Python alone is not enough.
+homeassistant==2026.9.4
+pytest-homeassistant-custom-component==0.13.367

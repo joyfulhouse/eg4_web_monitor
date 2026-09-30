@@ -199,8 +199,9 @@ def test_platinum_workflow_installs_validator_dependencies() -> None:
         "\n  platinum-summary:\n", maxsplit=1
     )[0]
 
-    assert "python-version: '3.13'" in job
+    assert "python-version: '3.14'" in job
     assert "uv pip install --system --refresh -r tests/requirements-test.txt" in job
+    assert "-c tests/constraints-ha-latest.txt" in job
 
     requirements = (REPO_ROOT / "tests" / "requirements-test.txt").read_text(
         encoding="utf-8"

@@ -627,17 +627,27 @@ jobs:
           echo "✅ All required documentation sections present"
 
   gold-test-coverage:
-    name: Gold - Test Coverage
+    name: Gold - Test Coverage (${{ matrix.ha }})
     runs-on: ubuntu-latest
     needs: silver-summary
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ha: minimum
+            python: '3.13'
+            constraints: tests/constraints-ha-minimum.txt
+          - ha: latest
+            python: '3.14'
+            constraints: tests/constraints-ha-latest.txt
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python }}
 
       - name: Install uv
         run: |
@@ -646,7 +656,7 @@ jobs:
 
       - name: Install dependencies with uv
         run: |
-          uv pip install --system --refresh -r tests/requirements-test.txt
+          uv pip install --system --refresh -r tests/requirements-test.txt -c ${{ matrix.constraints }}
 
       - name: Validate test infrastructure
         run: |
@@ -665,7 +675,7 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           file: ./coverage.xml
-          flags: unittests
+          flags: unittests,ha-${{ matrix.ha }}
           fail_ci_if_error: false
 
   gold-validation-script:
@@ -762,17 +772,27 @@ jobs:
           echo "✅ Session is injected into LuxpowerClient"
 
   platinum-strict-typing:
-    name: Platinum - Strict Typing
+    name: Platinum - Strict Typing (${{ matrix.ha }})
     runs-on: ubuntu-latest
     needs: gold-summary
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ha: minimum
+            python: '3.13'
+            constraints: tests/constraints-ha-minimum.txt
+          - ha: latest
+            python: '3.14'
+            constraints: tests/constraints-ha-latest.txt
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      - name: Set up Python ${{ matrix.python }}
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python }}
 
       - name: Install uv
         run: |
@@ -789,7 +809,7 @@ jobs:
           PYLXPWEB_PIN=$(grep -oE '^pylxpweb[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
           echo "Using pin: $PYLXPWEB_PIN"
           # mypy pinned to match tests/requirements-test.txt (#528 review)
-          uv pip install --system 'homeassistant>=2025.11.0' 'mypy==2.3.0' "$PYLXPWEB_PIN"
+          uv pip install --system 'homeassistant>=2026.1.0' 'mypy==2.3.0' "$PYLXPWEB_PIN" -c ${{ matrix.constraints }}
 
       - name: Verify strict typing configuration
         run: |
@@ -818,7 +838,7 @@ jobs:
 
       - name: Run mypy type checking
         run: |
-          echo "Running mypy type checking with Home Assistant 2025.11.0+..."
+          echo "Running mypy type checking against the ${{ matrix.ha }} Home Assistant environment..."
           mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
           echo "✅ Mypy type checking passed with zero errors"
 
@@ -830,10 +850,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.14'
 
       - name: Install uv
         run: |
@@ -842,7 +862,7 @@ jobs:
 
       - name: Install dependencies with uv
         run: |
-          uv pip install --system --refresh -r tests/requirements-test.txt
+          uv pip install --system --refresh -r tests/requirements-test.txt -c tests/constraints-ha-latest.txt
 
       - name: Run API client tests
         run: |
@@ -874,10 +894,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
+      - name: Set up Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.14'
 
       - name: Install uv
         run: |
@@ -886,7 +906,7 @@ jobs:
 
       - name: Install validator dependencies with uv
         run: |
-          uv pip install --system --refresh -r tests/requirements-test.txt
+          uv pip install --system --refresh -r tests/requirements-test.txt -c tests/constraints-ha-latest.txt
 
       - name: Run Platinum tier validation
         run: |
