@@ -7,8 +7,11 @@ sources:
   - prek.toml
   - .github/workflows/quality-validation.yml
   - .github/workflows/home-assistant-validation.yml
+  - tests/constraints-ha-minimum.txt
+  - tests/constraints-ha-latest.txt
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+# Python/HA CI matrix below re-verified at 7b0a237; other sections retain this pin.
+last-verified: 2026-09-29
 ---
 
 # Quality gates
@@ -111,14 +114,25 @@ jobs `bronze-summary`, `silver-summary`, `gold-summary` and their dependents.
 `main` is covered only via pull request — `verified-against-code` — `quality-validation.yml`, `on:`
 (`push.branches: [develop]`, `pull_request.branches: [main, develop]`, `workflow_dispatch`).
 
-### Python version split
+### Python and Home Assistant version matrix
 
-`verified-against-code` — `quality-validation.yml`
+This subsection is `verified-against-code` at `7b0a237` —
+`quality-validation.yml` jobs `gold-test-coverage`, `platinum-strict-typing`,
+`platinum-comprehensive-tests` and `platinum-validation-script`, plus
+`tests/constraints-ha-{minimum,latest}.txt` and `tests/mypy.ini`.
 
-| Jobs | Python |
-|------|--------|
-| Bronze ruff/syntax | 3.12 |
-| Gold coverage + Platinum mypy/tests | 3.13 |
+| Jobs | Environment selection |
+|------|-----------------------|
+| Bronze ruff/syntax | Python 3.12 |
+| Gold full-suite coverage + Platinum strict mypy | Blocking minimum/latest matrix: Python 3.13 / 3.14 respectively |
+| Auxiliary Platinum tests + tier validator | Latest constraints on Python 3.14 |
+
+The paired HA/test-plugin pins are owned by the two constraints files; do not
+copy their version numbers here. The plugin pins HA itself, so a Python upgrade
+without explicit paired constraints can silently test an older HA. Both matrix
+environments must pass; `fail-fast: false` lets both report failures. Mypy infers
+the active interpreter's Python version instead of forcing dependency parsing
+to Python 3.13. HA's aiodns pin selects the compatible pycares major version.
 
 ## Blocking vs advisory (quality-validation.yml)
 

@@ -13,7 +13,8 @@ sources:
   - memory/dev-container-pylxpweb-pin-bump-gotcha.md
   - memory/dev-container-deletes-pylxpweb-src.md
 verified-against: 9f6d6e2
-last-verified: 2026-08-09
+# Python setup paragraph re-verified at 7b0a237; other sections retain this pin.
+last-verified: 2026-09-29
 ---
 
 # Dev environment
@@ -22,17 +23,19 @@ How an agent develops against this two-repo stack: **eg4_web_monitor** (this rep
 
 ## Python tooling (`uv`)
 
-The documented setup procedure — `asserted-unverified` — `docs/DEVELOPMENT.md:11-19`. Nothing in the
-tree enforces it; the Python floor it states (3.13) is corroborated by CI, which runs the Gold and
-Platinum jobs on 3.13 (`verified-against-code` — `.github/workflows/quality-validation.yml`,
-`platinum-strict-typing` step **Set up Python 3.13**).
+The historical setup procedure is `asserted-unverified` —
+`docs/DEVELOPMENT.md:11-19`. Current CI environment selection is owned by
+[quality-gates.md](quality-gates.md#python-and-home-assistant-version-matrix).
+To reproduce its latest-HA dependency selection, use the current Python and
+paired constraints below (`verified-against-code` at `7b0a237` —
+`.github/workflows/quality-validation.yml` -> `gold-test-coverage` matrix).
 
 ```bash
 git clone https://github.com/joyfulhouse/eg4_web_monitor.git
 cd eg4_web_monitor
-uv venv --python 3.13
+uv venv --python 3.14
 source .venv/bin/activate
-uv pip install -r tests/requirements-test.txt
+uv pip install -r tests/requirements-test.txt -c tests/constraints-ha-latest.txt
 ```
 
 Agent day-to-day commands prefer `uv run` (no activate required) — `verified-against-code` —

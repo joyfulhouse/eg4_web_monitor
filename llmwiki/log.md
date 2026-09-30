@@ -963,3 +963,16 @@ for issue [#329](https://github.com/joyfulhouse/pylxpweb/issues/329). The
 [registers keeper](40-hardware/registers.md) is re-pinned to both release inputs;
 the pylxpweb delta from `80e8221` to `f3ced1a` changes transport and release files
 but no register definitions, so no register claim or evidence grade changed.
+
+## [2026-09-29] ingest | Explicit minimum/latest HA CI matrix
+
+Read the CI implementation at `7b0a237` and updated the Python/HA matrix owned by
+[quality-gates.md](50-operations/quality-gates.md), plus the setup link/example in
+[dev-environment.md](50-operations/dev-environment.md). The former Python 3.13-only
+gate could resolve an older HA through the test plugin's exact HA dependency and
+skip modern-registry tests. CI now has explicit paired core/plugin constraints,
+blocking minimum/latest full-suite and mypy gates, and latest auxiliary jobs.
+Mypy follows the interpreter; requirements permit HA's pycares 5.x dependency.
+Only these subsections were re-verified; the rest retains its historical pins.
+The CI change remains a draft until existing latest-HA failures are resolved;
+this entry records the implementation, not a claim that the new gates pass.
