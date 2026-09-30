@@ -1121,3 +1121,12 @@ bit. Ledger counts were wrong (b13 double-graded in the b0-b14 row; 230-269 coun
 Port 4's based-on bit (2101 b4, `inferred`/unresolved) is no longer read or written at all
 (`UNPINNED_BASED_ON_PORTS`), rather than shipped with a doc caveat: a wrong-bit write would
 read back as written (#476), so no verify could catch it.
+
+## [2026-09-29] ingest | GridBOSS 2101 b4 pinned — port 4 "based on"
+
+Resolved the open GB-H2101 b4 row with a portal round trip on the live GridBOSS: port 4 set to
+Smart Load, based on SOC/Volt → Time cleared only b4 (2101 0x3e → 0x2e), and the revert restored
+0x3e with port 4 back to Unused. Graded `hardware-toggle-proven`; the ambiguity came from the
+mobile app, whose port 3 "Time+SOC/Volt" choice had also set b4 — the app writing port 4's bit,
+consistent with its earlier unreliable readback. The `UNPINNED_BASED_ON_PORTS` guard from the
+review corrections above is removed; port 4 gets its Based On select like ports 1-3.

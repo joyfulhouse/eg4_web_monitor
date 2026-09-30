@@ -378,7 +378,7 @@ them.
 | Smart Load Enable | switch | Smart Load |
 | Grid Always On | switch | Smart Load |
 | Power Shedding | switch | Smart Load |
-| Based On (Time / SOC/Volt), ports 1–3 | select | Smart Load |
+| Based On (Time / SOC/Volt) | select | Smart Load |
 | Smart Load Start / End SOC, Start / End Voltage | number | Smart Load |
 | Shedding Start PV Power, Shedding Start / End SOC, Start / End Voltage | number | Smart Load |
 | Smart Load Start / End Time 1–3 | time | Smart Load |
@@ -409,10 +409,6 @@ them.
   GridBOSS, and a value the GridBOSS doesn't keep raises an error.
 - The mobile app also offers a combined "Time+SOC/Volt" option that the web
   portal doesn't. It isn't exposed here.
-- **Port 4 has no Based On select yet.** Its register bit hasn't been verified
-  on hardware and may belong to the app's "Time+SOC/Volt" option, so it is
-  neither read nor written; set it in the portal. Port 4's Smart Load times
-  are therefore always available.
 
 What each setting does is described in the GridBOSS user manual (§8.4 Smart
 Load / AC Couple). As the manual describes them:

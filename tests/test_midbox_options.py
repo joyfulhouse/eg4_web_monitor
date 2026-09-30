@@ -85,9 +85,7 @@ def test_every_field_is_covered_by_a_read_block():
 def test_field_count():
     """Per port: 4 enables, based-on, 3 SOC pairs, 3 volt pairs, PV, 2x6 windows."""
     per_port = 4 + 1 + 6 + 6 + 1 + 2 * 6 * 2
-    # Port 4's based-on bit is unpinned and deliberately unmapped.
-    assert len(MIDBOX_OPTION_FIELDS) == 4 * per_port - 1
-    assert "BIT_SMART_LOAD_BASE_ON_4" not in MIDBOX_OPTION_FIELDS
+    assert len(MIDBOX_OPTION_FIELDS) == 4 * per_port
 
 
 def test_decode_live_read_matches_portal():
@@ -113,7 +111,7 @@ def test_decode_live_read_matches_portal():
     # Port 4: AC start SOC 10 in the low byte, end 84 in the high byte.
     assert values["MIDBOX_HOLD_AC_START_SOC_4"] == 10
     assert values["MIDBOX_HOLD_AC_END_SOC_4"] == 84
-    assert "BIT_SMART_LOAD_BASE_ON_4" not in values  # 2101 bit 4 unpinned
+    assert values["BIT_SMART_LOAD_BASE_ON_4"] == 1
     # Voltages ÷10.
     assert values["MIDBOX_HOLD_SL_START_VOLT_2"] == 54.0
     assert values["MIDBOX_HOLD_SL_END_VOLT_2"] == 48.0
@@ -135,7 +133,15 @@ def test_decode_pinned_register_changes():
     # Shedding p2 enable = bit 13 only; based-on p2 = bit 2 only.
     assert decode_midbox_options({229: 1 << 13})["FUNC_SHEDDING_MODE_EN_2"] is True
     based_on = decode_midbox_options({2101: 1 << 2})
-    assert [based_on[f"BIT_SMART_LOAD_BASE_ON_{p}"] for p in (1, 2, 3)] == [0, 1, 0]
+    assert [based_on[f"BIT_SMART_LOAD_BASE_ON_{p}"] for p in (1, 2, 3, 4)] == [
+        0,
+        1,
+        0,
+        0,
+    ]
+    # Port 4 round trip in the portal: SOC/Volt -> Time cleared bit 4 only.
+    assert decode_midbox_options({2101: 0x3E})["BIT_SMART_LOAD_BASE_ON_4"] == 1
+    assert decode_midbox_options({2101: 0x2E})["BIT_SMART_LOAD_BASE_ON_4"] == 0
 
 
 @pytest.mark.parametrize(
@@ -143,7 +149,7 @@ def test_decode_pinned_register_changes():
     [
         ("FUNC_SMART_LOAD_EN_2", 0x3075, True, 0x3077),
         ("FUNC_SHEDDING_MODE_EN_2", 0x7875, False, 0x5875),
-        # Based-on changes only its own bit; bits 4 and 5 (meaning unpinned) stay.
+        # Based-on changes only its own bit; bit 5 (meaning unpinned) stays.
         ("BIT_SMART_LOAD_BASE_ON_3", 0x32, 1, 0x3A),
         ("BIT_SMART_LOAD_BASE_ON_3", 0x3A, 0, 0x32),
         ("MIDBOX_HOLD_AC_START_SOC_4", 0x5408, 10, 0x540A),
@@ -434,7 +440,7 @@ async def test_write_masks_field_and_seeds_cache(coordinator):
 
 
 async def test_write_preserves_unexposed_based_on_bits(coordinator):
-    """Based-on writes change only their bit; the unpinned bits 4-5 stay set."""
+    """Based-on writes change only their bit; bit 4 (port 4) and bit 5 stay set."""
     transport = FakeTransport({2101: 0x30})
     _attach(coordinator, transport)
     await coordinator.write_midbox_options(
