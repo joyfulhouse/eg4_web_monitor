@@ -407,6 +407,33 @@ PORT_OPTION_SPECS: tuple[PortOptionSpec, ...] = (
 )
 
 
+def regime_side(spec: PortOptionSpec) -> str:
+    """Battery control side governing a spec's SOC / voltage gate.
+
+    Smart Load and shedding thresholds act as the battery discharges; AC
+    Couple thresholds as it charges (inferred, not proven).
+    """
+    return "charge" if spec.mode == PORT_MODE_AC_COUPLE else "discharge"
+
+
+def option_matches_control_modes(
+    spec: PortOptionSpec, charge_mode: str, discharge_mode: str
+) -> bool:
+    """Whether a spec serves the configured battery control modes.
+
+    ``charge_mode`` / ``discharge_mode`` are the integration's Battery Charge
+    / Discharge Control options (``"soc"`` or ``"voltage"``). SOC thresholds
+    serve SOC control and voltage thresholds voltage control; specs without
+    a SOC / voltage gate always serve.
+    """
+    mode = charge_mode if regime_side(spec) == "charge" else discharge_mode
+    if GATE_SOC in spec.gates:
+        return mode == "soc"
+    if GATE_VOLT in spec.gates:
+        return mode == "voltage"
+    return True
+
+
 def port_option_specs(platform: str) -> tuple[PortOptionSpec, ...]:
     """The option specs of one platform."""
     return tuple(spec for spec in PORT_OPTION_SPECS if spec.platform == platform)

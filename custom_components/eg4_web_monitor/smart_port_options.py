@@ -72,12 +72,12 @@ from .const.midbox import (
     GATE_SOC,
     GATE_TIME_BASED,
     GATE_VOLT,
-    PORT_MODE_AC_COUPLE,
     SMART_LOAD_BASE_ON_SOC_VOLT,
     SMART_LOAD_BASE_ON_TIME,
     SMART_PORT_NUMBERS,
     PortOptionSpec,
     port_option_specs,
+    regime_side,
 )
 from .smart_port_devices import port_sensor_unique_id, resolve_port_mode
 
@@ -213,7 +213,7 @@ class PortOptionEntity(EG4OptimisticEntity):
             elif gate in (GATE_SOC, GATE_VOLT):
                 voltage = battery_regime_is_voltage(
                     self._coordinator,
-                    discharge=self._spec.mode != PORT_MODE_AC_COUPLE,
+                    discharge=regime_side(self._spec) == "discharge",
                 )
                 if voltage is not None and voltage != (gate == GATE_VOLT):
                     return False
