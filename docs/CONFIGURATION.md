@@ -433,6 +433,9 @@ them.
   in the other mode (the Battery Charge / Discharge Control selects show what
   it reports), the thresholds stay available and their `is_effective`
   attribute is `false`; `active_control_mode` shows the inverter's mode.
+  Which mode the GridBOSS itself applies to its thresholds is not confirmed:
+  in testing, the portal greyed a port's voltage fields while the inverter
+  reported voltage control.
 - A setting the portal greys out shows **unavailable**:
   - the Smart Load times unless Based On is Time;
   - the shedding settings unless Power Shedding is on.
