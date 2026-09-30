@@ -52,6 +52,31 @@ Gold Tier (5 jobs)
 - Comprehensive test coverage with pytest
 - Manifest completeness
 
+**Home Assistant compatibility:** Gold's full test/coverage gate and Platinum's
+strict mypy gate each run a blocking minimum/latest matrix. The minimum uses
+Python 3.13 and `tests/constraints-ha-minimum.txt`; the latest uses Python 3.14
+and `tests/constraints-ha-latest.txt`. Both constraints files pin Home Assistant
+and its matching test plugin because the plugin itself pins HA. Update the two
+latest pins together when adopting a new stable release. Matrix fail-fast is
+disabled so both environments report their results.
+
+Required tier summaries run with `always()` and explicitly reject any dependency
+result other than `success`, including skipped or cancelled jobs. This prevents
+a failed coverage job from producing skipped required checks that GitHub treats
+as merge-safe. The guard is `scripts/check_ci_dependencies.py`; its regression
+tests exercise both the result policy and the workflow wiring.
+
+The auxiliary Platinum tests and tier validator use the latest constraints too.
+Mypy follows the active interpreter so it can parse each HA version's syntax.
+To reproduce the latest test environment locally:
+
+```bash
+uv venv --python 3.14
+uv pip install --python .venv/bin/python -r tests/requirements-test.txt -c tests/constraints-ha-latest.txt
+.venv/bin/python -m pytest tests/ --ignore=tests/test_plant_api.py -q
+.venv/bin/python -m mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
+```
+
 ### Other Active Workflows
 
 - `home-assistant-validation.yml` — Hassfest and HACS validation (PRs, daily schedule)

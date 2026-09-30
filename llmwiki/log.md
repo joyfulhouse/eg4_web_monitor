@@ -978,6 +978,19 @@ wheels 2026.2.0–2026.9.4, not docs: the helper and `via_device_id` both first 
 symbols), [what-this-project-is](00-orientation/what-this-project-is.md) and
 [architecture](10-integration/architecture.md), which both said `via_device` unconditionally.
 
+## [2026-09-29] ingest | Explicit minimum/latest HA CI matrix
+
+Read the CI implementation at `7b0a237` and updated the Python/HA matrix owned by
+[quality-gates.md](50-operations/quality-gates.md), plus the setup link/example in
+[dev-environment.md](50-operations/dev-environment.md). The former Python 3.13-only
+gate could resolve an older HA through the test plugin's exact HA dependency and
+skip modern-registry tests. CI now has explicit paired core/plugin constraints,
+blocking minimum/latest full-suite and mypy gates, and latest auxiliary jobs.
+Mypy follows the interpreter; requirements permit HA's pycares 5.x dependency.
+Only these subsections were re-verified; the rest retains its historical pins.
+The CI change remains a draft until existing latest-HA failures are resolved;
+this entry records the implementation, not a claim that the new gates pass.
+
 ## [2026-09-29] ingest | HA stop terminally shuts down the refresh producer
 
 Read `d1392ab` and its failing-before/passing-after debouncer regression. Filed
@@ -987,3 +1000,20 @@ could create another in its `finally` block because the base coordinator and
 debouncer had not been marked shut down. HA stop now uses the full unload
 teardown. The regression and cancellation tests passed on minimum and current
 HA; no hardware claim is involved. Only this lifecycle row was re-verified.
+
+## [2026-09-29] ingest | Current-HA fixtures and fail-closed required CI summaries
+
+Read `c94b18c` / `d320f5d` and their regression tests. Updated
+[quality-gates](50-operations/quality-gates.md): registry fixtures now respect
+config-entry-scoped identity, offline Modbus failures are explicit, and the
+negative wall-clock test restores time before HA teardown. Required summaries
+run even after dependency failure and reject every result other than success;
+previously skipped required summaries allowed a merge despite failed coverage.
+No socket or timer-cleanup checks were weakened.
+
+Also re-verified the HA-stop row in [architecture](10-integration/architecture.md)
+at `a79b8eb`. The first shared-teardown fix entered both the public unload wrapper
+and the outer HA-stop wrapper, closing the client twice; the existing session
+ordering test caught it. The corrected path calls the inner teardown and keeps
+one outer session owner. This corrects the call-site description, not the
+terminal-debouncer contract or the previous targeted regression results.

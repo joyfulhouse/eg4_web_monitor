@@ -7,8 +7,13 @@ sources:
   - prek.toml
   - .github/workflows/quality-validation.yml
   - .github/workflows/home-assistant-validation.yml
+  - tests/constraints-ha-minimum.txt
+  - tests/constraints-ha-latest.txt
+  - scripts/check_ci_dependencies.py
+  - tests/test_ci_summary_gates.py
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+# Python/HA CI matrix below re-verified at 7b0a237; other sections retain this pin.
+last-verified: 2026-09-29
 ---
 
 # Quality gates
@@ -111,16 +116,41 @@ jobs `bronze-summary`, `silver-summary`, `gold-summary` and their dependents.
 `main` is covered only via pull request — `verified-against-code` — `quality-validation.yml`, `on:`
 (`push.branches: [develop]`, `pull_request.branches: [main, develop]`, `workflow_dispatch`).
 
-### Python version split
+### Python and Home Assistant version matrix
 
-`verified-against-code` — `quality-validation.yml`
+This subsection is `verified-against-code` at `7b0a237` —
+`quality-validation.yml` jobs `gold-test-coverage`, `platinum-strict-typing`,
+`platinum-comprehensive-tests` and `platinum-validation-script`, plus
+`tests/constraints-ha-{minimum,latest}.txt` and `tests/mypy.ini`.
 
-| Jobs | Python |
-|------|--------|
-| Bronze ruff/syntax | 3.12 |
-| Gold coverage + Platinum mypy/tests | 3.13 |
+| Jobs | Environment selection |
+|------|-----------------------|
+| Bronze ruff/syntax | Python 3.12 |
+| Gold full-suite coverage + Platinum strict mypy | Blocking minimum/latest matrix: Python 3.13 / 3.14 respectively |
+| Auxiliary Platinum tests + tier validator | Latest constraints on Python 3.14 |
+
+The paired HA/test-plugin pins are owned by the two constraints files; do not
+copy their version numbers here. The plugin pins HA itself, so a Python upgrade
+without explicit paired constraints can silently test an older HA. Both matrix
+environments must pass; `fail-fast: false` lets both report failures. Mypy infers
+the active interpreter's Python version instead of forcing dependency parsing
+to Python 3.13. HA's aiodns pin selects the compatible pycares major version.
 
 ## Blocking vs advisory (quality-validation.yml)
+
+**Required summaries fail closed** (`verified-against-code` at `d320f5d` — the
+four tier-summary jobs and `scripts/check_ci_dependencies.py`): they run with
+`always()` and fail unless every dependency reports `success`. Failure, skipped,
+cancelled and missing results all block them. Previously an upstream failure
+skipped the summaries, which GitHub accepted as satisfying required checks.
+`tests/test_ci_summary_gates.py` locks both the policy and workflow wiring.
+
+**Modern-HA test fixtures** (`verified-against-code` at `c94b18c` and `d320f5d`):
+`tests/ha_registry.py` scopes device lookup and parent links to their config
+entry, retaining the older registry API only where required. Static-data tests
+use explicit offline Modbus connection failures rather than attempting fixture
+IPs. `test_raw_snapshot.py` restores the negative wall-clock patch before HA
+teardown. Socket blocking and lingering-task/timer checks are not relaxed.
 
 ### Blocking (job fails / `exit 1`)
 

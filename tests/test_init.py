@@ -15,6 +15,7 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant_custom_component.common import MockConfigEntry, flush_store
+from tests.ha_registry import get_registry_device, registry_parent_link
 
 from custom_components.eg4_web_monitor import (
     PLATFORMS,
@@ -628,6 +629,11 @@ class TestRegistryLifecycleCleanup:
         via_device: tuple[str, str] | None = None,
     ):
         """Create one domain device linked to a config entry."""
+        parent_link = (
+            registry_parent_link(dr.async_get(hass), via_device, entry.entry_id)
+            if via_device is not None
+            else {}
+        )
         return dr.async_get(hass).async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, identifier)},
@@ -635,7 +641,7 @@ class TestRegistryLifecycleCleanup:
             manufacturer="EG4 Electronics",
             model="Test Device",
             serial_number=serial_number,
-            via_device=via_device,
+            **parent_link,
         )
 
     @staticmethod
@@ -703,7 +709,12 @@ class TestRegistryLifecycleCleanup:
         ):
             assert await async_setup_entry(hass, mock_config_entry)
 
-        assert dr.async_get(hass).async_get_device({(DOMAIN, "CLOUDLIVE")}) is not None
+        assert (
+            get_registry_device(
+                dr.async_get(hass), (DOMAIN, "CLOUDLIVE"), mock_config_entry.entry_id
+            )
+            is not None
+        )
         assert er.async_get(hass).async_get(live_entity.entity_id) is not None
 
     async def test_empty_refresh_never_prunes_registry(
@@ -751,7 +762,12 @@ class TestRegistryLifecycleCleanup:
             assert await async_setup_entry(hass, mock_config_entry)
 
         registry = dr.async_get(hass)
-        assert registry.async_get_device({(DOMAIN, "1234567890")}) is not None
+        assert (
+            get_registry_device(
+                registry, (DOMAIN, "1234567890"), mock_config_entry.entry_id
+            )
+            is not None
+        )
         assert registry.async_get(battery.id) is not None
         assert er.async_get(hass).async_get(entity.entity_id) is not None
 
@@ -837,15 +853,33 @@ class TestRegistryLifecycleCleanup:
         ):
             assert await async_setup_entry(hass, mock_config_entry)
 
-        assert device_registry.async_get_device({(DOMAIN, "LIVE123")}) is not None
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, "LIVE123"), mock_config_entry.entry_id
+            )
+            is not None
+        )
         assert entity_registry.async_get(live_entity.entity_id) is not None
         assert (
-            device_registry.async_get_device({(DOMAIN, "station_current")}) is not None
+            get_registry_device(
+                device_registry, (DOMAIN, "station_current"), mock_config_entry.entry_id
+            )
+            is not None
         )
         assert entity_registry.async_get(current_station_entity.entity_id) is not None
         for identifier in ("STALE123", "STALE123_battery_bank", "BAT-STALE"):
-            assert device_registry.async_get_device({(DOMAIN, identifier)}) is None
-        assert device_registry.async_get_device({(DOMAIN, "station_old")}) is None
+            assert (
+                get_registry_device(
+                    device_registry, (DOMAIN, identifier), mock_config_entry.entry_id
+                )
+                is None
+            )
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, "station_old"), mock_config_entry.entry_id
+            )
+            is None
+        )
         for entity in (*stale_entities, old_station_entity):
             assert entity_registry.async_get(entity.entity_id) is None
 
@@ -861,16 +895,19 @@ class TestRegistryLifecycleCleanup:
         shared = self._seed_device(
             hass, mock_config_entry, "SHARED123", serial_number="SHARED123"
         )
-        # A second get-or-create links the same physical identity to another entry.
+        # Older HA shares one registry row; modern HA scopes it per entry.
         same_shared = self._seed_device(
             hass, other_entry, "SHARED123", serial_number="SHARED123"
         )
-        assert same_shared.id == shared.id
+        if hasattr(dr, "async_get_device_id_by_identifier"):
+            assert same_shared.id != shared.id
+        else:
+            assert same_shared.id == shared.id
         current_entity = self._seed_entity(
             hass, mock_config_entry, shared.id, "current_shared_power"
         )
         other_entity = self._seed_entity(
-            hass, other_entry, shared.id, "other_shared_power"
+            hass, other_entry, same_shared.id, "other_shared_power"
         )
         # At least one live physical root must be present: an empty payload
         # is non-authoritative and skips pruning entirely (liveness floor).
@@ -893,9 +930,17 @@ class TestRegistryLifecycleCleanup:
         ):
             assert await async_setup_entry(hass, mock_config_entry)
 
-        surviving = dr.async_get(hass).async_get_device({(DOMAIN, "SHARED123")})
+        surviving = get_registry_device(
+            dr.async_get(hass), (DOMAIN, "SHARED123"), other_entry.entry_id
+        )
         assert surviving is not None
         assert surviving.config_entries == {other_entry.entry_id}
+        assert (
+            get_registry_device(
+                dr.async_get(hass), (DOMAIN, "SHARED123"), mock_config_entry.entry_id
+            )
+            is None
+        )
         assert er.async_get(hass).async_get(current_entity.entity_id) is None
         assert er.async_get(hass).async_get(other_entity.entity_id) is not None
 
@@ -917,12 +962,14 @@ class TestRegistryLifecycleCleanup:
         shared = self._seed_device(
             hass, mock_config_entry, "SHARED123", serial_number="SHARED123"
         )
-        self._seed_device(hass, other_entry, "SHARED123", serial_number="SHARED123")
+        other_shared = self._seed_device(
+            hass, other_entry, "SHARED123", serial_number="SHARED123"
+        )
         current_shared_entity = self._seed_entity(
             hass, mock_config_entry, shared.id, "current_shared_power"
         )
         other_shared_entity = self._seed_entity(
-            hass, other_entry, shared.id, "other_shared_power"
+            hass, other_entry, other_shared.id, "other_shared_power"
         )
         store = MagicMock()
         store.async_remove = AsyncMock()
@@ -932,11 +979,24 @@ class TestRegistryLifecycleCleanup:
 
         device_registry = dr.async_get(hass)
         entity_registry = er.async_get(hass)
-        assert device_registry.async_get_device({(DOMAIN, "EXCLUSIVE123")}) is None
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, "EXCLUSIVE123"), mock_config_entry.entry_id
+            )
+            is None
+        )
         assert entity_registry.async_get(exclusive_entity.entity_id) is None
-        surviving = device_registry.async_get_device({(DOMAIN, "SHARED123")})
+        surviving = get_registry_device(
+            device_registry, (DOMAIN, "SHARED123"), other_entry.entry_id
+        )
         assert surviving is not None
         assert surviving.config_entries == {other_entry.entry_id}
+        assert (
+            get_registry_device(
+                device_registry, (DOMAIN, "SHARED123"), mock_config_entry.entry_id
+            )
+            is None
+        )
         assert entity_registry.async_get(current_shared_entity.entity_id) is None
         assert entity_registry.async_get(other_shared_entity.entity_id) is not None
 

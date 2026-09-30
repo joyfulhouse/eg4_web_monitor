@@ -1,6 +1,6 @@
 # Testing dependencies for Bronze tier compliance
-# Updated December 2025 for Home Assistant 2025.12 compatibility
-# Requires Python 3.13+ due to pytest-homeassistant-custom-component
+# CI selects explicit HA/plugin versions with constraints-ha-{minimum,latest}.txt.
+# Latest HA requires Python 3.14; minimum-version coverage uses Python 3.13.
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
@@ -12,8 +12,8 @@ homeassistant>=2025.6.0
 
 # Integration dependencies
 aiohttp>=3.10.0
-# Note: aiodns managed by homeassistant, pycares>=4.9.0 for Python 3.13
-pycares>=4.9.0,<5
+# HA's aiodns pin selects pycares 4.x on older HA and 5.x on current HA.
+pycares>=4.9.0,<6
 voluptuous>=0.15.0
 # Exact public prerelease required for the caller-owned transport factory seam (#581).
 pylxpweb==0.10.0b9  # keep in sync with manifest.json
