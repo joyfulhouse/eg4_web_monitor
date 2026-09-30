@@ -4791,8 +4791,9 @@ class BackgroundTaskMixin(_MixinBase):
 
         # Cancelling the current timer is not terminal: an in-flight refresh
         # can schedule another when it unwinds. Use unload's full teardown,
-        # including DataUpdateCoordinator's debouncer shutdown and session close.
-        await self.async_shutdown()
+        # including DataUpdateCoordinator's debouncer shutdown. The coordinator's
+        # outer HA-stop wrapper owns closing the cloud session exactly once.
+        await self._async_shutdown_work()
         _LOGGER.debug("All background tasks cancelled and cleaned up")
 
     async def async_shutdown(self) -> None:
