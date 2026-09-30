@@ -107,11 +107,12 @@ def test_freshness_uses_monotonic_end_and_never_ran_sentinel(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     policy = FreshnessPolicy.from_poll_interval(10.0)
-    monkeypatch.setattr(time, "time", lambda: -10_000_000.0)
-
-    assert policy.age_seconds(None, monotonic_now=50.0) is None
-    assert policy.is_fresh(_frame(ended=20.0), monotonic_now=49.999)
-    assert not policy.is_fresh(_frame(ended=20.0), monotonic_now=50.0)
+    # Restore the wall clock before HA teardown constructs timestamped events.
+    with monkeypatch.context() as clock:
+        clock.setattr(time, "time", lambda: -10_000_000.0)
+        assert policy.age_seconds(None, monotonic_now=50.0) is None
+        assert policy.is_fresh(_frame(ended=20.0), monotonic_now=49.999)
+        assert not policy.is_fresh(_frame(ended=20.0), monotonic_now=50.0)
 
 
 def test_store_retains_only_latest_complete_and_saturates_redacted_health() -> None:

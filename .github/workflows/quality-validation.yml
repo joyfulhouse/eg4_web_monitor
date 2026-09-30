@@ -227,6 +227,7 @@ jobs:
   bronze-summary:
     name: 🥉 Bronze Tier Summary
     runs-on: ubuntu-latest
+    if: ${{ always() }}
     needs: [
       bronze-syntax-validation,
       bronze-config-flow-tests,
@@ -242,6 +243,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Require successful dependency jobs
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python scripts/check_ci_dependencies.py
 
       - name: Generate Bronze compliance report
         run: |
@@ -486,6 +492,7 @@ jobs:
   silver-summary:
     name: 🥈 Silver Tier Summary
     runs-on: ubuntu-latest
+    if: ${{ always() }}
     needs: [
       silver-service-exceptions,
       silver-config-unload,
@@ -500,6 +507,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Require successful dependency jobs
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python scripts/check_ci_dependencies.py
 
       - name: Generate Silver compliance report
         run: |
@@ -697,6 +709,7 @@ jobs:
   gold-summary:
     name: 🏆 Gold Tier Summary
     runs-on: ubuntu-latest
+    if: ${{ always() }}
     needs: [
       gold-translation-support,
       gold-reconfiguration-flow,
@@ -707,6 +720,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Require successful dependency jobs
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python scripts/check_ci_dependencies.py
 
       - name: Generate Gold compliance report
         run: |
@@ -915,10 +933,16 @@ jobs:
   platinum-summary:
     name: 🏆 Platinum Tier Summary
     runs-on: ubuntu-latest
+    if: ${{ always() }}
     needs: [platinum-websession-injection, platinum-strict-typing, platinum-comprehensive-tests, platinum-validation-script]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Require successful dependency jobs
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python scripts/check_ci_dependencies.py
 
       - name: Display summary
         run: |
