@@ -20,6 +20,7 @@ from custom_components.eg4_web_monitor.const.midbox import (
     PORT_OPTION_SPECS,
     PortOptionSpec,
     decode_midbox_options,
+    option_matches_control_modes,
     port_option_specs,
 )
 from custom_components.eg4_web_monitor.coordinator_mappings import (
@@ -505,3 +506,68 @@ async def test_window_writes_hour_and_minute_together():
         {"HOLD_MIDBOX_SL_3_END_HOUR_2": 22, "HOLD_MIDBOX_SL_3_END_MINUTE_2": 30},
     )
     assert entity._optimistic_value is None
+
+
+# ── Configured battery control mode ──────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("id_suffix", "charge", "discharge", "expected"),
+    [
+        ("smart_load_start_soc", "soc", "soc", True),
+        ("smart_load_start_voltage", "soc", "soc", False),
+        ("smart_load_start_voltage", "soc", "voltage", True),
+        ("shedding_end_soc", "voltage", "voltage", False),
+        # AC Couple follows the charge side.
+        ("ac_couple_start_soc", "soc", "voltage", True),
+        ("ac_couple_start_voltage", "soc", "voltage", False),
+        ("ac_couple_start_voltage", "voltage", "soc", True),
+        # Not SOC / voltage: always.
+        ("shedding_start_pv_power", "voltage", "voltage", True),
+        ("smart_load_enable", "voltage", "voltage", True),
+    ],
+)
+def test_option_matches_control_modes(id_suffix, charge, discharge, expected):
+    """SOC / voltage thresholds follow the configured control mode per side."""
+    assert option_matches_control_modes(SPECS[id_suffix], charge, discharge) is expected
+
+
+async def test_registry_sync_follows_configured_control_mode(hass: HomeAssistant):
+    """Voltage thresholds are disabled under SOC control, SOC under voltage."""
+    registry = er.async_get(hass)
+
+    def run(entry: MockConfigEntry) -> None:
+        sync = PortSensorEnablement(hass, entry)
+        sensors = {"smart_port1_status": "smart_load", SMART_PORT_VALIDATED_KEY: True}
+        for _ in range(2):
+            sync.async_sync({"devices": {GB: {"type": "gridboss", "sensors": sensors}}})
+
+    entry = MockConfigEntry(domain=DOMAIN, options={})  # defaults: SOC / SOC
+    entry.add_to_hass(hass)
+    soc = registry.async_get_or_create(
+        "number", DOMAIN, f"{GB}_smart_port1_smart_load_start_soc", config_entry=entry
+    )
+    volt = registry.async_get_or_create(
+        "number",
+        DOMAIN,
+        f"{GB}_smart_port1_smart_load_start_voltage",
+        config_entry=entry,
+    )
+    pv = registry.async_get_or_create(
+        "number",
+        DOMAIN,
+        f"{GB}_smart_port1_shedding_start_pv_power",
+        config_entry=entry,
+    )
+    run(entry)
+    assert registry.async_get(soc.entity_id).disabled_by is None
+    assert registry.async_get(volt.entity_id).disabled_by is INTEGRATION
+    assert registry.async_get(pv.entity_id).disabled_by is None
+
+    hass.config_entries.async_update_entry(
+        entry,
+        options={"charge_control_mode": "soc", "discharge_control_mode": "voltage"},
+    )
+    run(entry)
+    assert registry.async_get(soc.entity_id).disabled_by is INTEGRATION
+    assert registry.async_get(volt.entity_id).disabled_by is None
