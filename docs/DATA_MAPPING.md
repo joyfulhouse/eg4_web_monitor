@@ -1259,8 +1259,10 @@ per-field evidence. Parameter keys are the cloud's own names
   then a verify read 1.5 s later (the firmware reverts a rejected function
   bit within a second). The GridBOSS's transport is resolved from the LOCAL
   MID cache or, in HYBRID, from the station's MID device.
-- Port 4's shedding bit (229 bit 15) and the voltage scale follow the
-  pattern of the change-tested fields but were not changed themselves.
+- The voltage scale (÷10) follows the cloud's values but was not
+  change-tested. Every other field was written from Home Assistant on port 4
+  and read back over the dongle (2026-09-30); the shedding bit (229 bit 15)
+  was also confirmed in the portal.
 
 ---
 

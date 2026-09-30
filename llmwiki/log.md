@@ -1130,3 +1130,17 @@ Smart Load, based on SOC/Volt → Time cleared only b4 (2101 0x3e → 0x2e), and
 mobile app, whose port 3 "Time+SOC/Volt" choice had also set b4 — the app writing port 4's bit,
 consistent with its earlier unreliable readback. The `UNPINNED_BASED_ON_PORTS` guard from the
 review corrections above is removed; port 4 gets its Based On select like ports 1-3.
+
+## [2026-09-30] ingest | Smart port options — live write test (port 4)
+
+Wrote every kind of smart port option from Home Assistant (build `+smartports.11`) on port 4,
+set to Smart Load for the test and back to Unused after. Each write read back over the dongle as
+expected and was reverted, and the full 20 / 229-317 / 2099-2104 set matched the pre-test read
+afterwards. Raw pairs are in the `const/midbox.py` docstring. GB-H229 b15 (port 4 shedding) moves
+from `inferred` to `portal-correlated`: our write set it and the portal showed port 4's shedding
+enabled. Not `hardware-toggle-proven`, because the change came from our write rather than a vendor
+control. New open question: with the FlexBOSS21 reporting voltage control (register 179), the
+portal still greyed port 4's Smart Load voltage fields. So the portal's SOC-vs-voltage greying
+isn't driven by the inverter regime, and the entities' `is_effective` attribute (which reads
+register 179) is unproven as a statement of what the GridBOSS applies. Recorded in
+`const/midbox.py`, `docs/CONFIGURATION.md` and `docs/DATA_MAPPING.md`.
