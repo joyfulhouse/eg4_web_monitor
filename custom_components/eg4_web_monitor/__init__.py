@@ -84,8 +84,9 @@ _LOGGER = logging.getLogger(__name__)
 EG4ConfigEntry: TypeAlias = ConfigEntry[EG4DataUpdateCoordinator]
 
 # Sensor platform must be set up first to create parent devices (parallel groups,
-# battery banks) before other platforms register entities that reference them
-# via via_device.  The remaining platforms can load concurrently.
+# battery banks) before other platforms register entities that link to them;
+# an unregistered parent leaves the child device unlinked.  The remaining
+# platforms can load concurrently.
 SENSOR_PLATFORM: list[Platform] = [Platform.SENSOR]
 OTHER_PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,

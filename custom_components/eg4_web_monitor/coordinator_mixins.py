@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, cast
 import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 from pylxpweb.exceptions import LuxpowerConnectionError
@@ -3952,6 +3953,22 @@ class DeviceProcessingMixin(_MixinBase):
                 sensors[output_key] = total
 
 
+# Parent-device links.  HA 2026.8.0b0 added ``via_device_id`` (a registry
+# device ID) and the ``async_get_device_id_by_identifier`` lookup together, and
+# removed ``DEVICE_INFO_KEYS`` (so never probe it -- the import would fail).
+# From 2026.9.0 the legacy ``via_device`` tuple is deprecated (removed in
+# 2027.8.0) and RAISES instead of warning when the add is attributed to core or
+# to no integration: an entity-ID edit from the UI/websocket, or an add that
+# resumes after ``update_before_add`` suspends.  The entity is then silently
+# not added until the entry reloads.  Older HA only knows ``via_device``, so
+# feature-detect on the helper.
+# TODO: delete the ``via_device`` branch once hacs.json's minimum
+# ``homeassistant`` is >= 2026.8.0 (it is 2026.1.0 as of this change).
+_get_device_id_by_identifier: Callable[..., str] | None = getattr(
+    dr, "async_get_device_id_by_identifier", None
+)
+
+
 class DeviceInfoMixin(_MixinBase):
     """Mixin for device info retrieval methods.
 
@@ -3974,6 +3991,41 @@ class DeviceInfoMixin(_MixinBase):
             cache = {}
             setattr(self, attr, cache)
         return cache
+
+    def via_device_link(self, parent_identifier: str) -> DeviceInfo:
+        """Return the DeviceInfo keys linking a device to its parent device.
+
+        ``{"via_device_id": ...}`` on HA that supports it, else the legacy
+        ``{"via_device": (DOMAIN, parent_identifier)}``.  Empty when the parent
+        is not registered yet (the lookup raises ``ValueError``); HA then
+        creates the device unlinked, and only a later add of one of its
+        entities can link it, so callers skip caching an unlinked result.
+        The platform phase ordering (sensor.py, button.py) is what keeps
+        parents registered first.
+        """
+        if _get_device_id_by_identifier is None:
+            return cast(DeviceInfo, {"via_device": (DOMAIN, parent_identifier)})
+        try:
+            return cast(
+                DeviceInfo,
+                {
+                    "via_device_id": _get_device_id_by_identifier(
+                        self.hass,
+                        (DOMAIN, parent_identifier),
+                        config_entry_id=self.entry.entry_id,
+                    )
+                },
+            )
+        except ValueError:
+            warned: set[str] = self.__dict__.setdefault("_unlinked_parents", set())
+            if parent_identifier not in warned:
+                warned.add(parent_identifier)
+                _LOGGER.warning(
+                    "Parent device %s is not registered yet; its child device "
+                    "is created without a parent link",
+                    parent_identifier,
+                )
+            return DeviceInfo()
 
     def get_device_info(self, serial: str) -> DeviceInfo | None:
         """Get device information for a specific serial number."""
@@ -4010,13 +4062,17 @@ class DeviceInfoMixin(_MixinBase):
                 sw_version = device_data.get("firmware_version", "1.0.0")
             device_info["sw_version"] = sw_version
 
+        linked = True
         if device_type in ["inverter", "gridboss"]:
             parallel_group_serial = self._get_parallel_group_for_device(serial)
             if parallel_group_serial:
-                device_info["via_device"] = (DOMAIN, parallel_group_serial)
+                link = self.via_device_link(parallel_group_serial)
+                device_info.update(link)
+                linked = bool(link)
 
         result = cast(DeviceInfo, device_info)
-        cache[serial] = result
+        if linked:
+            cache[serial] = result
         return result
 
     def _get_parallel_group_for_device(self, device_serial: str) -> str | None:
@@ -4072,14 +4128,15 @@ class DeviceInfoMixin(_MixinBase):
         clean_battery_name = clean_battery_display_name(battery_key, serial)
         battery_bank_identifier = f"{serial}_battery_bank"
 
-        device_info: DeviceInfo = {
-            "identifiers": {(DOMAIN, battery_key)},
-            "name": f"Battery {clean_battery_name}",
-            "manufacturer": MANUFACTURER,
-            "model": model,
-            "sw_version": battery_firmware,
-            "via_device": (DOMAIN, battery_bank_identifier),
-        }
+        link = self.via_device_link(battery_bank_identifier)
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, battery_key)},
+            name=f"Battery {clean_battery_name}",
+            manufacturer=MANUFACTURER,
+            model=model,
+            sw_version=battery_firmware,
+        )
+        device_info.update(link)
 
         _LOGGER.debug(
             "Created battery device_info for %s: name='%s', model='%s', "
@@ -4091,7 +4148,8 @@ class DeviceInfoMixin(_MixinBase):
             battery_bank_identifier,
         )
 
-        cache[cache_key] = device_info
+        if link:
+            cache[cache_key] = device_info
         return device_info
 
     def get_battery_bank_device_info(self, serial: str) -> DeviceInfo | None:
@@ -4125,13 +4183,14 @@ class DeviceInfoMixin(_MixinBase):
             return None
         model = device_data.get("model", "Unknown")
 
-        device_info: DeviceInfo = {
-            "identifiers": {(DOMAIN, f"{serial}_battery_bank")},
-            "name": f"Battery Bank {serial}",
-            "manufacturer": MANUFACTURER,
-            "model": f"{model} Battery Bank",
-            "via_device": (DOMAIN, serial),
-        }
+        link = self.via_device_link(serial)
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{serial}_battery_bank")},
+            name=f"Battery Bank {serial}",
+            manufacturer=MANUFACTURER,
+            model=f"{model} Battery Bank",
+        )
+        device_info.update(link)
 
         _LOGGER.debug(
             "Created battery_bank device_info for %s: name='%s', model='%s', "
@@ -4143,7 +4202,8 @@ class DeviceInfoMixin(_MixinBase):
             serial,
         )
 
-        cache[serial] = device_info
+        if link:
+            cache[serial] = device_info
         return device_info
 
     def get_station_device_info(self) -> DeviceInfo | None:

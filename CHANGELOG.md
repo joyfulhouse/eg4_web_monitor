@@ -5,6 +5,12 @@ All notable changes to the EG4 Web Monitor integration will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Renaming an entity ID no longer makes battery, battery-bank or parallel-group entities disappear on Home Assistant 2026.9+**: those devices now link to their parent with `via_device_id` on HA 2026.8 and newer, instead of the `via_device` form HA 2026.9 rejects. Previously, editing such an entity's ID in the UI left it without a state until the integration was reloaded. Older HA versions keep the previous behavior.
+
 ## [3.5.1-beta.16] - 2026-09-04
 
 Requires **[pylxpweb==0.10.0b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b9)**.
