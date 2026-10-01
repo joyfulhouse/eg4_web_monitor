@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +35,7 @@ from .const import DOMAIN
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_KEY_TO_PORT,
     SMART_PORT_READ_KEY,
+    SMART_PORT_STATUS_KEYS,
     SMART_PORT_VALIDATED_KEY,
 )
 
@@ -243,6 +244,78 @@ def deferred_port_sensors(coordinator: Any) -> set[tuple[str, int, str]]:
     return deferred
 
 
+def port_sensor_keys(serial: str, has_local: bool) -> set[tuple[str, int, str]]:
+    """Return the fixed port sensor set of one GridBOSS, as deferred keys."""
+    return {
+        (serial, port, spec.id_suffix)
+        for port in range(1, 5)
+        for spec in PORT_SENSOR_SPECS
+        if has_local or spec.key_suffix not in LOCAL_ONLY_KEY_SUFFIXES
+    }
+
+
+def gridboss_serials(data: dict[str, Any] | None) -> set[str]:
+    """Return the serials the coordinator data reports as a GridBOSS."""
+    return set(_gridboss_sensors(data))
+
+
+# Firmware with invalid status registers (#195/#248) never produces a validated
+# read, so a contested adoption waiting for one would wait forever.  Once a
+# serial's statuses have stayed unvalidated for this many consecutive READS
+# and this long (no validated read in between), adoption falls back to
+# resolve_port_mode's key-presence rule, which is also what the port sensor
+# itself reads by.  Adoption is final, so both bounds are there to keep a
+# normal unit with a few bad reads after startup from being decided on them.
+UNVALIDATED_READS_BEFORE_FALLBACK = 3
+UNVALIDATED_SECONDS_BEFORE_FALLBACK = 300.0
+_UNVALIDATED_ATTR = "_smart_port_unvalidated_reads"
+
+
+def serials_resolving_unvalidated(
+    coordinator: Any, data: dict[str, Any] | None
+) -> set[str]:
+    """Track unvalidated status reads; return the serials past both bounds.
+
+    Call once per coordinator update.  Placeholder data (no status labels) is
+    not a read.  Reads are told apart by ``SMART_PORT_READ_KEY``; without a
+    stamp every call counts.  A validated read resets the serial.
+    """
+    # serial -> (last read stamp, reads counted, monotonic time of the first)
+    counts: dict[str, tuple[Any, int, float]] = coordinator.__dict__.setdefault(
+        _UNVALIDATED_ATTR, {}
+    )
+    now = time.monotonic()
+    for serial, sensors in _gridboss_sensors(data).items():
+        if sensors.get(SMART_PORT_VALIDATED_KEY):
+            counts.pop(serial, None)
+            continue
+        if not any(key in sensors for key in SMART_PORT_STATUS_KEYS):
+            continue
+        read = sensors.get(SMART_PORT_READ_KEY)
+        last, count, first = counts.get(serial, (None, 0, now))
+        if read is None or read != last:
+            counts[serial] = (read, count + 1, first)
+    return {
+        serial
+        for serial, (_read, count, first) in counts.items()
+        if count >= UNVALIDATED_READS_BEFORE_FALLBACK
+        and now - first >= UNVALIDATED_SECONDS_BEFORE_FALLBACK
+    }
+
+
+def port_status_signature(data: dict[str, Any] | None) -> tuple[Any, ...]:
+    """Return what adoption decides by, per GridBOSS: changes with each read."""
+    return tuple(
+        (
+            serial,
+            sensors.get(SMART_PORT_VALIDATED_KEY),
+            sensors.get(SMART_PORT_READ_KEY),
+            *(resolve_port_mode(sensors, port) for port in range(1, 5)),
+        )
+        for serial, sensors in sorted(_gridboss_sensors(data).items())
+    )
+
+
 class PortSensorEnablement:
     """Disable port sensors that don't serve the port's mode; re-enable them.
 
@@ -252,6 +325,9 @@ class PortSensorEnablement:
       single bad read cannot flip entities (or trigger reloads) -- except a
       read confirming a mode just written through the Mode select, which
       that write corroborates.
+    - Touches only this config entry's entities: unique IDs are looked up
+      registry-wide, and a second entry holding the same GridBOSS would
+      otherwise have its entities flipped (and reloaded) by this one.
     - Re-enables only entities it disabled itself (marked in the entity's
       registry options): entities disabled by the user, or by HA's
       "disable new entities" preference, stay disabled.
@@ -310,12 +386,19 @@ class PortSensorEnablement:
                         port_sensor_unique_id(serial, port, spec.id_suffix),
                     )
                     if entity_id is not None:
-                        _apply(registry, entity_id, spec_is_active(spec, mode))
+                        _apply(
+                            registry,
+                            entity_id,
+                            spec_is_active(spec, mode),
+                            self._entry.entry_id,
+                        )
 
 
-def _apply(registry: er.EntityRegistry, entity_id: str, active: bool) -> None:
+def _apply(
+    registry: er.EntityRegistry, entity_id: str, active: bool, config_entry_id: str
+) -> None:
     entry = registry.async_get(entity_id)
-    if entry is None:
+    if entry is None or entry.config_entry_id != config_entry_id:
         return
     marker = dict(entry.options.get(DOMAIN) or {}).get(_SYNC_OPTION)
     if not active:
@@ -360,6 +443,7 @@ def async_migrate_to_port_sensors(
     entry: ConfigEntry,
     data: dict[str, Any] | None,
     has_local_transport: Callable[[str], bool] | None = None,
+    resolve_unvalidated: Collection[str] = (),
 ) -> set[tuple[str, int, str]]:
     """Adopt existing per-mode sensor entries as the port sensors.
 
@@ -372,14 +456,20 @@ def async_migrate_to_port_sensors(
     VALIDATED read of an active port mode decides it (``created_at`` cannot:
     HA restores it on re-created entries, and migrated registries hold epoch
     0).  Until then it is returned as deferred, and the platform creates that
-    sensor only once a later call adopts it.  Nothing is deleted: the losing
+    sensor only once a later call adopts it.  For a serial in
+    ``resolve_unvalidated`` (statuses that never validate, #195/#248; see
+    serials_resolving_unvalidated) the unvalidated data decides instead, by
+    resolve_port_mode's key-presence rule.  Nothing is deleted: the losing
     entry keeps its old unique ID (never created again) and is disabled and
     marked once, then left alone.  Current entries are not adopted for a
     GridBOSS without a local transport, which never creates current sensors.
-    Must run before the #217 stale cleanup.
+    Idempotent: the sensor platform reruns it against the data it creates
+    entities from, and for port sensors it adds later.
 
     Returns:
-        The deferred port sensors, as (serial, port, id_suffix).
+        The deferred port sensors, as (serial, port, id_suffix).  Only a
+        GridBOSS present in ``data`` is looked at: a key missing from the
+        result says nothing about a serial that is absent.
     """
     registry = er.async_get(hass)
     gridboss = _gridboss_sensors(data)
@@ -405,7 +495,7 @@ def async_migrate_to_port_sensors(
         sensors = gridboss[serial]
         current = (
             resolve_port_mode(sensors, port)
-            if sensors.get(SMART_PORT_VALIDATED_KEY)
+            if sensors.get(SMART_PORT_VALIDATED_KEY) or serial in resolve_unvalidated
             else None
         )
         candidates.setdefault((serial, port, id_suffix), (current, []))[1].append(
@@ -417,7 +507,13 @@ def async_migrate_to_port_sensors(
         serial, port, id_suffix = key
         target = port_sensor_unique_id(serial, port, id_suffix)
         winner: er.RegistryEntry | None = None
-        if not registry.async_get_entity_id("sensor", DOMAIN, target):
+        existing = registry.async_get_entity_id("sensor", DOMAIN, target)
+        owner = registry.async_get(existing) if existing else None
+        if owner is not None and owner.config_entry_id != entry.entry_id:
+            # The same GridBOSS under another config entry holds the target:
+            # these entries were not replaced by anything of this entry's.
+            continue
+        if owner is None:
             if len(entries) == 1:
                 winner = entries[0][1]
             else:

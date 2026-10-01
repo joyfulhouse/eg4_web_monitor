@@ -349,8 +349,10 @@ All rows: `verified-against-code`. `utils.generate_unique_id` (`utils.py:722-738
 rewrites those registry entries to these unique IDs (`smart_port_devices.py` →
 `async_migrate_to_port_sensors`), keeping entity ID and history. Energy entries map one-to-one
 (one per mode). For a power/current sensor that had entries for both modes, only one can be
-adopted, decided by a validated status read (the sensor is not created until then); the other
-keeps its old unique ID and is disabled and marked, not deleted.
+adopted, decided by a validated status read (the sensor is not created until then) or, where
+statuses never validate (#195/#248), by `resolve_port_mode`'s key-presence rule after
+`UNVALIDATED_READS_BEFORE_FALLBACK` reads and `UNVALIDATED_SECONDS_BEFORE_FALLBACK`; the other keeps its old unique ID and is disabled and
+marked, not deleted.
 
 > ⚠️ **Case divergence.** `_stable_control_unique_id` lowercases the serial; switch and select
 > unique IDs do not. Lettered serials therefore differ in case **between platforms**. This is why

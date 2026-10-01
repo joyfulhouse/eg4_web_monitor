@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -26,6 +27,7 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
+    DOMAIN,
     HYBRID_EXCLUDED_SENSORS,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
@@ -58,8 +60,12 @@ from .smart_port_devices import (
     PortSensorSpec,
     async_migrate_to_port_sensors,
     deferred_port_sensors,
+    gridboss_serials,
+    port_sensor_keys,
+    port_status_signature,
     port_sensor_unique_id,
     resolve_port_mode,
+    serials_resolving_unvalidated,
     set_deferred_port_sensors,
     spec_serves,
 )
@@ -239,6 +245,9 @@ async def async_setup_entry(
     # Phase 3 entities: individual batteries (via_device → battery bank) and
     # smart port sensors (via_device → GridBOSS)
     phase3_entities: list[SensorEntity] = []
+    # Port sensors added so far, as (serial, port, id_suffix); the rest are
+    # added by _async_register_port_sensors below.
+    registered_port_sensors: set[tuple[str, int, str]] = set()
 
     if not coordinator.data:
         _LOGGER.warning("No coordinator data available for sensor setup")
@@ -260,6 +269,17 @@ async def async_setup_entry(
         if phase1_entities:
             async_add_entities(phase1_entities, True)
         return
+
+    # Adopt legacy per-mode entries against THIS data before creating port
+    # sensors from it: the first real LOCAL read can land between the entry
+    # setup's own migration and here, turning a placeholder device into a
+    # GridBOSS that migration never looked at.
+    set_deferred_port_sensors(
+        coordinator,
+        async_migrate_to_port_sensors(
+            hass, entry, coordinator.data, coordinator.has_configured_local_transport
+        ),
+    )
 
     # Create sensor entities for each device
     for serial, device_data in coordinator.data["devices"].items():
@@ -305,9 +325,9 @@ async def async_setup_entry(
                 )
             )
             # Phase 3: port devices hang off the GridBOSS device.
-            phase3_entities.extend(
-                _create_smart_port_sensors(coordinator, serial, device_data)
-            )
+            port_entities = _create_smart_port_sensors(coordinator, serial, device_data)
+            registered_port_sensors.update(e.port_key for e in port_entities)
+            phase3_entities.extend(port_entities)
         else:
             _LOGGER.warning(
                 "Unknown device type '%s' for device %s", device_type, serial
@@ -587,33 +607,61 @@ async def async_setup_entry(
         )
     )
 
-    # Contested port sensors deferred at setup: adopt and add them once a
-    # validated read says which mode's entry is the port's.
-    @callback
-    def _async_add_deferred_port_sensors() -> None:
-        pending = deferred_port_sensors(coordinator)
-        if not pending:
-            return
-        remaining = async_migrate_to_port_sensors(
-            hass, entry, coordinator.data, coordinator.has_configured_local_transport
-        )
-        set_deferred_port_sensors(coordinator, pending & remaining)
-        new_entities: list[SensorEntity] = [
-            EG4SmartPortSensor(
-                coordinator, serial, port, PORT_SENSOR_SPECS_BY_ID[suffix]
-            )
-            for serial, port, suffix in sorted(pending - remaining)
-        ]
-        if new_entities:
-            _LOGGER.info(
-                "Adding %d smart port sensors adopted after a validated read",
-                len(new_entities),
-            )
-            async_add_entities(new_entities, True)
+    # Port sensors not added at setup: a contested sensor whose adoption was
+    # deferred, and the whole set of a GridBOSS that was not one yet (absent,
+    # or a LOCAL device only identified as a GridBOSS by its first real read).
+    # A sensor is added only for a GridBOSS present in this update's data and
+    # only once adoption has settled its legacy entries -- so a GridBOSS
+    # missing from one update keeps its sensors pending instead of having
+    # them created fresh next to the entries they should have adopted.  The
+    # GridBOSS device must be registered first (the port devices link to it):
+    # for a GridBOSS new in this update, that is the update after.  Adoption
+    # is retried only when a GridBOSS read changed what it decides by.
+    last_attempt: Any = None
 
-    entry.async_on_unload(
-        coordinator.async_add_listener(_async_add_deferred_port_sensors)
-    )
+    @callback
+    def _async_register_port_sensors() -> None:
+        nonlocal last_attempt
+        data = coordinator.data
+        device_registry = dr.async_get(hass)
+        wanted = {
+            key
+            for serial in gridboss_serials(data)
+            if device_registry.async_get_device(identifiers={(DOMAIN, serial)})
+            for key in port_sensor_keys(
+                serial, coordinator.has_configured_local_transport(serial)
+            )
+        } - registered_port_sensors
+        if not wanted:
+            return
+        resolving = serials_resolving_unvalidated(coordinator, data)
+        attempt = (wanted, port_status_signature(data), resolving)
+        if attempt == last_attempt:
+            return
+        last_attempt = attempt
+        deferred = async_migrate_to_port_sensors(
+            hass,
+            entry,
+            data,
+            coordinator.has_configured_local_transport,
+            resolving,
+        )
+        ready = sorted(wanted - deferred)
+        if not ready:
+            return
+        registered_port_sensors.update(ready)
+        _LOGGER.info("Late smart port registration: adding %d sensors", len(ready))
+        async_add_entities(
+            [
+                EG4SmartPortSensor(
+                    coordinator, serial, port, PORT_SENSOR_SPECS_BY_ID[suffix]
+                )
+                for serial, port, suffix in ready
+            ],
+            True,
+        )
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_register_port_sensors))
 
     # Port sensors follow their port's mode: disabled while they don't serve it.
     port_sync = PortSensorEnablement(hass, entry, coordinator)
@@ -759,7 +807,7 @@ def _create_simple_device_sensors(
 
 def _create_smart_port_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
-) -> list[SensorEntity]:
+) -> "list[EG4SmartPortSensor]":
     """Create the fixed sensor set for each GridBOSS smart port.
 
     Sensors whose adoption waits for a validated read (a contested power or
@@ -819,6 +867,11 @@ class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):
         self._spec = spec
         self._attr_unique_id = port_sensor_unique_id(serial, port, spec.id_suffix)
         self._attr_name = spec.name
+
+    @property
+    def port_key(self) -> tuple[str, int, str]:
+        """Return (serial, port, id_suffix), the key adoption defers by."""
+        return (self._serial, self._port, self._spec.id_suffix)
 
     def _port_sensors(self) -> dict[str, Any]:
         devices = (self.coordinator.data or {}).get("devices", {})

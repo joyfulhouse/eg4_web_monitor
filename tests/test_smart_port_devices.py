@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 from typing import Any
 from unittest.mock import MagicMock
 
+import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 import pytest
 from homeassistant.core import HomeAssistant
@@ -24,7 +26,10 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     GRIDBOSS_SMART_PORT_KEY_TO_PORT,
     SMART_PORT_VALIDATED_KEY,
 )
-from custom_components.eg4_web_monitor.coordinator_mixins import DeviceInfoMixin
+from custom_components.eg4_web_monitor.coordinator_mixins import (
+    DeviceInfoMixin,
+    DeviceProcessingMixin,
+)
 from custom_components.eg4_web_monitor.select import EG4SmartPortModeSelect
 from custom_components.eg4_web_monitor.sensor import (
     EG4SmartPortSensor,
@@ -747,3 +752,373 @@ class TestDeferredAdoptionEndToEnd:
         assert _entity_id(hass, f"{GB}_smart_port1_power") == live.entity_id
         assert hass.states.get(live.entity_id).state == "7.0"
         assert registry.async_get(other.entity_id).disabled_by is INTEGRATION
+
+
+async def _setup_sensor_platform(
+    hass: HomeAssistant, entry: MockConfigEntry, coordinator: _Coordinator
+) -> list[str]:
+    """Set the sensor platform up; return the unique IDs added, in order."""
+    entry.runtime_data = coordinator  # type: ignore[attr-defined]
+    platform = _platform(hass, entry, "sensor")
+    added: list[str] = []
+
+    def add_entities(entities: Any, update_before_add: bool = False) -> None:
+        entities = list(entities)
+        added.extend(entity.unique_id for entity in entities)
+        hass.async_create_task(platform.async_add_entities(entities))
+
+    await sensor_platform.async_setup_entry(hass, entry, add_entities)
+    await hass.async_block_till_done()
+    return added
+
+
+def _port_sensor_entries(
+    hass: HomeAssistant, entry: MockConfigEntry
+) -> list[er.RegistryEntry]:
+    return [
+        e
+        for e in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+        if re.search(r"_smart_port\d_(?!status)", e.unique_id)
+    ]
+
+
+class TestReviewRegressions:
+    """PR #632 review: regression tests per finding."""
+
+    # -- A GridBOSS missing from an update must not finalise an adoption -----
+
+    async def test_absent_gridboss_keeps_deferred_adoption_pending(
+        self, hass: HomeAssistant
+    ):
+        """A GridBOSS missing from one update must not finalise a deferred
+        adoption: the sensor would be created fresh, stranding the legacy
+        entry (entity ID, history) the next validated read should adopt."""
+        entry = _entry(hass)
+        live = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        other = _seed(hass, entry, f"{GB}_ac_couple1_power", "sensor.ac_power")
+        coordinator = _Coordinator(hass, {GB: _gridboss({"grid_power": 1.0})})
+        added = await _setup_sensor_platform(hass, entry, coordinator)
+        target = f"{GB}_smart_port1_power"
+        assert _entity_id(hass, target) is None
+
+        coordinator.data = {"devices": {}}  # the GridBOSS dropped out of a cycle
+        coordinator.fire()
+        await hass.async_block_till_done()
+        assert _entity_id(hass, target) is None, "created instead of adopted"
+
+        coordinator.data = {
+            "devices": {
+                GB: _gridboss({**_statuses("smart_load"), "smart_load1_power": 7.0})
+            }
+        }
+        coordinator.fire(times=2)
+        await hass.async_block_till_done()
+        assert _entity_id(hass, target) == live.entity_id
+        assert hass.states.get(live.entity_id).state == "7.0"
+        assert er.async_get(hass).async_get(other.entity_id).unique_id == (
+            other.unique_id
+        )
+        assert len(added) == len(set(added)), "an entity was added twice"
+
+    async def test_adoption_is_retried_per_read_not_per_update(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        """A contested sensor on an unused port stays deferred indefinitely;
+        the registry scan must not run on every coordinator update."""
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_READ_KEY,
+        )
+
+        entry = _entry(hass)
+        _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        _seed(hass, entry, f"{GB}_ac_couple1_power", "sensor.ac_power")
+        read = {**_statuses(*["unused"] * 4), "grid_power": 1.0}
+        coordinator = _Coordinator(
+            hass, {GB: _gridboss({**read, SMART_PORT_READ_KEY: 1.0})}
+        )
+        await _setup_sensor_platform(hass, entry, coordinator)
+        calls: list[Any] = []
+        migrate = sensor_platform.async_migrate_to_port_sensors
+        monkeypatch.setattr(
+            sensor_platform,
+            "async_migrate_to_port_sensors",
+            lambda *args: calls.append(args) or migrate(*args),
+        )
+        coordinator.fire(times=5)
+        assert len(calls) == 1
+        coordinator.data = {
+            "devices": {GB: _gridboss({**read, SMART_PORT_READ_KEY: 2.0})}
+        }
+        coordinator.fire(times=5)
+        assert len(calls) == 2
+
+    # -- Statuses that never validate (#195/#248) ----------------------------
+
+    def test_unvalidated_reads_need_a_count_and_a_duration(self, monkeypatch):
+        from custom_components.eg4_web_monitor import smart_port_devices as spd
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_READ_KEY,
+        )
+
+        coordinator = _Coordinator(None, {})
+        clock = [50.0]  # small: a freshly booted host
+        monkeypatch.setattr(spd.time, "monotonic", lambda: clock[0])
+
+        def run(sensors: dict) -> set[str]:
+            return spd.serials_resolving_unvalidated(
+                coordinator, {"devices": {GB: _gridboss(sensors)}}
+            )
+
+        unvalidated = _statuses("unused", validated=False)
+        assert run({}) == set()  # placeholder data is not a read
+        for stamp in (1.0, 2.0, 3.0, 4.0):  # enough reads, not long enough
+            assert run({**unvalidated, SMART_PORT_READ_KEY: stamp}) == set()
+        clock[0] += spd.UNVALIDATED_SECONDS_BEFORE_FALLBACK
+        assert run({**unvalidated, SMART_PORT_READ_KEY: 4.0}) == {GB}
+
+        # One validated read and it starts over: long enough, too few reads.
+        assert run(_statuses("unused")) == set()
+        assert run({**unvalidated, SMART_PORT_READ_KEY: 5.0}) == set()
+        clock[0] += spd.UNVALIDATED_SECONDS_BEFORE_FALLBACK
+        for _ in range(3):  # the same read again is not another read
+            assert run({**unvalidated, SMART_PORT_READ_KEY: 5.0}) == set()
+        assert run({**unvalidated, SMART_PORT_READ_KEY: 6.0}) == set()
+        assert run({**unvalidated, SMART_PORT_READ_KEY: 7.0}) == {GB}
+
+    def test_unvalidated_read_is_stamped(self):
+        """The #195/#248 skip path stamps the read, so reads can be counted."""
+        from datetime import datetime
+
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_READ_KEY,
+        )
+
+        mid_device = MagicMock(
+            serial_number="stamp-test",
+            _last_refresh=datetime(2026, 1, 1),
+            **{f"smart_port{port}_status": 7 for port in range(1, 5)},
+        )
+        sensors: dict[str, Any] = {"smart_load1_power": 5.0}
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid_device)
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+        assert sensors[SMART_PORT_READ_KEY] == datetime(2026, 1, 1).timestamp()
+        assert sensors["smart_load1_power"] == 5.0
+
+    async def test_contested_sensor_is_adopted_without_a_validated_status(
+        self, hass: HomeAssistant, monkeypatch
+    ):
+        """#195/#248 firmware never validates its statuses: once they have
+        stayed unvalidated for enough reads and long enough, the contested
+        sensor is adopted by the key-presence rule (Smart Load preferred when
+        both modes' keys are there, as on the skip path) instead of being lost."""
+        from custom_components.eg4_web_monitor import smart_port_devices as spd
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_READ_KEY,
+        )
+
+        clock = [50.0]
+        monkeypatch.setattr(spd.time, "monotonic", lambda: clock[0])
+
+        def read(stamp: float) -> dict:
+            return {
+                GB: _gridboss(
+                    {
+                        **_statuses(*["unused"] * 4, validated=False),
+                        "grid_power": 1.0,
+                        "smart_load1_power": 7.0,
+                        "ac_couple1_power": 0.0,
+                        SMART_PORT_READ_KEY: stamp,
+                    }
+                )
+            }
+
+        entry = _entry(hass)
+        registry = er.async_get(hass)
+        live = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        other = _seed(hass, entry, f"{GB}_ac_couple1_power", "sensor.ac_power")
+        coordinator = _Coordinator(hass, read(1.0))
+        added = await _setup_sensor_platform(hass, entry, coordinator)
+        target = f"{GB}_smart_port1_power"
+
+        for stamp in (1.0, 2.0, 3.0, 4.0):
+            coordinator.data = {"devices": read(stamp)}
+            coordinator.fire(times=2)
+            await hass.async_block_till_done()
+            assert _entity_id(hass, target) is None
+
+        clock[0] += 300.0
+        coordinator.data = {"devices": read(5.0)}
+        coordinator.fire()
+        await hass.async_block_till_done()
+        assert _entity_id(hass, target) == live.entity_id
+        assert hass.states.get(live.entity_id).state == "7.0"
+        kept = registry.async_get(other.entity_id)
+        assert kept is not None and kept.disabled_by is INTEGRATION
+        assert len(added) == len(set(added)), "an entity was added twice"
+
+    # -- A GridBOSS that is one only after setup -----------------------------
+
+    @pytest.mark.parametrize("local", [True, False])
+    async def test_gridboss_absent_at_setup_gets_port_sensors(
+        self, hass: HomeAssistant, local: bool
+    ):
+        """Its port sensors are adopted and added, but not before the GridBOSS
+        device they link to is registered (by the GridBOSS's own sensors)."""
+        entry = _entry(hass)
+        legacy = _seed(hass, entry, f"{GB}_smart_load2_power", "sensor.sl2_power")
+        coordinator = _Coordinator(hass, {}, local=local)
+        added = await _setup_sensor_platform(hass, entry, coordinator)
+
+        # Nothing here becomes a GridBOSS sensor, so its device isn't registered.
+        port_data = {SMART_PORT_VALIDATED_KEY: True, "smart_load2_power": 9.0}
+        coordinator.data = {"devices": {GB: _gridboss(port_data)}}
+        coordinator.fire(times=2)
+        await hass.async_block_till_done()
+        assert _port_sensor_entries(hass, entry) == [], "added before its parent"
+
+        coordinator.data = {
+            "devices": {
+                GB: _gridboss(
+                    {
+                        **_statuses("unused", "smart_load", "unused", "unused"),
+                        "smart_load2_power": 9.0,
+                    }
+                )
+            }
+        }
+        coordinator.fire(times=3)
+        await hass.async_block_till_done()
+        assert _entity_id(hass, f"{GB}_smart_port2_power") == legacy.entity_id
+        assert hass.states.get(legacy.entity_id).state == "9.0"
+        port_sensors = _port_sensor_entries(hass, entry)
+        # Currents are Modbus-only: none for a GridBOSS without a local transport.
+        assert len(port_sensors) == 4 * (9 if local else 7)
+        gridboss = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, GB)})
+        assert gridboss is not None
+        assert {
+            dr.async_get(hass).devices[e.device_id].via_device_id for e in port_sensors
+        } == {gridboss.id}
+        assert len(added) == len(set(added)), "an entity was added twice"
+
+    async def test_local_device_identified_as_gridboss_gets_port_sensors(
+        self, hass: HomeAssistant
+    ):
+        """A LOCAL device configured without the GridBOSS flag is built as an
+        inverter and becomes ``type: gridboss`` on its first real read.  Its
+        device is registered already, so the port sensors come with that read."""
+        entry = _entry(hass)
+        legacy = _seed(hass, entry, f"{GB}_smart_load2_power", "sensor.sl2_power")
+        coordinator = _Coordinator(
+            hass,
+            {GB: {"type": "inverter", "model": "18kPV", "sensors": {}}},
+            local=True,
+        )
+        coordinator.has_http_api = lambda: False  # type: ignore[attr-defined]
+        added = await _setup_sensor_platform(hass, entry, coordinator)
+        assert _port_sensor_entries(hass, entry) == []
+        # Registered by the placeholder inverter's own sensors in a real setup.
+        dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers={(DOMAIN, GB)}
+        )
+
+        coordinator.data = {
+            "devices": {
+                GB: _gridboss(
+                    {
+                        **_statuses("unused", "smart_load", "unused", "unused"),
+                        "smart_load2_power": 9.0,
+                    }
+                )
+            }
+        }
+        coordinator.fire()
+        await hass.async_block_till_done()
+        assert _entity_id(hass, f"{GB}_smart_port2_power") == legacy.entity_id
+        assert len(_port_sensor_entries(hass, entry)) == 4 * len(PORT_SENSOR_SPECS)
+
+        # Later reads (a port changing mode) add nothing again.
+        coordinator.data = {"devices": {GB: _gridboss(_statuses(*["ac_couple"] * 4))}}
+        coordinator.fire(times=2)
+        await hass.async_block_till_done()
+        assert len(added) == len(set(added)), "an entity was added twice"
+
+    async def test_read_landing_before_platform_setup_still_adopts(
+        self, hass: HomeAssistant
+    ):
+        """The first real LOCAL read can land between the entry setup's
+        migration (placeholder data: no GridBOSS) and the sensor platform's
+        setup.  The platform must adopt against the data it builds from, not
+        create the port sensors fresh next to the legacy entries."""
+        from custom_components.eg4_web_monitor.smart_port_devices import (
+            set_deferred_port_sensors,
+        )
+
+        entry = _entry(hass)
+        power = _seed(hass, entry, f"{GB}_smart_load2_power", "sensor.sl2_power")
+        energy = _seed(hass, entry, f"{GB}_smart_load2_total", "sensor.sl2_total")
+        coordinator = _Coordinator(
+            hass, {GB: {"type": "inverter", "model": "18kPV", "sensors": {}}}
+        )
+        set_deferred_port_sensors(  # as in __init__.async_setup_entry
+            coordinator, async_migrate_to_port_sensors(hass, entry, coordinator.data)
+        )
+        coordinator.data = {
+            "devices": {
+                GB: _gridboss(
+                    {
+                        **_statuses("unused", "smart_load", "unused", "unused"),
+                        "grid_power": 1.0,
+                        "smart_load2_power": 9.0,
+                        "smart_load2_total": 5.0,
+                    }
+                )
+            }
+        }
+        await _setup_sensor_platform(hass, entry, coordinator)
+        assert _entity_id(hass, f"{GB}_smart_port2_power") == power.entity_id
+        assert _entity_id(hass, f"{GB}_smart_port2_smart_load_total") == (
+            energy.entity_id
+        )
+
+    # -- Two config entries holding the same GridBOSS ------------------------
+
+    async def test_sync_leaves_another_config_entrys_entities_alone(
+        self, hass: HomeAssistant
+    ):
+        """Unique IDs are looked up registry-wide: the same GridBOSS under a
+        second config entry must not have its entities flipped by this one."""
+        entry = _entry(hass)
+        other_entry = _entry(hass)
+        registry = er.async_get(hass)
+        foreign = _seed(hass, other_entry, f"{GB}_smart_port1_power", "sensor.foreign")
+        marked = _seed(
+            hass,
+            other_entry,
+            f"{GB}_smart_port1_power_l1",
+            "sensor.foreign_l1",
+            disabled_by=INTEGRATION,
+        )
+        registry.async_update_entity_options(
+            marked.entity_id, DOMAIN, {"smart_port_sync": "disabled"}
+        )
+        sync = PortSensorEnablement(hass, entry)
+        for mode in ("unused", "unused", "smart_load", "smart_load"):
+            sync.async_sync({"devices": {GB: _gridboss(_statuses(mode))}})
+            assert registry.async_get(foreign.entity_id).disabled_by is None
+            assert registry.async_get(marked.entity_id).disabled_by is INTEGRATION
+
+    async def test_migration_ignores_a_target_held_by_another_config_entry(
+        self, hass: HomeAssistant
+    ):
+        """Another entry's port sensor did not replace this entry's legacy
+        entry, so that entry is not disabled as superseded."""
+        entry = _entry(hass)
+        other_entry = _entry(hass)
+        _seed(hass, other_entry, f"{GB}_smart_port1_power", "sensor.foreign")
+        legacy = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        async_migrate_to_port_sensors(
+            hass, entry, {"devices": {GB: _gridboss(_statuses("smart_load"))}}
+        )
+        kept = er.async_get(hass).async_get(legacy.entity_id)
+        assert kept.disabled_by is None
+        assert kept.unique_id == legacy.unique_id

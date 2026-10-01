@@ -3782,6 +3782,12 @@ class DeviceProcessingMixin(_MixinBase):
         )
         is_good_read = bool(smart_port_statuses) and all_valid_range
 
+        # Identity of this read, validated or not: consumers count READS, and
+        # the unvalidated ones matter too (adoption fallback, #195/#248).
+        refreshed = getattr(mid_device, "_last_refresh", None)
+        if isinstance(refreshed, datetime):
+            sensors[SMART_PORT_READ_KEY] = refreshed.timestamp()
+
         # Log invalid values from the raw read before any cache substitution
         if not is_good_read:
             raw_invalid: dict[int, int | None] = {
@@ -3821,9 +3827,6 @@ class DeviceProcessingMixin(_MixinBase):
                 # registry removal (codex r2 HIGH), nor partial reads where
                 # some ports were never validated (codex r2 MEDIUM).
                 sensors[SMART_PORT_VALIDATED_KEY] = True
-                refreshed = getattr(mid_device, "_last_refresh", None)
-                if isinstance(refreshed, datetime):
-                    sensors[SMART_PORT_READ_KEY] = refreshed.timestamp()
         elif serial in _last_good_smart_port_statuses:
             # Corrupt read -- fall back to cached statuses
             _LOGGER.debug(

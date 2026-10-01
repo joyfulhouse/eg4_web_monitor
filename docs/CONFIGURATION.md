@@ -367,7 +367,10 @@ upgrading they move to their port devices and become that port's sensors,
 keeping their entity IDs and history. Where a port had power or current
 sensors for both modes, the one for the port's current mode becomes the port
 sensor; until a confirmed status read says which mode that is, that port sensor
-isn't created yet. The other one is left disabled rather than deleted, and is
+isn't created yet. If the port status hasn't read as valid for five minutes
+(and at least three reads), as on some GridBOSS firmware it never does, the
+mode the port's readings are reported under decides instead (Smart Load if
+both are). The other one is left disabled rather than deleted, and is
 not touched again: delete it from its entity settings if you don't need its
 history. To switch to the new ID format, open the port device and choose ⋮ →
 **Recreate entity IDs** (rename the device first if you want the IDs to use
