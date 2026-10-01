@@ -28,6 +28,7 @@ from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 from homeassistant.core import HomeAssistant
 
@@ -252,6 +253,22 @@ def port_sensor_keys(serial: str, has_local: bool) -> set[tuple[str, int, str]]:
         for spec in PORT_SENSOR_SPECS
         if has_local or spec.key_suffix not in LOCAL_ONLY_KEY_SUFFIXES
     }
+
+
+def gridboss_device_registered(
+    hass: HomeAssistant, entry: ConfigEntry, serial: str
+) -> bool:
+    """Whether this entry's GridBOSS device exists for port devices to link to.
+
+    HA 2026.8 scoped device identifiers to a config entry and deprecated the
+    unscoped ``async_get_device`` lookup; older HA has only that one.
+    """
+    registry = dr.async_get(hass)
+    lookup = getattr(registry, "async_get_device_by_identifier", None)
+    if lookup is not None:
+        return lookup((DOMAIN, serial), entry.entry_id) is not None
+    device = registry.async_get_device(identifiers={(DOMAIN, serial)})
+    return device is not None and entry.entry_id in device.config_entries
 
 
 def gridboss_serials(data: dict[str, Any] | None) -> set[str]:

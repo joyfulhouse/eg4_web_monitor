@@ -14,6 +14,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import EntityPlatform
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from tests.ha_registry import get_registry_device
+
 from custom_components.eg4_web_monitor import (
     _async_cleanup_stale_smart_port_entities,
     coordinator_mixins,
@@ -759,6 +761,7 @@ async def _setup_sensor_platform(
 ) -> list[str]:
     """Set the sensor platform up; return the unique IDs added, in order."""
     entry.runtime_data = coordinator  # type: ignore[attr-defined]
+    coordinator.entry = entry  # parent links are looked up per config entry
     platform = _platform(hass, entry, "sensor")
     added: list[str] = []
 
@@ -993,10 +996,11 @@ class TestReviewRegressions:
         port_sensors = _port_sensor_entries(hass, entry)
         # Currents are Modbus-only: none for a GridBOSS without a local transport.
         assert len(port_sensors) == 4 * (9 if local else 7)
-        gridboss = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, GB)})
+        gridboss = get_registry_device(dr.async_get(hass), (DOMAIN, GB), entry.entry_id)
         assert gridboss is not None
         assert {
-            dr.async_get(hass).devices[e.device_id].via_device_id for e in port_sensors
+            dr.async_get(hass).async_get(e.device_id).via_device_id
+            for e in port_sensors
         } == {gridboss.id}
         assert len(added) == len(set(added)), "an entity was added twice"
 

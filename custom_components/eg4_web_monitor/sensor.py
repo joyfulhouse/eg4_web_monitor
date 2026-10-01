@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, cast
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -27,7 +26,6 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
-    DOMAIN,
     HYBRID_EXCLUDED_SENSORS,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
@@ -60,6 +58,7 @@ from .smart_port_devices import (
     PortSensorSpec,
     async_migrate_to_port_sensors,
     deferred_port_sensors,
+    gridboss_device_registered,
     gridboss_serials,
     port_sensor_keys,
     port_status_signature,
@@ -623,11 +622,10 @@ async def async_setup_entry(
     def _async_register_port_sensors() -> None:
         nonlocal last_attempt
         data = coordinator.data
-        device_registry = dr.async_get(hass)
         wanted = {
             key
             for serial in gridboss_serials(data)
-            if device_registry.async_get_device(identifiers={(DOMAIN, serial)})
+            if gridboss_device_registered(hass, entry, serial)
             for key in port_sensor_keys(
                 serial, coordinator.has_configured_local_transport(serial)
             )
