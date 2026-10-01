@@ -319,6 +319,28 @@ async def test_registry_sync_covers_option_entities(hass: HomeAssistant):
     assert registry.async_get(ac_time.entity_id).disabled_by is None
 
 
+async def test_registry_sync_leaves_another_entrys_option_entities(
+    hass: HomeAssistant,
+):
+    """The same GridBOSS under a second config entry keeps its own state."""
+    entry = MockConfigEntry(domain=DOMAIN)
+    entry.add_to_hass(hass)
+    other_entry = MockConfigEntry(domain=DOMAIN)
+    other_entry.add_to_hass(hass)
+    registry = er.async_get(hass)
+    foreign = registry.async_get_or_create(
+        "switch",
+        DOMAIN,
+        f"{GB}_smart_port1_ac_couple_enable",
+        config_entry=other_entry,
+    )
+    sync = PortSensorEnablement(hass, entry)
+    sensors = {"smart_port1_status": "smart_load", SMART_PORT_VALIDATED_KEY: True}
+    for _ in range(2):
+        sync.async_sync({"devices": {GB: {"type": "gridboss", "sensors": sensors}}})
+    assert registry.async_get(foreign.entity_id).disabled_by is None
+
+
 # ── Numbers ──────────────────────────────────────────────────────────
 
 
