@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A local inverter or GridBOSS whose link is down no longer slows down every refresh** ([#616](https://github.com/joyfulhouse/eg4_web_monitor/issues/616)): the quick 2-second link check added for [#587](https://github.com/joyfulhouse/eg4_web_monitor/issues/587) now runs for Modbus TCP, serial RS485 and WiFi-dongle devices. Before this fix it was silently skipped, so every refresh while the link was down paid the full read timeout-and-retry chain. The check waits its turn behind other traffic on the same gateway, and a check that cannot get onto the bus counts as "link down" for that refresh.
+
 - Home Assistant shutdown now terminally stops coordinator refreshes, preventing an in-flight debounced refresh from leaving a timer behind after it is cancelled.
 
 - **Renaming an entity ID no longer makes battery, battery-bank or parallel-group entities disappear on Home Assistant 2026.9+**: those devices now link to their parent with `via_device_id` on HA 2026.8 and newer, instead of the `via_device` form HA 2026.9 rejects. Previously, editing such an entity's ID in the UI left it without a state until the integration was reloaded. Older HA versions keep the previous behavior.

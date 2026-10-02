@@ -13,7 +13,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 from pylxpweb.devices.inverters.base import BaseInverter
-from pylxpweb.transports import TerminalInverterTransport
+from pylxpweb.transports import (
+    DongleTransport,
+    ModbusSerialTransport,
+    ModbusTransport,
+    TerminalInverterTransport,
+)
 from pylxpweb.transports.capabilities import TransportCapabilities
 from pylxpweb.transports.config import TransportConfig, TransportType
 
@@ -154,6 +159,16 @@ class _FakeRawTransport:
 
     async def read_midbox_runtime(self) -> Any:
         return await self._probe.run("read_midbox_runtime")
+
+
+class _LinkProbeFakeRawTransport(_FakeRawTransport):
+    """Raw transport with the pinned wheel's bool-returning ``check_link``."""
+
+    link_up = True
+
+    async def check_link(self) -> bool:
+        await self._probe.run("check_link")
+        return self.link_up
 
 
 class _TerminalFakeRawTransport(_FakeRawTransport):
@@ -397,6 +412,92 @@ async def test_pre_wire_cancellation_removes_waiting_operation() -> None:
     await active
 
     assert [name for name, _ in probe.operations] == ["read_runtime"]
+
+
+def _link_probe_registry(
+    probe: _WireProbe, *, link_up: bool = True
+) -> EndpointBusRegistry:
+    def factory(config: TransportConfig) -> _LinkProbeFakeRawTransport:
+        raw = _LinkProbeFakeRawTransport(config, probe)
+        raw.link_up = link_up
+        return raw
+
+    return EndpointBusRegistry(raw_transport_factory=factory)
+
+
+@pytest.mark.asyncio
+async def test_check_link_forwards_through_gate_serialized() -> None:
+    """The cheap #587 link probe reaches the raw transport behind the gate."""
+    probe = _WireProbe()
+    registry = _link_probe_registry(probe)
+    holder = registry.create_capability(_config("SYNTH00001"))
+    prober = registry.create_capability(_config("SYNTH00002"))
+    probe.release.clear()
+    active = asyncio.create_task(holder.read_runtime())
+    await probe.started.wait()
+    queued = asyncio.create_task(prober.check_link())
+    await asyncio.sleep(0)
+
+    assert [name for name, _ in probe.operations] == ["read_runtime"]
+    probe.release.set()
+    await active
+    assert await queued is True
+    assert [name for name, _ in probe.operations] == ["read_runtime", "check_link"]
+    assert probe.max_in_flight == 1
+
+
+@pytest.mark.asyncio
+async def test_check_link_preserves_raw_down_result() -> None:
+    probe = _WireProbe()
+    capability = _link_probe_registry(probe, link_up=False).create_capability(
+        _config("SYNTH00001")
+    )
+
+    assert await capability.check_link() is False
+    assert [name for name, _ in probe.operations] == ["check_link"]
+
+
+@pytest.mark.asyncio
+async def test_check_link_reports_down_when_gate_refuses_admission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Device probes await check_link unguarded, so gate refusal is False."""
+    monkeypatch.setattr(endpoint_bus, "ENDPOINT_ACQUIRE_TIMEOUT_SECONDS", 0.01)
+    probe = _WireProbe()
+    registry = _link_probe_registry(probe)
+    holder = registry.create_capability(_config("SYNTH00001"))
+    prober = registry.create_capability(_config("SYNTH00002"))
+    probe.release.clear()
+    active = asyncio.create_task(holder.read_runtime())
+    await probe.started.wait()
+
+    assert await prober.check_link() is False
+
+    probe.release.set()
+    await active
+    registry.begin_shutdown_capabilities([prober])
+    assert await prober.check_link() is False
+    assert [name for name, _ in probe.operations] == ["read_runtime"]
+
+
+@pytest.mark.asyncio
+async def test_check_link_without_raw_probe_keeps_full_read_fallback() -> None:
+    """A raw transport lacking check_link must not turn into AttributeError."""
+    probe = _WireProbe()
+    capability = _registry({"gateway.example.invalid": probe}).create_capability(
+        _config("SYNTH00001")
+    )
+
+    assert await capability.check_link() is True
+    assert probe.operations == []
+
+
+@pytest.mark.parametrize(
+    "raw_class", [ModbusTransport, ModbusSerialTransport, DongleTransport]
+)
+def test_every_factory_raw_transport_offers_check_link(raw_class: type) -> None:
+    """The pinned factory's raw transports all implement the probe."""
+    assert callable(getattr(raw_class, "check_link", None))
 
 
 @pytest.mark.asyncio

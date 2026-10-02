@@ -82,7 +82,12 @@ class EndpointBusStatus:
 
 
 class _RawLocalTransport(Protocol):
-    """Complete raw surface consumed only inside this ownership module."""
+    """Required raw surface consumed only inside this ownership module.
+
+    Optional operations (currently ``check_link``) are deliberately not
+    members: they are probed at runtime via ``_EndpointBusOwner.supports()``
+    and forwarded through ``invoke()`` only when the raw transport has them.
+    """
 
     serial: str
     is_connected: bool
@@ -706,6 +711,10 @@ class _EndpointBusOwner:
         """Set an explicitly admitted raw configuration property."""
         setattr(self._open_record(token).raw, name, value)
 
+    def supports(self, token: int, method: str) -> bool:
+        """Return whether the raw transport offers an optional operation."""
+        return callable(getattr(self._open_record(token).raw, method, None))
+
     def _open_record(self, token: int) -> _CapabilityRecord:
         record = self._records.get(token)
         if record is None or record.closing:
@@ -1070,6 +1079,29 @@ class EndpointBusCapability:
 
     async def read_midbox_runtime(self) -> Any:
         return await self._owner.invoke(self._token, "read_midbox_runtime")
+
+    async def check_link(self) -> bool:
+        """Forward pylxpweb's cheap link-down probe (#587) through the gate.
+
+        Devices call ``check_link`` without a try and treat ``False`` as a
+        failed read, so this keeps the raw transports' contract: link
+        unavailability is ``False``, never an exception.  An endpoint the gate
+        cannot admit or has closed is unavailable in the same sense as the
+        dongle's own "queued behind a sibling for the whole budget" result.
+        A raw transport without ``check_link`` answers ``True`` so the device
+        proceeds to the full runtime read, exactly as when the probe is absent.
+        """
+        try:
+            if not self._owner.supports(self._token, "check_link"):
+                return True
+            return bool(await self._owner.invoke(self._token, "check_link"))
+        except (
+            EndpointAdmissionError,
+            EndpointCapabilityClosedError,
+            EndpointOwnerClosingError,
+        ) as err:
+            _LOGGER.debug("[%s] Link probe not admitted: %s", self._serial, err)
+            return False
 
 
 class EndpointBusRegistry:
