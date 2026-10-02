@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable, Collection
+from collections.abc import Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -59,8 +59,9 @@ _NEUTRAL_NAMES = {
 }
 _ENERGY_NAMES = {"today": "Energy Today", "total": "Energy Total"}
 
-# Per-port currents come from Modbus registers only; the cloud never has them.
-LOCAL_ONLY_KEY_SUFFIXES: frozenset[str] = frozenset({"current_l1", "current_l2"})
+# Per-port currents: Modbus registers 18-25 locally, and the portal's
+# smartLoad{N}L{1,2}RmsCurr fields in the cloud (pylxpweb 0.9.34+, #243).
+CURRENT_KEY_SUFFIXES: frozenset[str] = frozenset({"current_l1", "current_l2"})
 
 PORT_MODE_SELECT_NAME = "Mode"
 
@@ -224,6 +225,12 @@ _USER_ENABLED = "user_enabled"  # the user re-enabled it while inactive
 # Per-entity registry option marking a per-mode entry superseded by another
 # mode's entry during adoption: set once, then the entry is left alone.
 _SUPERSEDED_OPTION = "smart_port_superseded"
+# Per-entity registry option on a port sensor adopted by the unvalidated
+# fallback (#195/#248): the mode whose legacy entry it was.  That choice is
+# a guess -- on the skip path both modes' keys carry the same Smart Load
+# registers -- so the first validated mode settles it (see
+# _settle_fallback_adoption).
+_FALLBACK_OPTION = "smart_port_fallback_mode"
 
 # Port sensors whose adoption waits for a validated read (see
 # async_migrate_to_port_sensors), as (serial, port, id_suffix).
@@ -245,13 +252,28 @@ def deferred_port_sensors(coordinator: Any) -> set[tuple[str, int, str]]:
     return deferred
 
 
-def port_sensor_keys(serial: str, has_local: bool) -> set[tuple[str, int, str]]:
+def reports_port_currents(sensors: dict[str, Any], has_local: bool) -> bool:
+    """Whether a GridBOSS gets per-port current sensors.
+
+    A local transport always reads them.  Without one they come from the
+    cloud, which carries them too (#243): created once the data has a
+    per-port current key, so a portal payload without them doesn't leave
+    sensors that never report.
+    """
+    return has_local or any(
+        key in sensors
+        for key in GRIDBOSS_SMART_PORT_KEY_TO_PORT
+        if key.endswith(tuple(f"_{suffix}" for suffix in CURRENT_KEY_SUFFIXES))
+    )
+
+
+def port_sensor_keys(serial: str, currents: bool) -> set[tuple[str, int, str]]:
     """Return the fixed port sensor set of one GridBOSS, as deferred keys."""
     return {
         (serial, port, spec.id_suffix)
         for port in range(1, 5)
         for spec in PORT_SENSOR_SPECS
-        if has_local or spec.key_suffix not in LOCAL_ONLY_KEY_SUFFIXES
+        if currents or spec.key_suffix not in CURRENT_KEY_SUFFIXES
     }
 
 
@@ -271,9 +293,9 @@ def gridboss_device_registered(
     return device is not None and entry.entry_id in device.config_entries
 
 
-def gridboss_serials(data: dict[str, Any] | None) -> set[str]:
-    """Return the serials the coordinator data reports as a GridBOSS."""
-    return set(_gridboss_sensors(data))
+def gridboss_sensors(data: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """Return the sensors of each device the coordinator data reports as a GridBOSS."""
+    return _gridboss_sensors(data)
 
 
 # Firmware with invalid status registers (#195/#248) never produces a validated
@@ -351,6 +373,8 @@ class PortSensorEnablement:
     - If the user re-enables an entity it disabled, that choice is kept until
       the port next serves the entity's mode; after that the entity is
       managed again.
+    - Settles power/current sensors adopted by the unvalidated fallback once
+      validated reads agree on an active mode (_settle_fallback_adoption).
 
     Re-enabling makes HA reload the entry ~30 s later, which is how HA adds a
     newly enabled entity.
@@ -396,6 +420,10 @@ class PortSensorEnablement:
                 )
                 if mode is None or (count < self.REQUIRED_READS and not confirmed):
                     continue
+                if mode in ACTIVE_PORT_MODES:
+                    _settle_fallback_adoption(
+                        self._hass, registry, self._entry.entry_id, serial, port, mode
+                    )
                 for spec in PORT_SENSOR_SPECS:
                     entity_id = registry.async_get_entity_id(
                         "sensor",
@@ -409,6 +437,106 @@ class PortSensorEnablement:
                             spec_is_active(spec, mode),
                             self._entry.entry_id,
                         )
+
+
+def _settle_fallback_adoption(
+    hass: HomeAssistant,
+    registry: er.EntityRegistry,
+    config_entry_id: str,
+    serial: str,
+    port: int,
+    mode: str,
+) -> None:
+    """Settle a port sensor adopted by the unvalidated fallback.
+
+    Confirmed by a validated read of the same mode, it just loses its marker.
+    Contradicted, the two legacy entries swap places: the adopted one gets its
+    old unique ID back (or, if a downgrade re-created that, a free one) and is
+    superseded, and the validated mode's entry (superseded at adoption, so its
+    history is intact) takes the port sensor's unique ID and is enabled; the
+    entry is reloaded to add it.  A validated mode's entry the user disabled
+    or deleted is not swapped in.  The marker is cleared only once settled.
+    """
+    for spec in PORT_SENSOR_SPECS:
+        if spec.mode is not None:
+            continue
+        target = port_sensor_unique_id(serial, port, spec.id_suffix)
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, target)
+        adopted = registry.async_get(entity_id) if entity_id else None
+        if adopted is None or adopted.config_entry_id != config_entry_id:
+            continue
+        adopted_mode = dict(adopted.options.get(DOMAIN) or {}).get(_FALLBACK_OPTION)
+        if adopted_mode is None:
+            continue
+        rightful_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{serial}_{mode}{port}_{spec.key_suffix}"
+        )
+        rightful = registry.async_get(rightful_id) if rightful_id else None
+        if adopted_mode != mode and (
+            rightful is not None
+            and rightful.config_entry_id == config_entry_id
+            and rightful.disabled_by in (None, er.RegistryEntryDisabler.INTEGRATION)
+        ):
+            _swap_in(hass, registry, adopted, rightful, adopted_mode, port, spec)
+        # Settled: clear the marker from the CURRENT options (a swap has just
+        # marked the entry superseded).
+        settled = registry.async_get(adopted.entity_id)
+        if settled is not None:
+            options = {
+                key: val
+                for key, val in dict(settled.options.get(DOMAIN) or {}).items()
+                if key != _FALLBACK_OPTION
+            }
+            registry.async_update_entity_options(
+                settled.entity_id, DOMAIN, options or None
+            )
+
+
+def _swap_in(
+    hass: HomeAssistant,
+    registry: er.EntityRegistry,
+    adopted: er.RegistryEntry,
+    rightful: er.RegistryEntry,
+    adopted_mode: str,
+    port: int,
+    spec: PortSensorSpec,
+) -> None:
+    """Give the port sensor's unique ID back to the validated mode's entry."""
+    target = adopted.unique_id
+    serial = target[: -len(f"_smart_port{port}_{spec.id_suffix}")]
+    _LOGGER.warning(
+        "Smart port %d of %s validated as the other mode: replacing %s (adopted "
+        "while its status was unreadable) with %s",
+        port,
+        serial,
+        adopted.entity_id,
+        rightful.entity_id,
+    )
+    legacy = f"{serial}_{adopted_mode}{port}_{spec.key_suffix}"
+    if registry.async_get_entity_id("sensor", DOMAIN, legacy) is not None:
+        # A downgrade re-created the legacy entry: park this one on a free ID
+        # (superseded entries are never created again, so any free one does).
+        legacy = f"{legacy}_superseded_{adopted.id}"
+    registry.async_update_entity(adopted.entity_id, new_unique_id=legacy)
+    superseded = registry.async_get(adopted.entity_id)
+    if superseded is not None:
+        _supersede(registry, superseded)
+    rightful_options = {
+        key: val
+        for key, val in dict(rightful.options.get(DOMAIN) or {}).items()
+        if key != _SUPERSEDED_OPTION
+    }
+    registry.async_update_entity_options(
+        rightful.entity_id, DOMAIN, rightful_options or None
+    )
+    was_enabled = rightful.disabled_by is None
+    registry.async_update_entity(
+        rightful.entity_id, new_unique_id=target, disabled_by=None
+    )
+    if was_enabled and rightful.config_entry_id is not None:
+        # Enabling it would have made HA reload the entry to add it; an entry
+        # the user had already re-enabled changes nothing HA reacts to.
+        hass.config_entries.async_schedule_reload(rightful.config_entry_id)
 
 
 def _apply(
@@ -459,7 +587,6 @@ def async_migrate_to_port_sensors(
     hass: HomeAssistant,
     entry: ConfigEntry,
     data: dict[str, Any] | None,
-    has_local_transport: Callable[[str], bool] | None = None,
     resolve_unvalidated: Collection[str] = (),
 ) -> set[tuple[str, int, str]]:
     """Adopt existing per-mode sensor entries as the port sensors.
@@ -476,22 +603,26 @@ def async_migrate_to_port_sensors(
     sensor only once a later call adopts it.  For a serial in
     ``resolve_unvalidated`` (statuses that never validate, #195/#248; see
     serials_resolving_unvalidated) the unvalidated data decides instead, by
-    resolve_port_mode's key-presence rule.  Nothing is deleted: the losing
-    entry keeps its old unique ID (never created again) and is disabled and
-    marked once, then left alone.  Current entries are not adopted for a
-    GridBOSS without a local transport, which never creates current sensors.
+    resolve_port_mode's key-presence rule, and the adoption is marked so the
+    first validated mode can reverse it (_settle_fallback_adoption): on the
+    skip path both modes' keys carry the same registers, so that rule is a
+    guess.  Nothing is deleted: the losing entry keeps its old unique ID
+    (never created again) and is disabled and marked once, then left alone.
     Idempotent: the sensor platform reruns it against the data it creates
     entities from, and for port sensors it adds later.
 
     Returns:
-        The deferred port sensors, as (serial, port, id_suffix).  Only a
-        GridBOSS present in ``data`` is looked at: a key missing from the
-        result says nothing about a serial that is absent.
+        The port sensors not to create yet, as (serial, port, id_suffix):
+        deferred ones, and ones whose unique ID another config entry holds
+        (creating them would move that entry's registry entry to this one).
+        Only a GridBOSS present in ``data`` is looked at: a key missing from
+        the result says nothing about a serial that is absent.
     """
     registry = er.async_get(hass)
     gridboss = _gridboss_sensors(data)
     candidates: dict[
-        tuple[str, int, str], tuple[str | None, list[tuple[str, er.RegistryEntry]]]
+        tuple[str, int, str],
+        tuple[str | None, bool, list[tuple[str, er.RegistryEntry]]],
     ] = {}
     for registry_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if registry_entry.domain != "sensor":
@@ -502,25 +633,22 @@ def async_migrate_to_port_sensors(
         if split is None or split[0] not in gridboss:
             continue
         serial, mode, port, suffix = split
-        if (
-            suffix in LOCAL_ONLY_KEY_SUFFIXES
-            and has_local_transport is not None
-            and not has_local_transport(serial)
-        ):
-            continue
         id_suffix = f"{mode}_{suffix}" if suffix in _ENERGY_NAMES else suffix
         sensors = gridboss[serial]
+        fallback = (
+            not sensors.get(SMART_PORT_VALIDATED_KEY) and serial in resolve_unvalidated
+        )
         current = (
             resolve_port_mode(sensors, port)
-            if sensors.get(SMART_PORT_VALIDATED_KEY) or serial in resolve_unvalidated
+            if sensors.get(SMART_PORT_VALIDATED_KEY) or fallback
             else None
         )
-        candidates.setdefault((serial, port, id_suffix), (current, []))[1].append(
-            (mode, registry_entry)
-        )
+        candidates.setdefault((serial, port, id_suffix), (current, fallback, []))[
+            2
+        ].append((mode, registry_entry))
 
     deferred: set[tuple[str, int, str]] = set()
-    for key, (current, entries) in candidates.items():
+    for key, (current, fallback, entries) in candidates.items():
         serial, port, id_suffix = key
         target = port_sensor_unique_id(serial, port, id_suffix)
         winner: er.RegistryEntry | None = None
@@ -528,14 +656,18 @@ def async_migrate_to_port_sensors(
         owner = registry.async_get(existing) if existing else None
         if owner is not None and owner.config_entry_id != entry.entry_id:
             # The same GridBOSS under another config entry holds the target:
-            # these entries were not replaced by anything of this entry's.
+            # these entries were not replaced by anything of this entry's, and
+            # the sensor must not be created here either.
+            deferred.add(key)
             continue
         if owner is None:
+            winner_mode: str | None = None
             if len(entries) == 1:
                 winner = entries[0][1]
             else:
-                winner = next(
-                    (entity for mode, entity in entries if mode == current), None
+                winner_mode, winner = next(
+                    ((mode, entity) for mode, entity in entries if mode == current),
+                    (None, None),
                 )
                 if winner is None:
                     deferred.add(key)
@@ -544,9 +676,27 @@ def async_migrate_to_port_sensors(
                 "Adopting %s as smart port sensor %s", winner.entity_id, target
             )
             registry.async_update_entity(winner.entity_id, new_unique_id=target)
+            if fallback and winner_mode is not None:
+                options = dict(winner.options.get(DOMAIN) or {})
+                options[_FALLBACK_OPTION] = winner_mode
+                registry.async_update_entity_options(winner.entity_id, DOMAIN, options)
         for _mode, superseded in entries:
             if superseded is not winner:
                 _supersede(registry, superseded)
+    # Any port sensor whose unique ID another config entry holds (with or
+    # without a legacy entry here): creating it would move that entry's
+    # registry entry to this one.
+    for serial in gridboss:
+        for port in range(1, 5):
+            for spec in PORT_SENSOR_SPECS:
+                existing = registry.async_get_entity_id(
+                    "sensor",
+                    DOMAIN,
+                    port_sensor_unique_id(serial, port, spec.id_suffix),
+                )
+                owner = registry.async_get(existing) if existing else None
+                if owner is not None and owner.config_entry_id != entry.entry_id:
+                    deferred.add((serial, port, spec.id_suffix))
     return deferred
 
 

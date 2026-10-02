@@ -334,9 +334,12 @@ read:
 |---|---|---|---|
 | Mode (select) | enabled | enabled | enabled |
 | Power, Power L1, Power L2 | disabled | Smart Load values | AC Couple values |
-| Current L1, Current L2 (local connection only) | disabled | Smart Load values | AC Couple values |
+| Current L1, Current L2 ¹ | disabled | Smart Load values | AC Couple values |
 | Smart Load Energy Today / Total | disabled | enabled | disabled |
 | AC Couple Energy Today / Total | disabled | disabled | enabled |
+
+¹ With a local connection, or on Cloud once the portal reports per-port
+current for the GridBOSS.
 
 - Power and current names don't include the mode, so new entities get IDs like
   `sensor.smart_port_1_<serial>_power_l1` whatever the port is set to.
@@ -370,8 +373,10 @@ sensor; until a confirmed status read says which mode that is, that port sensor
 isn't created yet. If the port status hasn't read as valid for five minutes
 (and at least three reads), as on some GridBOSS firmware it never does, the
 mode the port's readings are reported under decides instead (Smart Load if
-both are). The other one is left disabled rather than deleted, and is
-not touched again: delete it from its entity settings if you don't need its
+both are). That choice is provisional: when a confirmed status read later shows
+the other mode, the two swap back, and the confirmed mode's sensor (with its
+history) becomes the port sensor. The other one is left disabled rather than
+deleted, and is not touched again: delete it from its entity settings if you don't need its
 history. To switch to the new ID format, open the port device and choose ⋮ →
 **Recreate entity IDs** (rename the device first if you want the IDs to use
 your name). Downgrading afterwards re-creates the old per-mode sensors under

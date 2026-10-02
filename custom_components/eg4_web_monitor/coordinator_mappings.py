@@ -1732,7 +1732,7 @@ def _build_gridboss_sensor_mapping(mid_device: "MIDDevice") -> dict[str, Any]:
         "smart_load3_power_l2": mid_device.smart_load3_l2_power,
         "smart_load4_power_l1": mid_device.smart_load4_l1_power,
         "smart_load4_power_l2": mid_device.smart_load4_l2_power,
-        # Smart port current (L1/L2) — Modbus only, regs 18-25
+        # Smart port current (L1/L2) — Modbus regs 18-25
         # Mapped as smart_load by default; _filter_unused_smart_port_sensors()
         # will remap to ac_couple keys for ports in AC Couple mode.
         "smart_load1_current_l1": mid_device.smart_port1_l1_current,

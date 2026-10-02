@@ -3647,7 +3647,7 @@ class DeviceProcessingMixin(_MixinBase):
             "smart_port2_status": "smart_port2_status",
             "smart_port3_status": "smart_port3_status",
             "smart_port4_status": "smart_port4_status",
-            # Smart Port Current sensors (Modbus regs 18-25, local-only)
+            # Smart Port Current sensors (Modbus regs 18-25; cloud smartLoad{N}L{1,2}RmsCurr)
             # Mapped as smart_load by default; filter remaps to ac_couple
             "smart_port1_l1_current": "smart_load1_current_l1",
             "smart_port1_l2_current": "smart_load1_current_l2",

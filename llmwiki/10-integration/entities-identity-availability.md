@@ -351,8 +351,12 @@ rewrites those registry entries to these unique IDs (`smart_port_devices.py` →
 (one per mode). For a power/current sensor that had entries for both modes, only one can be
 adopted, decided by a validated status read (the sensor is not created until then) or, where
 statuses never validate (#195/#248), by `resolve_port_mode`'s key-presence rule after
-`UNVALIDATED_READS_BEFORE_FALLBACK` reads and `UNVALIDATED_SECONDS_BEFORE_FALLBACK`; the other keeps its old unique ID and is disabled and
-marked, not deleted.
+`UNVALIDATED_READS_BEFORE_FALLBACK` reads and `UNVALIDATED_SECONDS_BEFORE_FALLBACK`. That
+fallback is provisional (`_FALLBACK_OPTION`): on the skip path both modes' keys carry the same
+Smart Load registers, so the first validated active mode that disagrees swaps the two entries back
+(`_settle_fallback_adoption`). The other keeps its old unique ID and is disabled and marked, not
+deleted. `current_l1`/`current_l2` exist with a local transport, or on Cloud once the data has a
+per-port current key (`reports_port_currents`; portal `smartLoad{N}L{1,2}RmsCurr`, #243).
 
 > ⚠️ **Case divergence.** `_stable_control_unique_id` lowercases the serial; switch and select
 > unique IDs do not. Lettered serials therefore differ in case **between platforms**. This is why

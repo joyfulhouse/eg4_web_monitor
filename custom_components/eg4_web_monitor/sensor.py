@@ -51,7 +51,7 @@ from .coordinator_mappings import (
 )
 from .smart_port_devices import (
     ACTIVE_PORT_MODES,
-    LOCAL_ONLY_KEY_SUFFIXES,
+    CURRENT_KEY_SUFFIXES,
     PORT_SENSOR_SPECS,
     PORT_SENSOR_SPECS_BY_ID,
     PortSensorEnablement,
@@ -59,10 +59,11 @@ from .smart_port_devices import (
     async_migrate_to_port_sensors,
     deferred_port_sensors,
     gridboss_device_registered,
-    gridboss_serials,
+    gridboss_sensors,
     port_sensor_keys,
     port_status_signature,
     port_sensor_unique_id,
+    reports_port_currents,
     resolve_port_mode,
     serials_resolving_unvalidated,
     set_deferred_port_sensors,
@@ -275,9 +276,7 @@ async def async_setup_entry(
     # GridBOSS that migration never looked at.
     set_deferred_port_sensors(
         coordinator,
-        async_migrate_to_port_sensors(
-            hass, entry, coordinator.data, coordinator.has_configured_local_transport
-        ),
+        async_migrate_to_port_sensors(hass, entry, coordinator.data),
     )
 
     # Create sensor entities for each device
@@ -624,10 +623,13 @@ async def async_setup_entry(
         data = coordinator.data
         wanted = {
             key
-            for serial in gridboss_serials(data)
+            for serial, sensors in gridboss_sensors(data).items()
             if gridboss_device_registered(hass, entry, serial)
             for key in port_sensor_keys(
-                serial, coordinator.has_configured_local_transport(serial)
+                serial,
+                reports_port_currents(
+                    sensors, coordinator.has_configured_local_transport(serial)
+                ),
             )
         } - registered_port_sensors
         if not wanted:
@@ -637,13 +639,7 @@ async def async_setup_entry(
         if attempt == last_attempt:
             return
         last_attempt = attempt
-        deferred = async_migrate_to_port_sensors(
-            hass,
-            entry,
-            data,
-            coordinator.has_configured_local_transport,
-            resolving,
-        )
+        deferred = async_migrate_to_port_sensors(hass, entry, data, resolving)
         ready = sorted(wanted - deferred)
         if not ready:
             return
@@ -811,13 +807,16 @@ def _create_smart_port_sensors(
     Sensors whose adoption waits for a validated read (a contested power or
     current sensor, see async_migrate_to_port_sensors) are created later.
     """
-    has_local = coordinator.has_configured_local_transport(serial)
+    currents = reports_port_currents(
+        device_data.get("sensors", {}),
+        coordinator.has_configured_local_transport(serial),
+    )
     deferred = deferred_port_sensors(coordinator)
     return [
         EG4SmartPortSensor(coordinator, serial, port, spec)
         for port in range(1, 5)
         for spec in PORT_SENSOR_SPECS
-        if (has_local or spec.key_suffix not in LOCAL_ONLY_KEY_SUFFIXES)
+        if (currents or spec.key_suffix not in CURRENT_KEY_SUFFIXES)
         and (serial, port, spec.id_suffix) not in deferred
     ]
 

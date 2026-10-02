@@ -44,6 +44,7 @@ from custom_components.eg4_web_monitor.smart_port_devices import (
     PortSensorEnablement,
     async_migrate_to_port_sensors,
     resolve_port_mode,
+    set_deferred_port_sensors,
 )
 
 GB = "9876543210"
@@ -245,10 +246,15 @@ class TestPortSensor:
         sensors["smart_port1_status"] = "ac_couple"
         assert sensor.icon != smart_load_icon
 
-    def test_currents_only_with_local_transport(self):
+    def test_currents_with_local_transport_or_cloud_current_data(self):
+        """The cloud carries per-port current too (#243, smartLoad{N}L{1,2}
+        RmsCurr), so a cloud GridBOSS gets current sensors once its data has
+        them; a cloud payload without them gets none that never report."""
         cloud = _Coordinator(None, {GB: _gridboss({})})
         local = _Coordinator(None, {GB: _gridboss({})}, local=True)
+        with_current = {"sensors": {"smart_load3_current_l1": 2.4}}
         assert len(_create_smart_port_sensors(cloud, GB, {})) == 4 * 7  # type: ignore[arg-type]
+        assert len(_create_smart_port_sensors(cloud, GB, with_current)) == 4 * 9  # type: ignore[arg-type]
         assert len(_create_smart_port_sensors(local, GB, {})) == 4 * 9  # type: ignore[arg-type]
 
     def test_per_mode_keys_excluded_from_gridboss(self):
@@ -525,19 +531,16 @@ class TestMigration:
         async_migrate_to_port_sensors(hass, entry, data)  # next setup
         assert registry.async_get(straggler.entity_id).disabled_by is None
 
-    async def test_currents_not_adopted_without_local_transport(
-        self, hass: HomeAssistant
-    ):
+    async def test_currents_adopted_whatever_the_transport(self, hass: HomeAssistant):
+        """A cloud GridBOSS's current entities (#243) are adopted like any
+        other, not orphaned on the GridBOSS device."""
         entry = _entry(hass)
         current = _seed(hass, entry, f"{GB}_smart_load1_current_l1", "sensor.cur")
         async_migrate_to_port_sensors(
-            hass,
-            entry,
-            {"devices": {GB: _gridboss(_statuses("smart_load"))}},
-            lambda serial: False,
+            hass, entry, {"devices": {GB: _gridboss(_statuses("smart_load"))}}
         )
         assert er.async_get(hass).async_get(current.entity_id).unique_id == (
-            current.unique_id
+            f"{GB}_smart_port1_current_l1"
         )
 
     async def test_existing_target_keeps_stragglers(self, hass: HomeAssistant):
@@ -994,7 +997,7 @@ class TestReviewRegressions:
         assert _entity_id(hass, f"{GB}_smart_port2_power") == legacy.entity_id
         assert hass.states.get(legacy.entity_id).state == "9.0"
         port_sensors = _port_sensor_entries(hass, entry)
-        # Currents are Modbus-only: none for a GridBOSS without a local transport.
+        # No current in this data: currents only with a local transport.
         assert len(port_sensors) == 4 * (9 if local else 7)
         gridboss = get_registry_device(dr.async_get(hass), (DOMAIN, GB), entry.entry_id)
         assert gridboss is not None
@@ -1126,3 +1129,237 @@ class TestReviewRegressions:
         kept = er.async_get(hass).async_get(legacy.entity_id)
         assert kept.disabled_by is None
         assert kept.unique_id == legacy.unique_id
+
+
+class TestFollowUpRegressions:
+    """Follow-ups to PR #632's review: findings #5-#7."""
+
+    # -- #5: the cloud carries per-port current -----------------------------
+
+    async def test_cloud_gridboss_gets_and_adopts_current_sensors(
+        self, hass: HomeAssistant
+    ):
+        """HTTP-only data with per-port current (#243): the legacy current
+        entity becomes the port sensor and keeps reporting."""
+        entry = _entry(hass)
+        legacy = _seed(hass, entry, f"{GB}_smart_load1_current_l1", "sensor.sl1_cur")
+        data = {
+            GB: _gridboss(
+                {
+                    **_statuses("smart_load", "unused", "unused", "unused"),
+                    "smart_load1_power": 500.0,
+                    "smart_load1_current_l1": 2.4,
+                }
+            )
+        }
+        coordinator = _Coordinator(hass, data)  # no local transport
+        async_migrate_to_port_sensors(hass, entry, coordinator.data)
+        added = await _setup_sensor_platform(hass, entry, coordinator)
+        assert _entity_id(hass, f"{GB}_smart_port1_current_l1") == legacy.entity_id
+        assert f"{GB}_smart_port1_current_l1" in added
+        assert hass.states.get(legacy.entity_id).state == "2.4"
+
+    # -- #6: the unvalidated fallback is provisional -----------------------
+
+    async def _fallback_adopt(
+        self, hass: HomeAssistant, entry: MockConfigEntry
+    ) -> tuple[er.RegistryEntry, er.RegistryEntry]:
+        """Both legacy power entries; adopt by the #195/#248 fallback, which
+        picks Smart Load (both families present on the skip path)."""
+        sl = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        ac = _seed(hass, entry, f"{GB}_ac_couple1_power", "sensor.ac_power")
+        skip_path = {
+            **_statuses(*["unused"] * 4, validated=False),
+            "smart_load1_power": 700.0,
+            "ac_couple1_power": 700.0,
+        }
+        async_migrate_to_port_sensors(
+            hass, entry, {"devices": {GB: _gridboss(skip_path)}}, {GB}
+        )
+        registry = er.async_get(hass)
+        assert registry.async_get(sl.entity_id).unique_id == f"{GB}_smart_port1_power"
+        assert registry.async_get(ac.entity_id).disabled_by is INTEGRATION
+        return sl, ac
+
+    async def test_fallback_adoption_is_reversed_by_a_validated_other_mode(
+        self, hass: HomeAssistant
+    ):
+        entry = _entry(hass)
+        sl, ac = await self._fallback_adopt(hass, entry)
+        registry = er.async_get(hass)
+        sync = PortSensorEnablement(hass, entry)
+        validated_ac = {"devices": {GB: _gridboss(_statuses("ac_couple"))}}
+        sync.async_sync(validated_ac)
+        # One validated read is not enough (REQUIRED_READS).
+        assert registry.async_get(sl.entity_id).unique_id == f"{GB}_smart_port1_power"
+        sync.async_sync(validated_ac)
+
+        rightful = registry.async_get(ac.entity_id)
+        assert rightful.unique_id == f"{GB}_smart_port1_power"
+        assert rightful.disabled_by is None
+        assert "smart_port_superseded" not in (rightful.options.get(DOMAIN) or {})
+        wrong = registry.async_get(sl.entity_id)
+        assert wrong.unique_id == f"{GB}_smart_load1_power"
+        assert wrong.disabled_by is INTEGRATION
+        assert (wrong.options.get(DOMAIN) or {}).get("smart_port_superseded")
+        # Settled: a later contradicting read changes nothing more.
+        smart_load = {"devices": {GB: _gridboss(_statuses("smart_load"))}}
+        sync.async_sync(smart_load)
+        sync.async_sync(smart_load)
+        assert registry.async_get(ac.entity_id).unique_id == f"{GB}_smart_port1_power"
+
+    async def test_fallback_adoption_confirmed_by_a_validated_same_mode(
+        self, hass: HomeAssistant
+    ):
+        entry = _entry(hass)
+        sl, ac = await self._fallback_adopt(hass, entry)
+        registry = er.async_get(hass)
+        sync = PortSensorEnablement(hass, entry)
+        validated_sl = {"devices": {GB: _gridboss(_statuses("smart_load"))}}
+        sync.async_sync(validated_sl)
+        sync.async_sync(validated_sl)
+        kept = registry.async_get(sl.entity_id)
+        assert kept.unique_id == f"{GB}_smart_port1_power"
+        assert "smart_port_fallback_mode" not in (kept.options.get(DOMAIN) or {})
+        assert registry.async_get(ac.entity_id).disabled_by is INTEGRATION
+
+    async def test_validated_adoption_is_never_swapped(self, hass: HomeAssistant):
+        """Only a fallback adoption is provisional."""
+        entry = _entry(hass)
+        sl = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        ac = _seed(hass, entry, f"{GB}_ac_couple1_power", "sensor.ac_power")
+        async_migrate_to_port_sensors(
+            hass, entry, {"devices": {GB: _gridboss(_statuses("smart_load"))}}
+        )
+        sync = PortSensorEnablement(hass, entry)
+        validated_ac = {"devices": {GB: _gridboss(_statuses("ac_couple"))}}
+        sync.async_sync(validated_ac)
+        sync.async_sync(validated_ac)
+        registry = er.async_get(hass)
+        assert registry.async_get(sl.entity_id).unique_id == f"{GB}_smart_port1_power"
+        assert registry.async_get(ac.entity_id).unique_id == f"{GB}_ac_couple1_power"
+
+    async def test_fallback_swap_respects_a_user_disabled_entry(
+        self, hass: HomeAssistant
+    ):
+        entry = _entry(hass)
+        sl, ac = await self._fallback_adopt(hass, entry)
+        registry = er.async_get(hass)
+        registry.async_update_entity(
+            ac.entity_id, disabled_by=er.RegistryEntryDisabler.USER
+        )
+        sync = PortSensorEnablement(hass, entry)
+        validated_ac = {"devices": {GB: _gridboss(_statuses("ac_couple"))}}
+        sync.async_sync(validated_ac)
+        sync.async_sync(validated_ac)
+        assert registry.async_get(sl.entity_id).unique_id == f"{GB}_smart_port1_power"
+        assert registry.async_get(ac.entity_id).disabled_by is (
+            er.RegistryEntryDisabler.USER
+        )
+
+    # -- #7: never create an entity another entry's registry entry holds ----
+
+    async def test_late_registration_skips_a_target_held_by_another_entry(
+        self, hass: HomeAssistant
+    ):
+        entry = _entry(hass)
+        other_entry = _entry(hass)
+        foreign = _seed(
+            hass,
+            other_entry,
+            f"{GB}_smart_port2_power",
+            "sensor.foreign_power",
+            disabled_by=INTEGRATION,
+        )
+        _seed(hass, entry, f"{GB}_smart_load2_power", "sensor.sl2_power")
+        coordinator = _Coordinator(hass, {})
+        added = await _setup_sensor_platform(hass, entry, coordinator)
+        dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers={(DOMAIN, GB)}
+        )
+        coordinator.data = {
+            "devices": {
+                GB: _gridboss(
+                    {
+                        **_statuses("unused", "smart_load", "unused", "unused"),
+                        "smart_load2_power": 9.0,
+                    }
+                )
+            }
+        }
+        coordinator.fire(times=2)
+        await hass.async_block_till_done()
+        assert f"{GB}_smart_port2_power" not in added
+        assert f"{GB}_smart_port2_power_l1" in added, "the rest is still added"
+        held = er.async_get(hass).async_get(foreign.entity_id)
+        assert held.config_entry_id == other_entry.entry_id
+
+    # -- Fix-round review (Codex) --------------------------------------------
+
+    async def test_setup_skips_a_foreign_target_without_a_local_legacy_entry(
+        self, hass: HomeAssistant
+    ):
+        """No legacy entry here, so no migration candidate: the foreign-held
+        target must still not be created (at setup, nor later)."""
+        entry = _entry(hass)
+        other_entry = _entry(hass)
+        foreign = _seed(
+            hass,
+            other_entry,
+            f"{GB}_smart_port2_power",
+            "sensor.foreign_power",
+            disabled_by=INTEGRATION,
+        )
+        data = {GB: _gridboss(_statuses("unused", "smart_load", "unused", "unused"))}
+        coordinator = _Coordinator(hass, data)
+        set_deferred_port_sensors(
+            coordinator, async_migrate_to_port_sensors(hass, entry, coordinator.data)
+        )
+        added = await _setup_sensor_platform(hass, entry, coordinator)
+        coordinator.fire(times=2)
+        await hass.async_block_till_done()
+        assert f"{GB}_smart_port2_power" not in added
+        assert f"{GB}_smart_port2_power_l1" in added
+        held = er.async_get(hass).async_get(foreign.entity_id)
+        assert held.config_entry_id == other_entry.entry_id
+
+    async def test_swap_survives_a_recreated_legacy_unique_id(
+        self, hass: HomeAssistant
+    ):
+        """A downgrade re-created the adopted entry's legacy unique ID: the
+        swap still happens (no ValueError) and the marker is cleared."""
+        entry = _entry(hass)
+        sl, ac = await self._fallback_adopt(hass, entry)
+        recreated = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.recreated")
+        sync = PortSensorEnablement(hass, entry)
+        validated_ac = {"devices": {GB: _gridboss(_statuses("ac_couple"))}}
+        sync.async_sync(validated_ac)
+        sync.async_sync(validated_ac)
+        registry = er.async_get(hass)
+        assert registry.async_get(ac.entity_id).unique_id == f"{GB}_smart_port1_power"
+        wrong = registry.async_get(sl.entity_id)
+        assert wrong.unique_id not in (
+            f"{GB}_smart_port1_power",
+            f"{GB}_smart_load1_power",
+        )
+        assert wrong.disabled_by is INTEGRATION
+        assert "smart_port_fallback_mode" not in (wrong.options.get(DOMAIN) or {})
+        assert registry.async_get(recreated.entity_id).unique_id == (
+            f"{GB}_smart_load1_power"
+        )
+
+    async def test_swap_to_an_enabled_entry_reloads(self, hass: HomeAssistant):
+        """The user had re-enabled the superseded entry, so enabling it again
+        is no change HA reloads on: the swap schedules the reload itself."""
+        entry = _entry(hass)
+        _sl, ac = await self._fallback_adopt(hass, entry)
+        registry = er.async_get(hass)
+        registry.async_update_entity(ac.entity_id, disabled_by=None)  # the user
+        reloads: list[str] = []
+        hass.config_entries.async_schedule_reload = reloads.append  # type: ignore[method-assign]
+        sync = PortSensorEnablement(hass, entry)
+        validated_ac = {"devices": {GB: _gridboss(_statuses("ac_couple"))}}
+        sync.async_sync(validated_ac)
+        sync.async_sync(validated_ac)
+        assert registry.async_get(ac.entity_id).unique_id == f"{GB}_smart_port1_power"
+        assert reloads == [entry.entry_id]
