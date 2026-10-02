@@ -414,8 +414,12 @@ history) becomes the port sensor. The other one is left disabled rather than
 deleted, and is not touched again: delete it from its entity settings if you don't need its
 history. To switch to the new ID format, open the port device and choose ⋮ →
 **Recreate entity IDs** (rename the device first if you want the IDs to use
-your name). Downgrading afterwards re-creates the old per-mode sensors under
-new entity IDs without their history.
+your name). The same fixes a port sensor whose entity ID names the other mode:
+a port that only ever had, say, a Smart Load power sensor keeps it when the
+port is in AC Couple mode, so the ID still says `smart_load` while the sensor
+shows AC Couple power. Its readings and history are right, and the log notes
+it at info level once the port's mode is confirmed. Downgrading afterwards re-creates the old
+per-mode sensors under new entity IDs without their history.
 
 ### Notable sensors
 

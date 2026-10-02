@@ -1363,3 +1363,467 @@ class TestFollowUpRegressions:
         sync.async_sync(validated_ac)
         assert registry.async_get(ac.entity_id).unique_id == f"{GB}_smart_port1_power"
         assert reloads == [entry.entry_id]
+
+
+class TestIssue641:
+    """Follow-ups from the #632/#640 reviews (issue #641)."""
+
+    # -- 1: LOCAL polls a GridBOSS awaiting its port mode every cycle --------
+
+    INVERTER = "1111111111"
+
+    def _local_coordinator(self, hass: HomeAssistant):
+        from custom_components.eg4_web_monitor.const import (
+            CONF_CONNECTION_TYPE,
+            CONF_DST_SYNC,
+            CONF_LIBRARY_DEBUG,
+            CONF_LOCAL_TRANSPORTS,
+            CONNECTION_TYPE_LOCAL,
+        )
+        from custom_components.eg4_web_monitor.coordinator import (
+            EG4DataUpdateCoordinator,
+        )
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            data={
+                CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+                CONF_DST_SYNC: False,
+                CONF_LIBRARY_DEBUG: False,
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": self.INVERTER,
+                        "host": "192.168.1.100",
+                        "port": 502,
+                        "transport_type": "modbus_tcp",
+                        "inverter_family": "EG4_HYBRID",
+                        "model": "FlexBOSS21",
+                    },
+                    {
+                        "serial": GB,
+                        "host": "192.168.1.101",
+                        "port": 8000,
+                        "transport_type": "wifi_dongle",
+                        "model": "GridBOSS",
+                    },
+                ],
+            },
+            options={},
+        )
+        entry.add_to_hass(hass)
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+        coordinator._local_static_phase_done = True
+        coordinator.data = {
+            "devices": {
+                self.INVERTER: {"type": "inverter", "sensors": {}},
+                GB: _gridboss(_statuses("unused")),
+            },
+            "parameters": {},
+        }
+        return coordinator
+
+    async def _polled_serials(self, coordinator) -> list[str]:
+        """Run one LOCAL cycle with no transport interval elapsed."""
+        from unittest.mock import AsyncMock, patch
+
+        with (
+            patch.object(coordinator, "_should_poll_transport", return_value=False),
+            patch.object(
+                coordinator, "_process_local_transport_group", new_callable=AsyncMock
+            ) as process_group,
+            patch.object(
+                coordinator, "_process_local_parallel_groups", new_callable=AsyncMock
+            ),
+        ):
+            await coordinator._async_update_local_data()
+        return [
+            config["serial"]
+            for call in process_group.await_args_list
+            for config in call.args[0]
+        ]
+
+    async def test_local_polls_gridboss_awaiting_port_mode(self, hass: HomeAssistant):
+        """A GridBOSS whose port mode was just written is read on the next
+        LOCAL cycle, not only once its transport interval has elapsed."""
+        from custom_components.eg4_web_monitor.smart_port_devices import (
+            note_port_mode_written,
+        )
+
+        coordinator = self._local_coordinator(hass)
+        assert await self._polled_serials(coordinator) == []
+
+        note_port_mode_written(coordinator, GB, 1, "smart_load")
+        assert await self._polled_serials(coordinator) == [GB]
+
+    # -- 2: a cloud payload already counted is one read ---------------------
+
+    @staticmethod
+    def _payload(server_time: str, status: int = 1, total: int | None = None):
+        """A portal midbox response: every field None but the ones named."""
+        from pylxpweb.models import MidboxData, MidboxRuntime
+
+        fields: dict[str, Any] = dict.fromkeys(MidboxData.model_fields)
+        fields.update(serverTime=server_time, deviceTime=server_time, status=0)
+        fields.update({f"smartPort{port}Status": status for port in range(1, 5)})
+        if total is not None:
+            fields.update(
+                {
+                    name: total
+                    for name in fields
+                    if name.endswith(("TotalL1", "TotalL2"))
+                }
+            )
+        return MidboxRuntime.model_construct(
+            success=True,
+            serialNum=GB,
+            fwCode="x",
+            lost=False,
+            midboxData=MidboxData.model_construct(**fields),
+            deviceData=None,
+        )
+
+    @staticmethod
+    def _cloud_mid(*responses: Any):
+        """A real pylxpweb MID device served by a fake portal client."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from pylxpweb.devices.mid_device import MIDDevice
+
+        fetch = AsyncMock(side_effect=list(responses))
+        devices = SimpleNamespace(get_midbox_runtime=fetch)
+        client = SimpleNamespace(username="u", api=SimpleNamespace(devices=devices))
+        return MIDDevice(client, GB)
+
+    @staticmethod
+    def _stamp(mid_device: Any) -> Any:
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_READ_KEY,
+        )
+
+        coordinator_mixins._last_good_smart_port_statuses.pop(GB, None)
+        sensors: dict[str, Any] = {}
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid_device)
+        return sensors.get(SMART_PORT_READ_KEY)
+
+    async def _refresh(self, mid_device: Any) -> Any:
+        """Refresh the device (at a distinct time) and return its read stamp."""
+        import asyncio
+
+        await asyncio.sleep(0.002)
+        await mid_device.refresh()
+        return self._stamp(mid_device)
+
+    async def test_cached_cloud_payload_is_not_a_second_read(self):
+        """pylxpweb advances ``_last_refresh`` when its response cache answers
+        a cloud refresh; the read stamp does not move until the payload does."""
+        same = "2026-01-01 00:00:00"
+        mid = self._cloud_mid(
+            self._payload(same),
+            self._payload(same),
+            self._payload("2026-01-01 00:05:00"),
+        )
+        first = await self._refresh(mid)
+        assert first == mid._last_refresh.timestamp()
+        assert await self._refresh(mid) == first
+        assert mid._last_refresh.timestamp() > first
+        assert await self._refresh(mid) == mid._last_refresh.timestamp() > first
+
+    async def test_changed_payload_with_the_same_server_time_is_a_read(self):
+        """Nothing rests on what serverTime means: a port status that changed
+        under the same serverTime is still a new read."""
+        same = "2026-01-01 00:00:00"
+        mid = self._cloud_mid(self._payload(same, 1), self._payload(same, 2))
+        first = await self._refresh(mid)
+        assert await self._refresh(mid) > first
+
+    async def test_cached_cloud_payload_cannot_satisfy_the_two_read_guard(
+        self, hass: HomeAssistant
+    ):
+        """End to end: one portal payload processed twice does not flip a
+        port's entities; a second payload does."""
+        from custom_components.eg4_web_monitor.coordinator_mappings import (
+            SMART_PORT_READ_KEY,
+        )
+
+        entry = _entry(hass)
+        registry = er.async_get(hass)
+        ac_total = _seed(
+            hass, entry, f"{GB}_smart_port1_ac_couple_total", "sensor.ac_total"
+        )
+        sync = PortSensorEnablement(hass, entry, _Coordinator(hass, {}))
+        same = "2026-01-01 00:00:00"
+        mid = self._cloud_mid(
+            self._payload(same),
+            self._payload(same),
+            self._payload("2026-01-01 00:05:00"),
+        )
+
+        async def cycle() -> None:
+            sensors = _statuses("smart_load")
+            sensors[SMART_PORT_READ_KEY] = await self._refresh(mid)
+            sync.async_sync({"devices": {GB: _gridboss(sensors)}})
+
+        await cycle()
+        await cycle()
+        assert registry.async_get(ac_total.entity_id).disabled_by is None
+        await cycle()
+        assert registry.async_get(ac_total.entity_id).disabled_by is INTEGRATION
+
+    async def test_rejected_fetch_is_not_a_read_and_its_later_accept_is(self):
+        """A fetch pylxpweb rejects (energy spike) leaves the data, and so the
+        stamp, alone; when the same cached payload is accepted after all, that
+        is a read, not the one already counted."""
+        normal = self._payload("2026-01-01 00:00:00", total=1000)
+        spike = self._payload("2026-01-01 00:05:00", status=2, total=9_000_000)
+        mid = self._cloud_mid(normal, *([spike] * 8))
+        mid.set_max_system_power(12)
+        first = await self._refresh(mid)
+        accepted_at = mid._last_refresh
+
+        stamps = []
+        for _ in range(8):
+            stamp = await self._refresh(mid)
+            if mid._last_refresh != accepted_at:
+                break
+            stamps.append(stamp)
+        else:
+            pytest.fail("pylxpweb never accepted the repeated payload")
+        assert stamps and set(stamps) == {first}
+        assert stamp == mid._last_refresh.timestamp() > first
+
+    async def test_two_devices_with_one_serial_do_not_share_reads(self):
+        """The same GridBOSS under two config entries: each device object
+        keeps its own read identity."""
+        one = self._cloud_mid(*[self._payload("2026-01-01 00:00:00")] * 2)
+        other = self._cloud_mid(self._payload("2026-01-01 00:00:07"))
+        first = await self._refresh(one)
+        await self._refresh(other)
+        assert await self._refresh(one) == first
+
+    def _transport_mid(self, refreshed, server_time: str):
+        """A MID device with a healthy local transport and a stale cloud payload."""
+        from types import SimpleNamespace
+
+        from pylxpweb.devices.mid_device import MIDDevice
+
+        mid = MIDDevice(None, GB)
+        mid._local_transport = object()
+        mid._runtime = self._payload(server_time)
+        mid._transport_runtime = SimpleNamespace(
+            **{f"smart_port_{port}_status": 1 for port in range(1, 5)}
+        )
+        mid._last_refresh = refreshed
+        return mid
+
+    def test_transport_reads_are_stamped_by_refresh_time(self):
+        """With a healthy local transport every refresh is a register read: a
+        stale cloud payload on the device does not hold the stamp back."""
+        from datetime import datetime
+
+        t0, t1 = datetime(2026, 1, 1, 0, 0, 0), datetime(2026, 1, 1, 0, 0, 5)
+        mid = self._transport_mid(t0, "2025-12-31 00:00:00")
+        assert mid.has_local_transport and not mid.transport_link_down
+        assert self._stamp(mid) == t0.timestamp()
+        mid._last_refresh = t1
+        assert self._stamp(mid) == t1.timestamp()
+
+    async def test_cloud_fallback_and_the_rejected_read_after_it(self):
+        """While an attached transport's link is down pylxpweb serves the
+        cloud, so the cached-payload rule applies.  When the link returns but
+        its first read is rejected, the data is still that cloud payload: the
+        stamp must not move."""
+
+        class _Transport:
+            serial = GB
+            is_connected = True
+            down = True
+
+            async def read_midbox_runtime(self) -> Any:
+                if self.down:
+                    raise OSError("down")
+                return MagicMock(is_corrupt=MagicMock(return_value=True))
+
+            async def check_link(self) -> bool:
+                return not self.down
+
+        mid = self._cloud_mid(*[self._payload("2026-01-01 00:00:00")] * 12)
+        transport = _Transport()
+        mid._local_transport = transport
+        mid.validate_data = True
+        mid._link_probe_interval = lambda: 0.0
+
+        stamps = []
+        for _ in range(12):
+            stamp = await self._refresh(mid) if mid.has_data else None
+            if not mid.has_data:
+                await mid.refresh()
+            if mid.transport_link_down and stamp is not None:
+                stamps.append(stamp)
+                if len(stamps) == 3:
+                    break
+        assert len(stamps) == 3, "the cloud fallback never served"
+        assert len(set(stamps)) == 1
+
+        transport.down = False
+        served_at = mid._last_refresh
+        await mid.refresh()
+        assert not mid.transport_link_down and mid._last_refresh == served_at
+        assert self._stamp(mid) == stamps[0]
+
+    async def test_transport_read_ends_the_cloud_payloads_claim(self):
+        """After a transport read, the cloud serving the payload it served
+        before is a read of its own, not the one stamped back then."""
+        from datetime import datetime, timedelta
+
+        mid = self._cloud_mid(*[self._payload("2026-01-01 00:00:00")] * 2)
+        first = await self._refresh(mid)
+
+        mid._local_transport = object()
+        mid._last_refresh = datetime.now() + timedelta(seconds=1)
+        assert self._stamp(mid) == mid._last_refresh.timestamp()
+
+        mid._local_transport = None
+        assert await self._refresh(mid) == mid._last_refresh.timestamp() != first
+
+    def test_device_double_is_stamped_by_refresh_time(self):
+        """Only a real portal payload can hold a stamp back."""
+        from datetime import datetime
+
+        device = MagicMock(
+            serial_number=GB,
+            _last_refresh=datetime(2026, 1, 1, 0, 0, 0),
+            **{f"smart_port{port}_status": 1 for port in range(1, 5)},
+        )
+        assert self._stamp(device) == datetime(2026, 1, 1, 0, 0, 0).timestamp()
+        device._last_refresh = datetime(2026, 1, 1, 0, 0, 5)
+        assert self._stamp(device) == datetime(2026, 1, 1, 0, 0, 5).timestamp()
+
+    def test_object_that_cannot_be_weakly_referenced_uses_refresh_time(self):
+        from datetime import datetime
+
+        class _Slotted:
+            __slots__ = ("_last_refresh", "serial_number")
+
+        device = _Slotted()
+        device._last_refresh = datetime(2026, 1, 1)
+        device.serial_number = GB
+        assert self._stamp(device) == datetime(2026, 1, 1).timestamp()
+
+    # -- 3: a lone legacy entry named for the other mode --------------------
+
+    _RENAME_HINT = "Recreate entity IDs"
+
+    def _hints(self, caplog: pytest.LogCaptureFixture) -> list[str]:
+        return [r.getMessage() for r in caplog.records if self._RENAME_HINT in r.msg]
+
+    @staticmethod
+    def _named_for(hass: HomeAssistant, entity_id: str) -> str | None:
+        entry = er.async_get(hass).async_get(entity_id)
+        return dict(entry.options.get(DOMAIN) or {}).get("smart_port_named_for")
+
+    async def test_lone_entry_for_the_other_mode_logs_a_rename_hint(
+        self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+    ):
+        """An AC Couple port that only ever had a Smart Load power entry keeps
+        it (history intact); the log says how to fix the misleading name."""
+        entry = _entry(hass)
+        lone = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        with caplog.at_level("INFO"):
+            async_migrate_to_port_sensors(
+                hass, entry, {"devices": {GB: _gridboss(_statuses("ac_couple"))}}
+            )
+        adopted = er.async_get(hass).async_get(lone.entity_id)
+        assert adopted.unique_id == f"{GB}_smart_port1_power"
+        hints = self._hints(caplog)
+        assert len(hints) == 1
+        assert "sensor.sl_power" in hints[0] and "ac_couple" in hints[0]
+        assert self._named_for(hass, lone.entity_id) is None
+
+    @pytest.mark.parametrize(
+        ("unique_id", "sensors", "marked"),
+        [
+            # The entry already names the port's validated mode.
+            ("smart_load1_power", _statuses("smart_load"), False),
+            # Energy sensors are per mode: never misnamed.
+            ("smart_load1_total", _statuses("ac_couple"), False),
+            ("smart_load1_total", {}, False),
+            # No confirmed active mode yet: marked for the sync to settle.
+            ("smart_load1_power", _statuses("unused"), True),
+            ("smart_load1_power", _statuses("ac_couple", validated=False), True),
+            ("smart_load1_power", {}, True),
+        ],
+    )
+    async def test_no_rename_hint_at_adoption_without_a_validated_mismatch(
+        self,
+        hass: HomeAssistant,
+        caplog: pytest.LogCaptureFixture,
+        unique_id: str,
+        sensors: dict[str, Any],
+        marked: bool,
+    ):
+        entry = _entry(hass)
+        lone = _seed(hass, entry, f"{GB}_{unique_id}", "sensor.lone")
+        with caplog.at_level("INFO"):
+            async_migrate_to_port_sensors(
+                hass, entry, {"devices": {GB: _gridboss(sensors)}}
+            )
+        assert not self._hints(caplog)
+        assert (self._named_for(hass, lone.entity_id) == "smart_load") is marked
+
+    async def test_fallback_guess_is_not_grounds_for_a_rename_hint(
+        self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+    ):
+        """The #195/#248 fallback mode is a guess: the entry is marked, and
+        only a validated mode decides whether it is misnamed."""
+        entry = _entry(hass)
+        lone = _seed(hass, entry, f"{GB}_ac_couple1_power", "sensor.lone")
+        sensors = {**_statuses("unused", validated=False), "smart_load1_power": 1.0}
+        with caplog.at_level("INFO"):
+            async_migrate_to_port_sensors(
+                hass, entry, {"devices": {GB: _gridboss(sensors)}}, {GB}
+            )
+        assert not self._hints(caplog)
+        assert self._named_for(hass, lone.entity_id) == "ac_couple"
+
+    @pytest.mark.parametrize(("mode", "hinted"), [("ac_couple", 1), ("smart_load", 0)])
+    async def test_first_validated_mode_settles_an_unconfirmed_adoption(
+        self,
+        hass: HomeAssistant,
+        caplog: pytest.LogCaptureFixture,
+        mode: str,
+        hinted: int,
+    ):
+        """LOCAL adopts on its static first refresh, before any port status is
+        known; the hint comes from the registry sync's first validated mode,
+        once."""
+        entry = _entry(hass)
+        lone = _seed(hass, entry, f"{GB}_smart_load1_power", "sensor.sl_power")
+        async_migrate_to_port_sensors(hass, entry, {"devices": {GB: _gridboss({})}})
+        assert self._named_for(hass, lone.entity_id) == "smart_load"
+
+        sync = PortSensorEnablement(hass, entry, _Coordinator(hass, {}))
+        data = {"devices": {GB: _gridboss(_statuses(mode))}}
+        with caplog.at_level("INFO"):
+            sync.async_sync(data)
+            assert not self._hints(caplog), "one read is not a confirmed mode"
+            assert self._named_for(hass, lone.entity_id) == "smart_load"
+            for _ in range(3):
+                sync.async_sync(data)
+        assert len(self._hints(caplog)) == hinted
+        assert self._named_for(hass, lone.entity_id) is None
+
+    async def test_rename_hint_leaves_another_config_entrys_sensor_alone(
+        self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture
+    ):
+        entry, other = _entry(hass), _entry(hass)
+        lone = _seed(hass, other, f"{GB}_smart_load1_power", "sensor.sl_power")
+        async_migrate_to_port_sensors(hass, other, {"devices": {GB: _gridboss({})}})
+
+        sync = PortSensorEnablement(hass, entry, _Coordinator(hass, {}))
+        data = {"devices": {GB: _gridboss(_statuses("ac_couple"))}}
+        with caplog.at_level("INFO"):
+            for _ in range(3):
+                sync.async_sync(data)
+        assert not self._hints(caplog)
+        assert self._named_for(hass, lone.entity_id) == "smart_load"
