@@ -6,6 +6,7 @@ from typing import Any
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from pylxpweb import OperatingMode
 
@@ -19,6 +20,7 @@ from .const import (
 from .control_discovery import setup_control_entity_discovery
 from .coordinator import EG4DataUpdateCoordinator
 from .base_entity import EG4BaseSelect, _get_model_from_coordinator
+from .smart_port_devices import PORT_MODE_SELECT_NAME, note_port_mode_written
 from .utils import (
     async_write_with_cloud_fallback,
     create_device_info,
@@ -70,6 +72,7 @@ _STATUS_TO_SELECT = {
     "smart_load": "Smart Load",
     "ac_couple": "AC Couple",
 }
+_SELECT_TO_STATUS = {label: status for status, label in _STATUS_TO_SELECT.items()}
 
 
 def _create_select_entities(
@@ -429,12 +432,28 @@ class EG4SmartPortModeSelect(EG4BaseSelect):
         self._attr_unique_id = generate_unique_id(serial, f"smart_port{port}_mode")
 
         self._attr_has_entity_name = True
-        self._attr_name = f"Smart Port {port} Mode"
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_icon = "mdi:electric-switch"
         self._attr_options = SMART_PORT_MODE_OPTIONS
 
-        self._attr_device_info = create_device_info(serial, self._model)
+        # The select lives on its port's own device, where the port number in
+        # the name would be redundant; the GridBOSS device is only a fallback
+        # for a GridBOSS the coordinator no longer reports.
+        self._use_port_device = (
+            coordinator.get_smart_port_device_info(serial, port) is not None
+        )
+        self._gridboss_device_info = create_device_info(serial, self._model)
+        if self._use_port_device:
+            self._attr_name = PORT_MODE_SELECT_NAME
+        else:
+            self._attr_name = f"Smart Port {port} Mode"
+
+    @property
+    def device_info(self) -> DeviceInfo | None:
+        """Return the port device (resolved per add), else the GridBOSS."""
+        if self._use_port_device:
+            return self.coordinator.get_smart_port_device_info(self._serial, self._port)
+        return self._gridboss_device_info
 
     @property
     def current_option(self) -> str | None:
@@ -513,6 +532,15 @@ class EG4SmartPortModeSelect(EG4BaseSelect):
             self._optimistic_state = None
             self.async_write_ha_state()
             raise
+
+        # Have the coordinator read the GridBOSS promptly (not once per dongle
+        # interval) until a read confirms this mode.
+        note_port_mode_written(
+            self.coordinator,
+            self._serial,
+            self._port,
+            _SELECT_TO_STATUS[option],
+        )
 
         _LOGGER.info(
             "Successfully set smart port %d mode to %s for device %s",

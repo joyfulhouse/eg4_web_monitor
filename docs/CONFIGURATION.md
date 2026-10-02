@@ -211,7 +211,8 @@ parameter sync.
 ### Selects
 
 - **Operating Mode** — Normal or Standby.
-- **GridBOSS Smart Port Mode (1–4)** — Off, Smart Load, or AC Couple per port.
+- **Mode** on each GridBOSS smart port device — Unused, Smart Load, or AC Couple.
+  See [GridBOSS smart port devices](#gridboss-smart-port-devices).
 - **Battery Charge Control** / **Battery Discharge Control** — regulate the battery
   by **SOC** (closed-loop, default) or **Voltage** (open-loop). See
   [Battery control mode](#battery-control-mode-soc-vs-voltage) below.
@@ -321,6 +322,60 @@ by the matching enable switch (e.g. the AC Charge switch, register 21 bit 7).
 > serve a limited automation use case and add entity noise for most installs.
 > Enable the specific windows you automate from **Settings → Devices & Services
 > → Entities**. Entities you have already enabled keep their state.
+
+### GridBOSS smart port devices
+
+Each of a GridBOSS's four smart ports is its own device, "Smart Port N
+<GridBOSS serial>", connected via the GridBOSS. Every port device has the
+same entities, and the port's mode decides which are enabled and what they
+read:
+
+| Entity | Unused | Smart Load | AC Couple |
+|---|---|---|---|
+| Mode (select) | enabled | enabled | enabled |
+| Power, Power L1, Power L2 | disabled | Smart Load values | AC Couple values |
+| Current L1, Current L2 (local connection only) | disabled | Smart Load values | AC Couple values |
+| Smart Load Energy Today / Total | disabled | enabled | disabled |
+| AC Couple Energy Today / Total | disabled | disabled | enabled |
+
+- Power and current names don't include the mode, so new entities get IDs like
+  `sensor.smart_port_1_<serial>_power_l1` whatever the port is set to.
+- Energy has one pair of entities per mode, because each mode has its own
+  firmware counter; one entity switching counters would corrupt the Energy
+  dashboard's statistics.
+- An entity that doesn't serve the port's current mode is disabled, and
+  re-enabled when the port returns to that mode; the integration then reloads
+  about 30 seconds later to add it. The change is made only after two
+  consecutive confirmed GridBOSS status reads, or one read that confirms a mode
+  you just set with the Mode select. Entities you disable yourself, or that
+  Home Assistant's "disable new entities" setting disabled, are never
+  re-enabled. An entity you re-enable yourself while its mode is inactive stays
+  enabled until the port next returns to that mode.
+- After you change a port's mode with the Mode select, the GridBOSS is read on
+  every update (instead of once per transport update interval) until a read
+  confirms the new mode, for up to 2 minutes. How quickly the GridBOSS applies
+  the change itself varies.
+- The Energy dashboard flags an energy entity that is disabled. If you add a
+  port's energy to the dashboard, add the pair for the mode the port is in.
+- The cross-port **Smart Load Power** / **AC Couple Power** totals stay on the
+  GridBOSS device.
+
+**Upgrading from earlier versions.** The per-port sensors used to sit on the
+GridBOSS device, one set per mode (e.g.
+`sensor.grid_boss_<serial>_smart_load_1_power_l1`). On the first load after
+upgrading they move to their port devices and become that port's sensors,
+keeping their entity IDs and history. Where a port had power or current
+sensors for both modes, the one for the port's current mode becomes the port
+sensor; until a confirmed status read says which mode that is, that port sensor
+isn't created yet. If the port status hasn't read as valid for five minutes
+(and at least three reads), as on some GridBOSS firmware it never does, the
+mode the port's readings are reported under decides instead (Smart Load if
+both are). The other one is left disabled rather than deleted, and is
+not touched again: delete it from its entity settings if you don't need its
+history. To switch to the new ID format, open the port device and choose ⋮ →
+**Recreate entity IDs** (rename the device first if you want the IDs to use
+your name). Downgrading afterwards re-creates the old per-mode sensors under
+new entity IDs without their history.
 
 ### Notable sensors
 

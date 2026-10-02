@@ -1017,3 +1017,56 @@ and the outer HA-stop wrapper, closing the client twice; the existing session
 ordering test caught it. The corrected path calls the inner teardown and keeps
 one outer session owner. This corrects the call-site description, not the
 terminal-debouncer contract or the previous targeted regression results.
+
+## [2026-09-28] ingest | GridBOSS smart ports become their own devices (breaking)
+
+Each GridBOSS smart port is now a device `(DOMAIN, f"{serial}_smart_port_{n}")` under the
+GridBOSS (#630), holding the port's Mode select, mode-neutral power/current sensors that read the
+port's current mode, and one energy pair per mode (a single energy entity switching firmware
+counters would corrupt HA's long-term statistics: the recorder reads the jump as consumption, a
+negative delta, or a meter reset). Entities that don't serve the port's mode are
+integration-disabled, only on two consecutive validated reads, and only entities the sync itself
+disabled are re-enabled (marked in registry entity options). Setup adopts the old per-mode
+registry entries by rewriting unique IDs, before the #217 cleanup (now limited to the cross-port
+totals); superseded entries are disabled, never deleted. Agreed with the maintainer as a breaking
+change with no opt-out. An opt-in option and a one-time entity-ID rename action were built and
+live-tested first, then removed: HA's device page offers ⋮ → "Recreate entity IDs"
+(frontend `ha-config-device-page.ts` → `reset_entity_ids` → `regenerateEntityIds`, present in both
+the 2026.1 and 2026.9 frontends; renaming a device does not regenerate IDs). Two adversarial
+reviews found defects fixed here: energy statistics, adoption deleting or guessing the live entry
+(contested power/current is now decided only by a validated read, deferred until then; LOCAL's
+first load never has one, and `created_at` is restored on re-created entries and epoch 0 on
+migrated registries), cleanup ordering, the #195/#248 skip path, and a sync debounce that counted
+coordinator updates instead of GridBOSS reads (reads now carry `SMART_PORT_READ_KEY`, the MID
+device's last successful refresh). After a Mode-select write the coordinator reads the GridBOSS
+every cycle until a read confirms the mode, and the sync acts on that one confirming read. Live-tested earlier builds
+on a HYBRID GridBOSS: adoption of 28 entries, Unused → disable, mode → enable + ~30 s reload.
+Updated [entities §5–§6](10-integration/entities-identity-availability.md) and
+[architecture §4.1](10-integration/architecture.md) (rows footnoted to this change, not the page
+pins), and `docs/DATA_MAPPING.md` §11. Rebased onto `main` after #631 merged (squash `4683d58`);
+the §6 parent-link footnote now cites that commit instead of the `fix/via-device-id` branch.
+
+## [2026-10-01] ingest | Smart-port devices: review fixes to adoption and the registry sync
+
+Maintainer review of PR #632 found four defects, all confirmed against the code and fixed.
+(1) The deferred-adoption listener treated "not in the migration's returned deferred set" as
+"adopted", but the migration skips a GridBOSS absent from `coordinator.data`, so one update
+without it created the contested sensor fresh and stranded the legacy entry. Port sensors are now
+added by one listener (`sensor.py` → `_async_register_port_sensors`) only for a GridBOSS present in
+that update and already registered as a device. (2) On #195/#248 firmware no read is ever
+validated, so a contested sensor was deferred for good; `serials_resolving_unvalidated` now lets
+`resolve_port_mode`'s key-presence rule decide after `UNVALIDATED_READS_BEFORE_FALLBACK` reads and
+`UNVALIDATED_SECONDS_BEFORE_FALLBACK`, and `SMART_PORT_READ_KEY` is stamped on unvalidated reads
+too so they can be counted. (3) A GridBOSS first reported as `type: gridboss` after setup (LOCAL
+config without the flag, or absent) never got port sensors; the same listener adopts and adds them.
+(4) The registry sync looked unique IDs up registry-wide and could flip another config entry's
+entities; `_apply` now checks the owner. An adversarial review of those fixes then found a setup
+race (the first real LOCAL read landing between entry setup's migration and the sensor platform's
+setup — the platform now reruns the idempotent migration against the data it builds from), that a
+count-only fallback could mis-adopt on a normal unit with three status-less reads (hence the time
+bound; adoption is final), a registry scan on every update while a contested port stays unused
+(now once per changed read), and the migration superseding this entry's legacy entry when another
+config entry held the target. Why the earlier entry was wrong: it said contested power/current "is
+now decided only by a validated read", which is exactly what lost those sensors on firmware that
+never validates. Updated [architecture §4.1](10-integration/architecture.md) and
+[entities §5](10-integration/entities-identity-availability.md) (rows footnoted to this change).

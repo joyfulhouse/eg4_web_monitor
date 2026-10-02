@@ -51,6 +51,7 @@ from .coordinator_mixins import (
     is_transport_link_down,
 )
 from .endpoint_bus import EndpointBusCapability
+from .smart_port_devices import serials_awaiting_port_mode
 from .utils import battery_row_is_absent, cloud_battery_key
 
 _LOGGER = logging.getLogger(__name__)
@@ -372,6 +373,10 @@ class HTTPUpdateMixin(_MixinBase):
             Dictionary containing device data with transport-aware labels.
         """
         include_mid = self._should_poll_hybrid_local()
+        # A smart port mode was just written: read the GridBOSS every cycle
+        # until a read confirms it, not once per dongle interval.
+        if serials_awaiting_port_mode(self):
+            include_mid = True
         if not include_mid and self.station is not None:
             # A degraded MID device refreshes via the CLOUD, not the dongle —
             # the dongle-interval gate must not slow its fallback to one

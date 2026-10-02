@@ -958,8 +958,10 @@ class TestSmartLoadSensors:
         # same per-port key active (per-serial active sets)
         assert get_eid("sensor", DOMAIN, uid_gb_aggregate) is None
         assert get_eid("sensor", DOMAIN, uid_gb_port) is None
-        # GridBOSS B's active entity is untouched
-        assert get_eid("sensor", DOMAIN, uid_gb2_port) is not None
+        # GridBOSS B's active entity survives, adopted as its port device's
+        # mode-neutral sensor (same registry entry, new unique ID)
+        assert get_eid("sensor", DOMAIN, uid_gb2_port) is None
+        assert get_eid("sensor", DOMAIN, "9000000002_smart_port1_power") is not None
 
     @pytest.mark.asyncio
     async def test_released_pylxpweb_without_properties_drops_keys(

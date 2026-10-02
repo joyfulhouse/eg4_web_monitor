@@ -54,7 +54,9 @@ offline.
 This is usually normal — the integration only creates sensors for features your
 equipment supports. For example, GridBOSS sensors appear only with a GridBOSS
 device, battery sensors only for connected banks, generator sensors only with a
-generator, and smart-port sensors only for configured ports.
+generator. GridBOSS smart-port sensors exist for all four ports, but are disabled
+while they don't serve the port's mode (see
+[GridBOSS smart port devices](CONFIGURATION.md#gridboss-smart-port-devices)).
 
 To verify, check which sensors appear in the EG4 Monitor app, confirm the
 feature physically exists, and enable debug logging to inspect the data the API

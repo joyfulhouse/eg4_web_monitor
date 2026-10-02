@@ -838,12 +838,20 @@ SMART_PORT_STATUS_KEYS: frozenset[str] = frozenset(
 # dynamic power/energy keys reflect the real port configuration).
 SMART_PORT_VALIDATED_KEY = "smart_port_statuses_validated"
 
+# Identity of the GridBOSS read behind the port statuses (the MID device's
+# last successful runtime refresh, as a POSIX timestamp).  Written on every
+# filtered read, validated or not (SMART_PORT_VALIDATED_KEY says which);
+# unchanged when a cycle reuses cached device data, so consumers can tell a
+# NEW read from a re-processed or carried-forward one.
+SMART_PORT_READ_KEY = "smart_port_statuses_read_at"
+
 # Keys that live in the coordinator sensors dict but must NOT become HA sensor
 # entities.  They are read by select entities and internal coordinator logic,
 # but are excluded from both the static entity-creation path and the
 # late-registration listener in sensor.py.
 GRIDBOSS_COORDINATOR_INTERNAL_KEYS: frozenset[str] = SMART_PORT_STATUS_KEYS | {
-    SMART_PORT_VALIDATED_KEY
+    SMART_PORT_VALIDATED_KEY,
+    SMART_PORT_READ_KEY,
 }
 
 # Smart port keys that should NOT be included in static entity creation.
@@ -869,6 +877,30 @@ GRIDBOSS_SMART_PORT_DYNAMIC_KEYS: frozenset[str] = frozenset(
     ]
     + ["smart_load_power", "ac_couple_power"]
 )
+
+# Per-port subset of GRIDBOSS_SMART_PORT_DYNAMIC_KEYS mapped to its port number.
+# The cross-port aggregates (smart_load_power / ac_couple_power) belong to the
+# GridBOSS itself and are deliberately absent.
+GRIDBOSS_SMART_PORT_KEY_TO_PORT: dict[str, int] = {
+    key: port
+    for key in GRIDBOSS_SMART_PORT_DYNAMIC_KEYS
+    for prefix in ("smart_load", "ac_couple")
+    for port in range(1, 5)
+    if key.startswith(f"{prefix}{port}_")
+}
+
+
+# The cross-port totals: the only smart-port dynamic keys still created as
+# GridBOSS entities (per-port values are served by the port devices).
+GRIDBOSS_SMART_PORT_AGGREGATE_KEYS: frozenset[str] = (
+    GRIDBOSS_SMART_PORT_DYNAMIC_KEYS - GRIDBOSS_SMART_PORT_KEY_TO_PORT.keys()
+)
+
+
+def smart_port_device_identifier(serial: str, port: int) -> str:
+    """Return the device-registry identifier of a GridBOSS smart port device."""
+    return f"{serial}_smart_port_{port}"
+
 
 # Keys used for static GridBOSS entity creation: everything in GRIDBOSS_SENSOR_KEYS
 # except keys that are added dynamically after the first real poll (smart port power /

@@ -61,6 +61,7 @@ from .coordinator_mappings import (
     compute_parallel_group_charge_rate,
 )
 from .endpoint_bus import EndpointBusCapability
+from .smart_port_devices import serials_awaiting_port_mode
 from .utils import (
     battery_row_is_absent,
     is_hybrid_family,
@@ -1996,11 +1997,17 @@ class LocalTransportMixin(_MixinBase):
         self._param_completed_this_cycle = set()
         self._param_attempted_this_cycle = False
 
+        # A GridBOSS whose smart port mode was just written is read every cycle
+        # until a read confirms the mode, not once per transport interval.
+        awaiting_port_mode = serials_awaiting_port_mode(self)
         configs_to_poll: list[dict[str, Any]] = []
         for config in self._local_transport_configs:
             transport_type = config.get("transport_type", "modbus_tcp")
             serial = config.get("serial", "")
-            if self._poll_gate_key(transport_type) in pollable_gates:
+            if (
+                self._poll_gate_key(transport_type) in pollable_gates
+                or serial in awaiting_port_mode
+            ):
                 configs_to_poll.append(config)
             else:
                 if serial:
