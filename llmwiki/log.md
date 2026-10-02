@@ -1091,3 +1091,35 @@ wrong: "Modbus-only" came from a code comment, not from the library; and "adopti
 assumed the fallback rule was evidence, when on the skip path it is a tie-break. Updated
 [architecture §4.1](10-integration/architecture.md) and
 [entities §5](10-integration/entities-identity-availability.md).
+
+## [2026-10-02] ingest | Smart-port devices: issue #641 follow-ups (LOCAL poll test, cloud read identity, rename hint)
+
+The three non-blocking findings left open by the #632/#640 reviews. (1) The LOCAL forced GridBOSS
+poll (`coordinator_local.py` → `_async_update_local_data`, `or serial in awaiting_port_mode`) had
+no test: deleting the line kept the suite green. It now has one that drives the real method with
+no transport interval elapsed. (2) The read stamp `SMART_PORT_READ_KEY` came from the MID device's
+`_last_refresh`, which pylxpweb advances on every accepted cloud refresh, including one answered
+by the client's `midbox_runtime` response cache. So one portal payload could count as both reads
+`PortSensorEnablement.REQUIRED_READS` asks for. On the cloud path (no transport, or
+`transport_link_down` with the cloud fallback serving) an accepted refresh whose payload
+(`MidboxRuntime.midboxData`) equals the one already counted now keeps its stamp
+(`coordinator_mixins.py` → `_smart_port_read_stamp`, `_cloud_payload`, state held per MID device
+object); transport reads still use `_last_refresh`. Why the earlier entry was wrong: [2026-09-28]
+called the stamp "the MID device's last successful refresh" and treated that as a read, which holds
+for a register read and not for a cached HTTP response. Two things issue #641 states did not
+survive a check against the code. The cache lifetime is not pylxpweb's 20 s default:
+`coordinator_http.py` → `_align_client_cache_with_http_interval` sets it to the HTTP polling
+interval, and HTTP-only mode ticks at that same interval, so "Cloud sensor interval below the TTL"
+is not the trigger. The exposure is HYBRID with a cloud-served GridBOSS (the coordinator ticks at
+the local rate) and any extra refresh inside the interval. And the issue's suggested key, the
+server timestamp, is unsafe as an identity: whether a midbox payload's `serverTime` is the request
+time or the record's time is not established here (no portal capture pair was taken), so the rule
+compares the whole payload and does not depend on it. Blind spot: while the portal serves an unchanged record
+(dongle offline, `lost`), cloud reads stop being counted, so the sync does not act on a frozen
+mirror. (3) A port with a single legacy power/current entry adopts it whatever the port's mode, so
+its entity ID can name the other mode. Behaviour unchanged; the adoption logs a rename hint at
+info when a validated read already names the mode, and otherwise marks the entry
+(`smart_port_named_for`) so the registry sync's first validated active mode logs it
+(`smart_port_devices.py` → `_settle_rename_hint`). LOCAL always takes the second route: it adopts
+on its static first refresh, before any port status is read. `docs/CONFIGURATION.md` documents it.
+No wiki page stated the stamp's source, so no page changed.

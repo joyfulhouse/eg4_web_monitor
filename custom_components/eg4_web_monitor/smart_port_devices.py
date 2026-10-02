@@ -231,6 +231,11 @@ _SUPERSEDED_OPTION = "smart_port_superseded"
 # registers -- so the first validated mode settles it (see
 # _settle_fallback_adoption).
 _FALLBACK_OPTION = "smart_port_fallback_mode"
+# Per-entity registry option on a power/current port sensor adopted from a
+# port's only legacy entry before a validated read named the port's mode: the
+# mode that entry (and so its entity ID) was created for.  The first validated
+# active mode clears it, logging a rename hint if the two differ (#641).
+_NAMED_FOR_OPTION = "smart_port_named_for"
 
 # Port sensors whose adoption waits for a validated read (see
 # async_migrate_to_port_sensors), as (serial, port, id_suffix).
@@ -424,6 +429,9 @@ class PortSensorEnablement:
                     _settle_fallback_adoption(
                         self._hass, registry, self._entry.entry_id, serial, port, mode
                     )
+                    _settle_rename_hint(
+                        registry, self._entry.entry_id, serial, port, mode
+                    )
                 for spec in PORT_SENSOR_SPECS:
                     entity_id = registry.async_get_entity_id(
                         "sensor",
@@ -437,6 +445,47 @@ class PortSensorEnablement:
                             spec_is_active(spec, mode),
                             self._entry.entry_id,
                         )
+
+
+def _log_rename_hint(
+    serial: str, port: int, mode: str, entry: er.RegistryEntry, named_for: str
+) -> None:
+    _LOGGER.info(
+        "Smart port %s of %s is in %s mode, but %s was created for %s: its "
+        "readings are right and its history is kept. To rename it, open the "
+        "port device and choose Recreate entity IDs",
+        port,
+        serial,
+        mode,
+        entry.entity_id,
+        named_for,
+    )
+
+
+def _settle_rename_hint(
+    registry: er.EntityRegistry,
+    config_entry_id: str,
+    serial: str,
+    port: int,
+    mode: str,
+) -> None:
+    """Clear ``_NAMED_FOR_OPTION`` markers, hinting where the mode differs."""
+    for spec in PORT_SENSOR_SPECS:
+        if spec.mode is not None:
+            continue
+        entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, port_sensor_unique_id(serial, port, spec.id_suffix)
+        )
+        entry = registry.async_get(entity_id) if entity_id else None
+        if entry is None or entry.config_entry_id != config_entry_id:
+            continue
+        options = dict(entry.options.get(DOMAIN) or {})
+        named_for = options.pop(_NAMED_FOR_OPTION, None)
+        if named_for is None:
+            continue
+        if named_for != mode:
+            _log_rename_hint(serial, port, mode, entry, named_for)
+        registry.async_update_entity_options(entry.entity_id, DOMAIN, options or None)
 
 
 def _settle_fallback_adoption(
@@ -662,8 +711,18 @@ def async_migrate_to_port_sensors(
             continue
         if owner is None:
             winner_mode: str | None = None
+            named_for: str | None = None
             if len(entries) == 1:
-                winner = entries[0][1]
+                only_mode, winner = entries[0]
+                if not id_suffix.startswith(f"{only_mode}_"):
+                    # A shared (power/current) sensor reads whichever mode the
+                    # port is in; its entity ID may name the other one.
+                    if fallback or current not in ACTIVE_PORT_MODES:
+                        # Mode not confirmed yet: the registry sync's first
+                        # validated active mode settles it.
+                        named_for = only_mode
+                    elif current != only_mode:
+                        _log_rename_hint(serial, port, current, winner, only_mode)
             else:
                 winner_mode, winner = next(
                     ((mode, entity) for mode, entity in entries if mode == current),
@@ -679,6 +738,10 @@ def async_migrate_to_port_sensors(
             if fallback and winner_mode is not None:
                 options = dict(winner.options.get(DOMAIN) or {})
                 options[_FALLBACK_OPTION] = winner_mode
+                registry.async_update_entity_options(winner.entity_id, DOMAIN, options)
+            if named_for is not None:
+                options = dict(winner.options.get(DOMAIN) or {})
+                options[_NAMED_FOR_OPTION] = named_for
                 registry.async_update_entity_options(winner.entity_id, DOMAIN, options)
         for _mode, superseded in entries:
             if superseded is not winner:
