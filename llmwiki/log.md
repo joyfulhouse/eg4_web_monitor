@@ -1070,3 +1070,24 @@ config entry held the target. Why the earlier entry was wrong: it said contested
 now decided only by a validated read", which is exactly what lost those sensors on firmware that
 never validates. Updated [architecture §4.1](10-integration/architecture.md) and
 [entities §5](10-integration/entities-identity-availability.md) (rows footnoted to this change).
+
+## [2026-10-02] ingest | Smart-port devices: cloud current, provisional fallback, foreign targets
+
+Follow-up to PR #632, merged with three review findings still open; fixed by the maintainer.
+(5) The PR treated per-port current as Modbus-only, but the cloud carries it: the portal's
+`smartLoad{N}L{1,2}RmsCurr` (÷10) maps to pylxpweb `smart_port_N_lX_current` (`transports/data.py`
+at `v0.10.0b9`), which `_process_mid_device_object` puts into `smart_load{N}_current_l{1,2}`. So
+HTTP-only installs would have had their current entities orphaned. Current sensors are now created
+with a local transport or once the data has a per-port current key (`reports_port_currents`), and
+adopted regardless of transport. (6) The #195/#248 fallback picked Smart Load whenever both key
+families were present, and on that path they always are: pylxpweb's `_get_ac_couple_power` returns
+the Smart Load registers as AC Couple power when the status is unreadable, so the readings cannot
+separate the modes. A fallback adoption is now marked, and the registry sync's first validated
+active mode settles it, swapping the two legacy entries back if it disagrees. (7) The migration
+skipped a target held by another config entry but did not report it, so late registration created
+an entity with that unique ID, and HA's `async_get_or_create` moved the other entry's registry
+entry to this one; such targets are now returned as not-to-create. Why the earlier entries were
+wrong: "Modbus-only" came from a code comment, not from the library; and "adoption is final"
+assumed the fallback rule was evidence, when on the skip path it is a tie-break. Updated
+[architecture §4.1](10-integration/architecture.md) and
+[entities §5](10-integration/entities-identity-availability.md).

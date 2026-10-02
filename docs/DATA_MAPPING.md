@@ -1071,7 +1071,9 @@ Mapping chain: Register → `read_scaled()` → `MidboxRuntimeData` field
 > **Smart port current:** Like power registers, current registers always contain
 > actual measurements regardless of port mode. When a port is in AC Couple mode
 > (status=2), the coordinator remaps `smart_load{N}_current_l{1,2}` to
-> `ac_couple{N}_current_l{1,2}`. Modbus-only — no cloud API equivalent.
+> `ac_couple{N}_current_l{1,2}`. The cloud carries the same values as
+> `smartLoad{N}L{1,2}RmsCurr` (÷10, pylxpweb 0.9.34+, #243), so Cloud-only
+> installs get the per-port current sensors too.
 
 ### Power Registers (signed, W, no scaling)
 
@@ -1773,7 +1775,7 @@ smart_load{1-4}_power           (per-port aggregate, computed by _calculate_grid
 ac_couple{1-4}_power            (per-port aggregate, computed by _calculate_gridboss_aggregates)
 smart_load_power                (total across all smart load ports)
 ac_couple_power                 (total across all AC couple ports)
-smart_load{1-4}_current_l{1-2}  (L1/L2 per-port RMS current, Modbus-only)
+smart_load{1-4}_current_l{1-2}  (L1/L2 per-port RMS current, Modbus regs 18-25 or cloud smartLoad{N}L{1,2}RmsCurr)
 ac_couple{1-4}_current_l{1-2}   (L1/L2 per-port RMS current, remapped from smart_load)
 smart_load{1-4}_today           (per-port energy today)
 smart_load{1-4}_total           (per-port energy lifetime)

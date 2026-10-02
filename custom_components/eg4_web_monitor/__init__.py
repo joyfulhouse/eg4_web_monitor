@@ -1447,9 +1447,7 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
     # before the stale cleanup below and before the platforms load.
     set_deferred_port_sensors(
         coordinator,
-        async_migrate_to_port_sensors(
-            hass, entry, coordinator.data, coordinator.has_configured_local_transport
-        ),
+        async_migrate_to_port_sensors(hass, entry, coordinator.data),
     )
 
     # Remove stale smart-port total entities (smart_load_power /
