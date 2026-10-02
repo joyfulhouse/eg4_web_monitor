@@ -841,8 +841,9 @@ SMART_PORT_VALIDATED_KEY = "smart_port_statuses_validated"
 # Identity of the GridBOSS read behind the port statuses (the MID device's
 # last successful runtime refresh, as a POSIX timestamp).  Written on every
 # filtered read, validated or not (SMART_PORT_VALIDATED_KEY says which);
-# unchanged when a cycle reuses cached device data, so consumers can tell a
-# NEW read from a re-processed or carried-forward one.
+# unchanged when a cycle reuses cached device data, or the cloud served the
+# same portal payload again (coordinator_mixins._smart_port_read_stamp), so
+# consumers can tell a NEW read from a re-processed or carried-forward one.
 SMART_PORT_READ_KEY = "smart_port_statuses_read_at"
 
 # Keys that live in the coordinator sensors dict but must NOT become HA sensor
