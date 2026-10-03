@@ -2175,6 +2175,11 @@ def transport_config_block_size_kwargs(max_input_block_size: int) -> dict[str, A
     return {"max_input_block_size": max_input_block_size}
 
 
+# Serial-port URL schemes only serialx (``modbus_connection``) can open;
+# pymodbus cannot. Mirrors pylxpweb's private ``_SERIALX_ONLY_SCHEMES``.
+SERIALX_ONLY_SCHEMES: tuple[str, ...] = ("esphome://",)
+
+
 def _transport_config_backend_kwargs(item: dict[str, Any]) -> dict[str, Any]:
     """Feature-detected ``TransportConfig`` kwargs for a stored ``backend``.
 
@@ -2182,10 +2187,24 @@ def _transport_config_backend_kwargs(item: dict[str, Any]) -> dict[str, Any]:
     library (``auto`` / ``pymodbus`` / ``modbus_connection``). Absent or null
     means ``auto``. The key is passed only when the installed pylxpweb
     ``TransportConfig`` defines the field (0.10.0b10+), the same fallback
-    approach as the read block size (#254).
+    approach as the read block size (#254). A stored ``pymodbus`` on a port
+    only serialx can open (``esphome://``) is ignored with a warning.
     """
     backend = item.get("backend")
     if backend is None:
+        return {}
+    serial_port = str(item.get("serial_port") or "")
+    if str(backend).strip().lower().replace("-", "_") == "pymodbus" and (
+        serial_port.lower().startswith(SERIALX_ONLY_SCHEMES)
+    ):
+        # pymodbus cannot open these ports; honouring a hand-edited
+        # ``pymodbus`` would only fail at connect time.
+        _LOGGER.warning(
+            "Ignoring stored backend %r for %s: pymodbus cannot open %s; using auto",
+            backend,
+            item.get("serial"),
+            serial_port,
+        )
         return {}
     from pylxpweb.transports.config import TransportConfig
 
