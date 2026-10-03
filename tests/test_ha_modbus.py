@@ -297,6 +297,19 @@ def test_resolution_without_private_pylxpweb_module(
         assert ha_modbus._resolves_to_modbus_connection(config) is expected
 
 
+def test_serialx_only_schemes_match_pylxpweb() -> None:
+    """The local copy of pylxpweb's private scheme tuple must not drift."""
+    from custom_components.eg4_web_monitor.coordinator_mappings import (
+        SERIALX_ONLY_SCHEMES,
+    )
+
+    try:
+        from pylxpweb.transports._modbus_client import _SERIALX_ONLY_SCHEMES
+    except ImportError:
+        pytest.skip("pylxpweb no longer exposes _SERIALX_ONLY_SCHEMES")
+    assert SERIALX_ONLY_SCHEMES == _SERIALX_ONLY_SCHEMES
+
+
 def test_registry_uses_per_call_factory() -> None:
     """The shared registry keeps its own factory unless a call overrides it."""
     probe = _WireProbe()
