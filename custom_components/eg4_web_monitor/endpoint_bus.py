@@ -1117,14 +1117,26 @@ class EndpointBusRegistry:
         self._failed_shutdown_capabilities: set[EndpointBusCapability] = set()
         self._next_identity = 0
 
+    @property
+    def raw_transport_factory(self) -> RawTransportFactory:
+        """Return the registry's default raw-transport factory."""
+        return self._raw_transport_factory
+
     def create_capability(
         self,
         config: TransportConfig,
         *,
         snapshot_enabled: bool = False,
         poll_interval_seconds: float = 5.0,
+        raw_transport_factory: RawTransportFactory | None = None,
     ) -> EndpointBusCapability:
-        """Create and retain raw transport behind the endpoint capability."""
+        """Create and retain raw transport behind the endpoint capability.
+
+        ``raw_transport_factory`` overrides the registry's factory for this
+        one capability. The registry is shared across config entries, while
+        a factory handing out Home Assistant's shared Modbus units holds them
+        for one entry, so the coordinator passes its own per call.
+        """
         key = _endpoint_key(config)
         owner = self._owners.get(key)
         created_owner = owner is None
@@ -1149,7 +1161,7 @@ class EndpointBusRegistry:
         }
 
         try:
-            raw = self._raw_transport_factory(config)
+            raw = (raw_transport_factory or self._raw_transport_factory)(config)
             return owner.add(
                 raw,
                 snapshot_enabled=snapshot_enabled,

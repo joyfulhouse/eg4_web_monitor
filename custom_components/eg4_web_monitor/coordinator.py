@@ -127,6 +127,7 @@ from .endpoint_bus import (
     EndpointBusCapability,
     get_endpoint_bus_registry,
 )
+from .ha_modbus import build_shared_unit_factory
 from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
@@ -397,6 +398,12 @@ class EG4DataUpdateCoordinator(
         )
 
         self._endpoint_bus_registry = get_endpoint_bus_registry(hass)
+        # Runtime transports whose backend resolves to modbus_connection run
+        # on Home Assistant's shared Modbus connection where core provides
+        # one (2026.9+); everything else keeps the registry's owned factory.
+        self._raw_transport_factory = build_shared_unit_factory(
+            hass, entry, self._endpoint_bus_registry.raw_transport_factory
+        )
         self._bus_capabilities: set[EndpointBusCapability] = set()
         self._bus_capability_configs: dict[EndpointBusCapability, TransportConfig] = {}
 
@@ -1817,6 +1824,7 @@ class EG4DataUpdateCoordinator(
             config,
             snapshot_enabled=snapshot_enabled,
             poll_interval_seconds=poll_interval,
+            raw_transport_factory=getattr(self, "_raw_transport_factory", None),
         )
         self._bus_capabilities.add(capability)
         self._bus_capability_configs[capability] = config
