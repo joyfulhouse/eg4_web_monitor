@@ -183,7 +183,8 @@ def _require_timeout(unit: Any, seconds: float) -> None:
     timeout to an injected unit. ``require_timeout`` (modbus-connection
     4.12.0+) sets a per-unit requirement; the link runs at the largest one
     any unit asks for. Earlier releases, including the 4.10.0 Home Assistant
-    2026.9 pins, lack it and keep the 10 s default.
+    2026.9 pins, lack it and keep the 10 s default (checked against the
+    published 4.10.0, 4.11.0, 4.11.1, 4.12.0 and 4.12.3 wheels).
     """
     require = getattr(unit, "require_timeout", None)
     if callable(require):
