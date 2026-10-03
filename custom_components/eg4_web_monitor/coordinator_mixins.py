@@ -13,6 +13,7 @@ import asyncio
 from builtins import BaseExceptionGroup
 import logging
 import time
+import weakref
 from collections.abc import Awaitable, Callable, Collection, Coroutine
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -25,6 +26,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 from pylxpweb.exceptions import LuxpowerConnectionError
+from pylxpweb.models import MidboxData
 
 if TYPE_CHECKING:
     from homeassistant.helpers.storage import Store
@@ -399,6 +401,63 @@ BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)
 # Track devices that have already been warned about invalid smart port status
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
+
+# Cloud-served GridBOSS reads, per MID device object: (portal payload, the
+# device's ``_last_refresh`` when that payload was last served, read stamp).
+# pylxpweb advances ``_last_refresh`` on every accepted cloud refresh,
+# including one its response cache answered (the integration sets that
+# cache's lifetime to the HTTP polling interval), so on that path a read is
+# told apart by the payload instead (#641).
+_cloud_smart_port_reads: weakref.WeakKeyDictionary[
+    Any, tuple[MidboxData, datetime, float]
+] = weakref.WeakKeyDictionary()
+
+
+def _cloud_payload(mid_device: Any) -> MidboxData | None:
+    """Return the portal payload of a cloud-served runtime, else None.
+
+    The cloud serves the runtime when no transport is attached, or while an
+    attached transport's link is down (pylxpweb's cloud fallback).
+    """
+    if (
+        getattr(mid_device, "has_local_transport", False) is True
+        and getattr(mid_device, "transport_link_down", False) is not True
+    ):
+        return None
+    payload = getattr(getattr(mid_device, "_runtime", None), "midboxData", None)
+    return payload if isinstance(payload, MidboxData) else None
+
+
+def _smart_port_read_stamp(mid_device: Any) -> float | None:
+    """Return the identity of the GridBOSS read behind ``mid_device``'s data.
+
+    The MID device's last accepted runtime refresh, as a POSIX timestamp.  On
+    the cloud path an accepted refresh carrying the payload already counted
+    (the response cache, or a portal record the dongle has not updated) is
+    the same read and keeps its stamp.  Nothing here depends on what the
+    portal's ``serverTime`` means: any changed field is a new read.
+    """
+    refreshed = getattr(mid_device, "_last_refresh", None)
+    if not isinstance(refreshed, datetime):
+        return None
+    try:
+        held = _cloud_smart_port_reads.get(mid_device)
+    except TypeError:  # not weak-referenceable: nothing can be held for it
+        return refreshed.timestamp()
+    if held is not None and held[1] == refreshed:
+        # Nothing was accepted since: the data is still what was stamped (a
+        # rejected fetch, or a transport read rejected right after fallback).
+        return held[2]
+    payload = _cloud_payload(mid_device)
+    if payload is None:
+        _cloud_smart_port_reads.pop(mid_device, None)
+        return refreshed.timestamp()
+    stamp = (
+        held[2] if held is not None and held[0] == payload else refreshed.timestamp()
+    )
+    _cloud_smart_port_reads[mid_device] = (payload, refreshed, stamp)
+    return stamp
+
 
 # Cache the last known good smart port statuses per MID device serial.
 # WiFi dongles return corrupt status register data ~3% of polls (out-of-range
@@ -3784,9 +3843,9 @@ class DeviceProcessingMixin(_MixinBase):
 
         # Identity of this read, validated or not: consumers count READS, and
         # the unvalidated ones matter too (adoption fallback, #195/#248).
-        refreshed = getattr(mid_device, "_last_refresh", None)
-        if isinstance(refreshed, datetime):
-            sensors[SMART_PORT_READ_KEY] = refreshed.timestamp()
+        read_stamp = _smart_port_read_stamp(mid_device)
+        if read_stamp is not None:
+            sensors[SMART_PORT_READ_KEY] = read_stamp
 
         # Log invalid values from the raw read before any cache substitution
         if not is_good_read:
