@@ -32,7 +32,13 @@ import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
+from .const import (
+    CONF_CHARGE_CONTROL_MODE,
+    CONF_DISCHARGE_CONTROL_MODE,
+    DEFAULT_CONTROL_MODE,
+    DOMAIN,
+)
+from .const.midbox import PORT_OPTION_SPECS, option_matches_control_modes
 from .coordinator_mappings import (
     GRIDBOSS_SMART_PORT_KEY_TO_PORT,
     SMART_PORT_READ_KEY,
@@ -356,7 +362,14 @@ def port_status_signature(data: dict[str, Any] | None) -> tuple[Any, ...]:
 
 
 class PortSensorEnablement:
-    """Disable port sensors that don't serve the port's mode; re-enable them.
+    """Disable port entities that don't serve the port's mode; re-enable them.
+
+    Covers the port sensors (``PORT_SENSOR_SPECS``) and the smart port option
+    controls (``const.midbox.PORT_OPTION_SPECS``), each of which belongs to
+    one mode. An option's SOC or voltage threshold is also active only when
+    it matches the configured Battery Charge / Discharge Control option
+    (discharge for Smart Load and shedding, charge for AC Couple), as the
+    inverter's own regime-gated controls are.
 
     - Acts only on VALIDATED status reads (the #217 authority marker), and
       only after ``REQUIRED_READS`` consecutive validated READS agree
@@ -391,6 +404,14 @@ class PortSensorEnablement:
         self._coordinator = coordinator
         self._streak: dict[tuple[str, int], tuple[str | None, int]] = {}
         self._last_read: dict[str, Any] = {}
+
+    def _control_modes(self) -> tuple[str, str]:
+        """The configured Battery Charge / Discharge Control options."""
+        options = self._entry.options
+        return (
+            str(options.get(CONF_CHARGE_CONTROL_MODE, DEFAULT_CONTROL_MODE)),
+            str(options.get(CONF_DISCHARGE_CONTROL_MODE, DEFAULT_CONTROL_MODE)),
+        )
 
     def async_sync(self, data: dict[str, Any] | None) -> None:
         """Apply the current validated port modes to the registry."""
@@ -435,6 +456,23 @@ class PortSensorEnablement:
                             registry,
                             entity_id,
                             spec_is_active(spec, mode),
+                            self._entry.entry_id,
+                        )
+                charge_mode, discharge_mode = self._control_modes()
+                for option in PORT_OPTION_SPECS:
+                    entity_id = registry.async_get_entity_id(
+                        option.platform,
+                        DOMAIN,
+                        port_sensor_unique_id(serial, port, option.id_suffix),
+                    )
+                    if entity_id is not None:
+                        _apply(
+                            registry,
+                            entity_id,
+                            option.mode == mode
+                            and option_matches_control_modes(
+                                option, charge_mode, discharge_mode
+                            ),
                             self._entry.entry_id,
                         )
 

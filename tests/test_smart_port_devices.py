@@ -1363,3 +1363,14 @@ class TestFollowUpRegressions:
         sync.async_sync(validated_ac)
         assert registry.async_get(ac.entity_id).unique_id == f"{GB}_smart_port1_power"
         assert reloads == [entry.entry_id]
+
+
+def test_port_sensor_skips_write_while_registry_disabled():
+    """A coordinator update doesn't write a port sensor the sync just disabled
+    (HA would warn it "is incorrectly being triggered for updates")."""
+    coordinator = _Coordinator(None, {GB: _gridboss(_statuses("smart_load"))})
+    sensor = EG4SmartPortSensor(coordinator, GB, 1, SPEC["ac_couple_total"])  # type: ignore[arg-type]
+    sensor.async_write_ha_state = MagicMock()  # type: ignore[method-assign]
+    sensor.registry_entry = MagicMock(disabled_by=INTEGRATION)
+    sensor._handle_coordinator_update()
+    sensor.async_write_ha_state.assert_not_called()

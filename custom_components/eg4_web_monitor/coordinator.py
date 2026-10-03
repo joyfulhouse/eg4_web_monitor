@@ -122,6 +122,12 @@ from .coordinator_mixins import (
     ParameterManagementMixin,
     is_transport_link_down as _device_transport_link_down,
 )
+from .const.midbox import (
+    MIDBOX_OPTION_FIELDS,
+    decode_midbox_field,
+    decode_midbox_options,
+    encode_midbox_field,
+)
 from .const.sensors import SENSOR_TYPES
 from .endpoint_bus import (
     EndpointBusCapability,
@@ -130,6 +136,10 @@ from .endpoint_bus import (
 from .utils import async_write_with_cloud_fallback
 
 _LOGGER = logging.getLogger(__name__)
+
+# GridBOSS option writes: wait this long before the verify read, so a bit the
+# firmware reverts (it does so within a second) reads back reverted.
+_MIDBOX_VERIFY_DELAY = 1.5
 
 # Acknowledged local-raw parameter writes are retained (as overlay seeds)
 # until an authoritative read observes them — but never longer than this.
@@ -629,6 +639,12 @@ class EG4DataUpdateCoordinator(
         self._removal_device_observed_since: float | None = None
         self._removal_battery_observed_since: float | None = None
         self._removal_battery_parent_since: dict[str, float | None] = {}
+
+        # GridBOSS smart port options (const/midbox.py): the monotonic
+        # deadline of each GridBOSS's next full option read, and the count
+        # of consecutive failed full reads (retry backoff).
+        self._midbox_option_next_read: dict[str, float] = {}
+        self._midbox_option_failures: dict[str, int] = {}
 
         # Round-robin battery cache for LOCAL/HYBRID Modbus.
         # Some inverter firmware rotates which physical batteries appear in the
@@ -1194,7 +1210,9 @@ class EG4DataUpdateCoordinator(
         inverter = self.get_inverter_object(serial)
         return getattr(inverter, "transport", None) is not None
 
-    def note_parameters_written(self, serial: str, values: dict[str, Any]) -> None:
+    def note_parameters_written(
+        self, serial: str, values: dict[str, Any], *, seed: bool | None = None
+    ) -> None:
         """Merge acknowledged written parameter values into the cache and notify.
 
         Convergence for cloud-fallback writes while a local transport is
@@ -1207,6 +1225,11 @@ class EG4DataUpdateCoordinator(
         uses. A later successful parameter read that starts after the write
         overwrites it with fresh device data. Reads already in flight retain
         this acknowledged value instead of publishing their stale snapshot.
+
+        ``seed`` overrides whether the values are armed as write seeds
+        (default: when the serial's cache is local-raw). GridBOSS option
+        writes pass True: their cache is filled by raw register reads in
+        HYBRID too, where no pylxpweb inverter object marks it local-raw.
         """
         if not self.data:
             return
@@ -1214,7 +1237,7 @@ class EG4DataUpdateCoordinator(
         # must not retain a local-raw seed indefinitely. The generation
         # envelope is only needed when raw local register reads can race the
         # acknowledged write.
-        if self.params_are_local_raw(serial):
+        if seed if seed is not None else self.params_are_local_raw(serial):
             self._parameter_write_generation += 1
             generation = self._parameter_write_generation
             seeds = self._parameter_write_seeds.setdefault(serial, {})
@@ -1975,6 +1998,108 @@ class EG4DataUpdateCoordinator(
             failure_args=(register,),
             translated_error=lambda err: f"Failed to write register {register}: {err}",
         )
+
+    async def write_midbox_options(self, serial: str, values: dict[str, Any]) -> None:
+        """Write GridBOSS smart port option fields via the local transport.
+
+        ``values`` maps option names from ``MIDBOX_OPTION_FIELDS`` (layout
+        and evidence in const/midbox.py) to new values; all of them must
+        live in the same holding register. The register is unmapped in
+        pylxpweb's MIDBOX name map, so this is a read-modify-write against a
+        FRESH read — a cached base could clobber sibling fields changed in
+        the portal since the last poll — under a per-register transaction
+        lock (reload-safe, like the other multi-call controls), so two rapid
+        writes cannot interleave their read/write pairs. Only the named
+        fields' bits change.
+
+        The verify read waits ``_MIDBOX_VERIFY_DELAY`` first: the GridBOSS
+        reverts a function bit that does not match the port's mode within a
+        second, and an immediate read-back would still show the written
+        value. Its decode is the state source: it seeds the parameter cache
+        (entities converge without waiting for the next option read), and a
+        field that does not read back as written raises — the firmware-NAK
+        class where a write echoes OK but silently does not stick
+        (#251/#331 precedent).
+
+        The seed is marked confirmed at once. It still repairs a read that
+        was in flight during the write, but the next fresh read wins
+        outright: the 30 s settle window exists for cloud writes still
+        propagating, and would hide a later revert or portal change here.
+
+        Raises:
+            HomeAssistantError: If no local transport is available, a value
+                does not fit its field, any read/write fails, or the device
+                does not keep the written value.
+        """
+        fields = {name: MIDBOX_OPTION_FIELDS[name] for name in values}
+        registers = {field.register for field in fields.values()}
+        if len(registers) != 1:
+            raise ValueError(f"Options span more than one register: {sorted(values)}")
+        register = registers.pop()
+        names = ", ".join(sorted(values))
+        async with self.control_transaction_lock(serial, f"midbox_{register}"):
+            transport: EndpointBusCapability | None = self._midbox_transport(serial)
+            if not transport:
+                raise HomeAssistantError(
+                    "No local transport available for GridBOSS smart port write"
+                )
+            try:
+                if not transport.is_connected:
+                    await transport.connect()
+                raw = (await self._read_midbox_block(transport, register, 1))[register]
+                new_raw = raw
+                for name, value in values.items():
+                    new_raw = encode_midbox_field(fields[name], new_raw, value)
+                if new_raw != raw:
+                    await transport.write_parameters({register: new_raw})
+                    await asyncio.sleep(_MIDBOX_VERIFY_DELAY)
+                verified_raw = (await self._read_midbox_block(transport, register, 1))[
+                    register
+                ]
+            except ValueError as err:
+                raise HomeAssistantError(f"Invalid value for {names}: {err}") from err
+            except Exception as err:
+                _LOGGER.error("Failed to write %s for %s: %s", names, serial, err)
+                raise HomeAssistantError(f"Failed to write {names}: {err}") from err
+
+        # Post-write truth for every field in the register — a concurrent
+        # portal-side change of a sibling field lands here too.
+        verified = decode_midbox_options({register: verified_raw})
+        self.note_parameters_written(serial, verified, seed=True)
+        confirmed_at = time.monotonic()
+        for key in verified:
+            self._parameter_seed_confirmed[(serial, key)] = confirmed_at
+        rejected = [
+            name
+            for name, field in fields.items()
+            if decode_midbox_field(field, verified_raw)
+            != decode_midbox_field(field, new_raw)
+        ]
+        if rejected:
+            raise HomeAssistantError(
+                f"{', '.join(rejected)} write was rejected by the device "
+                f"(register {register} reads 0x{verified_raw:04x})"
+            )
+        _LOGGER.debug("Wrote %s for %s (register %s)", values, serial, register)
+
+    def _midbox_transport(self, serial: str) -> Any | None:
+        """The GridBOSS's local transport: LOCAL device cache, else the station MID.
+
+        ``get_local_transport`` does not cover a HYBRID GridBOSS (its
+        transport hangs off ``station.all_mid_devices``, which that lookup
+        never searches) and falls back to a legacy single-device transport
+        that belongs to an inverter, so GridBOSS option I/O resolves here.
+        """
+        mid_device = self._mid_device_cache.get(serial)
+        candidate = getattr(mid_device, "transport", None)
+        if candidate is not None:
+            return candidate
+        station = self.station
+        for mid in getattr(station, "all_mid_devices", None) or []:
+            if str(mid.serial_number) == serial:
+                candidate = getattr(mid, "transport", None)
+                return candidate
+        return None
 
     # ── Battery control regime (SOC vs Voltage, register 179 bits 9/10) ──────
 
