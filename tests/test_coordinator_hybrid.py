@@ -565,7 +565,7 @@ class TestAttachRetryAndDegradedFallback:
         )
         mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._failed_attach_serials = {"SYNTH00002"}
-        mock_self._last_attach_retry = 0.0
+        mock_self._last_attach_retry = None
         mock_self._local_transport_configs = [
             {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
@@ -604,7 +604,7 @@ class TestAttachRetryAndDegradedFallback:
         )
         mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._failed_attach_serials = {"SYNTH00002"}
-        mock_self._last_attach_retry = 0.0
+        mock_self._last_attach_retry = None
         mock_self._local_transport_configs = [
             {"serial": "SYNTH00002", "transport_type": "wifi_dongle"}
         ]
@@ -898,7 +898,7 @@ class TestAttachRetryAndDegradedFallback:
         )
         mock_self._attach_owned_transports = AsyncMock(return_value=attach_result)
         mock_self._failed_attach_serials = {"1111111111"}
-        mock_self._last_attach_retry = 0.0
+        mock_self._last_attach_retry = None
         mock_self._local_transport_configs = [
             {"serial": "1111111111", "transport_type": "modbus_tcp"}
         ]
@@ -946,7 +946,7 @@ class TestAttachRetryAndDegradedFallback:
         mock_self._local_transport_configs = [{"serial": "SYNTH00002"}]
         mock_self._local_transports_attached = False
         mock_self._failed_attach_serials = set()
-        mock_self._last_attach_retry = 0.0
+        mock_self._last_attach_retry = None
         mock_self._attach_local_transports_to_station = AsyncMock()
         mock_self._maybe_retry_failed_attaches = AsyncMock()
 
