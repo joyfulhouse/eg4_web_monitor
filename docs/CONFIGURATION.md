@@ -116,7 +116,9 @@ the manual-entry step, enter the port as `esphome://<host>:6053`. These ports ru
 on Home Assistant's own Modbus library (`modbus_connection`) rather than pymodbus,
 which cannot open them. Rolling back means removing the device and adding it
 again as a USB serial or Modbus TCP device; there is no setting to switch an
-`esphome://` port back to pymodbus.
+`esphome://` port back to pymodbus. Downgrading the integration (or pylxpweb) to
+a version without `esphome://` support leaves such a device unable to connect
+until it is re-added as a USB serial or Modbus TCP device.
 
 #### Home Assistant's shared Modbus connections
 
@@ -128,6 +130,14 @@ integration holding it unloads. If another integration already holds the same
 device with different link settings (baud rate, parity, stop bits), this
 integration logs a warning and keeps its own connection. Older Home Assistant
 versions always use the integration's own connection.
+
+A shared connection has one request timeout for every integration on it. Home
+Assistant opens it with `modbus_connection`'s 10-second default. With
+`modbus-connection` 4.12.0 or newer installed, this integration asks the link
+for its own configured timeout and the link uses the longest timeout any
+integration asks for. Home Assistant 2026.9 pins `modbus-connection` 4.10.0,
+which has no way to ask, so there a shared link keeps the 10-second default
+whatever timeout this integration is configured with.
 
 Modbus TCP gateways and USB serial adapters keep using pymodbus and their own
 connection, exactly as before.

@@ -16,6 +16,7 @@ These tests pin the eg4 side of that seam:
 from __future__ import annotations
 
 import dataclasses
+import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -113,6 +114,18 @@ class TestStoredBackend:
         }
         assert _config(dongle).backend == "auto"
 
+    @pytest.mark.parametrize("backend", ["pymodbus", "PyModbus"])
+    def test_pymodbus_on_esphome_port_is_ignored(
+        self, backend: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """pymodbus cannot open ``esphome://``: a hand-edited value falls back."""
+        assert _config({**_ESPHOME, "backend": backend}).backend == "auto"
+        assert "pymodbus cannot open esphome://" in caplog.text
+
+    def test_modbus_connection_on_esphome_port_is_kept(self) -> None:
+        item = {**_ESPHOME, "backend": "modbus_connection"}
+        assert _config(item).backend == "modbus_connection"
+
     def test_pylxpweb_without_backend_field_drops_key(self) -> None:
         """Older pylxpweb has no ``backend`` field: omit it, never TypeError."""
         legacy = dataclasses.make_dataclass("TransportConfig", [("host", str, "")])
@@ -135,6 +148,14 @@ def _factory(get_unit: Any, entry: Any, fallback: MagicMock) -> Any:
         return ha_modbus.build_shared_unit_factory(MagicMock(), entry, fallback)
 
 
+class _TimeoutRecordingUnit(_FakeUnit):
+    def __init__(self) -> None:
+        self.required: list[float | None] = []
+
+    def require_timeout(self, seconds: float | None) -> None:
+        self.required.append(seconds)
+
+
 class TestSharedUnitFactory:
     def test_without_async_get_unit_returns_fallback(
         self, entry: Any, fallback: MagicMock
@@ -153,7 +174,7 @@ class TestSharedUnitFactory:
             _TCP,
             _SERIAL,
             {**_TCP, "backend": "pymodbus"},
-            {**_ESPHOME, "backend": "pymodbus"},
+            {**_SERIAL, "backend": "pymodbus"},
         ],
     )
     def test_pymodbus_resolution_keeps_owned_path(
@@ -222,6 +243,28 @@ class TestSharedUnitFactory:
 
         assert get_unit.call_count == 2
 
+    def test_shared_unit_gets_the_transport_timeout(
+        self, entry: Any, fallback: MagicMock
+    ) -> None:
+        unit = _TimeoutRecordingUnit()
+        factory = _factory(MagicMock(return_value=unit), entry, fallback)
+        config = dataclasses.replace(_config(_ESPHOME), timeout=25.0)
+
+        factory(config)
+        factory(config)
+
+        assert unit.required == [25.0]
+
+    def test_unit_without_require_timeout_still_works(
+        self, entry: Any, fallback: MagicMock
+    ) -> None:
+        """modbus-connection before 4.12.0 (HA 2026.9 pins 4.10.0) lacks it."""
+        unit = _FakeUnit()
+        assert not hasattr(unit, "require_timeout")
+        factory = _factory(MagicMock(return_value=unit), entry, fallback)
+
+        assert factory(_config(_ESPHOME))._external_unit is unit
+
     def test_link_settings_clash_falls_back_to_owned_link(
         self, entry: Any, fallback: MagicMock, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -230,6 +273,28 @@ class TestSharedUnitFactory:
 
         assert factory(_config(_ESPHOME)) is fallback.return_value
         assert "different link settings" in caplog.text
+
+
+_RESOLUTION_CASES = [
+    (_TCP, False),
+    (_SERIAL, False),
+    (_ESPHOME, True),
+    ({**_ESPHOME, "serial_port": "ESPHOME://ESP.LOCAL:6053"}, True),
+    ({**_TCP, "backend": "modbus_connection"}, True),
+    ({**_SERIAL, "backend": "pymodbus"}, False),
+    ({**_ESPHOME, "backend": "modbus_connection"}, True),
+]
+
+
+@pytest.mark.parametrize(("item", "expected"), _RESOLUTION_CASES)
+def test_resolution_without_private_pylxpweb_module(
+    item: dict[str, Any], expected: bool
+) -> None:
+    """A pylxpweb that moves ``_modbus_client`` still resolves the same way."""
+    config = _config(item)
+    assert ha_modbus._resolves_to_modbus_connection(config) is expected
+    with patch.dict(sys.modules, {"pylxpweb.transports._modbus_client": None}):
+        assert ha_modbus._resolves_to_modbus_connection(config) is expected
 
 
 def test_registry_uses_per_call_factory() -> None:
@@ -273,21 +338,83 @@ async def test_real_async_get_unit_holds_until_entry_unloads(hass: Any) -> None:
     fallback = MagicMock(name="owned_factory")
     factory = ha_modbus.build_shared_unit_factory(hass, entry, fallback)
 
-    first = factory(_config(_ESPHOME))
-    second = factory(_config(_ESPHOME))
+    endpoint = ("serial", "esphome://esp-rs485.local:6053")
+    config = dataclasses.replace(_config(_ESPHOME), timeout=25.0)
+    first = factory(config)
+    second = factory(config)
 
     assert isinstance(first, ModbusSerialTransport)
     assert first._external_unit is second._external_unit
     fallback.assert_not_called()
-    shared = hass.data[DATA_MODBUS_CONNECTIONS][
-        ("serial", "esphome://esp-rs485.local:6053")
-    ]
+    shared = hass.data[DATA_MODBUS_CONNECTIONS][endpoint]
     assert shared.consumers == 1
+    if hasattr(first._external_unit, "require_timeout"):
+        # modbus-connection 4.12.0+: the link honours the transport timeout.
+        assert shared.connection._timeout == 25.0
 
+    # The transport only attaches to and detaches from the shared unit: its
+    # own connect/disconnect neither dials nor releases the hold.
+    await first.connect()
+    assert first.is_connected
+    assert first.backend_shares_link
+    await first.disconnect()
+    assert not first.is_connected
+    assert shared.consumers == 1
+    assert hass.data[DATA_MODBUS_CONNECTIONS][endpoint] is shared
+    assert not shared.connection._closed
+
+    # Only the entry unload releases the hold and closes the connection.
     for unload in entry._on_unload or []:
         result = unload()
         if result is not None:
             await result
-    assert ("serial", "esphome://esp-rs485.local:6053") not in hass.data[
-        DATA_MODBUS_CONNECTIONS
-    ]
+    assert endpoint not in hass.data[DATA_MODBUS_CONNECTIONS]
+    assert shared.consumers == 0
+    assert shared.connection._closed
+
+
+async def test_coordinator_capability_carries_shared_unit(hass: Any) -> None:
+    """The coordinator's capabilities use its shared-unit factory.
+
+    An ``esphome://`` port under ``auto`` runs on core's shared unit; a TCP
+    gateway under ``auto`` keeps the owned pymodbus link.
+    """
+    modbus = pytest.importorskip("homeassistant.components.modbus")
+    if not hasattr(modbus, "async_get_unit"):
+        pytest.skip("Home Assistant core predates async_get_unit (2026.9)")
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.eg4_web_monitor.const import (
+        CONF_CONNECTION_TYPE,
+        CONNECTION_TYPE_LOCAL,
+        DOMAIN,
+    )
+    from custom_components.eg4_web_monitor.coordinator import (
+        EG4DataUpdateCoordinator,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN, data={CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL}
+    )
+    entry.add_to_hass(hass)
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+    def raw_of(capability: EndpointBusCapability) -> Any:
+        return capability._owner._records[capability._token].raw
+
+    esphome = coordinator._create_bus_capability(_config(_ESPHOME))
+    tcp = coordinator._create_bus_capability(_config(_TCP))
+    try:
+        esphome_raw = raw_of(esphome)
+        assert isinstance(esphome_raw, ModbusSerialTransport)
+        assert esphome_raw._external_unit is not None
+
+        tcp_raw = raw_of(tcp)
+        assert isinstance(tcp_raw, ModbusTransport)
+        assert tcp_raw._external_unit is None
+        assert tcp_raw._backend == "pymodbus"
+    finally:
+        await coordinator._endpoint_bus_registry.async_shutdown_capabilities(
+            [esphome, tcp]
+        )
+        await coordinator.async_shutdown()

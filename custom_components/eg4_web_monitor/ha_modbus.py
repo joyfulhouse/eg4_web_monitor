@@ -30,6 +30,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pylxpweb.transports.config import TransportConfig, TransportType
 
+from .coordinator_mappings import SERIALX_ONLY_SCHEMES
 from .endpoint_bus import RawTransportFactory, _RawLocalTransport
 
 _LOGGER = logging.getLogger(__name__)
@@ -84,17 +85,31 @@ def _resolves_to_modbus_connection(config: TransportConfig) -> bool:
         TransportType.MODBUS_SERIAL,
     ):
         return False
-    from pylxpweb.transports._modbus_client import resolve_backend
-
     serial_port = (
         config.serial_port
         if config.transport_type is TransportType.MODBUS_SERIAL
         else None
     )
-    return (
-        resolve_backend(getattr(config, "backend", "auto"), serial_port=serial_port)
-        == "modbus_connection"
-    )
+    backend = str(getattr(config, "backend", "auto"))
+    try:
+        from pylxpweb.transports._modbus_client import resolve_backend
+    except ImportError:
+        return _owned_resolve_backend(backend, serial_port) == "modbus_connection"
+    return resolve_backend(backend, serial_port=serial_port) == "modbus_connection"
+
+
+def _owned_resolve_backend(backend: str, serial_port: str | None) -> str:
+    """Resolve ``auto`` the way pylxpweb 0.10.0b10 does, without its private module.
+
+    ``resolve_backend`` lives in pylxpweb's private ``_modbus_client`` module,
+    which a later release may move; this keeps the decision working if so.
+    """
+    value = backend.strip().lower().replace("-", "_")
+    if value != "auto":
+        return value
+    if serial_port is not None and serial_port.lower().startswith(SERIALX_ONLY_SCHEMES):
+        return "modbus_connection"
+    return "pymodbus"
 
 
 def _unit_params(config: TransportConfig) -> Any:
@@ -160,6 +175,21 @@ def _build_transport(config: TransportConfig, unit: Any) -> _RawLocalTransport:
     )
 
 
+def _require_timeout(unit: Any, seconds: float) -> None:
+    """Ask a shared link for this transport's configured request timeout.
+
+    Core builds the shared connection without a timeout, so the link uses
+    ``modbus_connection``'s 10 s default, and pylxpweb never passes its
+    timeout to an injected unit. ``require_timeout`` (modbus-connection
+    4.12.0+) sets a per-unit requirement; the link runs at the largest one
+    any unit asks for. Earlier releases, including the 4.10.0 Home Assistant
+    2026.9 pins, lack it and keep the 10 s default.
+    """
+    require = getattr(unit, "require_timeout", None)
+    if callable(require):
+        require(seconds)
+
+
 def build_shared_unit_factory(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -207,6 +237,7 @@ def build_shared_unit_factory(
                 )
                 return fallback(config)
             units[key] = unit
+            _require_timeout(unit, config.timeout)
             _LOGGER.debug(
                 "Using Home Assistant's shared Modbus connection %s for %s",
                 params.endpoint,
