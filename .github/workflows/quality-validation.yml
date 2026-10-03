@@ -824,7 +824,7 @@ jobs:
           # ">=stable" specifier here resolved the latest stable and missed
           # pre-release-only attributes (bit us on 0.9.37 -> 0.9.38b1: mypy
           # couldn't see run_firmware_update_to_completion).
-          PYLXPWEB_PIN=$(grep -oE '^pylxpweb[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
+          PYLXPWEB_PIN=$(grep -oE '^pylxpweb(\[[a-z0-9,-]+\])?[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
           echo "Using pin: $PYLXPWEB_PIN"
           # mypy pinned to match tests/requirements-test.txt (#528 review)
           uv pip install --system 'homeassistant>=2026.1.0' 'mypy==2.3.0' "$PYLXPWEB_PIN" -c ${{ matrix.constraints }}

@@ -110,17 +110,21 @@ _REPO = Path(__file__).resolve().parent.parent
 
 
 def test_manifest_and_test_requirements_pin_the_same_pylxpweb() -> None:
-    """The wheel CI tests against must be the wheel HA installs."""
+    """The wheel CI tests against must be the wheel HA installs.
+
+    Extras are compared too: HA checks only the distribution version once it
+    is installed, so an extra missing from either file would go unnoticed.
+    """
     manifest = json.loads(
         (_REPO / "custom_components/eg4_web_monitor/manifest.json").read_text()
     )
     manifest_pin = next(
-        r for r in manifest["requirements"] if r.startswith("pylxpweb==")
+        r for r in manifest["requirements"] if re.match(r"pylxpweb[\[=]", r)
     )
     requirements = (_REPO / "tests/requirements-test.txt").read_text()
-    match = re.search(r"^pylxpweb==([^\s#]+)", requirements, re.M)
+    match = re.search(r"^(pylxpweb(?:\[[^\]]+\])?==[^\s#]+)", requirements, re.M)
     assert match is not None
-    assert manifest_pin == f"pylxpweb=={match.group(1)}"
+    assert manifest_pin == match.group(1)
 
 
 def _hybrid_inverter() -> tuple[HybridInverter, Mock]:

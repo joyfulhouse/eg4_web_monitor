@@ -143,7 +143,7 @@
           "serial_port": "Serial Port Path"
         },
         "data_description": {
-          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
+          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS), or esphome://host:6053 for an ESPHome serial proxy"
         }
       },
       "local_device_confirmed": {
@@ -327,7 +327,7 @@
           "serial_port": "Serial Port Path"
         },
         "data_description": {
-          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
+          "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS), or esphome://host:6053 for an ESPHome serial proxy"
         }
       }
     },

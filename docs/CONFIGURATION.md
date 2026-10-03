@@ -109,6 +109,29 @@ manually, and the integration auto-discovers the model and serial number.
 > For Docker, add `--device /dev/ttyUSB0:/dev/ttyUSB0` to your run command. For
 > HAOS, USB devices are typically auto-detected.
 
+#### ESPHome serial proxy
+
+An RS485 adapter wired to an ESPHome device can stand in for a USB adapter. In
+the manual-entry step, enter the port as `esphome://<host>:6053`. These ports run
+on Home Assistant's own Modbus library (`modbus_connection`) rather than pymodbus,
+which cannot open them. Rolling back means removing the device and adding it
+again as a USB serial or Modbus TCP device; there is no setting to switch an
+`esphome://` port back to pymodbus.
+
+#### Home Assistant's shared Modbus connections
+
+On Home Assistant 2026.9 and newer, a device that runs on `modbus_connection` (an
+`esphome://` port today) uses Home Assistant's shared connection for that link,
+so other integrations that use the same Modbus device take turns on one
+connection instead of colliding. The connection closes when the last
+integration holding it unloads. If another integration already holds the same
+device with different link settings (baud rate, parity, stop bits), this
+integration logs a warning and keeps its own connection. Older Home Assistant
+versions always use the integration's own connection.
+
+Modbus TCP gateways and USB serial adapters keep using pymodbus and their own
+connection, exactly as before.
+
 ### WiFi dongle
 
 If your inverter has a WiFi dongle on your local network, connect directly to it

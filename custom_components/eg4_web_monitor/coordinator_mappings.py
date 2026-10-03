@@ -2175,6 +2175,25 @@ def transport_config_block_size_kwargs(max_input_block_size: int) -> dict[str, A
     return {"max_input_block_size": max_input_block_size}
 
 
+def _transport_config_backend_kwargs(item: dict[str, Any]) -> dict[str, Any]:
+    """Feature-detected ``TransportConfig`` kwargs for a stored ``backend``.
+
+    The optional per-transport ``backend`` key selects pylxpweb's Modbus wire
+    library (``auto`` / ``pymodbus`` / ``modbus_connection``). Absent or null
+    means ``auto``. The key is passed only when the installed pylxpweb
+    ``TransportConfig`` defines the field (0.10.0b10+), the same fallback
+    approach as the read block size (#254).
+    """
+    backend = item.get("backend")
+    if backend is None:
+        return {}
+    from pylxpweb.transports.config import TransportConfig
+
+    if not any(f.name == "backend" for f in dataclasses.fields(TransportConfig)):
+        return {}
+    return {"backend": str(backend)}
+
+
 def _build_transport_configs(
     config_list: list[dict[str, Any]],
     max_input_block_size: int | None = None,
@@ -2210,6 +2229,11 @@ def _build_transport_configs(
 
             # Build type-specific kwargs
             extra_kwargs: dict[str, Any] = dict(block_size_kwargs)
+            if transport_type in (
+                TransportType.MODBUS_TCP,
+                TransportType.MODBUS_SERIAL,
+            ):
+                extra_kwargs.update(_transport_config_backend_kwargs(item))
             if transport_type == TransportType.MODBUS_TCP:
                 extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
             elif transport_type == TransportType.WIFI_DONGLE:
