@@ -415,7 +415,7 @@ async def async_setup_entry(
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
     if coordinator.data and "station" in coordinator.data:
-        async_add_entities([EG4DSTSwitch(coordinator)], update_before_add=True)
+        async_add_entities([EG4DSTSwitch(coordinator)])
 
     setup_control_entity_discovery(
         hass,
