@@ -8,14 +8,18 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from datetime import time as dt_time
+from decimal import Decimal
+import math
 import logging
 import time
 from typing import TYPE_CHECKING, Any, Generator, cast
 
+from homeassistant.components.sensor import RestoreSensor
 from homeassistant.const import EntityCategory
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from homeassistant.components.select import SelectEntity
@@ -305,6 +309,72 @@ def device_present_and_healthy(
 # counter wrap) are larger than 10% and pass through unchanged.
 _RESET_DETECTION_THRESHOLD = 0.9
 
+_DAILY_TOTAL_SENSOR_KEYS = frozenset(
+    {
+        "daily_energy",
+        "yield",
+        "discharging",
+        "charging",
+        "consumption",
+        "load_energy",
+        "grid_export",
+        "grid_import",
+        "inverter_energy",
+        "ac_charge_energy",
+        "eps_energy",
+        "generator_energy",
+        "battery_charge",
+        "battery_discharge",
+        "eps_energy_today_l1",
+        "eps_energy_today_l2",
+        "pv1_yield",
+        "pv2_yield",
+        "pv3_yield",
+        "pv4_yield",
+        "pv5_yield",
+        "pv6_yield",
+    }
+)
+
+
+class _RestoreEnergyDipGuard(RestoreSensor):
+    """Seed the bounded guard with HA's restored native sensor value."""
+
+    _last_reported_value: float | None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore a compatible prior value before the first publication."""
+        await super().async_added_to_hass()
+        if getattr(self, "_attr_state_class", None) != "total_increasing":
+            return
+
+        restored = await self.async_get_last_sensor_data()
+        if restored is None:
+            return
+        value: Any = restored.native_value
+        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+            return
+        restored_value = float(value)
+        if not math.isfinite(restored_value):
+            return
+        if restored.native_unit_of_measurement != self.native_unit_of_measurement:
+            return
+
+        sensor_key = getattr(self, "_sensor_key", None)
+        if sensor_key in _DAILY_TOTAL_SENSOR_KEYS or (
+            isinstance(sensor_key, str) and sensor_key.endswith("_today")
+        ):
+            previous_state = await self.async_get_last_state()
+            if previous_state is not None:
+                last_updated = previous_state.last_updated
+                if (
+                    last_updated is None
+                    or dt_util.as_local(last_updated).date() < dt_util.now().date()
+                ):
+                    return
+
+        self._last_reported_value = restored_value
+
 
 def _guard_total_increasing(
     state_class: Any, raw_value: Any, last_reported: float | None
@@ -408,7 +478,7 @@ def _apply_sensor_config(
     return sensor_config
 
 
-class EG4BaseSensor(EG4DeviceEntity):
+class EG4BaseSensor(EG4DeviceEntity, _RestoreEnergyDipGuard):
     """Base class for EG4 sensor entities with shared configuration logic.
 
     This class provides common sensor functionality:
@@ -498,7 +568,7 @@ class EG4BaseSensor(EG4DeviceEntity):
         return device_present_and_healthy(self.coordinator, self._serial)
 
 
-class EG4BaseBatterySensor(EG4BatteryEntity):
+class EG4BaseBatterySensor(EG4BatteryEntity, _RestoreEnergyDipGuard):
     """Base class for EG4 individual battery sensor entities.
 
     Provides common functionality for battery-specific sensors:
@@ -597,7 +667,7 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         ].get("batteries", {})
 
 
-class EG4BatteryBankEntity(EG4DeviceEntity):
+class EG4BatteryBankEntity(EG4DeviceEntity, _RestoreEnergyDipGuard):
     """Base class for EG4 battery bank entities (aggregate of all batteries).
 
     Battery bank entities represent the combined state of all batteries

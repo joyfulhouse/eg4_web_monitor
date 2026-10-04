@@ -1,6 +1,6 @@
 """Tests for base entity classes."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -415,6 +415,147 @@ class TestGuardIntegrationWithBaseSensor:
         # Subsequent reads compare against the post-reset baseline.
         mock_coordinator.data["devices"]["1234567890"]["sensors"]["consumption"] = 0.1
         assert sensor.native_value == 0.1
+
+    @pytest.mark.parametrize("sensor_kind", ["device", "battery", "bank"])
+    @pytest.mark.asyncio
+    async def test_restored_high_seeds_dip_guard(self, mock_coordinator, sensor_kind):
+        from custom_components.eg4_web_monitor.base_entity import (
+            EG4BaseBatterySensor,
+            EG4BaseSensor,
+            EG4BatteryBankEntity,
+        )
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": 14.8,
+        }
+        mock_coordinator.data["devices"]["1234567890"]["batteries"]["Battery_ID_01"][
+            "consumption_lifetime"
+        ] = 14.8
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        mock_coordinator.get_battery_device_info = MagicMock(return_value=None)
+        mock_coordinator.get_battery_bank_device_info = MagicMock(return_value=None)
+        if sensor_kind == "device":
+            sensor = EG4BaseSensor(
+                mock_coordinator, "1234567890", "consumption_lifetime"
+            )
+        elif sensor_kind == "battery":
+            sensor = EG4BaseBatterySensor(
+                mock_coordinator,
+                "1234567890",
+                "Battery_ID_01",
+                "consumption_lifetime",
+            )
+        else:
+            sensor = EG4BatteryBankEntity(
+                mock_coordinator, "1234567890", "consumption_lifetime"
+            )
+
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(15.3, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 15.3
+        sensor.async_get_last_sensor_data.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_daily_restore_from_prior_local_day_is_ignored(
+        self, mock_coordinator
+    ):
+        from datetime import timedelta
+        from types import SimpleNamespace
+
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+        from homeassistant.util import dt as dt_util
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption": 0.0,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption")
+        sensor.hass = SimpleNamespace(config=SimpleNamespace(time_zone="UTC"))
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(14.4, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(
+            return_value=SimpleNamespace(last_updated=dt_util.now() - timedelta(days=1))
+        )
+
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 0.0
+        sensor.async_get_last_sensor_data.assert_awaited_once()
+        sensor.async_get_last_state.assert_awaited_once()
+
+    @pytest.mark.parametrize("restored", [None, float("inf"), float("nan"), "unknown"])
+    @pytest.mark.asyncio
+    async def test_invalid_restored_value_does_not_seed_guard(
+        self, mock_coordinator, restored
+    ):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": 14.8,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption_lifetime")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(restored, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 14.8
+        sensor.async_get_last_sensor_data.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_restored_guard_still_accepts_genuine_large_reset(
+        self, mock_coordinator
+    ):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": 10.0,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption_lifetime")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(15.3, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 10.0
+        sensor.async_get_last_sensor_data.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_restored_value_in_different_native_unit_is_ignored(
+        self, mock_coordinator
+    ):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": 14.8,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption_lifetime")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(15_300, "Wh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 14.8
+        sensor.async_get_last_sensor_data.assert_awaited_once()
 
 
 class TestErrorKeyAvailabilityContract:
