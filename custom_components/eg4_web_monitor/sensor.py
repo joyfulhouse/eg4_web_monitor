@@ -267,7 +267,7 @@ async def async_setup_entry(
             "No device data available for sensor setup, only creating station sensors"
         )
         if phase1_entities:
-            async_add_entities(phase1_entities, True)
+            async_add_entities(phase1_entities)
         return
 
     # Adopt legacy per-mode entries against THIS data before creating port
@@ -333,7 +333,7 @@ async def async_setup_entry(
 
     # Phase 1: Register root devices (station + parallel groups)
     if phase1_entities:
-        async_add_entities(phase1_entities, True)
+        async_add_entities(phase1_entities)
         _LOGGER.info(
             "Phase 1: Added %d root entities (station, parallel groups)",
             len(phase1_entities),
@@ -342,7 +342,7 @@ async def async_setup_entry(
     # Phase 2: Register child devices (inverters, gridboss, battery banks)
     # These reference parallel groups via via_device
     if phase2_entities:
-        async_add_entities(phase2_entities, True)
+        async_add_entities(phase2_entities)
         _LOGGER.info(
             "Phase 2: Added %d device entities (inverters, gridboss, battery banks)",
             len(phase2_entities),
@@ -351,7 +351,7 @@ async def async_setup_entry(
     # Phase 3: Register entities of devices nested under a Phase 2 device
     # (individual batteries, smart ports) via via_device
     if phase3_entities:
-        async_add_entities(phase3_entities, True)
+        async_add_entities(phase3_entities)
         port_count = sum(isinstance(e, EG4SmartPortSensor) for e in phase3_entities)
         _LOGGER.info(
             "Phase 3: Added %d individual battery and %d smart port sensor entities",
@@ -401,7 +401,7 @@ async def async_setup_entry(
                 "Late battery registration: adding %d entities for new batteries/sensors",
                 len(new_entities),
             )
-            async_add_entities(new_entities, True)
+            async_add_entities(new_entities)
 
     entry.async_on_unload(
         coordinator.async_add_listener(
@@ -454,7 +454,7 @@ async def async_setup_entry(
             _LOGGER.info(
                 "Late smart port registration: adding %d entities", len(new_entities)
             )
-            async_add_entities(new_entities, True)
+            async_add_entities(new_entities)
 
     entry.async_on_unload(
         coordinator.async_add_listener(
@@ -542,7 +542,7 @@ async def async_setup_entry(
                 "(transport-only sensors now available)",
                 len(new_entities),
             )
-            async_add_entities(new_entities, True)
+            async_add_entities(new_entities)
 
     entry.async_on_unload(
         coordinator.async_add_listener(
@@ -597,7 +597,7 @@ async def async_setup_entry(
                 "Late battery bank registration: adding %d entities",
                 len(new_entities),
             )
-            async_add_entities(new_entities, True)
+            async_add_entities(new_entities)
 
     entry.async_on_unload(
         coordinator.async_add_listener(
@@ -652,7 +652,6 @@ async def async_setup_entry(
                 )
                 for serial, port, suffix in ready
             ],
-            True,
         )
 
     entry.async_on_unload(coordinator.async_add_listener(_async_register_port_sensors))
