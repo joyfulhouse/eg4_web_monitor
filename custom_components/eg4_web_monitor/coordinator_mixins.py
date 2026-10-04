@@ -833,6 +833,7 @@ if TYPE_CHECKING:
         _last_pg_energy_fetch: float | None
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
+        _local_initial_read_task: asyncio.Task[Any] | None
         _data_validation_enabled: bool
         _max_input_block_size: int
         _include_params_this_cycle: bool
@@ -3966,10 +3967,9 @@ class DeviceProcessingMixin(_MixinBase):
 # removed ``DEVICE_INFO_KEYS`` (so never probe it -- the import would fail).
 # From 2026.9.0 the legacy ``via_device`` tuple is deprecated (removed in
 # 2027.8.0) and RAISES instead of warning when the add is attributed to core or
-# to no integration, as when an entity-ID edit from the UI/websocket resumes
-# outside the integration.  The entity is then silently not added until the
-# entry reloads.  Older HA only knows ``via_device``, so feature-detect on the
-# helper.
+# to no integration (for example an entity-ID rename from the UI/websocket).
+# The entity is then silently not added until the entry reloads.  Older HA only
+# knows ``via_device``, so feature-detect on the helper.
 # TODO: delete the ``via_device`` branch once hacs.json's minimum
 # ``homeassistant`` is >= 2026.8.0 (it is 2026.1.0 as of this change).
 _get_device_id_by_identifier: Callable[..., str] | None = getattr(
