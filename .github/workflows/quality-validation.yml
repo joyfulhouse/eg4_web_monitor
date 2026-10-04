@@ -227,6 +227,8 @@ jobs:
   bronze-requirements-resolve:
     name: Bronze - Requirements resolve (HA ${{ matrix.ha }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -244,11 +246,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          version: '0.12.23'
 
       - name: Resolve manifest requirements under HA's package constraints
         run: |
@@ -866,8 +870,12 @@ jobs:
           # couldn't see run_firmware_update_to_completion).
           PYLXPWEB_PIN=$(grep -oE '^pylxpweb(\[[a-z0-9,-]+\])?[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
           echo "Using pin: $PYLXPWEB_PIN"
+          # ha_modbus imports modbus_connection; HA ships it only from 2026.9, so
+          # tests/requirements-test.txt carries it as a test-only requirement.
+          MODBUS_CONNECTION_REQ=$(grep -oE '^modbus-connection(\[[a-z0-9,-]+\])?[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
+          echo "Using requirement: $MODBUS_CONNECTION_REQ"
           # mypy pinned to match tests/requirements-test.txt (#528 review)
-          uv pip install --system 'homeassistant>=2026.1.0' 'mypy==2.3.0' "$PYLXPWEB_PIN" -c ${{ matrix.constraints }}
+          uv pip install --system 'homeassistant>=2026.1.0' 'mypy==2.3.0' "$PYLXPWEB_PIN" "$MODBUS_CONNECTION_REQ" -c ${{ matrix.constraints }}
 
       - name: Verify strict typing configuration
         run: |
