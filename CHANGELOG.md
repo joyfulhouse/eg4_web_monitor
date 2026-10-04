@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.17] - 2026-10-04
+
 Requires **[pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**.
 
 ### Added
@@ -1160,7 +1162,8 @@ The biggest release in the integration's history: 279 commits, 43 beta/RC releas
 
 - Requires `pylxpweb>=0.4.4`
 
-[Unreleased]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.0-beta.3...HEAD
+[Unreleased]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.1-beta.17...HEAD
+[3.5.1-beta.17]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.1-beta.16...v3.5.1-beta.17
 [3.5.0-beta.3]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.0-beta.2...v3.5.0-beta.3
 [3.5.0-beta.2]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.5.0-beta.1...v3.5.0-beta.2
 [3.5.0-beta.1]: https://github.com/joyfulhouse/eg4_web_monitor/compare/v3.4.0...v3.5.0-beta.1
