@@ -1091,3 +1091,32 @@ wrong: "Modbus-only" came from a code comment, not from the library; and "adopti
 assumed the fallback rule was evidence, when on the skip path it is a tie-break. Updated
 [architecture §4.1](10-integration/architecture.md) and
 [entities §5](10-integration/entities-identity-availability.md).
+
+## [2026-10-03] ingest | pylxpweb 0.10.0b10 Modbus backend seam wired into the integration
+
+The manifest now pins `pylxpweb[modbus-connection]==0.10.0b10` and lists `modbus` under
+`after_dependencies`. A stored per-transport `backend` key (absent or null means `auto`) reaches
+`TransportConfig.backend`, feature-detected like the read block size (#254). The new
+`ha_modbus.py` gives each coordinator a raw-transport factory that injects Home Assistant's
+`async_get_unit` (core 2026.9+, feature-detected by import, not version) only when the backend
+resolves to `modbus_connection` — `auto` on TCP or a local serial path stays on pymodbus and the
+owned link, so the Waveshare transaction-ID workaround still applies there. Units are memoised per
+link params and unit ID because every `async_get_unit` call adds a hold released only at entry
+unload (`homeassistant/components/modbus/connection.py` at 2026.9.4). Discovery keeps the owned
+path: core's config-flow variant is an async context manager and the discovery capability is
+created synchronously. Not yet ingested into
+[transports](20-pylxpweb/transports.md), which is still verified against `pylxpweb@204b95d`;
+its backend/`unit=` rows need a re-verification pass against `v0.10.0b10`, not a local edit.
+
+## [2026-10-04] ingest | Correction: the manifest pins plain pylxpweb, not the modbus-connection extra
+
+The 2026-10-03 entry above says the manifest pins `pylxpweb[modbus-connection]==0.10.0b10`. That
+was true at e75acca and is no longer: since 401b3b6 the manifest pins plain
+`pylxpweb==0.10.0b10`. The extra requires `serialx>=1.8.2`, and Home Assistant's
+`package_constraints.txt` pins `serialx==1.7.0` on 2026.5.0 and `serialx==1.8.0` on 2026.6.0, so
+the integration's requirements could not install there (the hacs.json floor is 2026.1.0). `modbus`
+stays in `after_dependencies`: from 2026.9.0, core's `modbus` manifest pins
+`modbus-connection[tmodbus]==4.10.0` and `tmodbus==0.6.2` (serialx arrives transitively), so
+`esphome://` serial ports and the shared `async_get_unit` path need Home Assistant 2026.9 or newer.
+CI job `bronze-requirements-resolve` resolves the manifest's requirements under each HA minor's
+constraints from 2026.1.0. No other `llmwiki/` page claimed the extra pin.

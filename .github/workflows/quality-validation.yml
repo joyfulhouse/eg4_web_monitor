@@ -224,6 +224,45 @@ jobs:
           targets: .
           options: "-r -ll -i -x ./test_env,./venv,./tests"
 
+  bronze-requirements-resolve:
+    name: Bronze - Requirements resolve (HA ${{ matrix.ha }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {ha: '2026.1.0', python: '3.13'}
+          - {ha: '2026.2.0', python: '3.13'}
+          - {ha: '2026.3.0', python: '3.14'}
+          - {ha: '2026.4.0', python: '3.14'}
+          - {ha: '2026.5.0', python: '3.14'}
+          - {ha: '2026.6.0', python: '3.14'}
+          - {ha: '2026.7.0', python: '3.14'}
+          - {ha: '2026.8.0', python: '3.14'}
+          - {ha: '2026.9.0', python: '3.14'}
+          - {ha: '2026.9.4', python: '3.14'}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Resolve manifest requirements under HA's package constraints
+        run: |
+          # Dry-run what HA installs for this integration: the manifest's
+          # requirements plus those of `modbus` (an after_dependency), under
+          # that release's package_constraints.txt. An HA pin that conflicts
+          # with ours (e.g. serialx==1.7.0 on 2026.5) fails setup for users.
+          base=https://raw.githubusercontent.com/home-assistant/core/${{ matrix.ha }}/homeassistant
+          curl -fsSL "$base/package_constraints.txt" -o ha-constraints.txt
+          curl -fsSL "$base/components/modbus/manifest.json" -o ha-modbus.json
+          python3 -c "import json; [print(r) for f in ('custom_components/eg4_web_monitor/manifest.json', 'ha-modbus.json') for r in json.load(open(f))['requirements']]" > ha-requirements.txt
+          cat ha-requirements.txt
+          uv pip compile --no-header --python-version ${{ matrix.python }} -c ha-constraints.txt ha-requirements.txt
+
   bronze-summary:
     name: 🥉 Bronze Tier Summary
     runs-on: ubuntu-latest
@@ -238,7 +277,8 @@ jobs:
       bronze-entity-naming,
       bronze-unique-id,
       bronze-code-quality,
-      bronze-security-scan
+      bronze-security-scan,
+      bronze-requirements-resolve
     ]
     steps:
       - name: Checkout code
@@ -824,7 +864,7 @@ jobs:
           # ">=stable" specifier here resolved the latest stable and missed
           # pre-release-only attributes (bit us on 0.9.37 -> 0.9.38b1: mypy
           # couldn't see run_firmware_update_to_completion).
-          PYLXPWEB_PIN=$(grep -oE '^pylxpweb[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
+          PYLXPWEB_PIN=$(grep -oE '^pylxpweb(\[[a-z0-9,-]+\])?[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
           echo "Using pin: $PYLXPWEB_PIN"
           # mypy pinned to match tests/requirements-test.txt (#528 review)
           uv pip install --system 'homeassistant>=2026.1.0' 'mypy==2.3.0' "$PYLXPWEB_PIN" -c ${{ matrix.constraints }}

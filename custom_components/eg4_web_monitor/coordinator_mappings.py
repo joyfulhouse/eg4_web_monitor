@@ -2175,6 +2175,44 @@ def transport_config_block_size_kwargs(max_input_block_size: int) -> dict[str, A
     return {"max_input_block_size": max_input_block_size}
 
 
+# Serial-port URL schemes only serialx (``modbus_connection``) can open;
+# pymodbus cannot. Mirrors pylxpweb's private ``_SERIALX_ONLY_SCHEMES``.
+SERIALX_ONLY_SCHEMES: tuple[str, ...] = ("esphome://",)
+
+
+def _transport_config_backend_kwargs(item: dict[str, Any]) -> dict[str, Any]:
+    """Feature-detected ``TransportConfig`` kwargs for a stored ``backend``.
+
+    The optional per-transport ``backend`` key selects pylxpweb's Modbus wire
+    library (``auto`` / ``pymodbus`` / ``modbus_connection``). Absent or null
+    means ``auto``. The key is passed only when the installed pylxpweb
+    ``TransportConfig`` defines the field (0.10.0b10+), the same fallback
+    approach as the read block size (#254). A stored ``pymodbus`` on a port
+    only serialx can open (``esphome://``) is ignored with a warning.
+    """
+    backend = item.get("backend")
+    if backend is None:
+        return {}
+    serial_port = str(item.get("serial_port") or "")
+    if str(backend).strip().lower().replace("-", "_") == "pymodbus" and (
+        serial_port.lower().startswith(SERIALX_ONLY_SCHEMES)
+    ):
+        # pymodbus cannot open these ports; honouring a hand-edited
+        # ``pymodbus`` would only fail at connect time.
+        _LOGGER.warning(
+            "Ignoring stored backend %r for %s: pymodbus cannot open %s; using auto",
+            backend,
+            item.get("serial"),
+            serial_port,
+        )
+        return {}
+    from pylxpweb.transports.config import TransportConfig
+
+    if not any(f.name == "backend" for f in dataclasses.fields(TransportConfig)):
+        return {}
+    return {"backend": str(backend)}
+
+
 def _build_transport_configs(
     config_list: list[dict[str, Any]],
     max_input_block_size: int | None = None,
@@ -2210,6 +2248,11 @@ def _build_transport_configs(
 
             # Build type-specific kwargs
             extra_kwargs: dict[str, Any] = dict(block_size_kwargs)
+            if transport_type in (
+                TransportType.MODBUS_TCP,
+                TransportType.MODBUS_SERIAL,
+            ):
+                extra_kwargs.update(_transport_config_backend_kwargs(item))
             if transport_type == TransportType.MODBUS_TCP:
                 extra_kwargs["unit_id"] = item.get("unit_id", DEFAULT_MODBUS_UNIT_ID)
             elif transport_type == TransportType.WIFI_DONGLE:

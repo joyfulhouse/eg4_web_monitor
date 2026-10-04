@@ -109,6 +109,41 @@ manually, and the integration auto-discovers the model and serial number.
 > For Docker, add `--device /dev/ttyUSB0:/dev/ttyUSB0` to your run command. For
 > HAOS, USB devices are typically auto-detected.
 
+#### ESPHome serial proxy
+
+Requires Home Assistant 2026.9 or newer. An RS485 adapter wired to an ESPHome
+device can stand in for a USB adapter. In the manual-entry step, enter the port as
+`esphome://<host>:6053`. These ports run on Home Assistant's own Modbus library
+(`modbus_connection`) rather than pymodbus, which cannot open them. Home Assistant
+ships that library from 2026.9 with its `modbus` integration. These ports also
+need ESPHome's client library (`aioesphomeapi`), which this integration does not
+install; Home Assistant installs it when its ESPHome integration is set up. On older Home Assistant the device fails to connect with a message
+that `modbus-connection` is not installed; other devices are unaffected. Rolling back means removing the device and adding it
+again as a USB serial or Modbus TCP device; there is no setting to switch an
+`esphome://` port back to pymodbus. Downgrading the integration (or pylxpweb) to
+a version without `esphome://` support leaves such a device unable to connect
+until it is re-added as a USB serial or Modbus TCP device.
+
+#### Home Assistant's shared Modbus connections
+
+A device that runs on `modbus_connection` (an `esphome://` port today) uses Home Assistant's shared connection for that link,
+so other integrations that use the same Modbus device take turns on one
+connection instead of colliding. The connection closes when the last
+integration holding it unloads. If another integration already holds the same
+device with different link settings (baud rate, parity, stop bits), this
+integration logs a warning and keeps its own connection.
+
+A shared connection has one request timeout for every integration on it. Home
+Assistant opens it with `modbus_connection`'s 10-second default. With
+`modbus-connection` 4.12.0 or newer installed, this integration asks the link
+for its own configured timeout and the link uses the longest timeout any
+integration asks for. Home Assistant 2026.9 pins `modbus-connection` 4.10.0,
+which has no way to ask, so there a shared link keeps the 10-second default
+whatever timeout this integration is configured with.
+
+Modbus TCP gateways and USB serial adapters keep using pymodbus and their own
+connection, exactly as before.
+
 ### WiFi dongle
 
 If your inverter has a WiFi dongle on your local network, connect directly to it
