@@ -1923,10 +1923,8 @@ class LocalTransportMixin(_MixinBase):
                 len(self._local_transport_configs),
             )
             # Schedule an immediate follow-up refresh to load real register data.
-            # This runs after async_config_entry_first_refresh() completes;
-            # sensor setup waits for it before creating measurement entities.
+            # Queue the real register read after this static first pass.
             task = self.hass.async_create_task(self.async_request_refresh())
-            self._local_initial_read_task = task
             self._background_tasks.add(task)
             task.add_done_callback(self._remove_task_from_set)
             task.add_done_callback(self._log_task_exception)

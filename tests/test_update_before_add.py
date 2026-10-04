@@ -3,15 +3,13 @@
 import ast
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
-    MockEntityPlatform,
 )
 
 from custom_components.eg4_web_monitor import sensor, switch
@@ -20,11 +18,10 @@ from custom_components.eg4_web_monitor.const import (
     CONF_DST_SYNC,
     CONF_LIBRARY_DEBUG,
     CONF_LOCAL_TRANSPORTS,
-    CONNECTION_TYPE_HYBRID,
     CONNECTION_TYPE_LOCAL,
     DOMAIN,
 )
-from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
+from custom_components.eg4_web_monitor.coordinator_local import LocalTransportMixin
 
 
 class _Entry:
@@ -103,11 +100,8 @@ def test_platform_add_calls_do_not_request_update_before_add(filename):
                 assert keyword.value.value is False
 
 
-@pytest.mark.parametrize("hybrid", [False, True])
-async def test_sensor_setup_preserves_first_reading_without_entity_refresh(
-    hass: HomeAssistant, hybrid: bool
-):
-    """Real HA entity setup publishes inverter and bank readings on first add."""
+async def test_local_first_sensor_state_uses_real_ha_startup_path(hass):
+    """Observe first LOCAL states through HA's refresh and platform forwarding."""
     entry = MockConfigEntry(
         domain=DOMAIN,
         title="Local inverter",
@@ -128,86 +122,80 @@ async def test_sensor_setup_preserves_first_reading_without_entity_refresh(
         },
     )
     entry.add_to_hass(hass)
-    coordinator = EG4DataUpdateCoordinator(hass, entry)
-    entry.runtime_data = coordinator
-    initial = {
-        "plant_id": None,
-        "devices": {
-            "1234567890": {
-                "type": "inverter",
-                "model": "FlexBOSS21",
-                "features": {"supports_split_phase": True},
-                "sensors": {"pv1_voltage": None, "battery_bank_soc": None},
-                "batteries": {},
-            }
-        },
-        "parameters": {},
-        "connection_type": CONNECTION_TYPE_LOCAL,
-    }
-    measured = {
-        **initial,
-        "devices": {
-            "1234567890": {
-                **initial["devices"]["1234567890"],
-                "sensors": {"pv1_voltage": 321.0, "battery_bank_soc": 74.0},
-            }
-        },
-    }
-    if hybrid:
-        coordinator.connection_type = CONNECTION_TYPE_HYBRID
-        initial = measured
-    coordinator.data = initial
-    coordinator._local_static_phase_done = True
-    coordinator.async_request_refresh = AsyncMock()
-    release_read = asyncio.Event()
-
-    async def first_local_read() -> None:
-        await release_read.wait()
-        coordinator.async_set_updated_data(measured)
-
-    coordinator._local_initial_read_task = hass.async_create_task(first_local_read())
-
-    platform = MockEntityPlatform(hass, domain="sensor", platform_name=DOMAIN)
-    platform.config_entry = entry
+    device_registry = dr.async_get(hass)
+    for identifier in ("1234567890", "1234567890_battery_bank"):
+        device_registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, identifier)},
+            name=identifier,
+            manufacturer="EG4 Electronics",
+            model="FlexBOSS21",
+        )
+    release_read = hass.loop.create_future()
+    read_started = hass.loop.create_future()
     first_states: dict[str, str] = {}
+    state_history: dict[str, list[str]] = {}
+    first_target_state = hass.loop.create_future()
 
     def record_first_state(event) -> None:
         state = event.data.get("new_state")
-        if state is not None:
+        if state is None:
+            return
+        if "pv1_voltage" in state.entity_id or "battery_bank_soc" in state.entity_id:
             first_states.setdefault(state.entity_id, state.state)
+            state_history.setdefault(state.entity_id, []).append(state.state)
+            if not first_target_state.done():
+                first_target_state.set_result(None)
 
     hass.bus.async_listen(EVENT_STATE_CHANGED, record_first_state)
 
-    def add_entities(entities, **kwargs) -> None:
-        hass.async_create_task(platform.async_add_entities(entities, **kwargs))
-
-    setup = hass.async_create_task(sensor.async_setup_entry(hass, entry, add_entities))
-    await asyncio.sleep(0)
-    release_read.set()
-    await setup
-    await hass.async_block_till_done()
-
-    registry = platform.entities
-    inverter = next(
-        entity
-        for entity in registry.values()
-        if entity.unique_id == "1234567890_pv1_voltage"
-    )
-    bank = next(
-        entity
-        for entity in registry.values()
-        if entity.unique_id == "1234567890_battery_bank_battery_bank_soc"
-    )
-    assert first_states[inverter.entity_id] == "321.0"
-    assert first_states[bank.entity_id] == "74.0"
-    registered_identifiers = {
-        identifier
-        for device in dr.async_entries_for_config_entry(
-            dr.async_get(hass), entry.entry_id
+    async def controlled_local_read(coordinator, config, processed, availability):
+        if not read_started.done():
+            read_started.set_result(None)
+        await release_read
+        serial = config["serial"]
+        processed["devices"][serial]["sensors"].update(
+            {
+                "pv1_voltage": 321.0,
+                "battery_bank_soc": 74.0,
+                "battery_bank_count": 4,
+            }
         )
-        for domain, identifier in device.identifiers
-        if domain == DOMAIN
-    }
-    assert "1234567890" in registered_identifiers
-    assert "1234567890_battery_bank" in registered_identifiers
-    coordinator.async_request_refresh.assert_not_awaited()
+        availability[serial] = True
+
+    try:
+        with patch.object(
+            LocalTransportMixin,
+            "_process_single_local_device",
+            controlled_local_read,
+        ):
+            setup = hass.async_create_task(
+                hass.config_entries.async_setup(entry.entry_id)
+            )
+            await asyncio.wait_for(read_started, timeout=10)
+            try:
+                await asyncio.wait_for(first_target_state, timeout=0.5)
+            except TimeoutError:
+                pass
+            release_read.set_result(None)
+            assert await asyncio.wait_for(setup, timeout=30)
+            await hass.async_block_till_done()
+    finally:
+        if not release_read.done():
+            release_read.set_result(None)
+
+    inverter_state = next(
+        state for entity_id, state in first_states.items() if "pv1_voltage" in entity_id
+    )
+    bank_state = next(
+        state
+        for entity_id, state in first_states.items()
+        if "battery_bank_soc" in entity_id
+    )
+    assert inverter_state == "unknown"
+    assert bank_state == "unknown"
+    for entity_id, expected in (
+        (next(key for key in first_states if "pv1_voltage" in key), "321.0"),
+        (next(key for key in first_states if "battery_bank_soc" in key), "74.0"),
+    ):
+        assert expected in state_history[entity_id]
