@@ -833,7 +833,6 @@ if TYPE_CHECKING:
         _last_pg_energy_fetch: float | None
         _local_parameters_loaded: bool
         _local_static_phase_done: bool
-        _local_initial_read_task: asyncio.Task[Any] | None
         _data_validation_enabled: bool
         _max_input_block_size: int
         _include_params_this_cycle: bool

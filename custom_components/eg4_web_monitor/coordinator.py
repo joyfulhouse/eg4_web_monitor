@@ -699,7 +699,6 @@ class EG4DataUpdateCoordinator(
         # Static-data phase: first local refresh returns pre-populated sensor keys
         # with None values for immediate entity creation (zero Modbus reads).
         self._local_static_phase_done: bool = False
-        self._local_initial_read_task: asyncio.Task[Any] | None = None
 
         # Data validation: opt-in corruption detection for local register reads.
         # When enabled, corrupt Modbus reads are rejected at two levels:

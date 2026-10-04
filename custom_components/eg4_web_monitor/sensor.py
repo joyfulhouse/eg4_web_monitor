@@ -1,6 +1,5 @@
 """Sensor platform for EG4 Web Monitor integration."""
 
-import asyncio
 import logging
 import re
 from collections.abc import Collection
@@ -27,7 +26,6 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
-    CONNECTION_TYPE_LOCAL,
     HYBRID_EXCLUDED_SENSORS,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
@@ -239,14 +237,6 @@ async def async_setup_entry(
     See: https://github.com/joyfulhouse/eg4_web_monitor/issues/154
     """
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
-
-    # LOCAL's first refresh only supplies static entity keys. Wait for the
-    # already-scheduled real read before creating measurement entities.
-    local_initial_read_task = getattr(coordinator, "_local_initial_read_task", None)
-    if getattr(
-        coordinator, "connection_type", None
-    ) == CONNECTION_TYPE_LOCAL and isinstance(local_initial_read_task, asyncio.Task):
-        await asyncio.shield(local_initial_read_task)
 
     # Phase 1 entities: root devices (station, parallel groups) - no via_device
     phase1_entities: list[SensorEntity] = []
