@@ -1,12 +1,30 @@
 """Coordinator entity setup uses initial data without requesting a refresh."""
 
 import ast
+import asyncio
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockEntityPlatform,
+)
 
 from custom_components.eg4_web_monitor import sensor, switch
+from custom_components.eg4_web_monitor.const import (
+    CONF_CONNECTION_TYPE,
+    CONF_DST_SYNC,
+    CONF_LIBRARY_DEBUG,
+    CONF_LOCAL_TRANSPORTS,
+    CONNECTION_TYPE_HYBRID,
+    CONNECTION_TYPE_LOCAL,
+    DOMAIN,
+)
+from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 
 
 class _Entry:
@@ -83,3 +101,113 @@ def test_platform_add_calls_do_not_request_update_before_add(filename):
             if keyword.arg == "update_before_add":
                 assert isinstance(keyword.value, ast.Constant)
                 assert keyword.value.value is False
+
+
+@pytest.mark.parametrize("hybrid", [False, True])
+async def test_sensor_setup_preserves_first_reading_without_entity_refresh(
+    hass: HomeAssistant, hybrid: bool
+):
+    """Real HA entity setup publishes inverter and bank readings on first add."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="Local inverter",
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+            CONF_DST_SYNC: False,
+            CONF_LIBRARY_DEBUG: False,
+            CONF_LOCAL_TRANSPORTS: [
+                {
+                    "serial": "1234567890",
+                    "host": "127.0.0.1",
+                    "port": 502,
+                    "transport_type": "modbus_tcp",
+                    "inverter_family": "EG4_HYBRID",
+                    "model": "FlexBOSS21",
+                }
+            ],
+        },
+    )
+    entry.add_to_hass(hass)
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+    entry.runtime_data = coordinator
+    initial = {
+        "plant_id": None,
+        "devices": {
+            "1234567890": {
+                "type": "inverter",
+                "model": "FlexBOSS21",
+                "features": {"supports_split_phase": True},
+                "sensors": {"pv1_voltage": None, "battery_bank_soc": None},
+                "batteries": {},
+            }
+        },
+        "parameters": {},
+        "connection_type": CONNECTION_TYPE_LOCAL,
+    }
+    measured = {
+        **initial,
+        "devices": {
+            "1234567890": {
+                **initial["devices"]["1234567890"],
+                "sensors": {"pv1_voltage": 321.0, "battery_bank_soc": 74.0},
+            }
+        },
+    }
+    if hybrid:
+        coordinator.connection_type = CONNECTION_TYPE_HYBRID
+        initial = measured
+    coordinator.data = initial
+    coordinator._local_static_phase_done = True
+    coordinator.async_request_refresh = AsyncMock()
+    release_read = asyncio.Event()
+
+    async def first_local_read() -> None:
+        await release_read.wait()
+        coordinator.async_set_updated_data(measured)
+
+    coordinator._local_initial_read_task = hass.async_create_task(first_local_read())
+
+    platform = MockEntityPlatform(hass, domain="sensor", platform_name=DOMAIN)
+    platform.config_entry = entry
+    first_states: dict[str, str] = {}
+
+    def record_first_state(event) -> None:
+        state = event.data.get("new_state")
+        if state is not None:
+            first_states.setdefault(state.entity_id, state.state)
+
+    hass.bus.async_listen(EVENT_STATE_CHANGED, record_first_state)
+
+    def add_entities(entities, **kwargs) -> None:
+        hass.async_create_task(platform.async_add_entities(entities, **kwargs))
+
+    setup = hass.async_create_task(sensor.async_setup_entry(hass, entry, add_entities))
+    await asyncio.sleep(0)
+    release_read.set()
+    await setup
+    await hass.async_block_till_done()
+
+    registry = platform.entities
+    inverter = next(
+        entity
+        for entity in registry.values()
+        if entity.unique_id == "1234567890_pv1_voltage"
+    )
+    bank = next(
+        entity
+        for entity in registry.values()
+        if entity.unique_id == "1234567890_battery_bank_battery_bank_soc"
+    )
+    assert first_states[inverter.entity_id] == "321.0"
+    assert first_states[bank.entity_id] == "74.0"
+    registered_identifiers = {
+        identifier
+        for device in dr.async_entries_for_config_entry(
+            dr.async_get(hass), entry.entry_id
+        )
+        for domain, identifier in device.identifiers
+        if domain == DOMAIN
+    }
+    assert "1234567890" in registered_identifiers
+    assert "1234567890_battery_bank" in registered_identifiers
+    coordinator.async_request_refresh.assert_not_awaited()
