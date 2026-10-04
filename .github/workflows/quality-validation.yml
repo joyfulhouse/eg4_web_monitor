@@ -232,6 +232,9 @@ jobs:
       matrix:
         include:
           - {ha: '2026.1.0', python: '3.13'}
+          - {ha: '2026.2.0', python: '3.13'}
+          - {ha: '2026.3.0', python: '3.14'}
+          - {ha: '2026.4.0', python: '3.14'}
           - {ha: '2026.5.0', python: '3.14'}
           - {ha: '2026.6.0', python: '3.14'}
           - {ha: '2026.7.0', python: '3.14'}
@@ -258,7 +261,7 @@ jobs:
           curl -fsSL "$base/components/modbus/manifest.json" -o ha-modbus.json
           python3 -c "import json; [print(r) for f in ('custom_components/eg4_web_monitor/manifest.json', 'ha-modbus.json') for r in json.load(open(f))['requirements']]" > ha-requirements.txt
           cat ha-requirements.txt
-          uv pip compile --no-header --prerelease=allow --python-version ${{ matrix.python }} -c ha-constraints.txt ha-requirements.txt
+          uv pip compile --no-header --python-version ${{ matrix.python }} -c ha-constraints.txt ha-requirements.txt
 
   bronze-summary:
     name: 🥉 Bronze Tier Summary
