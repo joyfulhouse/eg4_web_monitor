@@ -309,31 +309,19 @@ def device_present_and_healthy(
 # counter wrap) are larger than 10% and pass through unchanged.
 _RESET_DETECTION_THRESHOLD = 0.9
 
+_NON_DAILY_TOTAL_SENSOR_KEY_PARTS = (
+    "_lifetime",
+    "_total",
+    "_cycle_count",
+)
 _DAILY_TOTAL_SENSOR_KEYS = frozenset(
-    {
-        "daily_energy",
-        "yield",
-        "discharging",
-        "charging",
-        "consumption",
-        "load_energy",
-        "grid_export",
-        "grid_import",
-        "inverter_energy",
-        "ac_charge_energy",
-        "eps_energy",
-        "generator_energy",
-        "battery_charge",
-        "battery_discharge",
-        "eps_energy_today_l1",
-        "eps_energy_today_l2",
-        "pv1_yield",
-        "pv2_yield",
-        "pv3_yield",
-        "pv4_yield",
-        "pv5_yield",
-        "pv6_yield",
-    }
+    sensor_key
+    for sensor_key, sensor_config in SENSOR_TYPES.items()
+    if isinstance(sensor_config, dict)
+    and sensor_config.get("state_class") == "total_increasing"
+    and not sensor_key.startswith(("total_", "monthly_", "yearly_"))
+    and sensor_key != "cycle_count"
+    and not any(part in sensor_key for part in _NON_DAILY_TOTAL_SENSOR_KEY_PARTS)
 )
 
 
