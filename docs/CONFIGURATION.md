@@ -59,6 +59,9 @@ may work, but this is what we recommend:
 > Ethernet — no separate power supply needed. For cable runs over 50 feet, use
 > shielded cable to reduce interference.
 
+> If your adapter is near the inverter you can use the 12 volt power supply 
+> built-in to the inverter. The terminals are right next to the RS485 terminals.
+
 #### Wiring
 
 ```
@@ -86,7 +89,12 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
      gateway = your router IP.
    - **Serial port:** baud `19200`, data bits `8`, stop bits `1`, parity `None`.
    - **Working mode:** `TCP Server`, local port `502` (standard Modbus TCP).
+   - **Protocol:** `Modbus TCP to RTU`.
 4. Save and restart the adapter.
+
+> If using the 4-CH adapter you will need to repeat these steps for each channel 
+> that you wish to use. The default IPs for channels 2-4 are: `http://192.168.1.201` 
+> `http://192.168.1.202` `http://192.168.1.203`
 
 #### Home Assistant side
 
