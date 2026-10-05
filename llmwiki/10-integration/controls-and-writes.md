@@ -592,7 +592,7 @@ Location: `control_discovery.py:122-189`. Evidence: `verified-against-code`.
 | One **capability signature** per platform: per-serial type / model / features + a platform-specific `extra_signature` | `control_discovery.py:43-66` |
 | Fast-moving sensor values are **deliberately excluded** from the signature | otherwise every tick would rebuild candidates |
 | On signature change: rebuild candidates, mark already-registered entities supported/unsupported via `_set_control_discovery_supported`, add only genuinely new unique IDs | `control_discovery.py:122-185` |
-| `migrate_model_prefix` renames legacy `{model}_{serial}_{key}` IDs when the suffix match is unambiguous | `control_discovery.py:69-119` |
+| `migrate_model_prefix` renames one legacy `{model}_{serial}_{key}` ID to `{serial}_{key}` — an enabled entry first, then the most recently created — and removes the other legacy entries for the same control, or all of them when `{serial}_{key}` is already registered; an entry whose entity is loaded (a state without `restored`) is never removed. Before this, two legacy entries (a model reported two ways) were left alone and a third entity was registered beside them ([#656](https://github.com/joyfulhouse/eg4_web_monitor/issues/656)) | `verified-against-code` at branch `fix/control-setup-order-656` (#656 change set, licensed per claim) — `control_discovery.py` → `_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity` |
 | The listener is registered **before** the first `_rediscover_controls()` call, so capability convergence happens in the same tick as entity updates | `control_discovery.py:186-189` |
 
 Platform route signatures: `number.py:743-759`, `switch.py:385-405`.

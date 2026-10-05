@@ -179,6 +179,9 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 _LIBRARY_LOGGING_DATA_KEY = f"{DOMAIN}_library_logging"
 
+# How long setup waits for the first parameter read before adding controls.
+_INITIAL_PARAMETER_WAIT_SECONDS = 15
+
 
 @dataclass(slots=True)
 class _LibraryLoggingState:
@@ -1497,6 +1500,18 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         # still rolls back the members that did load.
         coordinator._forwarded_platforms = list(SENSOR_PLATFORM)
         await hass.config_entries.async_forward_entry_setups(entry, SENSOR_PLATFORM)
+        # Sensor setup no longer waits on a refresh, so without this the
+        # controls were created before the first parameter read and showed
+        # unavailable until it landed.  Bounded: a slow read only delays
+        # control setup, never blocks it.
+        if not await coordinator.async_wait_for_missing_parameters(
+            _INITIAL_PARAMETER_WAIT_SECONDS
+        ):
+            _LOGGER.debug(
+                "Parameters for %s not loaded after %ss; adding controls anyway",
+                entry.title,
+                _INITIAL_PARAMETER_WAIT_SECONDS,
+            )
         coordinator._forwarded_platforms = list(PLATFORMS)
         await hass.config_entries.async_forward_entry_setups(entry, OTHER_PLATFORMS)
     except asyncio.CancelledError:
