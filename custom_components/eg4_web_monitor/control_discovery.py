@@ -12,6 +12,7 @@ from collections.abc import Callable, Hashable, Mapping, Sequence
 import logging
 from typing import Any
 
+from homeassistant.const import ATTR_RESTORED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -75,9 +76,17 @@ def _migrate_model_prefixed_unique_ids(
     """Migrate ``{model}_{serial}_{key}`` IDs to ``{serial}_{key}`` in place.
 
     Number and time entities historically embedded the discovered model.  A
-    model transition therefore registered a second entity.  Matching the full
-    new unique ID as a suffix is unambiguous for a config entry; ambiguous
-    legacy data is left untouched rather than guessed at destructively.
+    model transition therefore registered a second entity, and a model that
+    changed more than once (HYBRID reports differ between the portal and the
+    transport) left one legacy entry per model (#656).  Matching the full new
+    unique ID as a suffix identifies every legacy entry for the same control
+    in this config entry.
+
+    Nothing can recreate a model-prefixed ID, so every match is the same
+    control.  One is kept by rewriting its unique ID, preferring an enabled
+    entry and then the most recently created one (the newest model).  The
+    rest are removed, as are all of them when the stable ID is already
+    registered.  An entry that still backs a loaded entity is never removed.
     """
     entry_id = getattr(config_entry, "entry_id", None)
     if not isinstance(entry_id, str):
@@ -94,29 +103,46 @@ def _migrate_model_prefixed_unique_ids(
         unique_id = entity.unique_id
         if not unique_id:
             continue
-        if registry.async_get_entity_id(platform, DOMAIN, unique_id) is not None:
-            continue
 
         suffix = f"_{unique_id}"
         matches = [
             entry for entry in registry_entries if entry.unique_id.endswith(suffix)
         ]
-        if len(matches) == 1:
-            legacy = matches[0]
-            registry.async_update_entity(legacy.entity_id, new_unique_id=unique_id)
+        if not matches:
+            continue
+
+        if registry.async_get_entity_id(platform, DOMAIN, unique_id) is None:
+            keep = max(
+                matches,
+                key=lambda entry: (entry.disabled_by is None, entry.created_at),
+            )
+            matches.remove(keep)
+            registry_entries.remove(keep)
+            registry.async_update_entity(keep.entity_id, new_unique_id=unique_id)
             _LOGGER.info(
                 "Migrated %s control identity %s -> %s",
                 platform,
-                legacy.unique_id,
+                keep.unique_id,
                 unique_id,
             )
-        elif len(matches) > 1:
-            _LOGGER.warning(
-                "Not migrating ambiguous %s control identity ending in %s: %s",
+
+        for legacy in matches:
+            if _backs_loaded_entity(hass, legacy.entity_id):
+                continue
+            registry.async_remove(legacy.entity_id)
+            registry_entries.remove(legacy)
+            _LOGGER.info(
+                "Removed superseded %s control %s (legacy identity %s)",
                 platform,
-                unique_id,
-                [entry.entity_id for entry in matches],
+                legacy.entity_id,
+                legacy.unique_id,
             )
+
+
+def _backs_loaded_entity(hass: HomeAssistant, entity_id: str) -> bool:
+    """Return whether a live entity, not a startup placeholder, owns the ID."""
+    state = hass.states.get(entity_id)
+    return state is not None and not state.attributes.get(ATTR_RESTORED, False)
 
 
 def setup_control_entity_discovery(

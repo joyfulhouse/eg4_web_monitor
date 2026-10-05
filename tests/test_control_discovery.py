@@ -394,3 +394,148 @@ async def test_model_prefixed_control_identity_is_migrated_in_place(
         registry.async_get_entity_id(platform, DOMAIN, new_unique_id)
         == legacy.entity_id
     )
+
+
+def _registry_control(
+    registry: er.EntityRegistry,
+    entry: MockConfigEntry,
+    platform: str,
+    unique_id: str,
+    **kwargs: Any,
+) -> er.RegistryEntry:
+    """Register one control identity for ``entry``."""
+    return registry.async_get_or_create(
+        platform, DOMAIN, unique_id, config_entry=entry, **kwargs
+    )
+
+
+def _control_entry(hass, platform: str, coordinator: Any) -> MockConfigEntry:
+    """Add a config entry whose runtime data is ``coordinator``."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=f"{platform} migration",
+        data={},
+        entry_id=f"control-migration-{platform}",
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_data = coordinator
+    return entry
+
+
+_LEGACY_CONTROL_CASES = (
+    ("number", async_setup_number, _number_coordinator, "ac_charge_power"),
+    ("time", async_setup_time, _time_coordinator, "ac_charge_start_time_1"),
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_one_of_several_model_prefixed_identities_is_kept(
+    hass, freezer, platform, setup, coordinator, key
+):
+    """A control registered under two models keeps the newest entry (#656).
+
+    The older one is removed instead of leaving both behind next to a newly
+    registered stable entity.
+    """
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    older = _registry_control(registry, entry, platform, f"lxp_eu_12k_{SERIAL}_{key}")
+    freezer.tick(60)
+    newer = _registry_control(
+        registry, entry, platform, f"lxp_lb_eu_12k_{SERIAL}_{key}"
+    )
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    new_unique_id = f"{SERIAL}_{key}"
+    assert registry.async_get_entity_id(platform, DOMAIN, new_unique_id) == (
+        newer.entity_id
+    )
+    assert registry.async_get(older.entity_id) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_enabled_model_prefixed_identity_wins_over_newer_disabled(
+    hass, freezer, platform, setup, coordinator, key
+):
+    """An entry the user disabled is not the one kept."""
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    enabled = _registry_control(registry, entry, platform, f"lxp_eu_12k_{SERIAL}_{key}")
+    freezer.tick(60)
+    disabled = _registry_control(
+        registry,
+        entry,
+        platform,
+        f"lxp_lb_eu_12k_{SERIAL}_{key}",
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get_entity_id(platform, DOMAIN, f"{SERIAL}_{key}") == (
+        enabled.entity_id
+    )
+    assert registry.async_get(disabled.entity_id) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_model_prefixed_leftovers_removed_once_stable_identity_exists(
+    hass, platform, setup, coordinator, key
+):
+    """Installs already showing duplicates are cleaned up (#656).
+
+    The stable entity registered while the legacy entries were ambiguous is
+    kept as is.
+    """
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    legacy = [
+        _registry_control(registry, entry, platform, f"{model}_{SERIAL}_{key}")
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    ]
+    stable = _registry_control(registry, entry, platform, f"{SERIAL}_{key}")
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get(stable.entity_id) is not None
+    assert registry.async_get(stable.entity_id).unique_id == f"{SERIAL}_{key}"
+    for entry_ in legacy:
+        assert registry.async_get(entry_.entity_id) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_model_prefixed_entry_backing_a_live_entity_is_kept(
+    hass, platform, setup, coordinator, key
+):
+    """Only orphans are removed: a loaded entity's entry is left alone.
+
+    A restored placeholder state (what HA writes for an entry with no entity)
+    does not count as loaded.
+    """
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    live, placeholder = (
+        _registry_control(registry, entry, platform, f"{model}_{SERIAL}_{key}")
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    )
+    _registry_control(registry, entry, platform, f"{SERIAL}_{key}")
+    hass.states.async_set(live.entity_id, "1")
+    hass.states.async_set(placeholder.entity_id, "unavailable", {"restored": True})
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get(live.entity_id) is not None
+    assert registry.async_get(placeholder.entity_id) is None

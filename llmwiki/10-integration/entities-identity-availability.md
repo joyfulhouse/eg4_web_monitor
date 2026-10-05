@@ -408,6 +408,13 @@ This table and paragraph were re-verified in the change that introduced `via_dev
 Because of the parent chain, the `SENSOR` platform must be forwarded **before** every other
 platform — it creates the parent devices, and on HA ≥ 2026.8 an unregistered parent leaves the
 child unlinked (`verified-against-code` — `__init__.py` → `SENSOR_PLATFORM` / `OTHER_PLATFORMS`).
+Between the two groups, setup waits up to 15 s for an in-flight missing-parameter load
+(`async_wait_for_missing_parameters`), ending early once every inverter it is loading has
+parameters, so controls are not created ahead of the first parameter read and shown
+unavailable; on timeout the controls are added anyway (`verified-against-code` at branch
+`fix/control-setup-order-656`, licensed per claim — `__init__.py` →
+`_INITIAL_PARAMETER_WAIT_SECONDS`; `coordinator_mixins.py` →
+`ParameterManagementMixin.async_wait_for_missing_parameters`).
 
 **Battery identity is serial-first across all three modes**, with in-place registry migration
 (`battery_migration.py`), so switching modes no longer duplicates battery devices (#252). Identity
