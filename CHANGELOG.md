@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Avoid duplicate coordinator refreshes while adding sensor and switch entities.
 
+### Fixed
+
+- **GridBOSS smart port entities can no longer be switched on or off by one portal reading counted twice** ([#641](https://github.com/joyfulhouse/eg4_web_monitor/issues/641)): the integration waits for two GridBOSS reads to agree on a port's mode before disabling or re-enabling that port's entities. When the GridBOSS's data came from the cloud and Home Assistant refreshed more often than the HTTP polling interval, the same cached portal response could be counted as both reads. That happens in Hybrid mode when the GridBOSS has no local connection or its local link is down, and on any extra refresh such as the one after changing a setting. A cloud reading now counts again only once the portal's data has changed. Local (Modbus, dongle, serial) reads are unchanged. Also, when a port sensor adopted on upgrade has an entity ID naming the port's other mode, the log now says so and how to rename it; its readings and history were always right.
+
 ## [3.5.1-beta.17] - 2026-10-04
 
 Requires **[pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**.
