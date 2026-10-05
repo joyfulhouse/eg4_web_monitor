@@ -1120,3 +1120,56 @@ stays in `after_dependencies`: from 2026.9.0, core's `modbus` manifest pins
 `esphome://` serial ports and the shared `async_get_unit` path need Home Assistant 2026.9 or newer.
 CI job `bronze-requirements-resolve` resolves the manifest's requirements under each HA minor's
 constraints from 2026.1.0. No other `llmwiki/` page claimed the extra pin.
+
+## [2026-09-29] ingest | GridBOSS smart port option registers (229-317, 2101)
+
+Pinned the per-port smart port settings (enables, "based on", SOC / voltage thresholds,
+shedding, time windows) on a live GridBOSS (fw IAAB-1300) by making one portal or app change
+at a time and diffing dongle reads of 229-317 and 2099-2104. The cloud range read already names
+every register, which fixes register → field; the diffs pinned byte order (low byte = start SOC,
+= window hour), scales, and bit positions. Only the port 2 shedding / based-on round trip was
+restored, so only it meets `hardware-toggle-proven`; the rest is `portal-correlated` or
+`inferred`. The mobile app over local WiFi was not a reliable readback (showed port 3 shedding off
+while register and portal had it on), so the portal was the reference. Open: port 4's based-on
+bit (2101 b4) collides with a mobile-app "Time+SOC/Volt" write on port 3, and the bit positions of
+the cloud's `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` are unknown. Added the
+[GridBOSS ledger rows](40-hardware/registers.md#gridboss-register-ledger) (footnoted to this
+change's `const/midbox.py`, not the page pin); `docs/DATA_MAPPING.md` §5 and
+`docs/CONFIGURATION.md` "Smart port settings" describe the shipped entities.
+
+## [2026-09-29] ingest | Smart port options — adversarial review corrections
+
+Two adversarial reviews of the smart port options change found defects the entry above
+recorded as fine. Code: HYBRID writes all failed (`get_local_transport` never searches
+`station.all_mid_devices`; the tests mocked that lookup); the verify read came before the
+GridBOSS's sub-second revert window, and the write seed's 30 s settle window then hid a revert
+or portal change. Evidence: the `hardware-toggle-proven` row cited `const/midbox.py`, which then
+held prose, not the raw before/after pair the grade requires — the docstring now records every
+raw pair, and the step that changed several ports at once is marked not attributable bit by
+bit. Ledger counts were wrong (b13 double-graded in the b0-b14 row; 230-269 counted 36).
+Port 4's based-on bit (2101 b4, `inferred`/unresolved) is no longer read or written at all
+(`UNPINNED_BASED_ON_PORTS`), rather than shipped with a doc caveat: a wrong-bit write would
+read back as written (#476), so no verify could catch it.
+
+## [2026-09-29] ingest | GridBOSS 2101 b4 pinned — port 4 "based on"
+
+Resolved the open GB-H2101 b4 row with a portal round trip on the live GridBOSS: port 4 set to
+Smart Load, based on SOC/Volt → Time cleared only b4 (2101 0x3e → 0x2e), and the revert restored
+0x3e with port 4 back to Unused. Graded `hardware-toggle-proven`; the ambiguity came from the
+mobile app, whose port 3 "Time+SOC/Volt" choice had also set b4 — the app writing port 4's bit,
+consistent with its earlier unreliable readback. The `UNPINNED_BASED_ON_PORTS` guard from the
+review corrections above is removed; port 4 gets its Based On select like ports 1-3.
+
+## [2026-09-30] ingest | Smart port options — live write test (port 4)
+
+Wrote every kind of smart port option from Home Assistant (build `+smartports.11`) on port 4,
+set to Smart Load for the test and back to Unused after. Each write read back over the dongle as
+expected and was reverted, and the full 20 / 229-317 / 2099-2104 set matched the pre-test read
+afterwards. Raw pairs are in the `const/midbox.py` docstring. GB-H229 b15 (port 4 shedding) moves
+from `inferred` to `portal-correlated`: our write set it and the portal showed port 4's shedding
+enabled. Not `hardware-toggle-proven`, because the change came from our write rather than a vendor
+control. New open question: with the FlexBOSS21 reporting voltage control (register 179), the
+portal still greyed port 4's Smart Load voltage fields. So the portal's SOC-vs-voltage greying
+isn't driven by the inverter regime, and the entities' `is_effective` attribute (which reads
+register 179) is unproven as a statement of what the GridBOSS applies. Recorded in
+`const/midbox.py`, `docs/CONFIGURATION.md` and `docs/DATA_MAPPING.md`.

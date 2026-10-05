@@ -27,6 +27,7 @@ else:
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseNumber, optimistic_value_context
+from .smart_port_options import create_port_option_entities
 from .const import (
     AC_CHARGE_END_SOC_OFFGRID_MIN,
     AC_CHARGE_END_VOLTAGE_OFFGRID_MAX,
@@ -914,6 +915,9 @@ def _create_number_entities(
                     # P2 on PR #284).
                     if coordinator.has_local_register_path(serial):
                         entities.append(StartChargePowerNumber(coordinator, serial))
+
+    # Per-port smart port options (GridBOSS with a local transport only).
+    entities.extend(create_port_option_entities(coordinator, "number"))
 
     return entities
 
