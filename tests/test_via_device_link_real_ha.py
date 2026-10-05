@@ -96,9 +96,8 @@ async def test_legacy_via_device_entity_is_dropped(
     """Pins why the fix exists.
 
     On HA 2026.9+ the old ``via_device`` link raises when no integration frame
-    is on the stack (as for an add that resumes after ``update_before_add``
-    suspends) or core is (a UI entity-ID rename).  The entity platform logs
-    "Error adding entity" and the entity is silently not added.
+    is on the stack, or core is (a UI entity-ID rename).  The entity platform
+    logs "Error adding entity" and the entity is silently not added.
     """
     monkeypatch.setattr(coordinator_mixins, "_get_device_id_by_identifier", None)
     entry = MockConfigEntry(domain=DOMAIN)

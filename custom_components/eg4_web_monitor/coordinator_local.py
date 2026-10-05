@@ -1923,8 +1923,7 @@ class LocalTransportMixin(_MixinBase):
                 len(self._local_transport_configs),
             )
             # Schedule an immediate follow-up refresh to load real register data.
-            # This runs AFTER async_config_entry_first_refresh() completes and
-            # entity platforms finish setup.
+            # Queue the real register read after this static first pass.
             task = self.hass.async_create_task(self.async_request_refresh())
             self._background_tasks.add(task)
             task.add_done_callback(self._remove_task_from_set)

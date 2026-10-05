@@ -549,7 +549,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
         assert len(added) == 0
 
@@ -560,7 +560,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
         station_count = sum(1 for e in added if isinstance(e, EG4StationSensor))
         assert station_count == len(STATION_SENSOR_TYPES)
@@ -586,7 +586,7 @@ class TestAsyncSetupEntry:
         phases: list[list] = []
         call_count = 0
 
-        def mock_add(entities, update_before_add):
+        def mock_add(entities, update_before_add=False):
             nonlocal call_count
             phases.append(list(entities))
             call_count += 1
@@ -626,7 +626,7 @@ class TestAsyncSetupEntry:
 
         phases: list[list] = []
 
-        def mock_add(entities, update_before_add):
+        def mock_add(entities, update_before_add=False):
             phases.append(list(entities))
 
         await async_setup_entry(hass, mock_entry, mock_add)
@@ -670,7 +670,7 @@ class TestAsyncSetupEntry:
 
         phases: list[list] = []
 
-        def mock_add(entities, update_before_add):
+        def mock_add(entities, update_before_add=False):
             phases.append(list(entities))
 
         await async_setup_entry(hass, mock_entry, mock_add)
@@ -706,7 +706,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
         gridboss = [e for e in added if not isinstance(e, EG4SmartPortSensor)]
         ports = [e for e in added if isinstance(e, EG4SmartPortSensor)]
@@ -733,7 +733,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
 
         # Capture the battery listener callback (first of two listeners)
@@ -773,7 +773,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
 
         listener_call = coordinator.async_add_listener.call_args_list[0]
@@ -811,7 +811,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
         # Setup created the cloud-visible bank sensor only
         setup_bank_keys = {
@@ -868,7 +868,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
 
         device_callback = next(
@@ -919,7 +919,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
 
         bank_callback = self._get_bank_callback(coordinator)
@@ -949,7 +949,7 @@ class TestAsyncSetupEntry:
 
         added: list = []
         await async_setup_entry(
-            hass, mock_entry, lambda entities, _: added.extend(entities)
+            hass, mock_entry, lambda entities, _=False: added.extend(entities)
         )
         # No entities created for unknown type
         assert len(added) == 0
