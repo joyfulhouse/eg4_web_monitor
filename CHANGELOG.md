@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
 - Avoid duplicate coordinator refreshes while adding sensor and switch entities.
 
 ## [3.5.1-beta.17] - 2026-10-04
