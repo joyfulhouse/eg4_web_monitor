@@ -6541,7 +6541,7 @@ class TestTotalIncreasingKeysConstant:
         assert "load_total" in _TOTAL_INCREASING_KEYS
         assert "grid_import_total" in _TOTAL_INCREASING_KEYS
         assert "grid_export_total" in _TOTAL_INCREASING_KEYS
-        assert "consumption_lifetime" in _TOTAL_INCREASING_KEYS
+        assert "consumption_lifetime" not in _TOTAL_INCREASING_KEYS
         assert "yield" in _TOTAL_INCREASING_KEYS
         assert "yield_lifetime" in _TOTAL_INCREASING_KEYS
 
@@ -6555,6 +6555,18 @@ class TestTotalIncreasingKeysConstant:
         assert "frequency" not in _TOTAL_INCREASING_KEYS
         assert "battery_soc" not in _TOTAL_INCREASING_KEYS
         assert "battery_voltage" not in _TOTAL_INCREASING_KEYS
+
+
+def test_consumption_state_classes_match_counter_semantics():
+    """Balance sensors allow dips; group and GridBOSS counters still increase."""
+    from custom_components.eg4_web_monitor.const import SENSOR_TYPES
+
+    assert SENSOR_TYPES["consumption"]["state_class"] == "total"
+    assert SENSOR_TYPES["consumption_lifetime"]["state_class"] == "total"
+    assert SENSOR_TYPES["load_today"]["state_class"] == "total_increasing"
+    assert SENSOR_TYPES["load_total"]["state_class"] == "total_increasing"
+    assert "consumption" in PARALLEL_GROUP_SENSOR_KEYS
+    assert "consumption_lifetime" in PARALLEL_GROUP_SENSOR_KEYS
 
 
 class TestRoundRobinTruncatedSerialGuard:

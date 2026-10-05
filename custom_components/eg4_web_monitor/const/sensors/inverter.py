@@ -724,7 +724,7 @@ SENSOR_TYPES = {
         "name": "Consumption",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
-        "state_class": "total_increasing",
+        "state_class": "total",
         "icon": "mdi:home-lightning-bolt",
     },
     # Load Energy (Eload, reg 171) — energy this inverter delivered to its own
@@ -779,7 +779,7 @@ SENSOR_TYPES = {
         "name": "Consumption (Lifetime)",
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
-        "state_class": "total_increasing",
+        "state_class": "total",
         "icon": "mdi:home-lightning-bolt",
     },
     # Load Energy lifetime (Eload_all, reg 172) — equals the cloud's per-inverter
