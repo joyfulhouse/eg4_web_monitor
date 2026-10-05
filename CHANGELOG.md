@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Avoid duplicate coordinator refreshes while adding sensor and switch entities.
 
+### Fixed
+
+- **Duplicate, unavailable number and time controls** ([#656](https://github.com/joyfulhouse/eg4_web_monitor/issues/656)): number and time controls used to put the inverter model in their unique ID, so an inverter whose model was reported two ways (for example `LXP-EU-12K` and `LXP-LB-EU 12K`) had two old entries per control. The move to model-free IDs skipped those as ambiguous and registered a third entity, leaving two unavailable copies of every control on the device page. Now one old entry is kept (one you haven't disabled, then the newest), keeping its entity ID and history, and the others are removed. Where the third entity already exists, the old entries are removed and the current entity is left as it is; to drop an `_2` suffix from its entity ID afterwards, use the device's ⋮ → **Recreate entity IDs**.
+- **Controls no longer show unavailable for up to 20 seconds after startup** ([#653](https://github.com/joyfulhouse/eg4_web_monitor/issues/653)): since sensor setup stopped waiting on a refresh, number, select, switch and time controls were added before the first parameter read and were unavailable until it landed. Setup now waits up to 15 seconds for that read before adding them; if it takes longer, they are added at 15 seconds and fill in when it lands.
+
 ## [3.5.1-beta.17] - 2026-10-04
 
 Requires **[pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**.
