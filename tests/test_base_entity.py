@@ -365,6 +365,111 @@ class TestGuardTotalIncreasing:
         assert (value, cache) == (14.4, 14.4)
 
 
+EXPECTED_DAILY = frozenset(
+    {
+        "ac_charge_energy",
+        "ac_couple1_today",
+        "ac_couple2_today",
+        "ac_couple3_today",
+        "ac_couple4_today",
+        "battery_charge",
+        "battery_discharge",
+        "charging",
+        "consumption",
+        "daily_energy",
+        "discharging",
+        "eps_energy",
+        "eps_energy_today_l1",
+        "eps_energy_today_l2",
+        "generator_energy",
+        "grid_export",
+        "grid_export_today",
+        "grid_import",
+        "grid_import_today",
+        "inverter_energy",
+        "load_energy",
+        "load_today",
+        "pv1_yield",
+        "pv2_yield",
+        "pv3_yield",
+        "pv4_yield",
+        "pv5_yield",
+        "pv6_yield",
+        "smart_load1_today",
+        "smart_load2_today",
+        "smart_load3_today",
+        "smart_load4_today",
+        "ups_today",
+        "yield",
+    }
+)
+EXPECTED_NON_DAILY = frozenset(
+    {
+        "ac_charge_energy_lifetime",
+        "ac_couple1_total",
+        "ac_couple2_total",
+        "ac_couple3_total",
+        "ac_couple4_total",
+        "battery_bank_cycle_count",
+        "battery_charge_lifetime",
+        "battery_discharge_lifetime",
+        "charging_lifetime",
+        "consumption_lifetime",
+        "cycle_count",
+        "discharging_lifetime",
+        "eps_energy_lifetime",
+        "eps_energy_total_l1",
+        "eps_energy_total_l2",
+        "generator_energy_lifetime",
+        "grid_export_lifetime",
+        "grid_export_total",
+        "grid_import_lifetime",
+        "grid_import_total",
+        "inverter_energy_lifetime",
+        "load_energy_lifetime",
+        "load_total",
+        "monthly_energy",
+        "pv1_yield_lifetime",
+        "pv2_yield_lifetime",
+        "pv3_yield_lifetime",
+        "pv4_yield_lifetime",
+        "pv5_yield_lifetime",
+        "pv6_yield_lifetime",
+        "smart_load1_total",
+        "smart_load2_total",
+        "smart_load3_total",
+        "smart_load4_total",
+        "total_energy",
+        "ups_total",
+        "yearly_energy",
+        "yield_lifetime",
+    }
+)
+
+
+def _assert_total_sensor_key_inventory() -> None:
+    from custom_components.eg4_web_monitor.base_entity import (
+        _DAILY_TOTAL_SENSOR_KEYS,
+    )
+    from custom_components.eg4_web_monitor.const import SENSOR_TYPES
+    from custom_components.eg4_web_monitor.const.sensors import STATION_SENSOR_TYPES
+
+    sensor_types = (SENSOR_TYPES, STATION_SENSOR_TYPES)
+    total_increasing = {
+        key
+        for sensor_type in sensor_types
+        for key, config in sensor_type.items()
+        if config.get("state_class") == "total_increasing"
+    }
+
+    assert EXPECTED_DAILY.isdisjoint(EXPECTED_NON_DAILY)
+    assert EXPECTED_DAILY | EXPECTED_NON_DAILY == total_increasing
+    production_daily = _DAILY_TOTAL_SENSOR_KEYS | {
+        key for key in total_increasing if key.endswith("_today")
+    }
+    assert production_daily == EXPECTED_DAILY
+
+
 class TestGuardIntegrationWithBaseSensor:
     """End-to-end behaviour through ``EG4BaseSensor.native_value``."""
 
@@ -631,51 +736,23 @@ class TestGuardIntegrationWithBaseSensor:
         assert sensor.native_value == 13.5
         assert sensor._last_reported_value is None
 
-    def test_daily_total_keys_derive_from_sensor_types(self):
-        from custom_components.eg4_web_monitor.base_entity import (
-            _DAILY_TOTAL_SENSOR_KEYS,
-            _NON_DAILY_TOTAL_SENSOR_KEY_PARTS,
-        )
+    def test_daily_total_keys_are_explicitly_classified(self):
+        assert len(EXPECTED_DAILY) == 34
+        assert len(EXPECTED_NON_DAILY) == 38
+        _assert_total_sensor_key_inventory()
+
+    @pytest.mark.parametrize("sensor_key", ["daily_total_energy", "weekly_energy"])
+    def test_unclassified_total_sensor_keys_break_inventory_contract(
+        self, monkeypatch, sensor_key
+    ):
         from custom_components.eg4_web_monitor.const import SENSOR_TYPES
 
-        expected_existing_daily_keys = {
-            "daily_energy",
-            "yield",
-            "discharging",
-            "charging",
-            "consumption",
-            "load_energy",
-            "grid_export",
-            "grid_import",
-            "inverter_energy",
-            "ac_charge_energy",
-            "eps_energy",
-            "generator_energy",
-            "battery_charge",
-            "battery_discharge",
-            "eps_energy_today_l1",
-            "eps_energy_today_l2",
-            *(f"pv{index}_yield" for index in range(1, 7)),
-        }
-        today_keys = {
-            sensor_key
-            for sensor_key, sensor_config in SENSOR_TYPES.items()
-            if sensor_key.endswith("_today")
-            and sensor_config.get("state_class") == "total_increasing"
-        }
-        expected = expected_existing_daily_keys | today_keys
-        expected_from_sensor_types = {
-            sensor_key
-            for sensor_key, sensor_config in SENSOR_TYPES.items()
-            if sensor_config.get("state_class") == "total_increasing"
-            and not sensor_key.startswith(("total_", "monthly_", "yearly_"))
-            and sensor_key != "cycle_count"
-            and not any(
-                part in sensor_key for part in _NON_DAILY_TOTAL_SENSOR_KEY_PARTS
-            )
-        }
+        monkeypatch.setitem(
+            SENSOR_TYPES, sensor_key, dict(SENSOR_TYPES["daily_energy"])
+        )
 
-        assert _DAILY_TOTAL_SENSOR_KEYS == expected_from_sensor_types == expected
+        with pytest.raises(AssertionError):
+            _assert_total_sensor_key_inventory()
 
 
 class TestErrorKeyAvailabilityContract:
