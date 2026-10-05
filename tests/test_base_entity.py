@@ -1,6 +1,6 @@
 """Tests for base entity classes."""
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -365,6 +365,111 @@ class TestGuardTotalIncreasing:
         assert (value, cache) == (14.4, 14.4)
 
 
+EXPECTED_DAILY = frozenset(
+    {
+        "ac_charge_energy",
+        "ac_couple1_today",
+        "ac_couple2_today",
+        "ac_couple3_today",
+        "ac_couple4_today",
+        "battery_charge",
+        "battery_discharge",
+        "charging",
+        "consumption",
+        "daily_energy",
+        "discharging",
+        "eps_energy",
+        "eps_energy_today_l1",
+        "eps_energy_today_l2",
+        "generator_energy",
+        "grid_export",
+        "grid_export_today",
+        "grid_import",
+        "grid_import_today",
+        "inverter_energy",
+        "load_energy",
+        "load_today",
+        "pv1_yield",
+        "pv2_yield",
+        "pv3_yield",
+        "pv4_yield",
+        "pv5_yield",
+        "pv6_yield",
+        "smart_load1_today",
+        "smart_load2_today",
+        "smart_load3_today",
+        "smart_load4_today",
+        "ups_today",
+        "yield",
+    }
+)
+EXPECTED_NON_DAILY = frozenset(
+    {
+        "ac_charge_energy_lifetime",
+        "ac_couple1_total",
+        "ac_couple2_total",
+        "ac_couple3_total",
+        "ac_couple4_total",
+        "battery_bank_cycle_count",
+        "battery_charge_lifetime",
+        "battery_discharge_lifetime",
+        "charging_lifetime",
+        "consumption_lifetime",
+        "cycle_count",
+        "discharging_lifetime",
+        "eps_energy_lifetime",
+        "eps_energy_total_l1",
+        "eps_energy_total_l2",
+        "generator_energy_lifetime",
+        "grid_export_lifetime",
+        "grid_export_total",
+        "grid_import_lifetime",
+        "grid_import_total",
+        "inverter_energy_lifetime",
+        "load_energy_lifetime",
+        "load_total",
+        "monthly_energy",
+        "pv1_yield_lifetime",
+        "pv2_yield_lifetime",
+        "pv3_yield_lifetime",
+        "pv4_yield_lifetime",
+        "pv5_yield_lifetime",
+        "pv6_yield_lifetime",
+        "smart_load1_total",
+        "smart_load2_total",
+        "smart_load3_total",
+        "smart_load4_total",
+        "total_energy",
+        "ups_total",
+        "yearly_energy",
+        "yield_lifetime",
+    }
+)
+
+
+def _assert_total_sensor_key_inventory() -> None:
+    from custom_components.eg4_web_monitor.base_entity import (
+        _DAILY_TOTAL_SENSOR_KEYS,
+    )
+    from custom_components.eg4_web_monitor.const import SENSOR_TYPES
+    from custom_components.eg4_web_monitor.const.sensors import STATION_SENSOR_TYPES
+
+    sensor_types = (SENSOR_TYPES, STATION_SENSOR_TYPES)
+    total_increasing = {
+        key
+        for sensor_type in sensor_types
+        for key, config in sensor_type.items()
+        if config.get("state_class") == "total_increasing"
+    }
+
+    assert EXPECTED_DAILY.isdisjoint(EXPECTED_NON_DAILY)
+    assert EXPECTED_DAILY | EXPECTED_NON_DAILY == total_increasing
+    production_daily = _DAILY_TOTAL_SENSOR_KEYS | {
+        key for key in total_increasing if key.endswith("_today")
+    }
+    assert production_daily == EXPECTED_DAILY
+
+
 class TestGuardIntegrationWithBaseSensor:
     """End-to-end behaviour through ``EG4BaseSensor.native_value``."""
 
@@ -415,6 +520,239 @@ class TestGuardIntegrationWithBaseSensor:
         # Subsequent reads compare against the post-reset baseline.
         mock_coordinator.data["devices"]["1234567890"]["sensors"]["consumption"] = 0.1
         assert sensor.native_value == 0.1
+
+    @pytest.mark.parametrize("sensor_kind", ["device", "battery", "bank"])
+    @pytest.mark.asyncio
+    async def test_restored_high_seeds_dip_guard(self, mock_coordinator, sensor_kind):
+        from custom_components.eg4_web_monitor.base_entity import (
+            EG4BaseBatterySensor,
+            EG4BaseSensor,
+            EG4BatteryBankEntity,
+        )
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": 14.8,
+        }
+        mock_coordinator.data["devices"]["1234567890"]["batteries"]["Battery_ID_01"][
+            "consumption_lifetime"
+        ] = 14.8
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        mock_coordinator.get_battery_device_info = MagicMock(return_value=None)
+        mock_coordinator.get_battery_bank_device_info = MagicMock(return_value=None)
+        if sensor_kind == "device":
+            sensor = EG4BaseSensor(
+                mock_coordinator, "1234567890", "consumption_lifetime"
+            )
+        elif sensor_kind == "battery":
+            sensor = EG4BaseBatterySensor(
+                mock_coordinator,
+                "1234567890",
+                "Battery_ID_01",
+                "consumption_lifetime",
+            )
+        else:
+            sensor = EG4BatteryBankEntity(
+                mock_coordinator, "1234567890", "consumption_lifetime"
+            )
+
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(15.3, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 15.3
+        sensor.async_get_last_sensor_data.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_daily_restore_from_prior_local_day_is_ignored(
+        self, mock_coordinator
+    ):
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+        from homeassistant.util import dt as dt_util
+
+        old_timezone = dt_util.DEFAULT_TIME_ZONE
+        dt_util.set_default_time_zone(ZoneInfo("America/Los_Angeles"))
+        from freezegun import freeze_time
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption": 13.5,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(14.4, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(
+            return_value=MagicMock(
+                last_updated=datetime(2026, 10, 4, 6, 30, tzinfo=timezone.utc)
+            )
+        )
+
+        try:
+            with freeze_time("2026-10-04T08:00:00Z"):
+                await sensor.async_added_to_hass()
+
+                assert sensor._last_reported_value is None
+                assert sensor.native_value == 13.5
+                assert sensor._last_reported_value == 13.5
+        finally:
+            dt_util.set_default_time_zone(old_timezone)
+
+    @pytest.mark.asyncio
+    async def test_daily_restore_from_same_local_day_seeds_guard(
+        self, mock_coordinator
+    ):
+        from datetime import datetime, timezone
+        from zoneinfo import ZoneInfo
+
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+        from homeassistant.util import dt as dt_util
+        from freezegun import freeze_time
+
+        old_timezone = dt_util.DEFAULT_TIME_ZONE
+        dt_util.set_default_time_zone(ZoneInfo("America/Los_Angeles"))
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption": 13.5,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(14.4, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(
+            return_value=MagicMock(
+                last_updated=datetime(2026, 10, 3, 23, 30, tzinfo=timezone.utc)
+            )
+        )
+
+        try:
+            with freeze_time("2026-10-04T02:00:00Z"):
+                await sensor.async_added_to_hass()
+
+                assert sensor.native_value == 14.4
+                assert sensor._last_reported_value == 14.4
+        finally:
+            dt_util.set_default_time_zone(old_timezone)
+
+    @pytest.mark.parametrize(
+        "restored", [None, float("inf"), float("nan"), "unknown", True]
+    )
+    @pytest.mark.asyncio
+    async def test_invalid_restored_value_does_not_seed_guard(
+        self, mock_coordinator, restored
+    ):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        current = 0.95 if restored is True else 13.5
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": current,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor_key = "consumption_lifetime"
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", sensor_key)
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(restored, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+
+        await sensor.async_added_to_hass()
+
+        assert sensor._last_reported_value is None
+        assert sensor.native_value == current
+        assert sensor._last_reported_value == current
+
+    @pytest.mark.asyncio
+    async def test_restored_guard_still_accepts_genuine_large_reset(
+        self, mock_coordinator
+    ):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": 10.0,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption_lifetime")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(15.3, "kWh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 10.0
+        sensor.async_get_last_sensor_data.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_restored_value_in_different_native_unit_is_ignored(
+        self, mock_coordinator
+    ):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "consumption_lifetime": 13.5,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption_lifetime")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(14.4, "Wh")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+
+        await sensor.async_added_to_hass()
+
+        assert sensor._last_reported_value is None
+        assert sensor.native_value == 13.5
+        assert sensor._last_reported_value == 13.5
+
+    @pytest.mark.asyncio
+    async def test_non_total_increasing_restore_does_not_seed_guard(
+        self, mock_coordinator
+    ):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+        from homeassistant.components.sensor import SensorExtraStoredData
+
+        mock_coordinator.data["devices"]["1234567890"]["sensors"] = {
+            "battery_voltage": 13.5,
+        }
+        mock_coordinator.get_device_info = MagicMock(return_value=None)
+        sensor = EG4BaseSensor(mock_coordinator, "1234567890", "battery_voltage")
+        sensor.async_get_last_sensor_data = AsyncMock(
+            return_value=SensorExtraStoredData(14.4, "V")
+        )
+        sensor.async_get_last_state = AsyncMock(return_value=None)
+
+        await sensor.async_added_to_hass()
+
+        assert sensor.native_value == 13.5
+        assert sensor._last_reported_value is None
+
+    def test_daily_total_keys_are_explicitly_classified(self):
+        assert len(EXPECTED_DAILY) == 34
+        assert len(EXPECTED_NON_DAILY) == 38
+        _assert_total_sensor_key_inventory()
+
+    @pytest.mark.parametrize("sensor_key", ["daily_total_energy", "weekly_energy"])
+    def test_unclassified_total_sensor_keys_break_inventory_contract(
+        self, monkeypatch, sensor_key
+    ):
+        from custom_components.eg4_web_monitor.const import SENSOR_TYPES
+
+        monkeypatch.setitem(
+            SENSOR_TYPES, sensor_key, dict(SENSOR_TYPES["daily_energy"])
+        )
+
+        with pytest.raises(AssertionError):
+            _assert_total_sensor_key_inventory()
 
 
 class TestErrorKeyAvailabilityContract:
