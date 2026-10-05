@@ -933,7 +933,13 @@ class EG4DataUpdateCoordinator(
                     sensors = device_data.get("sensors")
                     if not sensors:
                         continue
-                    for key in _TOTAL_INCREASING_KEYS:
+                    total_increasing_keys = _TOTAL_INCREASING_KEYS
+                    if device_data.get("type") == "parallel_group":
+                        total_increasing_keys = total_increasing_keys | {
+                            "consumption",
+                            "consumption_lifetime",
+                        }
+                    for key in total_increasing_keys:
                         if key in sensors and sensors[key] == 0:
                             sensors[key] = None
 

@@ -13,6 +13,7 @@ import time
 from typing import TYPE_CHECKING, Any, Generator, cast
 
 from homeassistant.const import EntityCategory
+from homeassistant.components.sensor import SensorStateClass
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
@@ -449,6 +450,11 @@ class EG4BaseSensor(EG4DeviceEntity):
         sensor_config = _apply_sensor_config(
             self, sensor_key, diagnostic_keys=DIAGNOSTIC_DEVICE_SENSOR_KEYS
         )
+        if device_type == "parallel_group" and sensor_key in {
+            "consumption",
+            "consumption_lifetime",
+        }:
+            setattr(self, "_attr_state_class", SensorStateClass.TOTAL_INCREASING)
 
         # Generate unique ID
         self._attr_unique_id = f"{serial}_{sensor_key}"

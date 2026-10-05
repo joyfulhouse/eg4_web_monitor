@@ -368,7 +368,7 @@ class TestGuardTotalIncreasing:
 class TestGuardIntegrationWithBaseSensor:
     """End-to-end behaviour through ``EG4BaseSensor.native_value``."""
 
-    def test_dip_suppressed_then_recovers(self, mock_coordinator):
+    def test_balance_dip_passes_through(self, mock_coordinator):
         from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
 
         # Add a consumption_lifetime sensor reading to coordinator data.
@@ -378,17 +378,16 @@ class TestGuardIntegrationWithBaseSensor:
         mock_coordinator.get_device_info = MagicMock(return_value=None)
 
         sensor = EG4BaseSensor(mock_coordinator, "1234567890", "consumption_lifetime")
-        # Sanity: the sensor was wired up as total_increasing.
-        assert sensor._attr_state_class == "total_increasing"
+        assert sensor._attr_state_class == "total"
 
         # Initial reading establishes the high-water mark.
         assert sensor.native_value == 2917.1
 
-        # Cloud noise drops the value by 0.1 — guard should pin to 2917.1.
+        # Balance-based values can dip and should be reported as supplied.
         mock_coordinator.data["devices"]["1234567890"]["sensors"][
             "consumption_lifetime"
         ] = 2917.0
-        assert sensor.native_value == 2917.1
+        assert sensor.native_value == 2917.0
 
         # Real progress passes through.
         mock_coordinator.data["devices"]["1234567890"]["sensors"][
@@ -415,6 +414,19 @@ class TestGuardIntegrationWithBaseSensor:
         # Subsequent reads compare against the post-reset baseline.
         mock_coordinator.data["devices"]["1234567890"]["sensors"]["consumption"] = 0.1
         assert sensor.native_value == 0.1
+
+    def test_parallel_group_consumption_stays_total_increasing(self, mock_coordinator):
+        from custom_components.eg4_web_monitor.base_entity import EG4BaseSensor
+
+        for sensor_key in ("consumption", "consumption_lifetime"):
+            sensor = EG4BaseSensor(
+                mock_coordinator,
+                "parallel-group",
+                sensor_key,
+                device_type="parallel_group",
+            )
+
+            assert sensor._attr_state_class == "total_increasing"
 
 
 class TestErrorKeyAvailabilityContract:

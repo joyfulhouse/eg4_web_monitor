@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Per-inverter energy-balance **Consumption** and **Consumption (Lifetime)** now use Home Assistant's `total` state class, so ordinary balance dips no longer trigger `total_increasing` reset warnings. Home Assistant may log a one-time state-class-changed notice; its recorder carries forward existing long-term sums for the same entity statistic ID, so no user migration is needed. Parallel-group and GridBOSS consumption counters remain `total_increasing`.
+
 ## [3.5.1-beta.17] - 2026-10-04
 
 Requires **[pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**.
