@@ -16,7 +16,7 @@ aiohttp>=3.10.0
 pycares>=4.9.0,<6
 voluptuous>=0.15.0
 # Exact public prerelease required for the caller-owned transport factory seam (#581).
-pylxpweb==0.10.0b10  # keep in sync with manifest.json
+pylxpweb==0.10.0b12  # keep in sync with manifest.json
 # Test-only: Home Assistant 2026.9+ ships these through its modbus integration
 # (not a manifest requirement), so the shared-unit / esphome:// path is tested.
 modbus-connection[tmodbus]>=4.10.0
