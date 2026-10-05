@@ -1120,3 +1120,16 @@ stays in `after_dependencies`: from 2026.9.0, core's `modbus` manifest pins
 `esphome://` serial ports and the shared `async_get_unit` path need Home Assistant 2026.9 or newer.
 CI job `bronze-requirements-resolve` resolves the manifest's requirements under each HA minor's
 constraints from 2026.1.0. No other `llmwiki/` page claimed the extra pin.
+
+## [2026-10-05] ingest | Control setup waits for parameters; legacy control IDs collapse (#656)
+
+Branch `fix/control-setup-order-656`. Two code changes, filed where they are owned:
+`10-integration/entities-identity-availability.md` (control platforms are forwarded after a
+bounded wait for the first parameter read) and `10-integration/controls-and-writes.md` §9
+(the model-prefix migration now keeps one legacy entry and removes the rest);
+`10-integration/architecture.md` lists the new mixin method. Wrong before: the §9 row said
+ambiguous legacy entries were "left untouched", which on a HYBRID install whose model was
+reported two ways meant three entities per control, two of them permanently unavailable
+(#656, 80 warnings in the reporter's log). The wait is grounded in #653's recorder data
+(37 controls unavailable for 1–20 s at startup after #652), not in a log of the mechanism.
+

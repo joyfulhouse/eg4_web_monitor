@@ -18,7 +18,9 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry, flush_
 from tests.ha_registry import get_registry_device, registry_parent_link
 
 from custom_components.eg4_web_monitor import (
+    OTHER_PLATFORMS,
     PLATFORMS,
+    SENSOR_PLATFORM,
     async_migrate_entry,
     async_remove_entry,
     async_setup,
@@ -49,6 +51,7 @@ def mock_coordinator():
     coordinator.entry = MagicMock()
     coordinator.entry.entry_id = "test_entry_id"
     coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+    coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
     coordinator.async_request_refresh = AsyncMock()
     coordinator.async_shutdown = AsyncMock()
     coordinator.client = MagicMock()
@@ -175,6 +178,7 @@ class TestAsyncSetup:
         mock_coord1.entry = MagicMock()
         mock_coord1.entry.entry_id = "entry_1"
         mock_coord1._async_load_pv_string_lifetime_state = AsyncMock()
+        mock_coord1.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         mock_coord1.async_request_refresh = AsyncMock()
         mock_coord1.async_config_entry_first_refresh = AsyncMock()
         mock_coord1.data = {"devices": {}, "device_info": {}, "parameters": {}}
@@ -185,6 +189,7 @@ class TestAsyncSetup:
         mock_coord2.entry = MagicMock()
         mock_coord2.entry.entry_id = "entry_2"
         mock_coord2._async_load_pv_string_lifetime_state = AsyncMock()
+        mock_coord2.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         mock_coord2.async_request_refresh = AsyncMock()
         mock_coord2.async_config_entry_first_refresh = AsyncMock()
         mock_coord2.data = {"devices": {}, "device_info": {}, "parameters": {}}
@@ -271,6 +276,9 @@ class TestAsyncSetupEntry:
         # Mock coordinator
         mock_coordinator = MagicMock()
         mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        mock_coordinator.async_wait_for_missing_parameters = AsyncMock(
+            return_value=True
+        )
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
 
@@ -295,6 +303,9 @@ class TestAsyncSetupEntry:
 
         mock_coordinator = MagicMock()
         mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        mock_coordinator.async_wait_for_missing_parameters = AsyncMock(
+            return_value=True
+        )
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
 
@@ -315,6 +326,9 @@ class TestAsyncSetupEntry:
 
         mock_coordinator = MagicMock()
         mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        mock_coordinator.async_wait_for_missing_parameters = AsyncMock(
+            return_value=True
+        )
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator_class.return_value = mock_coordinator
 
@@ -342,6 +356,7 @@ class TestAsyncSetupEntry:
         mock_config_entry.runtime_data = None
         coordinator = MagicMock()
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock(
             side_effect=RuntimeError("initial refresh failed")
         )
@@ -376,6 +391,7 @@ class TestAsyncSetupEntry:
         mock_config_entry.runtime_data = None
         coordinator = MagicMock()
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock()
         coordinator.async_shutdown = AsyncMock()
         coordinator.client = MagicMock()
@@ -418,6 +434,43 @@ class TestAsyncSetupEntry:
         )
         assert mock_config_entry.runtime_data is None
 
+    @pytest.mark.parametrize("loaded", (True, False))
+    @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
+    async def test_controls_are_forwarded_after_the_parameter_wait(
+        self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry, loaded
+    ):
+        """Controls wait (bounded) for the first parameter read (#653).
+
+        Sensors are forwarded first and are not held up; the control
+        platforms follow the wait whether or not the read finished in time.
+        """
+        mock_config_entry.add_to_hass(hass)
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock()
+        coordinator.data = {"devices": {}, "device_info": {}, "parameters": {}}
+        mock_coordinator_class.return_value = coordinator
+        calls: list[object] = []
+
+        async def wait(timeout: float) -> bool:
+            calls.append(("wait", timeout))
+            return loaded
+
+        async def forward(_entry, platforms):
+            calls.append(list(platforms))
+
+        coordinator.async_wait_for_missing_parameters = AsyncMock(side_effect=wait)
+        with patch.object(
+            hass.config_entries, "async_forward_entry_setups", side_effect=forward
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        assert calls == [
+            list(SENSOR_PLATFORM),
+            ("wait", 15),
+            list(OTHER_PLATFORMS),
+        ]
+
     @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
     async def test_cancelled_platform_setup_also_unwinds(
         self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
@@ -427,6 +480,7 @@ class TestAsyncSetupEntry:
         mock_config_entry.runtime_data = None
         coordinator = MagicMock()
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock()
         coordinator.async_shutdown = AsyncMock()
         coordinator.client = MagicMock()
@@ -464,6 +518,7 @@ class TestAsyncSetupEntry:
         coordinator = MagicMock()
         coordinator._platform_setup_started = False
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock(
             side_effect=RuntimeError("initial refresh failed")
         )
@@ -490,6 +545,7 @@ class TestLibraryLoggingLifecycle:
         """Build a coordinator double that can be set up and unloaded."""
         coordinator = MagicMock()
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock()
         coordinator.async_shutdown = AsyncMock()
         coordinator.client = None
@@ -665,6 +721,7 @@ class TestRegistryLifecycleCleanup:
         """Build a setup-capable coordinator with authoritative first data."""
         coordinator = MagicMock()
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock()
         coordinator.async_shutdown = AsyncMock()
         coordinator.client = None
@@ -1105,6 +1162,9 @@ class TestSmartPortCleanupOnReboot:
         """Run async_setup_entry with a mock coordinator holding given data."""
         mock_coordinator = MagicMock()
         mock_coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        mock_coordinator.async_wait_for_missing_parameters = AsyncMock(
+            return_value=True
+        )
         mock_coordinator.async_config_entry_first_refresh = AsyncMock()
         mock_coordinator.data = data
         with (

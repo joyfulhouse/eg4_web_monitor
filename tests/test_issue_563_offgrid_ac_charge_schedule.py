@@ -253,6 +253,7 @@ class TestACChargeSwitchRegistryCleanup:
 
         coordinator = MagicMock()
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock()
         coordinator.data = {
             "devices": {
@@ -607,6 +608,7 @@ class TestFamilyReclassificationRecleanup:
 
         coordinator = MagicMock()
         coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=True)
         coordinator.async_config_entry_first_refresh = AsyncMock()
         coordinator.data = {
             "devices": {

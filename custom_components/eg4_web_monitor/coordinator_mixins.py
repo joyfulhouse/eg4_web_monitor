@@ -385,6 +385,10 @@ SMART_LOAD_STORE = CloudParamStoreSpec(
 # dongle outage doesn't add a full parameter read to every ~20-30 s poll.
 _PARAMETER_RETRY_INTERVAL = timedelta(minutes=2)
 
+# How often a setup wait for the first parameter read rechecks whether the
+# loader has stored every inverter's parameters.
+_PARAMETER_WAIT_POLL_SECONDS = 0.25
+
 # Eviction bound for once-published batteries served from cache (#258 review).
 # The carry-forward and the LOCAL round-robin re-serve absorb seconds-to-
 # minutes cloud/transport gaps; without a bound a PHYSICALLY REMOVED pack
@@ -4611,6 +4615,39 @@ class ParameterManagementMixin(_MixinBase):
         task.add_done_callback(self._clear_missing_parameter_refresh_task)
         task.add_done_callback(self._log_task_exception)
         return task
+
+    async def async_wait_for_missing_parameters(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` seconds for the in-flight parameter load.
+
+        Control entities (number/select/switch/time) read their state from
+        ``data["parameters"]`` and are unavailable until it holds their
+        inverter.  Setup waits here before forwarding the control platforms so
+        they are not created ahead of the first parameter read.
+
+        The loader stores each inverter's parameters before it ends with a
+        coordinator refresh request, which can run a full poll inline, so the
+        wait also ends once every serial it is loading has parameters.
+        ``asyncio.wait`` never cancels the loader and never raises its
+        exception; the loader logs its own failures.  Cancellation of the
+        caller still propagates.
+
+        Returns:
+            True when no load was in flight or it finished in time.
+        """
+        deadline = time.monotonic() + timeout
+        while (task := self._missing_parameter_refresh_task) is not None:
+            if task.done():
+                break
+            loaded = (self.data or {}).get("parameters", {})
+            if self._missing_parameter_active_serials.issubset(loaded):
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            await asyncio.wait(
+                (task,), timeout=min(remaining, _PARAMETER_WAIT_POLL_SECONDS)
+            )
+        return True
 
     def _clear_missing_parameter_refresh_task(self, task: asyncio.Task[None]) -> None:
         """Release the missing-parameter single-flight owner."""

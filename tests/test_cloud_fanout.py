@@ -1465,6 +1465,99 @@ async def test_new_missing_serial_is_queued_behind_active_singleflight(hass):
     assert batches == [["INV1"], ["INV2"]]
 
 
+async def test_parameter_wait_returns_once_parameters_are_stored(hass):
+    """Setup stops waiting when the loader has stored every inverter's parameters.
+
+    The loader ends with a coordinator refresh request, which can run a full
+    poll; controls only need the stored parameters, so the wait must not
+    extend to cover that poll.
+    """
+    entry = _local_entry("parameter_wait_stored")
+    entry.add_to_hass(hass)
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+    coordinator.data = {"parameters": {}}
+    stored = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _refresh(serials: list[str], processed_data: dict[str, Any]) -> None:
+        del processed_data
+        for serial in serials:
+            coordinator.data["parameters"][serial] = {"HOLD_AC_CHARGE_POWER_CMD": 4.5}
+        stored.set()
+        await release.wait()  # the trailing refresh request
+
+    coordinator._refresh_missing_parameters = AsyncMock(side_effect=_refresh)
+    task = coordinator._schedule_missing_parameter_refresh(
+        ["INV1", "INV2"], {"parameters": {}}
+    )
+    assert task is not None
+    try:
+        async with asyncio.timeout(5):
+            assert await coordinator.async_wait_for_missing_parameters(30) is True
+        assert stored.is_set()
+        assert not task.done()
+    finally:
+        release.set()
+        await task
+
+
+async def test_parameter_wait_is_bounded_and_leaves_the_loader_running(hass):
+    """A loader that never finishes delays setup by the timeout only."""
+    entry = _local_entry("parameter_wait_timeout")
+    entry.add_to_hass(hass)
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+    coordinator.data = {"parameters": {}}
+
+    async def _never(serials: list[str], processed_data: dict[str, Any]) -> None:
+        del serials, processed_data
+        await asyncio.Event().wait()
+
+    coordinator._refresh_missing_parameters = AsyncMock(side_effect=_never)
+    task = coordinator._schedule_missing_parameter_refresh(["INV1"], {"parameters": {}})
+    assert task is not None
+    try:
+        assert await coordinator.async_wait_for_missing_parameters(0.05) is False
+        assert not task.done()
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_parameter_wait_without_a_loader_returns_at_once(hass):
+    """No missing-parameter load in flight means nothing to wait for."""
+    entry = _local_entry("parameter_wait_idle")
+    entry.add_to_hass(hass)
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+
+    assert coordinator._missing_parameter_refresh_task is None
+    assert await coordinator.async_wait_for_missing_parameters(0) is True
+
+
+async def test_cancelling_the_parameter_wait_does_not_cancel_the_loader(hass):
+    """Setup cancellation propagates to setup, never into the shared loader."""
+    entry = _local_entry("parameter_wait_cancel")
+    entry.add_to_hass(hass)
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+    coordinator.data = {"parameters": {}}
+    release = asyncio.Event()
+
+    async def _blocked(serials: list[str], processed_data: dict[str, Any]) -> None:
+        del serials, processed_data
+        await release.wait()
+
+    coordinator._refresh_missing_parameters = AsyncMock(side_effect=_blocked)
+    task = coordinator._schedule_missing_parameter_refresh(["INV1"], {"parameters": {}})
+    assert task is not None
+    waiter = asyncio.create_task(coordinator.async_wait_for_missing_parameters(30))
+    await asyncio.sleep(0)
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    assert not task.done()
+    release.set()
+    await task
+
+
 async def test_firmware_account_status_is_single_flight_and_shielded(hass):
     """All device polls share one status request; one cancelled waiter is isolated."""
     client = _CountingClient()
