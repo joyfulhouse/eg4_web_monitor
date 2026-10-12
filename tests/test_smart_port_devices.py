@@ -1521,7 +1521,7 @@ class TestIssue641:
         mid = self._cloud_mid(
             self._payload(same),
             self._payload(same),
-            self._payload("2026-01-01 00:05:00"),
+            self._payload("2026-01-01 00:05:00", status=2),
         )
         first = await self._refresh(mid)
         assert first == mid._last_refresh.timestamp()
@@ -1533,9 +1533,25 @@ class TestIssue641:
         """Nothing rests on what serverTime means: a port status that changed
         under the same serverTime is still a new read."""
         same = "2026-01-01 00:00:00"
-        mid = self._cloud_mid(self._payload(same, 1), self._payload(same, 2))
+        mid = self._cloud_mid(
+            self._payload(same, 1, total=1000),
+            self._payload(same, 2, total=1000),
+            self._payload(same, 2, total=1100),
+        )
         first = await self._refresh(mid)
-        assert await self._refresh(mid) > first
+        second = await self._refresh(mid)
+        assert second > first
+        assert await self._refresh(mid) == second
+
+    async def test_non_port_payload_change_is_not_a_new_read(self):
+        """Power/energy changes do not make an unchanged port observation new."""
+        same = "2026-01-01 00:00:00"
+        mid = self._cloud_mid(
+            self._payload(same, 1, total=1000),
+            self._payload(same, 1, total=1100),
+        )
+        first = await self._refresh(mid)
+        assert await self._refresh(mid) == first
 
     async def test_cached_cloud_payload_cannot_satisfy_the_two_read_guard(
         self, hass: HomeAssistant
@@ -1556,7 +1572,7 @@ class TestIssue641:
         mid = self._cloud_mid(
             self._payload(same),
             self._payload(same),
-            self._payload("2026-01-01 00:05:00"),
+            self._payload("2026-01-01 00:05:00", status=2),
         )
 
         async def cycle() -> None:
@@ -1628,6 +1644,22 @@ class TestIssue641:
         mid._last_refresh = t1
         assert self._stamp(mid) == t1.timestamp()
 
+    def test_missing_transport_port_status_keeps_cloud_read_stamp(self):
+        """A missing register 20 value falls back to cloud status in pylxpweb."""
+        from datetime import datetime
+        from types import SimpleNamespace
+
+        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00"))
+        mid._runtime = self._payload("2026-01-01 00:00:00")
+        mid._transport_runtime = SimpleNamespace(
+            **{f"smart_port_{port}_status": None for port in range(1, 5)}
+        )
+        mid._local_transport = object()
+        mid._last_refresh = datetime(2026, 1, 1)
+        first = self._stamp(mid)
+        mid._last_refresh = datetime(2026, 1, 1, 0, 0, 5)
+        assert self._stamp(mid) == first
+
     async def test_cloud_fallback_and_the_rejected_read_after_it(self):
         """While an attached transport's link is down pylxpweb serves the
         cloud, so the cached-payload rule applies.  When the link returns but
@@ -1698,17 +1730,6 @@ class TestIssue641:
         assert self._stamp(device) == datetime(2026, 1, 1, 0, 0, 0).timestamp()
         device._last_refresh = datetime(2026, 1, 1, 0, 0, 5)
         assert self._stamp(device) == datetime(2026, 1, 1, 0, 0, 5).timestamp()
-
-    def test_object_that_cannot_be_weakly_referenced_uses_refresh_time(self):
-        from datetime import datetime
-
-        class _Slotted:
-            __slots__ = ("_last_refresh", "serial_number")
-
-        device = _Slotted()
-        device._last_refresh = datetime(2026, 1, 1)
-        device.serial_number = GB
-        assert self._stamp(device) == datetime(2026, 1, 1).timestamp()
 
     # -- 3: a lone legacy entry named for the other mode --------------------
 

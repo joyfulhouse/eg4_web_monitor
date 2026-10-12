@@ -1228,3 +1228,15 @@ info when a validated read already names the mode, and otherwise marks the entry
 (`smart_port_devices.py` → `_settle_rename_hint`). LOCAL always takes the second route: it adopts
 on its static first refresh, before any port status is read. `docs/CONFIGURATION.md` documents it.
 No wiki page stated the stamp's source, so no page changed.
+
+## [2026-10-12] ingest | Correct smart-port cloud read identity for PR #642
+
+Round-two review showed that the #641 payload comparison still counted a new
+cloud read when only power or energy changed. Cloud agreement now advances only
+when one of the four smart-port statuses changes; a transport-attached MID
+device with missing transport statuses continues to use its held cloud payload
+for this comparison, matching pylxpweb's fallback to that runtime data. Local
+reads with statuses present remain stamped by `_last_refresh`. Removed the
+weak-reference fallback because the runtime caller is a real `MIDDevice`, which
+supports weak references. Tests cover each distinction. The existing #641 log
+entry remains as historical context for its original implementation.
