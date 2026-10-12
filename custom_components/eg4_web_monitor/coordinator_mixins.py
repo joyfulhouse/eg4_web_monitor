@@ -455,7 +455,8 @@ def _smart_port_read_stamp(mid_device: Any) -> float | None:
 
     A cloud refresh is new when its full payload differs from the previous
     record. Complete transport reads use ``_last_refresh``; missing port
-    statuses reuse the last stamp that came from a complete read.
+    statuses are unstamped so they cannot authorize sync or freeze the
+    unvalidated-adoption fallback.
     """
     refreshed = getattr(mid_device, "_last_refresh", None)
     if not isinstance(refreshed, datetime):
@@ -469,9 +470,10 @@ def _smart_port_read_stamp(mid_device: Any) -> float | None:
         if held is None:
             return None
         # pylxpweb resolves each missing register from the stale cloud runtime.
-        # Preserve both the last cloud identity and the last real read stamp.
+        # Preserve the last cloud identity while letting each miss count as an
+        # unvalidated cycle; the stale runtime must not authorize sync.
         _cloud_smart_port_reads[mid_device] = (held[0], refreshed, held[2])
-        return held[2]
+        return None
     payload = _cloud_payload(mid_device)
     if payload is None:
         stamp = refreshed.timestamp()
