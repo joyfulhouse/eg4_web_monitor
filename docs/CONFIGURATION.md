@@ -92,18 +92,15 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
      gateway = your router IP.
    - **Serial port:** baud `19200`, data bits `8`, stop bits `1`, parity `None`.
    - **Working mode:** `TCP Server`, local port `502` (standard Modbus TCP).
-   - **Protocol:** Modbus TCP to RTU conversion (shown as `Modbus TCP <--> RTU`
-     in the Waveshare web UI). The integration speaks standard Modbus TCP, so
-     the adapter must convert it to Modbus RTU for the inverter.
+   - **Protocol:** `Modbus TCP <--> RTU`. The integration speaks standard
+     Modbus TCP, so the adapter must convert it to Modbus RTU for the inverter.
 4. Save and restart the adapter.
 
-> **Multi-channel adapters (2-CH / 4-CH):** each channel you use is configured
-> separately, with its own web interface, and needs its **own unique static
-> IP** — do not reuse the example address above for every channel. Out of the
-> box the channels use consecutive addresses starting at `192.168.1.200`;
-> confirm each channel's current address with Waveshare's VirCom tool. In Home
-> Assistant, add each channel as a separate **Local Modbus TCP** device using
-> that channel's IP and port `502`.
+> **Multi-channel adapters (2-CH / 4-CH):** configure every channel you use,
+> and give each one its **own unique static IP** — do not reuse the example
+> address above for every channel. Use Waveshare's VirCom tool to find each
+> channel's current address. In Home Assistant, add each channel as a separate
+> **Local Modbus TCP** device using that channel's IP and port `502`.
 
 #### Home Assistant side
 
