@@ -11,6 +11,8 @@ sources:
   - custom_components/eg4_web_monitor/update.py
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
+  - custom_components/eg4_web_monitor/__init__.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/657
   - homeassistant/helpers/entity.py (installed Home Assistant, repo .venv)
   - memory/issue-261-hybrid-sensor-flicker.md
   - memory/issue-253-duplicate-has-runtime-data.md
@@ -19,9 +21,9 @@ sources:
   - eg4_web_monitor issues #550, #253, #256, #261, #479
   - eg4_web_monitor PRs #566, #571
 verified-against:
-  eg4_web_monitor: e42ed86
+  eg4_web_monitor: e804788d73ed779c13a90fde5d4a4c824bbe2e4f
   homeassistant: 2025.11.2
-last-verified: 2026-08-12
+last-verified: 2026-10-12
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -29,9 +31,12 @@ see-also:
 
 # Entities: inheritance, identity, availability
 
-Line numbers are pinned per source by the `verified-against:` mapping above — `e42ed86` for
-`eg4_web_monitor`, package version `2025.11.2` for `homeassistant`. Each citation names its source
-where it is not this repo. Symbol names are the durable anchor.
+The §6 parameter-wait paragraph was re-verified at eg4_web_monitor `e804788d73ed779c13a90fde5d4a4c824bbe2e4f`
+([PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)). Other claims retain
+their historical eg4 source pin `e42ed86` and the later inline verification stamps;
+they were not re-verified by this startup-logging change. Historical line citations
+use that older pin; Home Assistant citations retain package version `2025.11.2`.
+Symbol names are the durable anchor.
 
 Two facts on this page are load-bearing and routinely mis-assumed. Read §2 and §4 before
 reasoning about any entity-state bug.
@@ -410,11 +415,12 @@ platform — it creates the parent devices, and on HA ≥ 2026.8 an unregistered
 child unlinked (`verified-against-code` — `__init__.py` → `SENSOR_PLATFORM` / `OTHER_PLATFORMS`).
 Between the two groups, setup waits up to 15 s for an in-flight missing-parameter load
 (`async_wait_for_missing_parameters`), ending early once every inverter it is loading has
-parameters, so controls are not created ahead of the first parameter read and shown
-unavailable; on timeout the controls are added anyway (`verified-against-code` at branch
-`fix/control-setup-order-656`, licensed per claim — `__init__.py` →
-`_INITIAL_PARAMETER_WAIT_SECONDS`; `coordinator_mixins.py` →
-`ParameterManagementMixin.async_wait_for_missing_parameters`).
+parameters. On timeout the controls are added anyway and setup logs the measured elapsed
+time at INFO. This bounds the startup wait; it does not guarantee that parameters are
+present when a slow or failed load outlasts it (`verified-against-code` at `e804788d73ed779c13a90fde5d4a4c824bbe2e4f`,
+[PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) —
+`__init__.py` → `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`;
+`coordinator_mixins.py` → `ParameterManagementMixin.async_wait_for_missing_parameters`).
 
 **Battery identity is serial-first across all three modes**, with in-place registry migration
 (`battery_migration.py`), so switching modes no longer duplicates battery devices (#252). Identity
