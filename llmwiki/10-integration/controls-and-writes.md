@@ -587,9 +587,10 @@ All rows: `verified-against-code`. Repairs detail: [diagnostics-repairs.md](diag
 ## 9. Late control discovery
 
 Location: `control_discovery.py` → `setup_control_entity_discovery`.
-Evidence for this section: `verified-against-code`, re-verified 2026-10-12 at
-`9ebd2b8a567753125631c2e756fdfd931e7e7e6b`
-([PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)).
+Evidence for this section: `verified-against-code`, re-verified 2026-10-12 against
+the implementation in [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657).
+The PR's own implementation is the verification target for this section; its
+durable PR reference survives the branch and merge rebases.
 
 | Mechanism | Detail / cited symbol in `control_discovery.py` |
 |---|---|
@@ -597,7 +598,7 @@ Evidence for this section: `verified-against-code`, re-verified 2026-10-12 at
 | Signature change | Rebuild candidates, mark known entities supported/unsupported, add only new unique IDs. `setup_control_entity_discovery` → `_rediscover_controls` |
 | Legacy selection | With `migrate_model_prefix` and no stable entry, promote one same-config-entry, same-platform legacy suffix match to the model-free ID. Prefer enabled, then most recently created where HA recorded it; tied timestamps prefer an entity ID without a trailing numeric suffix, then lexical entity-ID order. `_migrate_model_prefixed_unique_ids` |
 | Same-entry stable identity | Always keep the existing stable entry untouched. Remove its legacy entries unless they back loaded entities; no stable entry is removed, rewritten or replaced, regardless of metadata, references or legacy disabled state. `_migrate_model_prefixed_unique_ids` |
-| Foreign stable identity | Preserve the local legacy entries and foreign stable entry, skip registration of that conflicted control, and warn once per control during platform setup. `_migrate_model_prefixed_unique_ids`; `setup_control_entity_discovery` → `warned_conflicts` |
+| Foreign stable identity | Preserve the local legacy entries and foreign stable entry, skip registration of that conflicted control even when there are no local legacy entries, and warn once per control during platform setup. `_migrate_model_prefixed_unique_ids`; `setup_control_entity_discovery` → `warned_conflicts` |
 | Removal | Remove superseded legacy entries, except entries backing a loaded entity (a state without `restored`). Each removal logs a WARNING naming the entity ID and its legacy unique ID. `_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity` |
 | Listener ordering | Register before the first discovery call so capability convergence occurs in the same tick as entity updates. `setup_control_entity_discovery` |
 
@@ -606,7 +607,7 @@ entity appeared beside them (`asserted-unverified` —
 [issue #656](https://github.com/joyfulhouse/eg4_web_monitor/issues/656)).
 
 Platform route signatures: `number.py` → `_number_route_signature`,
-`switch.py` → `_switch_route_signature` (`verified-against-code` at the section pin).
+`switch.py` → `_switch_route_signature` (`verified-against-code` against the section's verification target).
 
 `_control_discovery_supported` feeds into availability — see
 [entities-identity-availability.md](entities-identity-availability.md) §2.

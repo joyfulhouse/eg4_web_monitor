@@ -415,10 +415,12 @@ Between the two groups, setup waits up to 15 s for an in-flight missing-paramete
 parameters. On timeout the controls are added anyway and setup logs the measured elapsed
 time at INFO. This bounds the startup wait; it does not guarantee that parameters are
 present when a slow or failed load outlasts it (`verified-against-code`, re-verified 2026-10-12
-at `9ebd2b8a567753125631c2e756fdfd931e7e7e6b`,
+against the implementation in
 [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) —
 `__init__.py` → `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`;
 `coordinator_mixins.py` → `ParameterManagementMixin.async_wait_for_missing_parameters`).
+The PR's own implementation is the verification target for this wait behavior;
+the durable PR reference survives the branch and merge rebases.
 
 **Battery identity is serial-first across all three modes**, with in-place registry migration
 (`battery_migration.py`), so switching modes no longer duplicates battery devices (#252). Identity

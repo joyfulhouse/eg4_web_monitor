@@ -220,12 +220,13 @@ Do not infer runtime behaviour from `_MixinBase`.
 | `FirmwareUpdateMixin` | `coordinator_mixins.py` | Firmware info extraction | `_extract_firmware_update_info` |
 
 Table: `verified-against-code` — method definitions read in the cited modules at the
-page-level pin, with the added method's source pin below.
+page-level pin, with the added method's verification target below.
 
 ¹ `ParameterManagementMixin.async_wait_for_missing_parameters` in `coordinator_mixins.py`
-was re-verified 2026-10-12 at `9ebd2b8a567753125631c2e756fdfd931e7e7e6b`
-([PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)), which contains the
-method. Its setup behavior is owned by
+was re-verified 2026-10-12 against the implementation in
+[PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657), which contains the
+method. The PR's own implementation is the verification target for this added method;
+the durable PR reference survives the branch and merge rebases. Its setup behavior is owned by
 [entities-identity-availability.md](entities-identity-availability.md) §6.
 
 

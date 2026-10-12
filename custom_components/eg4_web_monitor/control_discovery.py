@@ -114,9 +114,6 @@ def _migrate_model_prefixed_unique_ids(
         matches = [
             entry for entry in registry_entries if entry.unique_id.endswith(suffix)
         ]
-        if not matches:
-            continue
-
         stable_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
         stable = registry.async_get(stable_id) if stable_id is not None else None
         if stable is not None and stable.config_entry_id != entry_id:
@@ -132,6 +129,9 @@ def _migrate_model_prefixed_unique_ids(
                     stable.config_entry_id,
                     entry_id,
                 )
+            continue
+
+        if not matches:
             continue
 
         if stable is None:
