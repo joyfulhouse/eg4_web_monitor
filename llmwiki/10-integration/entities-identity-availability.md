@@ -21,9 +21,9 @@ sources:
   - eg4_web_monitor issues #550, #253, #256, #261, #479
   - eg4_web_monitor PRs #566, #571
 verified-against:
-  eg4_web_monitor: e804788d73ed779c13a90fde5d4a4c824bbe2e4f
+  eg4_web_monitor: e42ed86
   homeassistant: 2025.11.2
-last-verified: 2026-10-12
+last-verified: 2026-08-12
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -31,12 +31,9 @@ see-also:
 
 # Entities: inheritance, identity, availability
 
-The §6 parameter-wait paragraph was re-verified at eg4_web_monitor `e804788d73ed779c13a90fde5d4a4c824bbe2e4f`
-([PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)). Other claims retain
-their historical eg4 source pin `e42ed86` and the later inline verification stamps;
-they were not re-verified by this startup-logging change. Historical line citations
-use that older pin; Home Assistant citations retain package version `2025.11.2`.
-Symbol names are the durable anchor.
+Line numbers are pinned per source by the `verified-against:` mapping above — `e42ed86` for
+`eg4_web_monitor`, package version `2025.11.2` for `homeassistant`. Each citation names its source
+where it is not this repo. Symbol names are the durable anchor.
 
 Two facts on this page are load-bearing and routinely mis-assumed. Read §2 and §4 before
 reasoning about any entity-state bug.
@@ -417,7 +414,8 @@ Between the two groups, setup waits up to 15 s for an in-flight missing-paramete
 (`async_wait_for_missing_parameters`), ending early once every inverter it is loading has
 parameters. On timeout the controls are added anyway and setup logs the measured elapsed
 time at INFO. This bounds the startup wait; it does not guarantee that parameters are
-present when a slow or failed load outlasts it (`verified-against-code` at `e804788d73ed779c13a90fde5d4a4c824bbe2e4f`,
+present when a slow or failed load outlasts it (`verified-against-code`, re-verified 2026-10-12
+at `9ebd2b8a567753125631c2e756fdfd931e7e7e6b`,
 [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) —
 `__init__.py` → `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`;
 `coordinator_mixins.py` → `ParameterManagementMixin.async_wait_for_missing_parameters`).

@@ -1148,3 +1148,19 @@ new claims at the pages' declared pins; replaced them with this immutable implem
 and checked each cited symbol via `git show`. Refreshed verification metadata while preserving
 older sections' historical pins. The 2026-10-05 entry remains as append-only history;
 this entry corrects its branch-based provenance and incomplete migration rule.
+
+## [2026-10-12] ingest | Keep stable controls; restore page provenance and pin the added wait method
+
+Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) at
+`9ebd2b8a567753125631c2e756fdfd931e7e7e6b`. Corrected [controls and writes §9](10-integration/controls-and-writes.md):
+an existing same-entry stable control is always kept untouched; only unloaded legacy entries
+are removed, with WARNING logs naming both IDs. The prior plain-stable replacement rule
+could remove the working control and promote a user-disabled legacy entry, changing the
+target used by automations and losing settings the predicate did not inspect. That policy
+is withdrawn; the previous log entry remains as append-only history. No-stable selection
+and foreign-entry conflict handling retain their existing rules. Restored both owner pages'
+pre-existing page-level verification pins, dates and provenance comments; the re-verified
+§9 and [entity lifecycle §6](10-integration/entities-identity-availability.md) claims cite
+this implementation pin inline. Added the missing immutable method citation to
+[architecture §3.2](10-integration/architecture.md), leaving its older page pin intact.
+Confirmed the cited symbols with `git show` at the implementation commit.
