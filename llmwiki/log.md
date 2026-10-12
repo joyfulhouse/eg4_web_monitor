@@ -1164,3 +1164,18 @@ pre-existing page-level verification pins, dates and provenance comments; the re
 this implementation pin inline. Added the missing immutable method citation to
 [architecture §3.2](10-integration/architecture.md), leaving its older page pin intact.
 Confirmed the cited symbols with `git show` at the implementation commit.
+
+## [2026-10-12] ingest | Durable PR citations and foreign control ownership without legacy entries
+
+Re-verified [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation.
+The earlier `e804788` and `9ebd2b8` implementation pins were superseded by a branch rebase;
+main also uses rebase merges, so another branch SHA would not provide durable provenance.
+Updated [controls and writes §9](10-integration/controls-and-writes.md),
+[architecture §3.2](10-integration/architecture.md) and
+[entity lifecycle §6](10-integration/entities-identity-availability.md) to cite the durable
+PR artifact and explicitly use its own implementation as the verification target.
+Preserved the pages' older verification metadata and all previous log entries.
+The foreign stable-ID ownership check now precedes the no-legacy early exit: the
+conflicted control is skipped and warned once even on an entry with no legacy matches,
+without writing either entry's registry records. Number/time regression cases also
+check ordinary no-legacy setup offers all controls without registry writes.

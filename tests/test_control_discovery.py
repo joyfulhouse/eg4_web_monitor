@@ -476,6 +476,75 @@ async def test_foreign_stable_identity_preserves_local_legacy_controls(
 @pytest.mark.parametrize(
     ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
 )
+async def test_foreign_stable_identity_without_legacy_is_not_registered(
+    hass, caplog, platform, setup, coordinator, key
+):
+    """Ownership applies even on installs with no model-prefixed identities."""
+    runtime = coordinator()
+    entry = _control_entry(hass, platform, runtime)
+    registry = er.async_get(hass)
+    normal = []
+    with (
+        patch.object(
+            registry, "async_update_entity", wraps=registry.async_update_entity
+        ) as update,
+        patch.object(registry, "async_remove", wraps=registry.async_remove) as remove,
+        patch.object(
+            registry, "async_get_or_create", wraps=registry.async_get_or_create
+        ) as create,
+    ):
+        await setup(hass, entry, lambda entities, **_kwargs: normal.extend(entities))
+        update.assert_not_called()
+        remove.assert_not_called()
+        create.assert_not_called()
+    normal_ids = {entity.unique_id for entity in normal}
+    target_id = f"{SERIAL}_{key}"
+    assert target_id in normal_ids
+    assert not er.async_entries_for_config_entry(registry, entry.entry_id)
+
+    foreign = MockConfigEntry(domain=DOMAIN, data={}, entry_id=f"foreign-{platform}")
+    foreign.add_to_hass(hass)
+    stable = _registry_control(registry, foreign, platform, target_id)
+    stable = registry.async_update_entity(stable.entity_id, name="My control")
+    added = []
+    with (
+        patch.object(
+            registry, "async_update_entity", wraps=registry.async_update_entity
+        ) as update,
+        patch.object(registry, "async_remove", wraps=registry.async_remove) as remove,
+        patch.object(
+            registry, "async_get_or_create", wraps=registry.async_get_or_create
+        ) as create,
+    ):
+        await setup(hass, entry, lambda entities, **_kwargs: added.extend(entities))
+        rediscover = runtime.async_add_listener.call_args.args[0]
+        runtime.data["devices"][SERIAL].setdefault("features", {})["conflict_probe"] = (
+            True
+        )
+        rediscover()
+        update.assert_not_called()
+        remove.assert_not_called()
+        create.assert_not_called()
+
+    assert {entity.unique_id for entity in added} == normal_ids - {target_id}
+    assert registry.async_get(stable.entity_id) == stable
+    assert not er.async_entries_for_config_entry(registry, entry.entry_id)
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.eg4_web_monitor.control_discovery"
+        and record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+    assert target_id in warnings[0].message
+    assert stable.entity_id in warnings[0].message
+    assert foreign.entry_id in warnings[0].message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
 @pytest.mark.parametrize("restored", (False, True))
 @pytest.mark.parametrize("disabled_by", (None, er.RegistryEntryDisabler.USER))
 async def test_enabled_stable_identity_survives_legacy_cleanup(
