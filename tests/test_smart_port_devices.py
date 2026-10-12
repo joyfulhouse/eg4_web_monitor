@@ -26,6 +26,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     GRIDBOSS_SMART_PORT_AGGREGATE_KEYS,
     GRIDBOSS_SMART_PORT_DYNAMIC_KEYS,
     GRIDBOSS_SMART_PORT_KEY_TO_PORT,
+    SMART_PORT_READ_KEY,
     SMART_PORT_VALIDATED_KEY,
 )
 from custom_components.eg4_web_monitor.coordinator_mixins import (
@@ -1514,6 +1515,16 @@ class TestIssue641:
         await mid_device.refresh()
         return self._stamp(mid_device)
 
+    async def _refresh_filtered(self, mid_device: Any) -> dict[str, Any]:
+        """Refresh a real MID device and return its actual filtered sensors."""
+        import asyncio
+
+        await asyncio.sleep(0.002)
+        await mid_device.refresh()
+        sensors: dict[str, Any] = {}
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid_device)
+        return sensors
+
     async def test_cached_cloud_payload_is_not_a_second_read(self):
         """pylxpweb advances ``_last_refresh`` when its response cache answers
         a cloud refresh; the read stamp does not move until the payload does."""
@@ -1530,60 +1541,98 @@ class TestIssue641:
         assert await self._refresh(mid) == mid._last_refresh.timestamp() > first
 
     async def test_changed_payload_with_the_same_server_time_is_a_read(self):
-        """Nothing rests on what serverTime means: a port status that changed
-        under the same serverTime is still a new read."""
+        """A distinct cloud record counts even when only energy differs."""
         same = "2026-01-01 00:00:00"
         mid = self._cloud_mid(
             self._payload(same, 1, total=1000),
-            self._payload(same, 2, total=1000),
-            self._payload(same, 2, total=1100),
+            self._payload(same, 1, total=1001),
         )
         first = await self._refresh(mid)
-        second = await self._refresh(mid)
-        assert second > first
-        assert await self._refresh(mid) == second
+        assert await self._refresh(mid) > first
 
-    async def test_non_port_payload_change_is_not_a_new_read(self):
-        """Power/energy changes do not make an unchanged port observation new."""
-        same = "2026-01-01 00:00:00"
-        mid = self._cloud_mid(
-            self._payload(same, 1, total=1000),
-            self._payload(same, 1, total=1100),
-        )
-        first = await self._refresh(mid)
-        assert await self._refresh(mid) == first
-
-    async def test_cached_cloud_payload_cannot_satisfy_the_two_read_guard(
+    async def test_cloud_startup_acts_on_second_distinct_agreeing_record(
         self, hass: HomeAssistant
     ):
-        """End to end: one portal payload processed twice does not flip a
-        port's entities; a second payload does."""
-        from custom_components.eg4_web_monitor.coordinator_mappings import (
-            SMART_PORT_READ_KEY,
-        )
-
+        """Two distinct startup records with one mode settle the registry."""
         entry = _entry(hass)
         registry = er.async_get(hass)
         ac_total = _seed(
             hass, entry, f"{GB}_smart_port1_ac_couple_total", "sensor.ac_total"
         )
         sync = PortSensorEnablement(hass, entry, _Coordinator(hass, {}))
-        same = "2026-01-01 00:00:00"
         mid = self._cloud_mid(
-            self._payload(same),
-            self._payload(same),
-            self._payload("2026-01-01 00:05:00", status=2),
+            self._payload("2026-01-01 00:00:00", status=1, total=1000),
+            self._payload("2026-01-01 00:01:00", status=1, total=1001),
+        )
+
+        async def cycle() -> dict[str, Any]:
+            sensors = await self._refresh_filtered(mid)
+            sync.async_sync({"devices": {GB: _gridboss(sensors)}})
+            return sensors
+
+        await cycle()
+        assert registry.async_get(ac_total.entity_id).disabled_by is None
+        await cycle()
+        assert registry.async_get(ac_total.entity_id).disabled_by is INTEGRATION
+
+    async def test_cloud_mode_change_acts_on_second_distinct_new_mode_record(
+        self, hass: HomeAssistant
+    ):
+        """A->B resets the streak; the second distinct B record acts."""
+        entry = _entry(hass)
+        registry = er.async_get(hass)
+        ac_total = _seed(
+            hass, entry, f"{GB}_smart_port1_ac_couple_total", "sensor.ac_total"
+        )
+        smart_total = _seed(
+            hass, entry, f"{GB}_smart_port1_smart_load_total", "sensor.smart_total"
+        )
+        sync = PortSensorEnablement(hass, entry, _Coordinator(hass, {}))
+        mid = self._cloud_mid(
+            self._payload("2026-01-01 00:00:00", status=1, total=1000),
+            self._payload("2026-01-01 00:01:00", status=1, total=1001),
+            self._payload("2026-01-01 00:02:00", status=2, total=1002),
+            self._payload("2026-01-01 00:03:00", status=2, total=1003),
         )
 
         async def cycle() -> None:
-            sensors = _statuses("smart_load")
-            sensors[SMART_PORT_READ_KEY] = await self._refresh(mid)
+            sensors = await self._refresh_filtered(mid)
             sync.async_sync({"devices": {GB: _gridboss(sensors)}})
 
         await cycle()
         await cycle()
-        assert registry.async_get(ac_total.entity_id).disabled_by is None
+        assert registry.async_get(ac_total.entity_id).disabled_by is INTEGRATION
         await cycle()
+        assert registry.async_get(ac_total.entity_id).disabled_by is INTEGRATION
+        assert registry.async_get(smart_total.entity_id).disabled_by is None
+        await cycle()
+        assert registry.async_get(ac_total.entity_id).disabled_by is None
+        assert registry.async_get(smart_total.entity_id).disabled_by is INTEGRATION
+
+    async def test_identical_cached_cloud_payload_does_not_advance_startup_streak(
+        self, hass: HomeAssistant
+    ):
+        """Repeated copies of one record count once; a new record then acts."""
+        entry = _entry(hass)
+        registry = er.async_get(hass)
+        ac_total = _seed(
+            hass, entry, f"{GB}_smart_port1_ac_couple_total", "sensor.ac_total"
+        )
+        sync = PortSensorEnablement(hass, entry, _Coordinator(hass, {}))
+        first = self._payload("2026-01-01 00:00:00", status=1, total=1000)
+        mid = self._cloud_mid(
+            first,
+            first.model_copy(deep=True),
+            self._payload("2026-01-01 00:01:00", status=1, total=1001),
+        )
+
+        for _ in range(2):
+            sensors = await self._refresh_filtered(mid)
+            sync.async_sync({"devices": {GB: _gridboss(sensors)}})
+        assert registry.async_get(ac_total.entity_id).disabled_by is None
+
+        sensors = await self._refresh_filtered(mid)
+        sync.async_sync({"devices": {GB: _gridboss(sensors)}})
         assert registry.async_get(ac_total.entity_id).disabled_by is INTEGRATION
 
     async def test_rejected_fetch_is_not_a_read_and_its_later_accept_is(self):
@@ -1632,6 +1681,26 @@ class TestIssue641:
         mid._last_refresh = refreshed
         return mid
 
+    @staticmethod
+    def _transport_with_statuses(mid_device: Any, reads: list[int | None]):
+        """Return a healthy pylxpweb transport with queued smart-port statuses."""
+        from pylxpweb.transports.data import MidboxRuntimeData
+
+        class _Transport:
+            serial = GB
+            is_connected = True
+
+            async def read_midbox_runtime(self) -> Any:
+                status = reads.pop(0)
+                runtime = MidboxRuntimeData.from_http_response(
+                    mid_device._runtime.midboxData
+                )
+                for port in range(1, 5):
+                    setattr(runtime, f"smart_port_{port}_status", status)
+                return runtime
+
+        return _Transport()
+
     def test_transport_reads_are_stamped_by_refresh_time(self):
         """With a healthy local transport every refresh is a register read: a
         stale cloud payload on the device does not hold the stamp back."""
@@ -1644,21 +1713,61 @@ class TestIssue641:
         mid._last_refresh = t1
         assert self._stamp(mid) == t1.timestamp()
 
-    def test_missing_transport_port_status_keeps_cloud_read_stamp(self):
-        """A missing register 20 value falls back to cloud status in pylxpweb."""
-        from datetime import datetime
-        from types import SimpleNamespace
+    async def test_valid_transport_then_missing_status_keeps_last_real_read_stamp(self):
+        """A register-20 miss cannot turn the cloud fallback into a new read."""
+        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00", status=1))
+        cloud_stamp = await self._refresh(mid)
+        mid._local_transport = self._transport_with_statuses(mid, [1, None])
 
-        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00"))
-        mid._runtime = self._payload("2026-01-01 00:00:00")
-        mid._transport_runtime = SimpleNamespace(
-            **{f"smart_port_{port}_status": None for port in range(1, 5)}
-        )
-        mid._local_transport = object()
-        mid._last_refresh = datetime(2026, 1, 1)
-        first = self._stamp(mid)
-        mid._last_refresh = datetime(2026, 1, 1, 0, 0, 5)
-        assert self._stamp(mid) == first
+        valid_sensors = await self._refresh_filtered(mid)
+        missing_sensors = await self._refresh_filtered(mid)
+        valid_stamp = valid_sensors[SMART_PORT_READ_KEY]
+        missing_stamp = missing_sensors[SMART_PORT_READ_KEY]
+
+        assert valid_stamp > cloud_stamp
+        assert missing_stamp == valid_stamp
+        assert SMART_PORT_VALIDATED_KEY in valid_sensors
+        assert SMART_PORT_VALIDATED_KEY not in missing_sensors
+        assert mid.smart_port1_status == 1
+
+    async def test_missing_transport_status_then_valid_read_advances_stamp(self):
+        """A missing status holds the cloud stamp until a real register read."""
+        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00", status=1))
+        cloud_stamp = await self._refresh(mid)
+        mid._local_transport = self._transport_with_statuses(mid, [None, 1])
+
+        missing_sensors = await self._refresh_filtered(mid)
+        valid_sensors = await self._refresh_filtered(mid)
+        missing_stamp = missing_sensors[SMART_PORT_READ_KEY]
+        valid_stamp = valid_sensors[SMART_PORT_READ_KEY]
+
+        assert missing_stamp == cloud_stamp
+        assert valid_stamp > missing_stamp
+        assert SMART_PORT_VALIDATED_KEY not in missing_sensors
+        assert SMART_PORT_VALIDATED_KEY in valid_sensors
+        assert mid.smart_port1_status == 1
+
+    async def test_alternating_valid_and_missing_status_reads(self):
+        """Only complete local status reads advance through intermittent misses."""
+        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00", status=1))
+        cloud_stamp = await self._refresh(mid)
+        mid._local_transport = self._transport_with_statuses(mid, [1, None, 2, None])
+
+        first_valid_sensors = await self._refresh_filtered(mid)
+        first_missing_sensors = await self._refresh_filtered(mid)
+        second_valid_sensors = await self._refresh_filtered(mid)
+        second_missing_sensors = await self._refresh_filtered(mid)
+        first_valid = first_valid_sensors[SMART_PORT_READ_KEY]
+        first_missing = first_missing_sensors[SMART_PORT_READ_KEY]
+        second_valid = second_valid_sensors[SMART_PORT_READ_KEY]
+        second_missing = second_missing_sensors[SMART_PORT_READ_KEY]
+
+        assert first_valid > cloud_stamp
+        assert first_missing == first_valid
+        assert second_valid > first_missing
+        assert second_missing == second_valid
+        assert SMART_PORT_VALIDATED_KEY not in first_missing_sensors
+        assert SMART_PORT_VALIDATED_KEY not in second_missing_sensors
 
     async def test_cloud_fallback_and_the_rejected_read_after_it(self):
         """While an attached transport's link is down pylxpweb serves the
@@ -1704,19 +1813,23 @@ class TestIssue641:
         assert self._stamp(mid) == stamps[0]
 
     async def test_transport_read_ends_the_cloud_payloads_claim(self):
-        """After a transport read, the cloud serving the payload it served
-        before is a read of its own, not the one stamped back then."""
-        from datetime import datetime, timedelta
-
+        """A local read does not make the same old cloud record new again."""
         mid = self._cloud_mid(*[self._payload("2026-01-01 00:00:00")] * 2)
-        first = await self._refresh(mid)
+        await self._refresh(mid)
 
         mid._local_transport = object()
-        mid._last_refresh = datetime.now() + timedelta(seconds=1)
-        assert self._stamp(mid) == mid._last_refresh.timestamp()
+        from types import SimpleNamespace
+
+        mid._transport_runtime = SimpleNamespace(
+            **{f"smart_port_{port}_status": 1 for port in range(1, 5)}
+        )
+        mid._last_refresh += timedelta(seconds=5)
+        local_stamp = self._stamp(mid)
+        assert local_stamp == mid._last_refresh.timestamp()
 
         mid._local_transport = None
-        assert await self._refresh(mid) == mid._last_refresh.timestamp() != first
+        mid._last_refresh += timedelta(seconds=5)
+        assert self._stamp(mid) == local_stamp
 
     def test_device_double_is_stamped_by_refresh_time(self):
         """Only a real portal payload can hold a stamp back."""
