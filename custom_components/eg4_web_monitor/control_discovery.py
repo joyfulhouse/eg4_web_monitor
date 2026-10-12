@@ -10,6 +10,7 @@ that have already been registered while marking them unsupported.
 
 from collections.abc import Callable, Hashable, Mapping, Sequence
 import logging
+import re
 from typing import Any
 
 from homeassistant.const import ATTR_RESTORED
@@ -72,7 +73,8 @@ def _migrate_model_prefixed_unique_ids(
     config_entry: Any,
     platform: str,
     entities: list[EG4OptimisticEntity],
-) -> None:
+    warned_conflicts: set[str],
+) -> set[str]:
     """Migrate ``{model}_{serial}_{key}`` IDs to ``{serial}_{key}`` in place.
 
     Number and time entities historically embedded the discovered model.  A
@@ -83,14 +85,17 @@ def _migrate_model_prefixed_unique_ids(
     in this config entry.
 
     Nothing can recreate a model-prefixed ID, so every match is the same
-    control.  One is kept by rewriting its unique ID, preferring an enabled
-    entry and then the most recently created one (the newest model).  The
-    rest are removed, as are all of them when the stable ID is already
-    registered.  An entry that still backs a loaded entity is never removed.
+    control. One is kept by rewriting its unique ID, preferring an enabled
+    entry and then the most recently created where HA recorded it. Ties prefer
+    an entity ID without a numeric suffix, then lexical entity-ID ordering.
+    A plain, unloaded stable duplicate is removed to preserve the legacy ID;
+    a customised or loaded stable entry is retained instead. Loaded legacy
+    entries are never removed. Return conflicted IDs to skip registration when
+    a different config entry owns the stable identity.
     """
     entry_id = getattr(config_entry, "entry_id", None)
     if not isinstance(entry_id, str):
-        return
+        return set()
 
     registry = er.async_get(hass)
     registry_entries = [
@@ -98,6 +103,7 @@ def _migrate_model_prefixed_unique_ids(
         for entry in er.async_entries_for_config_entry(registry, entry_id)
         if entry.domain == platform and entry.platform == DOMAIN
     ]
+    conflicts: set[str] = set()
 
     for entity in entities:
         unique_id = entity.unique_id
@@ -111,10 +117,50 @@ def _migrate_model_prefixed_unique_ids(
         if not matches:
             continue
 
-        if registry.async_get_entity_id(platform, DOMAIN, unique_id) is None:
-            keep = max(
+        stable_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
+        stable = registry.async_get(stable_id) if stable_id is not None else None
+        if stable is not None and stable.config_entry_id != entry_id:
+            conflicts.add(unique_id)
+            if unique_id not in warned_conflicts:
+                warned_conflicts.add(unique_id)
+                _LOGGER.warning(
+                    "Skipping %s control identity %s: stable entity %s belongs to "
+                    "config entry %s, not %s",
+                    platform,
+                    unique_id,
+                    stable.entity_id,
+                    stable.config_entry_id,
+                    entry_id,
+                )
+            continue
+
+        if stable is not None and not (
+            stable.name is not None
+            or stable.icon is not None
+            or stable.area_id is not None
+            or stable.labels
+            or stable.hidden_by is not None
+            or stable.disabled_by == er.RegistryEntryDisabler.USER
+            or _backs_loaded_entity(hass, stable.entity_id)
+        ):
+            registry.async_remove(stable.entity_id)
+            registry_entries.remove(stable)
+            _LOGGER.warning(
+                "Removed uncustomised %s control %s to preserve a legacy entity ID",
+                platform,
+                stable.entity_id,
+            )
+            stable = None
+
+        if stable is None:
+            keep = min(
                 matches,
-                key=lambda entry: (entry.disabled_by is None, entry.created_at),
+                key=lambda entry: (
+                    entry.disabled_by is not None,
+                    -entry.created_at.timestamp(),
+                    re.search(r"_\d+$", entry.entity_id) is not None,
+                    entry.entity_id,
+                ),
             )
             matches.remove(keep)
             registry_entries.remove(keep)
@@ -131,12 +177,13 @@ def _migrate_model_prefixed_unique_ids(
                 continue
             registry.async_remove(legacy.entity_id)
             registry_entries.remove(legacy)
-            _LOGGER.info(
+            _LOGGER.warning(
                 "Removed superseded %s control %s (legacy identity %s)",
                 platform,
                 legacy.entity_id,
                 legacy.unique_id,
             )
+    return conflicts
 
 
 def _backs_loaded_entity(hass: HomeAssistant, entity_id: str) -> bool:
@@ -159,6 +206,7 @@ def setup_control_entity_discovery(
 ) -> None:
     """Add current controls and converge their active set on later updates."""
     known_entities: dict[str, EG4OptimisticEntity] = {}
+    warned_conflicts: set[str] = set()
     previous_signature: object = _UNSET
 
     @callback
@@ -194,9 +242,15 @@ def setup_control_entity_discovery(
             return
         new_entities = list(new_by_id.values())
         if migrate_model_prefix:
-            _migrate_model_prefixed_unique_ids(
-                hass, config_entry, platform, new_entities
+            conflicts = _migrate_model_prefixed_unique_ids(
+                hass, config_entry, platform, new_entities, warned_conflicts
             )
+            new_by_id = {
+                unique_id: entity
+                for unique_id, entity in new_by_id.items()
+                if unique_id not in conflicts
+            }
+            new_entities = list(new_by_id.values())
         _LOGGER.info(
             "Discovered %d new %s control entities (%d active, %d retained)",
             len(new_entities),

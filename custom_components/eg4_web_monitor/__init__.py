@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 import logging
+from time import monotonic
 from typing import Any, TypeAlias
 
 import homeassistant.helpers.config_validation as cv
@@ -1504,13 +1505,14 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         # controls were created before the first parameter read and showed
         # unavailable until it landed.  Bounded: a slow read only delays
         # control setup, never blocks it.
+        parameter_wait_started = monotonic()
         if not await coordinator.async_wait_for_missing_parameters(
             _INITIAL_PARAMETER_WAIT_SECONDS
         ):
-            _LOGGER.debug(
-                "Parameters for %s not loaded after %ss; adding controls anyway",
+            _LOGGER.info(
+                "Parameters for %s not loaded after %.1fs; adding controls anyway",
                 entry.title,
-                _INITIAL_PARAMETER_WAIT_SECONDS,
+                monotonic() - parameter_wait_started,
             )
         coordinator._forwarded_platforms = list(PLATFORMS)
         await hass.config_entries.async_forward_entry_setups(entry, OTHER_PLATFORMS)
