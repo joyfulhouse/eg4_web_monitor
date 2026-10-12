@@ -472,6 +472,44 @@ class TestAsyncSetupEntry:
         ]
 
     @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
+    async def test_parameter_wait_timeout_logs_actual_elapsed_time(
+        self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry, caplog
+    ):
+        """A timeout is visible at INFO with the measured wait duration."""
+        mock_config_entry.add_to_hass(hass)
+        coordinator = MagicMock()
+        coordinator._async_load_pv_string_lifetime_state = AsyncMock()
+        coordinator.async_config_entry_first_refresh = AsyncMock()
+        coordinator.async_wait_for_missing_parameters = AsyncMock(return_value=False)
+        coordinator.data = {"devices": {}, "device_info": {}, "parameters": {}}
+        mock_coordinator_class.return_value = coordinator
+        with (
+            patch(
+                "custom_components.eg4_web_monitor.monotonic",
+                side_effect=(1.0, 3.5),
+                create=True,
+            ),
+            patch.object(
+                hass.config_entries, "async_forward_entry_setups", new=AsyncMock()
+            ) as forward,
+        ):
+            assert await async_setup_entry(hass, mock_config_entry)
+
+        timeouts = [
+            record
+            for record in caplog.records
+            if "adding controls anyway" in record.message
+        ]
+        assert len(timeouts) == 1
+        assert timeouts[0].levelno == logging.INFO
+        assert mock_config_entry.title in timeouts[0].message
+        assert "2.5s" in timeouts[0].message
+        assert [call.args[1] for call in forward.await_args_list] == [
+            SENSOR_PLATFORM,
+            OTHER_PLATFORMS,
+        ]
+
+    @patch("custom_components.eg4_web_monitor.EG4DataUpdateCoordinator")
     async def test_cancelled_platform_setup_also_unwinds(
         self, mock_coordinator_class, hass: HomeAssistant, mock_config_entry
     ):
