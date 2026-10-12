@@ -59,8 +59,11 @@ may work, but this is what we recommend:
 > Ethernet — no separate power supply needed. For cable runs over 50 feet, use
 > shielded cable to reduce interference.
 
-> If your adapter is near the inverter you can use the 12 volt power supply 
-> built-in to the inverter. The terminals are right next to the RS485 terminals.
+> If your inverter has an auxiliary DC power output, you may be able to power
+> the adapter from it instead of a separate supply. Check your inverter's manual
+> for the terminals, polarity, voltage and current rating, and confirm the
+> voltage is within your adapter's input range, before connecting anything —
+> miswiring power into an RS485 or BMS terminal can damage both devices.
 
 #### Wiring
 
@@ -89,12 +92,18 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
      gateway = your router IP.
    - **Serial port:** baud `19200`, data bits `8`, stop bits `1`, parity `None`.
    - **Working mode:** `TCP Server`, local port `502` (standard Modbus TCP).
-   - **Protocol:** `Modbus TCP to RTU`.
+   - **Protocol:** Modbus TCP to RTU conversion (shown as `Modbus TCP <--> RTU`
+     in the Waveshare web UI). The integration speaks standard Modbus TCP, so
+     the adapter must convert it to Modbus RTU for the inverter.
 4. Save and restart the adapter.
 
-> If using the 4-CH adapter you will need to repeat these steps for each channel 
-> that you wish to use. The default IPs for channels 2-4 are: `http://192.168.1.201` 
-> `http://192.168.1.202` `http://192.168.1.203`
+> **Multi-channel adapters (2-CH / 4-CH):** each channel you use is configured
+> separately, with its own web interface, and needs its **own unique static
+> IP** — do not reuse the example address above for every channel. Out of the
+> box the channels use consecutive addresses starting at `192.168.1.200`;
+> confirm each channel's current address with Waveshare's VirCom tool. In Home
+> Assistant, add each channel as a separate **Local Modbus TCP** device using
+> that channel's IP and port `502`.
 
 #### Home Assistant side
 
