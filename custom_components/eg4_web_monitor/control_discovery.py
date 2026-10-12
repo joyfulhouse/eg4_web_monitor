@@ -85,13 +85,13 @@ def _migrate_model_prefixed_unique_ids(
     in this config entry.
 
     Nothing can recreate a model-prefixed ID, so every match is the same
-    control. One is kept by rewriting its unique ID, preferring an enabled
-    entry and then the most recently created where HA recorded it. Ties prefer
-    an entity ID without a numeric suffix, then lexical entity-ID ordering.
-    A plain, unloaded stable duplicate is removed to preserve the legacy ID;
-    a customised or loaded stable entry is retained instead. Loaded legacy
-    entries are never removed. Return conflicted IDs to skip registration when
-    a different config entry owns the stable identity.
+    control. If no stable entry exists, one legacy entry is kept by rewriting
+    its unique ID, preferring enabled, then most recently created where HA
+    recorded it. Ties prefer an entity ID without a numeric suffix, then lexical
+    entity-ID ordering. An existing stable entry in this config entry is always
+    kept untouched; the legacy entries are removed unless they back loaded
+    entities. Return conflicted IDs to skip registration when a different config
+    entry owns the stable identity.
     """
     entry_id = getattr(config_entry, "entry_id", None)
     if not isinstance(entry_id, str):
@@ -133,24 +133,6 @@ def _migrate_model_prefixed_unique_ids(
                     entry_id,
                 )
             continue
-
-        if stable is not None and not (
-            stable.name is not None
-            or stable.icon is not None
-            or stable.area_id is not None
-            or stable.labels
-            or stable.hidden_by is not None
-            or stable.disabled_by == er.RegistryEntryDisabler.USER
-            or _backs_loaded_entity(hass, stable.entity_id)
-        ):
-            registry.async_remove(stable.entity_id)
-            registry_entries.remove(stable)
-            _LOGGER.warning(
-                "Removed uncustomised %s control %s to preserve a legacy entity ID",
-                platform,
-                stable.entity_id,
-            )
-            stable = None
 
         if stable is None:
             keep = min(
