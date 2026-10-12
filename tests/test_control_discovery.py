@@ -477,58 +477,91 @@ async def test_foreign_stable_identity_preserves_local_legacy_controls(
     ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
 )
 @pytest.mark.parametrize("restored", (False, True))
-@pytest.mark.parametrize("disabled_by", (None, er.RegistryEntryDisabler.INTEGRATION))
-async def test_uncustomised_stable_identity_promotes_best_legacy(
+@pytest.mark.parametrize("disabled_by", (None, er.RegistryEntryDisabler.USER))
+async def test_enabled_stable_identity_survives_legacy_cleanup(
     hass, freezer, caplog, platform, setup, coordinator, key, restored, disabled_by
 ):
-    """Replace a plain duplicate while retaining the original ID and metadata."""
+    """Keep the working stable control even when its legacy copies are disabled."""
     entry = _control_entry(hass, platform, coordinator())
     registry = er.async_get(hass)
-    older = _registry_control(registry, entry, platform, f"lxp_eu_12k_{SERIAL}_{key}")
+    legacy = [
+        _registry_control(
+            registry,
+            entry,
+            platform,
+            f"{model}_{SERIAL}_{key}",
+            disabled_by=disabled_by,
+        )
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    ]
     freezer.tick(60)
-    keep = _registry_control(
-        registry,
-        entry,
-        platform,
-        f"lxp_lb_eu_12k_{SERIAL}_{key}",
-        suggested_object_id="original_control",
-    )
-    keep = registry.async_update_entity(
-        keep.entity_id,
-        name="My original control",
-        icon="mdi:solar-power",
-        area_id="my_area",
-        labels={"my_label"},
-        hidden_by=er.RegistryEntryHider.USER,
-    )
     stable = _registry_control(
         registry,
         entry,
         platform,
         f"{SERIAL}_{key}",
-        disabled_by=disabled_by,
-        suggested_object_id="original_control",
+        suggested_object_id="working_control",
     )
+    assert stable.disabled_by is None
     if restored:
         hass.states.async_set(stable.entity_id, "unavailable", {"restored": True})
 
     await setup(hass, entry, lambda _entities, **_kwargs: None)
 
-    promoted = registry.async_get(keep.entity_id)
-    assert promoted is not None
-    assert promoted.unique_id == f"{SERIAL}_{key}"
-    for field in ("id", "created_at", "name", "icon", "area_id", "labels", "hidden_by"):
-        assert getattr(promoted, field) == getattr(keep, field)
+    assert registry.async_get(stable.entity_id) == stable
     assert (
-        registry.async_get_entity_id(platform, DOMAIN, promoted.unique_id)
-        == keep.entity_id
+        registry.async_get_entity_id(platform, DOMAIN, stable.unique_id)
+        == stable.entity_id
     )
-    for removed in (stable, older):
+    for removed in legacy:
         assert registry.async_get(removed.entity_id) is None
         assert any(
-            record.levelno == logging.WARNING and removed.entity_id in record.message
+            record.levelno == logging.WARNING
+            and removed.entity_id in record.message
+            and removed.unique_id in record.message
             for record in caplog.records
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+@pytest.mark.parametrize("customisation", ("entity_id", "aliases", "options"))
+async def test_stable_identity_retains_registry_customisation(
+    hass, platform, setup, coordinator, key, customisation
+):
+    """Stable registry identity and user metadata survive unloaded startup."""
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    legacy = [
+        _registry_control(registry, entry, platform, f"{model}_{SERIAL}_{key}")
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    ]
+    stable = _registry_control(registry, entry, platform, f"{SERIAL}_{key}")
+    if customisation == "entity_id":
+        stable = registry.async_update_entity(
+            stable.entity_id, new_entity_id=f"{platform}.my_working_control"
+        )
+    elif customisation == "aliases":
+        stable = registry.async_update_entity(
+            stable.entity_id, aliases=["My working control"]
+        )
+    else:
+        registry.async_update_entity_options(
+            stable.entity_id, platform, {"mode": "box"}
+        )
+        stable = registry.async_get(stable.entity_id)
+    assert stable is not None
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get(stable.entity_id) == stable
+    assert (
+        registry.async_get_entity_id(platform, DOMAIN, stable.unique_id)
+        == stable.entity_id
+    )
+    assert all(registry.async_get(item.entity_id) is None for item in legacy)
 
 
 @pytest.mark.asyncio
