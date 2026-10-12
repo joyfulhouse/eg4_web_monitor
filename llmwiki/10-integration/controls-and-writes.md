@@ -20,28 +20,14 @@ sources:
   - memory/issue-476-green-mode-bit14.md
   - memory/battery-control-mode-soc-vs-voltage.md
   - eg4_web_monitor issues #310, #328, #362, #476, #485
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/657
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against:
-  # Mainline SHAs, re-pinned at the 2026-08-12 release cut from the #559
-  # PR-branch heads (eg4 PR #562 branch 0e2366f → merged as e146d91;
-  # pylxpweb PR #270 branch aafc4e3 → merged as 9c10a07, contained in the
-  # 0.9.39b11 release commit ab87902). The router (§1) and §2.4 were
-  # falsified by PR #569 and re-verified at e9853eb for the #570 sweep
-  # ingest — those sections carry their pin inline; other sections stand at
-  # e146d91. Claims describing the PR #600 change set itself (the
-  # local_write_blocked_reason protected-set row in §1, the §1.3/§2.4/§6
-  # family gates) are licensed PER CLAIM by their inline PR #600 / issue
-  # #570 citations. Re-pinned at the 2026-08-30 release cut (#559
-  # precedent): PR #600 merged as d8e2027; the whole page now verifies at
-  # the mainline pin below.
-  # #592 (2026-09-02, PR branch pollux/issue-592-peak-shaving): the
-  # PeakShavingNumber rows in §0.4/§1/§6/§10 describe that change set and
-  # are licensed per claim by their inline #592 citations until the
-  # release-cut re-pin moves the mainline pin past the merge.
-  eg4_web_monitor: 1a2c24e
+  # Section 9 re-verified here; older sections retain their historical pins below.
+  eg4_web_monitor: e804788d73ed779c13a90fde5d4a4c824bbe2e4f
   pylxpweb: c78ab7e
-last-verified: 2026-09-02
+last-verified: 2026-10-12
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -50,15 +36,13 @@ see-also:
 
 # Controls and writes
 
-Line numbers are pinned per repo by the `verified-against:` mapping above — `e146d91` for
-`eg4_web_monitor`, `ab87902` for `pylxpweb`. Between the previous pins (`0e2366f` / `aafc4e3`)
-and these, the only cited source files that changed are eg4 `coordinator_mixins.py` (the #560
-temperature-blanking merge shifted `_perform_dst_sync`, re-numbered below) and pylxpweb
-`constants/registers.py` (comment-only change, not line-cited here); every other cited file is
-byte-identical, so its line numbers carry over unchanged.
-Inline "at `9f6d6e2`" / "at `204b95d`" stamps on derivations record the commit that analysis was
-actually run at and are deliberately retained. Each citation names its repo where it is not this one.
-Symbol names are the durable anchor.
+Section 9 was re-verified at eg4_web_monitor `e804788d73ed779c13a90fde5d4a4c824bbe2e4f`
+([PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)). Other sections retain
+their historical eg4 verification at `1a2c24e`, including the earlier inline source pins;
+they were not re-verified by this migration change. Historical line citations remain
+at `e146d91` for eg4 and `ab87902` for pylxpweb unless a section names a later pin.
+The inline `9f6d6e2`, `204b95d`, PR #600 / `d8e2027`, and #592 citations retain their
+original evidence scope. Symbol names are the durable anchor.
 
 **The rule: do not add a second write path.** Route control writes through
 `async_write_with_cloud_fallback` so that fallback, cache seeding and the error contract come with
@@ -585,19 +569,28 @@ All rows: `verified-against-code`. Repairs detail: [diagnostics-repairs.md](diag
 
 ## 9. Late control discovery
 
-Location: `control_discovery.py:122-189`. Evidence: `verified-against-code`.
+Location: `control_discovery.py` → `setup_control_entity_discovery`.
+Evidence for this section: `verified-against-code` at `e804788d73ed779c13a90fde5d4a4c824bbe2e4f`
+([PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)).
 
-| Mechanism | Detail |
+| Mechanism | Detail / cited symbol in `control_discovery.py` |
 |---|---|
-| One **capability signature** per platform: per-serial type / model / features + a platform-specific `extra_signature` | `control_discovery.py:43-66` |
-| Fast-moving sensor values are **deliberately excluded** from the signature | otherwise every tick would rebuild candidates |
-| On signature change: rebuild candidates, mark already-registered entities supported/unsupported via `_set_control_discovery_supported`, add only genuinely new unique IDs | `control_discovery.py:122-185` |
-| `migrate_model_prefix` renames one legacy `{model}_{serial}_{key}` ID to `{serial}_{key}` — an enabled entry first, then the most recently created — and removes the other legacy entries for the same control, or all of them when `{serial}_{key}` is already registered; an entry whose entity is loaded (a state without `restored`) is never removed. Before this, two legacy entries (a model reported two ways) were left alone and a third entity was registered beside them ([#656](https://github.com/joyfulhouse/eg4_web_monitor/issues/656)) | `verified-against-code` at branch `fix/control-setup-order-656` (#656 change set, licensed per claim) — `control_discovery.py` → `_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity` |
-| The listener is registered **before** the first `_rediscover_controls()` call, so capability convergence happens in the same tick as entity updates | `control_discovery.py:186-189` |
+| Capability signature per platform | Per-serial type / model / features plus a platform-specific `extra_signature`; fast-moving readings are excluded. `control_capability_signature` |
+| Signature change | Rebuild candidates, mark known entities supported/unsupported, add only new unique IDs. `setup_control_entity_discovery` → `_rediscover_controls` |
+| Legacy selection | With `migrate_model_prefix`, promote one same-config-entry, same-platform legacy suffix match to the model-free ID. Prefer enabled, then most recently created where HA recorded it; tied timestamps prefer an entity ID without a trailing numeric suffix, then lexical entity-ID order. `_migrate_model_prefixed_unique_ids` |
+| Same-entry stable duplicate | Replace an unloaded stable entry if it has no user name, icon, area, labels, hidden state or user-disabled state; promote the best legacy entry, retaining its original entity ID and registry metadata. Keep a customised or loaded stable entry instead. `_migrate_model_prefixed_unique_ids` |
+| Foreign stable identity | Preserve the local legacy entries and foreign stable entry, skip registration of that conflicted control, and warn once per control during platform setup. `_migrate_model_prefixed_unique_ids`; `setup_control_entity_discovery` → `warned_conflicts` |
+| Removal | Remove superseded legacy entries, except entries backing a loaded entity (a state without `restored`). Each removal logs a WARNING naming the entity ID. `_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity` |
+| Listener ordering | Register before the first discovery call so capability convergence occurs in the same tick as entity updates. `setup_control_entity_discovery` |
 
-Platform route signatures: `number.py:743-759`, `switch.py:385-405`.
+Historical motivation: two model-prefixed entries were skipped as ambiguous and a third
+entity appeared beside them (`asserted-unverified` —
+[issue #656](https://github.com/joyfulhouse/eg4_web_monitor/issues/656)).
 
-`_control_discovery_supported` feeds directly into control availability — see
+Platform route signatures: `number.py` → `_number_route_signature`,
+`switch.py` → `_switch_route_signature` (`verified-against-code` at the section pin).
+
+`_control_discovery_supported` feeds into availability — see
 [entities-identity-availability.md](entities-identity-availability.md) §2.
 
 ## 10. Write-path landmines

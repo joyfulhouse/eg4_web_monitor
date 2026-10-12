@@ -1133,3 +1133,18 @@ reported two ways meant three entities per control, two of them permanently unav
 (#656, 80 warnings in the reporter's log). The wait is grounded in #653's recorder data
 (37 controls unavailable for 1–20 s at startup after #652), not in a log of the mechanism.
 
+
+## [2026-10-12] ingest | Control migration ownership and preservation; durable setup evidence
+
+Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation at
+`e804788d73ed779c13a90fde5d4a4c824bbe2e4f`. Updated [controls and writes §9](10-integration/controls-and-writes.md)
+for foreign config-entry conflicts, promotion of plain stable duplicates, preservation of
+customised or loaded stable entries, deterministic creation-time ties, and WARNING removal logs.
+The earlier rule treated a stable ID anywhere in the registry as this entry's survivor and
+could delete its legacy controls; blindly keeping a plain third entry also discarded the
+original entity ID. Updated [entity lifecycle §6](10-integration/entities-identity-availability.md)
+for measured INFO timeout logging. The prior mutable-branch citations could not verify the
+new claims at the pages' declared pins; replaced them with this immutable implementation pin
+and checked each cited symbol via `git show`. Refreshed verification metadata while preserving
+older sections' historical pins. The 2026-10-05 entry remains as append-only history;
+this entry corrects its branch-based provenance and incomplete migration rule.
