@@ -1722,10 +1722,10 @@ class TestIssue641:
         valid_sensors = await self._refresh_filtered(mid)
         missing_sensors = await self._refresh_filtered(mid)
         valid_stamp = valid_sensors[SMART_PORT_READ_KEY]
-        missing_stamp = missing_sensors[SMART_PORT_READ_KEY]
+        missing_stamp = missing_sensors.get(SMART_PORT_READ_KEY)
 
         assert valid_stamp > cloud_stamp
-        assert missing_stamp == valid_stamp
+        assert missing_stamp is None
         assert SMART_PORT_VALIDATED_KEY in valid_sensors
         assert SMART_PORT_VALIDATED_KEY not in missing_sensors
         assert mid.smart_port1_status == 1
@@ -1738,11 +1738,11 @@ class TestIssue641:
 
         missing_sensors = await self._refresh_filtered(mid)
         valid_sensors = await self._refresh_filtered(mid)
-        missing_stamp = missing_sensors[SMART_PORT_READ_KEY]
+        missing_stamp = missing_sensors.get(SMART_PORT_READ_KEY)
         valid_stamp = valid_sensors[SMART_PORT_READ_KEY]
 
-        assert missing_stamp == cloud_stamp
-        assert valid_stamp > missing_stamp
+        assert missing_stamp is None
+        assert valid_stamp > cloud_stamp
         assert SMART_PORT_VALIDATED_KEY not in missing_sensors
         assert SMART_PORT_VALIDATED_KEY in valid_sensors
         assert mid.smart_port1_status == 1
@@ -1758,16 +1758,74 @@ class TestIssue641:
         second_valid_sensors = await self._refresh_filtered(mid)
         second_missing_sensors = await self._refresh_filtered(mid)
         first_valid = first_valid_sensors[SMART_PORT_READ_KEY]
-        first_missing = first_missing_sensors[SMART_PORT_READ_KEY]
+        first_missing = first_missing_sensors.get(SMART_PORT_READ_KEY)
         second_valid = second_valid_sensors[SMART_PORT_READ_KEY]
-        second_missing = second_missing_sensors[SMART_PORT_READ_KEY]
+        second_missing = second_missing_sensors.get(SMART_PORT_READ_KEY)
 
         assert first_valid > cloud_stamp
-        assert first_missing == first_valid
-        assert second_valid > first_missing
-        assert second_missing == second_valid
+        assert first_missing is None
+        assert second_valid > first_valid
+        assert second_missing is None
         assert SMART_PORT_VALIDATED_KEY not in first_missing_sensors
         assert SMART_PORT_VALIDATED_KEY not in second_missing_sensors
+
+    async def test_register_20_never_read_counts_unvalidated_fallback_cycles(
+        self, monkeypatch
+    ):
+        """Missing register 20 cycles count toward timed unvalidated adoption."""
+        from types import SimpleNamespace
+
+        from custom_components.eg4_web_monitor import smart_port_devices as spd
+
+        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00", status=1))
+        await self._refresh(mid)
+        mid._local_transport = self._transport_with_statuses(mid, [None] * 3)
+        snapshots = [await self._refresh_filtered(mid) for _ in range(3)]
+        clock = [50.0]
+        monkeypatch.setattr(spd.time, "monotonic", lambda: clock[0])
+        coordinator = SimpleNamespace()
+
+        for sensors in snapshots[:-1]:
+            assert SMART_PORT_READ_KEY not in sensors
+            assert SMART_PORT_VALIDATED_KEY not in sensors
+            assert (
+                spd.serials_resolving_unvalidated(
+                    coordinator, {"devices": {GB: _gridboss(sensors)}}
+                )
+                == set()
+            )
+
+        clock[0] += spd.UNVALIDATED_SECONDS_BEFORE_FALLBACK
+        sensors = snapshots[-1]
+        assert SMART_PORT_READ_KEY not in sensors
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+        assert spd.serials_resolving_unvalidated(
+            coordinator, {"devices": {GB: _gridboss(sensors)}}
+        ) == {GB}
+
+    async def test_first_missing_transport_read_has_no_stamp_or_validation(self):
+        """A real clientless MIDDevice with missing statuses emits no stamp."""
+        from datetime import datetime
+
+        from pylxpweb.devices.mid_device import MIDDevice
+        from pylxpweb.transports.data import MidboxRuntimeData
+
+        class _Transport:
+            serial = GB
+            is_connected = True
+
+            async def read_midbox_runtime(self) -> Any:
+                return MidboxRuntimeData()
+
+        mid = MIDDevice(None, GB)
+        mid._local_transport = _Transport()
+        mid._transport_runtime = await mid._local_transport.read_midbox_runtime()
+        mid._last_refresh = datetime(2026, 1, 1)
+        sensors: dict[str, Any] = {}
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+
+        assert SMART_PORT_READ_KEY not in sensors
+        assert SMART_PORT_VALIDATED_KEY not in sensors
 
     async def test_cloud_fallback_and_the_rejected_read_after_it(self):
         """While an attached transport's link is down pylxpweb serves the

@@ -1211,8 +1211,9 @@ by the client's `midbox_runtime` response cache. So one portal payload could cou
 (`coordinator_mixins.py` → `_smart_port_read_stamp`, `_cloud_payload`, state held per MID device
 object); a cloud reading counts again only when the portal returns a new record. Complete local
 transport reads still use `_last_refresh`. A healthy transport refresh with any missing port
-status falls back to the prior cloud status in pylxpweb and does not count as a new read; the stamp
-of the last read that carried statuses is retained across valid and missing local reads. Why the
+status falls back to the prior cloud status in pylxpweb and emits no read stamp. The held cloud
+payload identity is refreshed, while the validation authority marker stays unset so every
+unstamped unvalidated cycle can count toward the existing adoption fallback. Why the
 earlier entry was wrong: [2026-09-28] called the stamp "the MID device's last successful refresh"
 and treated that as a read, which holds for a register read and not for a cached HTTP response.
 Two things issue #641 states did not survive a check against the code. The cache lifetime is not
