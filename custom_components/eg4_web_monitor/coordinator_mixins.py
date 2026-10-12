@@ -406,15 +406,15 @@ BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
 
-# Cloud-served GridBOSS reads, per MID device object: (portal payload, the
-# device's ``_last_refresh`` when that payload was last served, observed port
-# statuses, read stamp).
+# Last GridBOSS read identity per MID device object: (last cloud payload,
+# device's ``_last_refresh`` when the stamp was last served, read stamp).
 # pylxpweb advances ``_last_refresh`` on every accepted cloud refresh,
 # including one its response cache answered (the integration sets that
 # cache's lifetime to the HTTP polling interval), so on that path a read is
-# told apart by the payload instead (#641).
+# told apart by the payload instead (#641). Keep the payload across local
+# reads so a later transport fallback to that stale cloud record is not new.
 _cloud_smart_port_reads: weakref.WeakKeyDictionary[
-    Any, tuple[MidboxData, datetime, tuple[int | None, ...], float]
+    Any, tuple[MidboxData | None, datetime, float]
 ] = weakref.WeakKeyDictionary()
 
 
@@ -422,7 +422,8 @@ def _cloud_payload(mid_device: Any) -> MidboxData | None:
     """Return the portal payload of a cloud-served runtime, else None.
 
     The cloud serves the runtime when no transport is attached, or while an
-    attached transport's link is down (pylxpweb's cloud fallback).
+    attached transport's link is down (pylxpweb's cloud fallback). A healthy
+    transport with missing port statuses is handled as an ineligible read.
     """
     payload = getattr(getattr(mid_device, "_runtime", None), "midboxData", None)
     if not isinstance(payload, MidboxData):
@@ -431,21 +432,30 @@ def _cloud_payload(mid_device: Any) -> MidboxData | None:
         getattr(mid_device, "has_local_transport", False) is True
         and getattr(mid_device, "transport_link_down", False) is not True
     ):
-        transport_runtime = getattr(mid_device, "_transport_runtime", None)
-        if all(
-            getattr(transport_runtime, f"smart_port_{port}_status", None) is not None
-            for port in range(1, 5)
-        ):
-            return None
+        return None
     return payload
+
+
+def _transport_smart_port_statuses_missing(mid_device: Any) -> bool:
+    """Whether a healthy local transport lacks any GridBOSS port status."""
+    if (
+        getattr(mid_device, "has_local_transport", False) is not True
+        or getattr(mid_device, "transport_link_down", False) is True
+    ):
+        return False
+    runtime = getattr(mid_device, "_transport_runtime", None)
+    return any(
+        getattr(runtime, f"smart_port_{port}_status", None) is None
+        for port in range(1, 5)
+    )
 
 
 def _smart_port_read_stamp(mid_device: Any) -> float | None:
     """Return the identity of the GridBOSS read behind ``mid_device``'s data.
 
-    The MID device's last accepted runtime refresh, as a POSIX timestamp. On
-    the cloud path, a new read requires a changed smart-port observation;
-    unrelated power or energy changes do not count as another agreement.
+    A cloud refresh is new when its full payload differs from the previous
+    record. Complete transport reads use ``_last_refresh``; missing port
+    statuses reuse the last stamp that came from a complete read.
     """
     refreshed = getattr(mid_device, "_last_refresh", None)
     if not isinstance(refreshed, datetime):
@@ -454,20 +464,27 @@ def _smart_port_read_stamp(mid_device: Any) -> float | None:
     if held is not None and held[1] == refreshed:
         # Nothing was accepted since: the data is still what was stamped (a
         # rejected fetch, or a transport read rejected right after fallback).
-        return held[3]
+        return held[2]
+    if _transport_smart_port_statuses_missing(mid_device):
+        if held is None:
+            return None
+        # pylxpweb resolves each missing register from the stale cloud runtime.
+        # Preserve both the last cloud identity and the last real read stamp.
+        _cloud_smart_port_reads[mid_device] = (held[0], refreshed, held[2])
+        return held[2]
     payload = _cloud_payload(mid_device)
     if payload is None:
-        _cloud_smart_port_reads.pop(mid_device, None)
-        return refreshed.timestamp()
-    statuses = tuple(
-        getattr(payload, f"smartPort{port}Status", None) for port in range(1, 5)
-    )
+        stamp = refreshed.timestamp()
+        _cloud_smart_port_reads[mid_device] = (
+            held[0] if held is not None else None,
+            refreshed,
+            stamp,
+        )
+        return stamp
     stamp = (
-        held[3]
-        if held is not None and (held[0] == payload or held[2] == statuses)
-        else refreshed.timestamp()
+        held[2] if held is not None and held[0] == payload else refreshed.timestamp()
     )
-    _cloud_smart_port_reads[mid_device] = (payload, refreshed, statuses, stamp)
+    _cloud_smart_port_reads[mid_device] = (payload, refreshed, stamp)
     return stamp
 
 
@@ -3852,6 +3869,7 @@ class DeviceProcessingMixin(_MixinBase):
             for s in smart_port_statuses.values()
         )
         is_good_read = bool(smart_port_statuses) and all_valid_range
+        transport_statuses_missing = _transport_smart_port_statuses_missing(mid_device)
 
         # Identity of this read, validated or not: consumers count READS, and
         # the unvalidated ones matter too (adoption fallback, #195/#248).
@@ -3890,10 +3908,12 @@ class DeviceProcessingMixin(_MixinBase):
             _last_good_smart_port_statuses[serial] = {
                 p: s for p, s in smart_port_statuses.items() if s is not None
             }
-            if len(smart_port_statuses) == 4:
+            if len(smart_port_statuses) == 4 and not transport_statuses_missing:
                 # Per-cycle authority marker for the stale smart-port registry
-                # cleanup (#217): only a FRESH and COMPLETE good read proves
-                # the dynamic keys reflect the real port configuration.
+                # cleanup (#217): only a fresh, complete status read proves the
+                # dynamic keys reflect the real port configuration. A healthy
+                # transport can expose stale cloud statuses when a register is
+                # missing, so that fallback cannot authorize registry sync.
                 # Cached-fallback and suspect-skip cycles must not authorize
                 # registry removal (codex r2 HIGH), nor partial reads where
                 # some ports were never validated (codex r2 MEDIUM).
