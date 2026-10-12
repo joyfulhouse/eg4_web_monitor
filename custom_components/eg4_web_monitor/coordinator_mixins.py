@@ -407,13 +407,14 @@ BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)
 _warned_smart_port_devices: set[str] = set()
 
 # Cloud-served GridBOSS reads, per MID device object: (portal payload, the
-# device's ``_last_refresh`` when that payload was last served, read stamp).
+# device's ``_last_refresh`` when that payload was last served, observed port
+# statuses, read stamp).
 # pylxpweb advances ``_last_refresh`` on every accepted cloud refresh,
 # including one its response cache answered (the integration sets that
 # cache's lifetime to the HTTP polling interval), so on that path a read is
 # told apart by the payload instead (#641).
 _cloud_smart_port_reads: weakref.WeakKeyDictionary[
-    Any, tuple[MidboxData, datetime, float]
+    Any, tuple[MidboxData, datetime, tuple[int | None, ...], float]
 ] = weakref.WeakKeyDictionary()
 
 
@@ -423,43 +424,50 @@ def _cloud_payload(mid_device: Any) -> MidboxData | None:
     The cloud serves the runtime when no transport is attached, or while an
     attached transport's link is down (pylxpweb's cloud fallback).
     """
+    payload = getattr(getattr(mid_device, "_runtime", None), "midboxData", None)
+    if not isinstance(payload, MidboxData):
+        return None
     if (
         getattr(mid_device, "has_local_transport", False) is True
         and getattr(mid_device, "transport_link_down", False) is not True
     ):
-        return None
-    payload = getattr(getattr(mid_device, "_runtime", None), "midboxData", None)
-    return payload if isinstance(payload, MidboxData) else None
+        transport_runtime = getattr(mid_device, "_transport_runtime", None)
+        if all(
+            getattr(transport_runtime, f"smart_port_{port}_status", None) is not None
+            for port in range(1, 5)
+        ):
+            return None
+    return payload
 
 
 def _smart_port_read_stamp(mid_device: Any) -> float | None:
     """Return the identity of the GridBOSS read behind ``mid_device``'s data.
 
-    The MID device's last accepted runtime refresh, as a POSIX timestamp.  On
-    the cloud path an accepted refresh carrying the payload already counted
-    (the response cache, or a portal record the dongle has not updated) is
-    the same read and keeps its stamp.  Nothing here depends on what the
-    portal's ``serverTime`` means: any changed field is a new read.
+    The MID device's last accepted runtime refresh, as a POSIX timestamp. On
+    the cloud path, a new read requires a changed smart-port observation;
+    unrelated power or energy changes do not count as another agreement.
     """
     refreshed = getattr(mid_device, "_last_refresh", None)
     if not isinstance(refreshed, datetime):
         return None
-    try:
-        held = _cloud_smart_port_reads.get(mid_device)
-    except TypeError:  # not weak-referenceable: nothing can be held for it
-        return refreshed.timestamp()
+    held = _cloud_smart_port_reads.get(mid_device)
     if held is not None and held[1] == refreshed:
         # Nothing was accepted since: the data is still what was stamped (a
         # rejected fetch, or a transport read rejected right after fallback).
-        return held[2]
+        return held[3]
     payload = _cloud_payload(mid_device)
     if payload is None:
         _cloud_smart_port_reads.pop(mid_device, None)
         return refreshed.timestamp()
-    stamp = (
-        held[2] if held is not None and held[0] == payload else refreshed.timestamp()
+    statuses = tuple(
+        getattr(payload, f"smartPort{port}Status", None) for port in range(1, 5)
     )
-    _cloud_smart_port_reads[mid_device] = (payload, refreshed, stamp)
+    stamp = (
+        held[3]
+        if held is not None and (held[0] == payload or held[2] == statuses)
+        else refreshed.timestamp()
+    )
+    _cloud_smart_port_reads[mid_device] = (payload, refreshed, statuses, stamp)
     return stamp
 
 
