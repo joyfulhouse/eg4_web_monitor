@@ -38,6 +38,7 @@ sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/648
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/661
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/664
   - tests/test_base_entity.py
 verified-against:
   # Sections 4.3.1-4.3.2 are independently verified at 883f403; existing sections
@@ -497,6 +498,16 @@ the topology. Other inverter counters and parallel-group/GridBOSS consumption
 retain their configured classes (`verified-against-code` — `sensor.py` →
 `EG4InverterSensor.state_class`; `tests/test_base_entity.py` →
 `test_valid_energy_meters_keep_statistics`).
+
+The latch is not persisted. A fresh entity whose initial data lacks GridBOSS
+advertises its configured class until discovery; explicitly configured LOCAL
+GridBOSS devices already appear in static startup data (`verified-against-code`
+at `883f403` — `sensor.py` → `EG4InverterSensor.state_class`;
+`coordinator_local.py` → `LocalTransportMixin._build_local_static_data`).
+Issue [#664](https://github.com/joyfulhouse/eg4_web_monitor/issues/664) tracks retaining
+known topology through restart without preventing intentional GridBOSS removal.
+The initial/post-discovery metadata transition is tested; production miscount in
+that specific startup window is not claimed proven.
 
 The entity guard uses the effective state class, so these excluded balances pass
 through real decreases, including dips small enough that a `total_increasing`

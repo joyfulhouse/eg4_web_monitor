@@ -1354,3 +1354,13 @@ missing CT data leaves approximately 19 -> 17 kWh published as
 `total_increasing`. Filed #661 for the coordinator failure-path fix and recorded
 the limitation in the owning data-semantics page. This is source-selection
 evidence, not a hardware proof or a claim that CT counters normally decrease.
+
+## [2026-10-13] ingest | Startup topology window in consumption exclusion (#664)
+
+Kimi K3 review of #648 confirmed that the exclusion latch is entity-local and
+not persisted. Rechecked the state-class property and LOCAL static startup data
+at `883f403`: explicitly configured GridBOSS devices are recognized immediately,
+while a missing/unidentified device can delay the exclusion after restart.
+Filed #664 with a clear evidence limit: the metadata transition is code-verified,
+but production miscount in this exact startup window was not captured. Recorded
+this scope in data-semantics rather than presenting late discovery as persistence.
