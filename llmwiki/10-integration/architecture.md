@@ -12,11 +12,12 @@ sources:
   - memory/architecture-patterns.md
 verified-against: 9f6d6e2
 # HA-stop lifecycle row below re-verified at a79b8eb; other sections retain this pin.
-# PR #657: the added async_wait_for_missing_parameters method is verified
-# against PR #657 head 63dd93a (2026-10-13), licensed per claim by its
-# inline PR citation; other claims retain their existing verification pins.
-# Re-pin this added claim to the mainline merge SHA at the release cut.
-last-verified: 2026-09-29
+# PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
+# Scope: section 3.2 added async_wait_for_missing_parameters method, re-verified 2026-10-13.
+# This immutable inline pin licenses only those claims; unrelated claims retain
+# their existing verification pins; prior last-verified: 2026-09-29.
+# The refreshed date applies only to the scope above (no wholesale reverification).
+last-verified: 2026-10-13
 see-also:
   - data-flow-by-mode.md
   - controls-and-writes.md
@@ -227,10 +228,10 @@ Table: `verified-against-code` — method definitions read in the cited modules 
 page-level pin, with the added method's verification target below.
 
 ¹ `ParameterManagementMixin.async_wait_for_missing_parameters` in `coordinator_mixins.py`
-was re-verified 2026-10-12 against the implementation in
-[PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657), which contains the
-method. The PR's own implementation is the verification target for this added method;
-the durable PR reference survives the branch and merge rebases. Its setup behavior is owned by
+was re-verified 2026-10-13 at mainline `b6644539588d189e4a2fc671b3730609555037e8`
+(`verified-against-code`). [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)
+is change provenance; the immutable mainline commit is the verification target for
+this added method only. Its setup behavior is owned by
 [entities-identity-availability.md](entities-identity-availability.md) §6.
 
 

@@ -23,11 +23,12 @@ sources:
 verified-against:
   eg4_web_monitor: e42ed86
   homeassistant: 2025.11.2
-# PR #657: the section 6 bounded initial-parameter wait claims are verified
-# against PR #657 head 63dd93a (2026-10-13), licensed per claim by their
-# inline PR citation; other claims retain their existing verification pins.
-# Re-pin these claims to the mainline merge SHA at the release cut.
-last-verified: 2026-08-12
+# PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
+# Scope: section 6 bounded initial-parameter wait claims, re-verified 2026-10-13.
+# This immutable inline pin licenses only those claims; unrelated claims retain
+# their existing verification pins; prior last-verified: 2026-08-12.
+# The refreshed date applies only to the scope above (no wholesale reverification).
+last-verified: 2026-10-13
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -418,13 +419,13 @@ Between the two groups, setup waits up to 15 s for an in-flight missing-paramete
 (`async_wait_for_missing_parameters`), ending early once every inverter it is loading has
 parameters. On timeout the controls are added anyway and setup logs the measured elapsed
 time at INFO. This bounds the startup wait; it does not guarantee that parameters are
-present when a slow or failed load outlasts it (`verified-against-code`, re-verified 2026-10-12
-against the implementation in
-[PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) —
+present when a slow or failed load outlasts it (`verified-against-code`, re-verified 2026-10-13
+at mainline `b6644539588d189e4a2fc671b3730609555037e8` --
 `__init__.py` → `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`;
 `coordinator_mixins.py` → `ParameterManagementMixin.async_wait_for_missing_parameters`).
-The PR's own implementation is the verification target for this wait behavior;
-the durable PR reference survives the branch and merge rebases.
+[PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) is change provenance;
+the immutable mainline commit is the verification target for this wait behavior
+only. Other section 6 claims retain their existing pins.
 
 **Battery identity is serial-first across all three modes**, with in-place registry migration
 (`battery_migration.py`), so switching modes no longer duplicates battery devices (#252). Identity

@@ -42,11 +42,12 @@ verified-against:
   # release-cut re-pin moves the mainline pin past the merge.
   eg4_web_monitor: 1a2c24e
   pylxpweb: c78ab7e
-# PR #657: section 9 control-discovery claims are verified against PR #657
-# head 63dd93a (2026-10-13), licensed per claim by their inline PR citation;
-# other claims retain their existing verification pins. Re-pin these claims
-# to the mainline merge SHA at the release cut.
-last-verified: 2026-09-02
+# PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
+# Scope: section 9 control-discovery claims, re-verified 2026-10-13.
+# This immutable inline pin licenses only those claims; unrelated claims retain
+# their existing verification pins; prior last-verified: 2026-09-02.
+# The refreshed date applies only to the scope above (no wholesale reverification).
+last-verified: 2026-10-13
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -591,10 +592,11 @@ All rows: `verified-against-code`. Repairs detail: [diagnostics-repairs.md](diag
 ## 9. Late control discovery
 
 Location: `control_discovery.py` → `setup_control_entity_discovery`.
-Evidence for this section: `verified-against-code`, re-verified 2026-10-12 against
-the implementation in [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657).
-The PR's own implementation is the verification target for this section; its
-durable PR reference survives the branch and merge rebases.
+Evidence for this section: `verified-against-code`, re-verified 2026-10-13 at
+mainline `b6644539588d189e4a2fc671b3730609555037e8` (including the platform route
+signatures cited below). [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)
+is change provenance; the immutable mainline commit is the verification target
+for this section only. Other sections retain their existing pins.
 
 | Mechanism | Detail / cited symbol in `control_discovery.py` |
 |---|---|

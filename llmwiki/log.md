@@ -1232,3 +1232,20 @@ marks the entry (`smart_port_named_for`) so the registry sync's first validated 
 (`smart_port_devices.py` → `_settle_rename_hint`). LOCAL always takes the second route: it adopts
 on its static first refresh, before any port status is read. `docs/CONFIGURATION.md` documents it.
 No wiki page stated the stamp's source, so no page changed.
+
+## [2026-10-13] ingest | PR #657 post-merge verification completed
+
+Completed the REQUIRED POST-MERGE ACTION recorded on 2026-10-13: re-read the
+landed implementation with `git show b6644539588d189e4a2fc671b3730609555037e8:<path>`.
+Updated [architecture §3.2](10-integration/architecture.md) for
+`ParameterManagementMixin.async_wait_for_missing_parameters`;
+[controls and writes §9](10-integration/controls-and-writes.md) for
+`control_capability_signature`, `setup_control_entity_discovery` / `_rediscover_controls`,
+`_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity`, and the number/switch
+route signatures; and [entity lifecycle §6](10-integration/entities-identity-availability.md)
+for `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`, and the bounded wait.
+The immutable mainline commit `b6644539588d189e4a2fc671b3730609555037e8` now licenses
+only these claims in scoped front-matter notes and inline citations; PR #657 remains
+provenance. Refreshed `last-verified: 2026-10-13` with explicit scope, preserving
+all unrelated verification pins and dates. No wholesale reverification is claimed.
+All earlier log entries remain unchanged.
