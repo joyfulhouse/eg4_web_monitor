@@ -535,7 +535,7 @@ class EG4BaseSensor(EG4DeviceEntity, _EG4RestoredSensor):
         """
         raw_value = self._get_raw_value()
         value, self._last_reported_value = _guard_total_increasing(
-            getattr(self, "_attr_state_class", None),
+            getattr(self, "state_class", getattr(self, "_attr_state_class", None)),
             raw_value,
             self._last_reported_value,
         )

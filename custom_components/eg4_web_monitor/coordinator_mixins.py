@@ -2875,8 +2875,9 @@ class DeviceProcessingMixin(_MixinBase):
         # energy_today_usage (Eload, regs 171/172) — but Eload is the
         # inverter-served load, which omits grid-direct loads and so understates
         # whole-home consumption in a parallel/GridBOSS setup.  Energy balance
-        # (pv + discharge + import − charge − export) is the whole-home figure and
-        # mirrors how consumption_power is computed in pylxpweb.  (Eload itself is
+        # (pv + discharge + import − charge − export) is an approximation and
+        # can decrease on GridBOSS systems (#648); it is not a monotonic meter.
+        # It mirrors consumption_power in pylxpweb.  (Eload itself is
         # still surfaced verbatim as `load_energy` above.)
         #
         # Note: GridBOSS uses a different aggregation strategy — CT summation
