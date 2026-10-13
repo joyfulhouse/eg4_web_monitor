@@ -1279,3 +1279,6 @@ The preceding entry records the defect and fix history; the architecture page ow
 the current behavior at mainline `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`.
 Explicitly retained the separate provisional-adoption fallback: an unvalidated
 record is barred from validated-mode decisions, not from that existing fallback.
+
+Authority still requires complete, valid port statuses in the filter at that pin;
+a distinct accepted cloud record alone does not bypass those existing checks.
