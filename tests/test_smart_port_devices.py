@@ -1827,6 +1827,71 @@ class TestIssue641:
         assert SMART_PORT_READ_KEY not in sensors
         assert SMART_PORT_VALIDATED_KEY not in sensors
 
+    async def test_reprocessing_missing_transport_runtime_stays_unstamped(self):
+        """Repeated filtering of the same missing runtime never restores a stamp."""
+        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00", status=1))
+        await self._refresh(mid)
+        mid._local_transport = self._transport_with_statuses(mid, [None])
+
+        first = await self._refresh_filtered(mid)
+
+        def filter_current_runtime() -> dict[str, Any]:
+            sensors: dict[str, Any] = {}
+            DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+            return sensors
+
+        repeated = filter_current_runtime()
+        repeated_again = filter_current_runtime()
+
+        assert SMART_PORT_READ_KEY not in first
+        assert SMART_PORT_READ_KEY not in repeated
+        assert SMART_PORT_READ_KEY not in repeated_again
+        assert SMART_PORT_VALIDATED_KEY not in repeated_again
+
+    async def test_rejected_refresh_after_missing_status_counts_toward_fallback(
+        self, monkeypatch
+    ):
+        """Rejected refreshes keep missing-status data unstamped and count per cycle."""
+        from types import SimpleNamespace
+
+        from custom_components.eg4_web_monitor import smart_port_devices as spd
+
+        class _RejectedTransport:
+            serial = GB
+            is_connected = True
+
+            async def read_midbox_runtime(self) -> Any:
+                raise OSError("temporary transport read failure")
+
+        mid = self._cloud_mid(self._payload("2026-01-01 00:00:00", status=1))
+        await self._refresh(mid)
+        mid._local_transport = self._transport_with_statuses(mid, [None])
+        snapshots = [await self._refresh_filtered(mid)]
+        missing_refresh = mid._last_refresh
+        mid._local_transport = _RejectedTransport()
+        for _ in range(2):
+            snapshots.append(await self._refresh_filtered(mid))
+
+        assert mid._last_refresh == missing_refresh
+        assert all(SMART_PORT_READ_KEY not in sensors for sensors in snapshots)
+        assert all(SMART_PORT_VALIDATED_KEY not in sensors for sensors in snapshots)
+
+        clock = [50.0]
+        monkeypatch.setattr(spd, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+        coordinator = SimpleNamespace()
+        for sensors in snapshots[:2]:
+            assert (
+                spd.serials_resolving_unvalidated(
+                    coordinator, {"devices": {GB: _gridboss(sensors)}}
+                )
+                == set()
+            )
+
+        clock[0] += spd.UNVALIDATED_SECONDS_BEFORE_FALLBACK
+        assert spd.serials_resolving_unvalidated(
+            coordinator, {"devices": {GB: _gridboss(snapshots[2])}}
+        ) == {GB}
+
     async def test_cloud_fallback_and_the_rejected_read_after_it(self):
         """While an attached transport's link is down pylxpweb serves the
         cloud, so the cached-payload rule applies.  When the link returns but

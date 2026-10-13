@@ -462,10 +462,6 @@ def _smart_port_read_stamp(mid_device: Any) -> float | None:
     if not isinstance(refreshed, datetime):
         return None
     held = _cloud_smart_port_reads.get(mid_device)
-    if held is not None and held[1] == refreshed:
-        # Nothing was accepted since: the data is still what was stamped (a
-        # rejected fetch, or a transport read rejected right after fallback).
-        return held[2]
     if _transport_smart_port_statuses_missing(mid_device):
         if held is None:
             return None
@@ -474,6 +470,10 @@ def _smart_port_read_stamp(mid_device: Any) -> float | None:
         # unvalidated cycle; the stale runtime must not authorize sync.
         _cloud_smart_port_reads[mid_device] = (held[0], refreshed, held[2])
         return None
+    if held is not None and held[1] == refreshed:
+        # Nothing was accepted since: the data is still what was stamped (a
+        # rejected fetch, or a transport read rejected right after fallback).
+        return held[2]
     payload = _cloud_payload(mid_device)
     if payload is None:
         stamp = refreshed.timestamp()
