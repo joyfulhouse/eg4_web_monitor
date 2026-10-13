@@ -6,6 +6,7 @@ canonical-for:
   - entity_id derivation, and why _attr_entity_id is inert
 sources:
   - custom_components/eg4_web_monitor/base_entity.py
+  - tests/test_energy_guard_restore.py
   - custom_components/eg4_web_monitor/sensor.py
   - custom_components/eg4_web_monitor/binary_sensor.py
   - custom_components/eg4_web_monitor/update.py
@@ -23,6 +24,7 @@ sources:
 verified-against:
   eg4_web_monitor: e42ed86
   homeassistant: 2025.11.2
+# Section 1 restore-sensor inheritance re-verified at 447e5ef5d5ed0e24496aa423325a51406905679c on 2026-10-13.
 # PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
 # Scope: section 6 bounded initial-parameter wait claims, re-verified 2026-10-13.
 # This immutable inline pin licenses only those claims; unrelated claims retain
@@ -75,6 +77,13 @@ CoordinatorEntity
 ```
 
 Evidence: `verified-against-code` — class declarations at the cited lines.
+
+At `447e5ef5d5ed0e24496aa423325a51406905679c` (#649), `EG4BaseSensor`, `EG4BaseBatterySensor` and
+`EG4BatteryBankEntity` also inherit `_EG4RestoredSensor(RestoreSensor)` alongside
+the coordinator branch shown above. This multiple inheritance is
+`verified-against-code` — the class declarations in `base_entity.py` and real HA
+entity-lifecycle tests in `tests/test_energy_guard_restore.py`. Restart-baseline
+rules are owned by [data-semantics.md §4.2.1](data-semantics.md#421-restart-baseline-restoration-649).
 
 Note the split: **measurement** entities descend from `EG4DeviceEntity` / `EG4BatteryEntity` /
 `EG4StationEntity`; **control** entities descend from `EG4OptimisticEntity`. The two branches have

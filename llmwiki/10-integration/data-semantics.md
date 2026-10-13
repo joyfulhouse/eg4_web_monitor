@@ -17,6 +17,9 @@ sources:
   - custom_components/eg4_web_monitor/coordinator_http.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
   - custom_components/eg4_web_monitor/base_entity.py
+  - custom_components/eg4_web_monitor/const/sensors/inverter.py
+  - tests/test_energy_guard_restore.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/649
   - pylxpweb src/pylxpweb/transports/data.py
   - memory/issue-227-consumption-no-reset-local-clamp.md
   - memory/issue-258-battery-rr-reg96-unreliable.md
@@ -46,7 +49,8 @@ verified-against:
   # verifies at the mainline pin below.
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
-last-verified: 2026-08-30
+# Section 4.2.1 re-verified at 447e5ef5d5ed0e24496aa423325a51406905679c on 2026-10-13; other sections retain their pins.
+last-verified: 2026-10-13
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -403,6 +407,34 @@ All rows: `verified-against-code`.
 
 > **Ship both halves.** Removing the coordinator clamp *without* adding the bounded entity guard
 > re-surfaces the recorder warnings from 0.1 kWh rounding jitter.
+
+### 4.2.1 Restart baseline restoration (#649)
+
+`verified-against-code` at `447e5ef5d5ed0e24496aa423325a51406905679c` — `base_entity.py` →
+`_EG4RestoredSensor.async_added_to_hass`; `const/sensors/inverter.py` →
+`reset_period` metadata; `tests/test_energy_guard_restore.py`.
+
+The guard previously initialized `_last_reported_value` to `None` on entity
+recreation. Its first reading therefore bypassed dip suppression, even when HA
+had recorded a slightly higher value before shutdown. The three guarded sensor
+bases now share `_EG4RestoredSensor`, which uses HA's `RestoreSensor` native extra
+data to seed the baseline before the first state publication.
+
+Restoration requires `total_increasing`, a finite numeric native value and an
+exact match of native units (including unitless counters). Display-unit state
+strings are not used as numeric baselines. Daily counters are classified by
+explicit `reset_period: daily` configuration, not runtime name heuristics; their
+restored state's `last_updated` must fall on the current HA local calendar day.
+Lifetime baselines may span days. Missing or invalid restore data leaves the
+baseline empty; an older installation without native extra data must first save
+it while running the updated integration.
+
+Only the guard's comparison baseline is restored: a missing live reading remains
+unknown, and availability still follows the coordinator. The existing 10% bound
+and large-reset behavior are unchanged. The tests cover the first published
+state, native versus display units, invalid values, local/UTC day boundaries,
+unitless counters, missing live readings and remove/re-add persistence across
+the device, individual-battery and battery-bank sensor classes.
 
 ### 4.3 Consumption and load are two distinct meters
 
