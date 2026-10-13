@@ -503,7 +503,7 @@ The latch is not persisted. A fresh entity whose initial data lacks GridBOSS
 advertises its configured class until discovery; explicitly configured LOCAL
 GridBOSS devices already appear in static startup data (`verified-against-code`
 at `883f403` — `sensor.py` → `EG4InverterSensor.state_class`;
-`coordinator_local.py` → `LocalTransportMixin._build_local_static_data`).
+`coordinator_local.py` → `LocalTransportMixin._build_static_local_data`).
 Issue [#664](https://github.com/joyfulhouse/eg4_web_monitor/issues/664) tracks retaining
 known topology through restart without preventing intentional GridBOSS removal.
 The initial/post-discovery metadata transition is tested; production miscount in
