@@ -1309,3 +1309,17 @@ with the new multiple-inheritance edge in
 [entities-identity-availability.md §1](10-integration/entities-identity-availability.md#1-inheritance-graph).
 The owner page explains native-unit validation, daily local-date eligibility and
 why restoration must seed only the guard rather than publish stale live data.
+
+## [2026-10-13] ingest | Daily restore eligibility rejects fresh nonnumeric states
+
+Re-verified the restore implementation and actual HA remove/re-add lifecycle tests
+at `3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a` and updated only
+[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649).
+A same-day `last_updated` alone was insufficient: an unavailable publication after
+midnight retained yesterday's numeric native payload and incorrectly clamped the
+reloaded daily sensor. Daily restoration now also requires a finite numeric display
+state as eligibility, while the native payload remains the baseline and lifetime
+restoration is unchanged. Recorded the conservative loss of same-day daily dip
+protection after a nonnumeric shutdown and linked separate running-entity issue
+#666. Lifecycle tests cover all three guarded classes on HA 2026.1.0 and 2026.9.4.
+Grade: `verified-against-code`; other page sections retain their existing pins.
