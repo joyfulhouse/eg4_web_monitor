@@ -371,6 +371,31 @@ class TestSmartPortModeSelect:
         select.async_write_ha_state.assert_not_called()
         assert select.current_option == before
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "status"),
+        [
+            ("async_first", "smart_load"),
+            ("async_previous", "smart_load"),
+            ("async_next", "ac_couple"),
+        ],
+    )
+    async def test_index_selection_cannot_bypass_unused_guard(self, method, status):
+        """HA index/cycle services also reach the guard before transport writes."""
+        coordinator = _mock_gridboss_coordinator(sensors={"smart_port1_status": status})
+        select = EG4SmartPortModeSelect(
+            coordinator, "gb123", coordinator.data["devices"]["gb123"], port=1
+        )
+        with pytest.raises(HomeAssistantError, match="separate Smart Load Enable flag"):
+            if method == "async_first":
+                await select.async_first()
+            else:
+                await getattr(select, method)(cycle=True)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.set_smart_port_mode.assert_not_awaited()
+        assert select._optimistic_state is None
+
     def test_available_gridboss(self):
         """Available when device type is gridboss."""
         coordinator = _mock_gridboss_coordinator()

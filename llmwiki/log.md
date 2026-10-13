@@ -1282,3 +1282,18 @@ record is barred from validated-mode decisions, not from that existing fallback.
 
 Authority still requires complete, valid port statuses in the filter at that pin;
 a distinct accepted cloud record alone does not bypass those existing checks.
+
+## [2026-10-13] ingest | #629 GridBOSS mode write and independent enable state
+
+Read issue #629, integration write/status paths, and the public pinned
+pylxpweb control helper. Filed the reported Unused side effect in
+[GridBOSS](40-hardware/gridboss.md), graded `asserted-unverified`: no raw
+before/after pair supports a hardware-grade promotion. Recorded the software
+root cause and pre-write rejection at `c79b772` in
+[bug postmortems](60-history/bug-postmortems.md). Updated the index ownership
+row and checked mode/Unused claims across the wiki; the existing packing
+grades remain unchanged. Mode readback had concealed an independent disabled
+flag, so the fix blocks the destructive trigger rather than inferring that
+mode convergence proves load enablement. Recovery remains explicit; broader
+per-port settings are tracked by #638. Historical postmortem table checks
+retain their explicit old pins; the new section has its own newer scope.

@@ -81,6 +81,9 @@ Existing tests exercise readable Unused state, successful Smart Load and
 AC Couple writes, cloud rejection, unavailable transport, hybrid fallback,
 and optimistic retention. The cloud-rejection test now uses Smart Load so
 it continues to exercise a reachable cloud failure rather than the new guard.
+`test_index_selection_cannot_bypass_unused_guard` additionally exercises
+Home Assistant's inherited first, previous, and cycling-next helpers, which
+call the entity method directly rather than the option service wrapper.
 
 These are software regression checks. They do not simulate firmware or
 promote the reporter's hardware claim to hardware-proven.

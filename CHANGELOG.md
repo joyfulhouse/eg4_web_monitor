@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking - GridBOSS Unused mode writes are blocked for safety** ([#629](https://github.com/joyfulhouse/eg4_web_monitor/issues/629)): selecting Unused can clear the port's separate Smart Load Enable flag, and selecting Smart Load again does not restore it. Home Assistant now raises an actionable error before sending an Unused command on cloud, local, or hybrid connections. Unused remains readable for externally configured ports. Replace automations that use mode changes as load pause/resume, and check Smart Load Enable in the EG4 portal to recover an already affected port. See [configuration guidance](docs/CONFIGURATION.md#gridboss-smart-port-devices).
+
 ## [3.5.1-beta.18] - 2026-10-13
 
 Requires **[pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**.

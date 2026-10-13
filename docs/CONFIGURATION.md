@@ -387,6 +387,9 @@ cloud, local, and hybrid connections. The value remains listed so a port
 configured as Unused outside Home Assistant can still display its mode. Use
 the EG4 portal for Unused configuration and the separate Smart Load Enable
 control. This integration does not expose that per-port enable flag.
+Selecting **Smart Load** sets only the mode; it does not turn on Smart Load
+Enable. This also applies when a port was configured as Unused in the portal:
+check its enable flag there before expecting it to deliver power.
 
 **Recovery after an earlier Unused/Smart Load round trip:** check **Smart Load
 N Enable** in the EG4 portal for the affected port. If that load should be
