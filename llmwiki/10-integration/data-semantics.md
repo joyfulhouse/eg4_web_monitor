@@ -37,9 +37,10 @@ sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/648
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/661
   - tests/test_base_entity.py
 verified-against:
-  # Section 4.3.1 is independently verified at 883f403; existing sections
+  # Sections 4.3.1-4.3.2 are independently verified at 883f403; existing sections
   # retain their prior pins below. No whole-page re-verification is claimed.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
   # Quick Charge/H233) were falsified by PR #569 and re-verified at e9853eb
@@ -467,7 +468,7 @@ separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/
 
 ### 4.3 Consumption and load are two distinct meters
 
-| Concept | CLOUD | LOCAL / HYBRID | Authoritative when a GridBOSS is present |
+| Concept | CLOUD | LOCAL / HYBRID | Authoritative when GridBOSS CT consumption is available |
 |---|---|---|---|
 | `consumption` / `consumption_lifetime` | cloud `todayUsage` (server-computed) | `_energy_balance()` = yield + discharge + grid_import − charge − grid_export | the **parallel-GROUP** value via the GridBOSS CT overlay |
 | `load_power` | — | reg 170, Modbus-only | — |
@@ -513,6 +514,26 @@ AC-coupled energy is a hypothesis, not a proven missing term. This fix changes t
 statistics contract, not the formula or the contested physical-source claims
 below. Existing incorrect statistics are not rewritten; the upgrade guidance is
 owned by `CHANGELOG.md` → Unreleased / #648.
+
+#### 4.3.2 Missing GridBOSS CT overlay can expose a different group source (#661)
+
+The group source above is conditional. At `883f403`,
+`DeviceProcessingMixin._process_parallel_group_object` can compute a transport
+energy balance before the HTTP/HYBRID group workflow applies GridBOSS CTs.
+`apply_gridboss_overlay` leaves that balance unchanged when both CT consumption
+fields are absent; the HTTP MID-processing exception path logs the error without
+blanking the group's already-created balance (`verified-against-code` —
+`coordinator_mixins.py` → those two symbols; `coordinator_http.py` →
+`HTTPUpdateMixin._process_station_data`, group MID-processing block).
+
+Issue [#661](https://github.com/joyfulhouse/eg4_web_monitor/issues/661) records the
+helper/entity reproduction and the remaining coordinator failure-path work.
+The group remains `total_increasing` in this case; the #648 metadata fix applies
+only to inverter entities (`verified-against-code` at `883f403` — `sensor.py` →
+`EG4InverterSensor.state_class`). A switch from CT sums to an inverter balance
+can therefore change the meaning of a statistics series (`inferred` from those
+two source-selection paths). This limitation does not establish that the normal
+CT-backed group counter is non-monotonic.
 
 #### The lifetime-consumption source is CONTESTED — no binding rule here
 
