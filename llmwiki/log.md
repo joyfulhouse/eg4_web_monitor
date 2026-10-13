@@ -1376,3 +1376,13 @@ arrival. The real coordinator/HA regression now covers arrival, type recognition
 published metadata, disappearance and a subsequent energy drop for both
 consumption keys, and checks ordinary notifications remain scoped. The sensor
 latch remains entity-local; restart persistence stays separate in #664.
+
+
+## [2026-10-13] ingest | Consumption evidence after rebasing PR #665
+
+Re-verified the scoped consumption and listener claims at `7b597aa0592665aad2e54f94dd764849f25315c4`
+and `363580713692385c5c730da15824d3f1395e5753` after rebasing onto merged PR #663.
+The production tree and tests match the independently reviewed combined candidate
+`84b39c4`; conflicts preserved both changelog entries and append-only wiki
+histories. Updated the owner page to reachable branch pins without modifying
+prior log entries.
