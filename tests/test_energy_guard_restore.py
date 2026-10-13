@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from homeassistant.components.sensor import SensorExtraStoredData
 from homeassistant.core import State
+from homeassistant.helpers.restore_state import async_get as async_get_restore_data
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -64,6 +65,7 @@ async def add_sensor(hass, sensor, native=14.3, unit="kWh", stamp=None, extra=Tr
     platform.config_entry = entry
     await platform.async_add_entities([sensor])
     assert hass.states.get(sensor.entity_id) is not None
+    assert async_get_restore_data(hass).entities[sensor.entity_id] is sensor
     return platform
 
 
