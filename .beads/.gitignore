@@ -42,27 +42,3 @@ sync_base.jsonl
 # contributors to accidentally commit upstream issue databases.
 # The JSONL files (issues.jsonl, interactions.jsonl) and config files
 # are tracked by git by default since no pattern above ignores them.
-
-# Added by bd (missing required patterns)
-.env
-bd.sock.startlock
-*.gate.lock*
-export-state/
-export-state.json
-last_pull
-dolt/
-embeddeddolt/
-proxieddb/
-ephemeral.sqlite3
-dolt-server.pid
-dolt-server.log
-dolt-server.lock
-dolt-server.port
-dolt-server.activity
-dolt-server-config.yaml
-daemon.*
-*.lock
-*.corrupt.backup/
-.beads-credential-key
-proxied_server_client_info.json
-backup/
