@@ -1297,3 +1297,15 @@ flag, so the fix blocks the destructive trigger rather than inferring that
 mode convergence proves load enablement. Recovery remains explicit; broader
 per-port settings are tracked by #638. Historical postmortem table checks
 retain their explicit old pins; the new section has its own newer scope.
+
+## [2026-10-13] ingest | Restore the energy dip guard across HA restarts (#649)
+
+Read the shared sensor bases, HA native restore lifecycle and sensor mappings.
+The original bases discarded their comparison baseline on entity recreation;
+first-publication regression tests fail on `5f42769` for all three sensor classes.
+Recorded the fix at `447e5ef5d5ed0e24496aa423325a51406905679c` in
+[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649),
+with the new multiple-inheritance edge in
+[entities-identity-availability.md §1](10-integration/entities-identity-availability.md#1-inheritance-graph).
+The owner page explains native-unit validation, daily local-date eligibility and
+why restoration must seed only the guard rather than publish stale live data.
