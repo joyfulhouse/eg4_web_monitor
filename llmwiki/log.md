@@ -1323,3 +1323,13 @@ restoration is unchanged. Recorded the conservative loss of same-day daily dip
 protection after a nonnumeric shutdown and linked separate running-entity issue
 #666. Lifecycle tests cover all three guarded classes on HA 2026.1.0 and 2026.9.4.
 Grade: `verified-against-code`; other page sections retain their existing pins.
+
+
+## [2026-10-13] ingest | Restore fix evidence after rebasing PR #663
+
+Re-verified the scoped restore eligibility and inheritance claims against
+`a63b5328c8d527b857322d8b185b9d8d4f87b7d2` after rebasing onto merged PR #662.
+The restore source and tests are unchanged from `3727ff0`; the rebase only adds
+the reviewed select guard and preserves both append-only wiki histories.
+Updated the two owning pages to the reachable branch code pin; prior log entries
+remain unchanged as history.
