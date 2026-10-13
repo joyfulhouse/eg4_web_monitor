@@ -447,6 +447,12 @@ class _EG4RestoredSensor(RestoreSensor):
                 or dt_util.as_local(state.last_updated).date() != dt_util.now().date()
             ):
                 return
+            # Display state is eligibility only: its timestamp may outlive native data.
+            try:
+                if not math.isfinite(float(state.state)):
+                    return
+            except (ValueError, OverflowError):
+                return
 
         self._last_reported_value = value
 

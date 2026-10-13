@@ -51,11 +51,13 @@ def sensor_factory(request, hass):
     return create
 
 
-async def add_sensor(hass, sensor, native=14.3, unit="kWh", stamp=None, extra=True):
+async def add_sensor(
+    hass, sensor, native=14.3, unit="kWh", stamp=None, extra=True, state_value="14300"
+):
     """Seed HA's restore cache and add via the real entity platform."""
     stamp = stamp or dt_util.utcnow()
     state = State(
-        sensor.entity_id, "14300", {"unit_of_measurement": "Wh"}, last_updated=stamp
+        sensor.entity_id, state_value, {"unit_of_measurement": "Wh"}, last_updated=stamp
     )
     payload = SensorExtraStoredData(native, unit).as_dict() if extra else {}
     mock_restore_cache_with_extra_data(hass, [(state, payload)])
@@ -181,6 +183,53 @@ async def test_removed_sensor_stores_native_guarded_value(hass, sensor_factory):
     await platform.async_add_entities([replacement])
     assert replacement.native_value == 14.3
     assert hass.states.get(replacement.entity_id).state == "14.3"
+
+
+@pytest.mark.parametrize("unavailable", [False, True], ids=["unknown", "unavailable"])
+@pytest.mark.parametrize("key", ["consumption", "consumption_lifetime"])
+async def test_nonnumeric_state_after_midnight_then_reload(
+    hass, sensor_factory, freezer, unavailable, key
+):
+    """HA can retain yesterday's native payload with today's state timestamp."""
+    freezer.move_to("2026-10-13T23:50:00+00:00")
+    sensor, values = sensor_factory(key, raw=14.3)
+    platform = await add_sensor(hass, sensor)
+    assert hass.states.get(sensor.entity_id).state == "14.3"
+
+    freezer.move_to("2026-10-14T14:00:00+00:00")
+    if unavailable:
+        sensor.coordinator.last_update_success = False
+    else:
+        values[key] = None
+    sensor.async_write_ha_state()
+    expected_state = "unavailable" if unavailable else "unknown"
+    assert hass.states.get(sensor.entity_id).state == expected_state
+
+    await platform.async_remove_entity(sensor.entity_id)
+    stored = async_get_restore_data(hass).last_states[sensor.entity_id]
+    assert stored.state.state == expected_state
+    assert stored.state.last_updated == dt_util.utcnow()
+    assert stored.extra_data.native_value == (14.3 if unavailable else None)
+
+    sensor.coordinator.last_update_success = True
+    replacement, _ = sensor_factory(key, raw=13.5)
+    await platform.async_add_entities([replacement])
+    expected = 14.3 if unavailable and key == "consumption_lifetime" else 13.5
+    assert replacement.native_value == expected
+    assert hass.states.get(replacement.entity_id).state == str(expected)
+
+
+@pytest.mark.parametrize(
+    "state_value", ["unknown", "unavailable", "nan", "inf", "-inf", "invalid"]
+)
+@pytest.mark.parametrize("key", ["consumption", "consumption_lifetime"])
+async def test_nonnumeric_restore_with_numeric_payload(
+    hass, sensor_factory, key, state_value
+):
+    """Reject ambiguous daily timestamps while preserving lifetime restoration."""
+    sensor, _ = sensor_factory(key, raw=13.5)
+    await add_sensor(hass, sensor, state_value=state_value)
+    assert sensor.native_value == (13.5 if key == "consumption" else 14.3)
 
 
 def test_daily_metadata_covers_today_and_legacy_energy_keys():
