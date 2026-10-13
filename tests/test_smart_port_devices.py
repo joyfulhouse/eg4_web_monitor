@@ -1892,6 +1892,140 @@ class TestIssue641:
             coordinator, {"devices": {GB: _gridboss(snapshots[2])}}
         ) == {GB}
 
+    @pytest.mark.parametrize("fallback_kind", ["failed", "cached", "rejected"])
+    @pytest.mark.parametrize("cloud_observed", [True, False])
+    @pytest.mark.parametrize("missing_status", [True, False])
+    async def test_superseded_cloud_cannot_authorize_registry_changes(
+        self,
+        hass: HomeAssistant,
+        monkeypatch,
+        fallback_kind: str,
+        cloud_observed: bool,
+        missing_status: bool,
+    ):
+        """Link-down must not give old cloud A the authority of local B."""
+        from types import SimpleNamespace
+
+        from tests.test_init import TestSmartPortCleanupOnReboot
+        from custom_components.eg4_web_monitor import smart_port_devices as spd
+
+        cloud = self._payload("2026-01-01 00:00:00", status=1, total=1000)
+        failure = OSError("cloud unavailable")
+        fallbacks = [cloud] * 12 if fallback_kind == "cached" else [failure] * 12
+        if fallback_kind == "rejected":
+            fallbacks[0] = self._payload("2026-01-01 00:00:30", status=1, total=1000)
+            fallbacks[0].midboxData.eLoadTodayL1 = 9_000_000
+        mid = self._cloud_mid(cloud, *fallbacks)
+        mid.set_max_system_power(12)
+        mid.validate_data = True
+        if cloud_observed:
+            cloud_stamp = await self._refresh(mid)
+        else:
+            await mid.refresh()  # Startup acquired A before filtering ever ran.
+            cloud_stamp = None
+        mid._local_transport = self._transport_with_statuses(mid, [2, 2])
+        entry = _entry(hass)
+        registry = er.async_get(hass)
+        ac_total = _seed(
+            hass, entry, f"{GB}_smart_port1_ac_couple_total", "sensor.ac_total"
+        )
+        smart_total = _seed(
+            hass, entry, f"{GB}_smart_port1_smart_load_total", "sensor.smart_total"
+        )
+        sync = PortSensorEnablement(hass, entry)
+        for _ in range(2):
+            sensors = await self._refresh_filtered(mid)
+            if cloud_stamp is None:
+                cloud_stamp = sensors[SMART_PORT_READ_KEY]
+            sync.async_sync({"devices": {GB: _gridboss(sensors)}})
+        local_stamp = sensors[SMART_PORT_READ_KEY]
+        assert registry.async_get(ac_total.entity_id).disabled_by is None
+        assert registry.async_get(smart_total.entity_id).disabled_by is INTEGRATION
+
+        if missing_status:
+            mid._local_transport = self._transport_with_statuses(mid, [None])
+            sensors = await self._refresh_filtered(mid)
+            assert SMART_PORT_VALIDATED_KEY not in sensors
+        accepted_at = mid._last_refresh
+
+        class _FailedTransport:
+            serial = GB
+            is_connected = True
+
+            async def read_midbox_runtime(self) -> Any:
+                raise OSError("local unavailable")
+
+        mid._local_transport = _FailedTransport()
+        # Use the actual setup callback; it is registered while authority is absent.
+        setup = TestSmartPortCleanupOnReboot()
+        coordinator = await setup._setup_with_data(
+            hass, entry, {"devices": {GB: _gridboss({})}}
+        )
+        deferred_cleanup = setup._smart_port_deferred(coordinator)
+        assert deferred_cleanup is not None
+        aggregate = _seed(hass, entry, f"{GB}_ac_couple_power", "sensor.ac_power")
+
+        clock = [50.0]
+        monkeypatch.setattr(spd, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+        for _ in range(8):
+            sensors = await self._refresh_filtered(mid)
+            DeviceProcessingMixin._calculate_gridboss_aggregates(sensors)
+            data = {"devices": {GB: _gridboss(sensors)}}
+            sync.async_sync(data)
+            coordinator.data = data
+            if mid.transport_link_down:
+                # Publish the fallback to the pending one-shot listener.
+                deferred_cleanup()
+                clock[0] += spd.UNVALIDATED_SECONDS_BEFORE_FALLBACK
+                assert spd.serials_resolving_unvalidated(coordinator, data) == set()
+                legacy_ac = _seed(
+                    hass, entry, f"{GB}_ac_couple2_power", "sensor.legacy_ac"
+                )
+                legacy_sl = _seed(
+                    hass, entry, f"{GB}_smart_load2_power", "sensor.legacy_sl"
+                )
+                assert (GB, 2, "power") in async_migrate_to_port_sensors(
+                    hass, entry, data
+                )
+                assert (
+                    registry.async_get(legacy_ac.entity_id).unique_id
+                    == legacy_ac.unique_id
+                )
+                assert (
+                    registry.async_get(legacy_sl.entity_id).unique_id
+                    == legacy_sl.unique_id
+                )
+        assert mid.transport_link_down
+        if fallback_kind != "cached":
+            assert mid._transport_runtime is None
+            assert mid._last_refresh == accepted_at
+        assert registry.async_get(aggregate.entity_id) is not None
+        assert registry.async_get(ac_total.entity_id).disabled_by is None
+        assert registry.async_get(smart_total.entity_id).disabled_by is INTEGRATION
+        assert sensors[SMART_PORT_READ_KEY] == (
+            local_stamp if fallback_kind == "rejected" else cloud_stamp
+        )
+        assert SMART_PORT_VALIDATED_KEY not in sensors
+        coordinator.async_add_listener.return_value.assert_not_called()
+        if fallback_kind == "rejected":
+            assert mid._runtime.midboxData.eLoadTodayL1 == 9_000_000
+
+        # A distinct cloud record can restore authority and complete cleanup.
+        stale = _seed(hass, entry, f"{GB}_smart_load_power", "sensor.stale_sl")
+        mid._client.api.devices.get_midbox_runtime.side_effect = [
+            self._payload("2026-01-01 00:01:00", status=2, total=1001)
+        ]
+        sensors = await self._refresh_filtered(mid)
+        DeviceProcessingMixin._calculate_gridboss_aggregates(sensors)
+        assert sensors[SMART_PORT_VALIDATED_KEY] is True
+        coordinator.data = {"devices": {GB: _gridboss(sensors)}}
+        deferred_cleanup()
+        assert registry.async_get(aggregate.entity_id) is not None
+        assert registry.async_get(stale.entity_id) is None
+        coordinator.async_add_listener.return_value.assert_called_once()
+        async_migrate_to_port_sensors(hass, entry, coordinator.data)
+        assert _entity_id(hass, f"{GB}_smart_port2_power") == legacy_ac.entity_id
+
     async def test_cloud_fallback_and_the_rejected_read_after_it(self):
         """While an attached transport's link is down pylxpweb serves the
         cloud, so the cached-payload rule applies.  When the link returns but
@@ -1938,7 +2072,7 @@ class TestIssue641:
     async def test_transport_read_ends_the_cloud_payloads_claim(self):
         """A local read does not make the same old cloud record new again."""
         mid = self._cloud_mid(*[self._payload("2026-01-01 00:00:00")] * 2)
-        await self._refresh(mid)
+        cloud_stamp = await self._refresh(mid)
 
         mid._local_transport = object()
         from types import SimpleNamespace
@@ -1952,7 +2086,10 @@ class TestIssue641:
 
         mid._local_transport = None
         mid._last_refresh += timedelta(seconds=5)
-        assert self._stamp(mid) == local_stamp
+        assert self._stamp(mid) == cloud_stamp
+        sensors: dict[str, Any] = {}
+        DeviceProcessingMixin._filter_unused_smart_port_sensors(sensors, mid)
+        assert SMART_PORT_VALIDATED_KEY not in sensors
 
     def test_device_double_is_stamped_by_refresh_time(self):
         """Only a real portal payload can hold a stamp back."""

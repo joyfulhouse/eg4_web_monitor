@@ -15,7 +15,7 @@ import logging
 import time
 import weakref
 from collections.abc import Awaitable, Callable, Collection, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -406,16 +406,24 @@ BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
 
-# Last GridBOSS read identity per MID device object: (last cloud payload,
-# device's ``_last_refresh`` when the stamp was last served, read stamp).
-# pylxpweb advances ``_last_refresh`` on every accepted cloud refresh,
-# including one its response cache answered (the integration sets that
-# cache's lifetime to the HTTP polling interval), so on that path a read is
-# told apart by the payload instead (#641). Keep the payload across local
-# reads so a later transport fallback to that stale cloud record is not new.
-_cloud_smart_port_reads: weakref.WeakKeyDictionary[
-    Any, tuple[MidboxData | None, datetime, float]
-] = weakref.WeakKeyDictionary()
+
+@dataclass(frozen=True)
+class _SmartPortRead:
+    """Keep cloud identity separate from local reads and registry authority."""
+
+    cloud_payload: MidboxData | None
+    cloud_stamp: float
+    refreshed: datetime
+    stamp: float
+    cloud_superseded: bool
+    cloud_served: bool
+
+
+# Payload equality identifies cached portal responses even when pylxpweb
+# advances _last_refresh. A local read supersedes that payload's authority.
+_cloud_smart_port_reads: weakref.WeakKeyDictionary[Any, _SmartPortRead] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _cloud_payload(mid_device: Any) -> MidboxData | None:
@@ -463,31 +471,58 @@ def _smart_port_read_stamp(mid_device: Any) -> float | None:
         return None
     held = _cloud_smart_port_reads.get(mid_device)
     if _transport_smart_port_statuses_missing(mid_device):
-        if held is None:
-            return None
-        # pylxpweb resolves each missing register from the stale cloud runtime.
-        # Preserve the last cloud identity while letting each miss count as an
-        # unvalidated cycle; the stale runtime must not authorize sync.
-        _cloud_smart_port_reads[mid_device] = (held[0], refreshed, held[2])
+        if held is not None:
+            # Remember acceptance time, without making the missing read eligible.
+            _cloud_smart_port_reads[mid_device] = replace(held, refreshed=refreshed)
         return None
-    if held is not None and held[1] == refreshed:
-        # Nothing was accepted since: the data is still what was stamped (a
-        # rejected fetch, or a transport read rejected right after fallback).
-        return held[2]
     payload = _cloud_payload(mid_device)
-    if payload is None:
-        stamp = refreshed.timestamp()
-        _cloud_smart_port_reads[mid_device] = (
-            held[0] if held is not None else None,
-            refreshed,
-            stamp,
+    if payload is not None and held is not None and held.cloud_payload == payload:
+        # Resolve the source before the same-refresh shortcut: link-down can
+        # clear local data without advancing _last_refresh if HTTP then fails.
+        # Retain the cloud identity so replay cannot advance adoption counters.
+        _cloud_smart_port_reads[mid_device] = replace(
+            held, refreshed=refreshed, stamp=held.cloud_stamp, cloud_served=True
         )
-        return stamp
-    stamp = (
-        held[2] if held is not None and held[0] == payload else refreshed.timestamp()
+        return held.cloud_stamp
+    if held is not None and held.refreshed == refreshed:
+        return held.stamp
+    stamp = refreshed.timestamp()
+    # Startup may have populated _runtime before the first filtered local read.
+    # Remember that baseline too; seeing it after link-down is still a replay.
+    baseline = getattr(getattr(mid_device, "_runtime", None), "midboxData", None)
+    cloud_payload = (
+        payload
+        if payload is not None
+        else held.cloud_payload
+        if held is not None
+        else baseline
+        if isinstance(baseline, MidboxData)
+        else None
     )
-    _cloud_smart_port_reads[mid_device] = (payload, refreshed, stamp)
+    _cloud_smart_port_reads[mid_device] = _SmartPortRead(
+        cloud_payload,
+        stamp if payload is not None else held.cloud_stamp if held else stamp,
+        refreshed,
+        stamp,
+        cloud_superseded=payload is None,
+        cloud_served=payload is not None,
+    )
     return stamp
+
+
+def _smart_port_cloud_read_superseded(mid_device: Any) -> bool:
+    """Whether the served read is a cloud replay superseded by local data.
+
+    The same refresh can survive a rejected local read after cloud fallback,
+    so authority follows the served read rather than the current link state.
+    """
+    held = _cloud_smart_port_reads.get(mid_device)
+    return (
+        held is not None
+        and held.cloud_superseded
+        and (held.cloud_served or _cloud_payload(mid_device) is not None)
+        and held.refreshed == getattr(mid_device, "_last_refresh", None)
+    )
 
 
 # Cache the last known good smart port statuses per MID device serial.
@@ -3910,12 +3945,17 @@ class DeviceProcessingMixin(_MixinBase):
             _last_good_smart_port_statuses[serial] = {
                 p: s for p, s in smart_port_statuses.items() if s is not None
             }
-            if len(smart_port_statuses) == 4 and not transport_statuses_missing:
+            if (
+                len(smart_port_statuses) == 4
+                and not transport_statuses_missing
+                and not _smart_port_cloud_read_superseded(mid_device)
+            ):
                 # Per-cycle authority marker for the stale smart-port registry
                 # cleanup (#217): only a fresh, complete status read proves the
                 # dynamic keys reflect the real port configuration. A healthy
                 # transport can expose stale cloud statuses when a register is
-                # missing, so that fallback cannot authorize registry sync.
+                # missing, or replay an old cloud payload after link-down.
+                # Neither fallback can authorize registry sync.
                 # Cached-fallback and suspect-skip cycles must not authorize
                 # registry removal (codex r2 HIGH), nor partial reads where
                 # some ports were never validated (codex r2 MEDIUM).
