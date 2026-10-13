@@ -49,7 +49,7 @@ verified-against:
   # verifies at the mainline pin below.
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
-# Section 4.2.1 re-verified at 447e5ef5d5ed0e24496aa423325a51406905679c on 2026-10-13; other sections retain their pins.
+# Section 4.2.1 re-verified at 3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a on 2026-10-13; other sections retain their pins.
 last-verified: 2026-10-13
 see-also:
   - ../40-hardware/registers.md
@@ -410,7 +410,7 @@ All rows: `verified-against-code`.
 
 ### 4.2.1 Restart baseline restoration (#649)
 
-`verified-against-code` at `447e5ef5d5ed0e24496aa423325a51406905679c` — `base_entity.py` →
+`verified-against-code` at `3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a` — `base_entity.py` →
 `_EG4RestoredSensor.async_added_to_hass`; `const/sensors/inverter.py` →
 `reset_period` metadata; `tests/test_energy_guard_restore.py`.
 
@@ -424,8 +424,10 @@ Restoration requires `total_increasing`, a finite numeric native value and an
 exact match of native units (including unitless counters). Display-unit state
 strings are not used as numeric baselines. Daily counters are classified by
 explicit `reset_period: daily` configuration, not runtime name heuristics; their
-restored state's `last_updated` must fall on the current HA local calendar day.
-Lifetime baselines may span days. Missing or invalid restore data leaves the
+restored state's `last_updated` must fall on the current HA local calendar day,
+and its display state must parse as a finite number. The display state is only
+an eligibility check; native extra data remains the numeric baseline.
+Lifetime baselines may span days and do not require a numeric display state. Missing or invalid restore data leaves the
 baseline empty; an older installation without native extra data must first save
 it while running the updated integration.
 
@@ -435,6 +437,29 @@ and large-reset behavior are unchanged. The tests cover the first published
 state, native versus display units, invalid values, local/UTC day boundaries,
 unitless counters, missing live readings and remove/re-add persistence across
 the device, individual-battery and battery-bank sensor classes.
+
+HA can publish `unavailable` after midnight with a fresh `last_updated` while
+retaining yesterday's numeric native extra data. The real remove/re-add lifecycle
+regression verifies that combination and accepts live daily `13.5` instead of
+clamping it to yesterday's `14.3`; the lifetime counterpart retains `14.3`.
+The unknown-state lifecycle stores a missing native value in the tested HA
+versions; separate restore-cache cases reject nonnumeric or nonfinite display
+states even when native extra data is numeric. `verified-against-code` at
+`3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a` —
+`tests/test_energy_guard_restore.py` →
+`test_nonnumeric_state_after_midnight_then_reload` and
+`test_nonnumeric_restore_with_numeric_payload`.
+
+Conservative tradeoff: a daily sensor shut down while `unknown` or `unavailable`
+loses its restored dip protection even on the same local day. A numeric same-day
+daily state and valid lifetime native data retain their existing restore behavior.
+This eligibility check applies only during entity restoration; it does not expire
+a running entity's daily baseline across midnight or missed reset samples. That
+separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666).
+`verified-against-code` at `3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a` —
+`base_entity.py` → `_EG4RestoredSensor.async_added_to_hass` and
+`_guard_total_increasing`; the same-day nonnumeric restore cases are in
+`test_nonnumeric_restore_with_numeric_payload`.
 
 ### 4.3 Consumption and load are two distinct meters
 
