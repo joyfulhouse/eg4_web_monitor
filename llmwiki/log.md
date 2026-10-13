@@ -1179,3 +1179,20 @@ The foreign stable-ID ownership check now precedes the no-legacy early exit: the
 conflicted control is skipped and warned once even on an entry with no legacy matches,
 without writing either entry's registry records. Number/time regression cases also
 check ordinary no-legacy setup offers all controls without registry writes.
+
+## [2026-10-13] lint | PR #657 verification-source notes and release-cut re-pin tracking
+
+Re-verified the added parameter-wait method and setup behavior, and the control-discovery
+section, against PR #657 head `63dd93a`. The inline PR citations identified the in-flight
+source, but the front matter did not distinguish those claims from the older page pins.
+Added scoped verification-source comments to
+[`architecture.md`](10-integration/architecture.md),
+[`controls-and-writes.md`](10-integration/controls-and-writes.md), and
+[`entities-identity-availability.md`](10-integration/entities-identity-availability.md).
+Existing pins continue to license the older claims; the inline PR #657 citations license
+only the added claims, following the #559 / #600 precedent.
+
+**REQUIRED POST-MERGE ACTION (release cut):** re-verify the PR #657 change-set claims
+in those three pages against the mainline merge SHA and re-pin their front matter
+accordingly, refreshing `last-verified:` without implying that unrelated older claims
+were re-verified. This entry tracks the pending action; merge has not occurred.
