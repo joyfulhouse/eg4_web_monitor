@@ -262,6 +262,18 @@ def _listener_contexts_for_data_change(
         if old_parameters.get(serial) != new_parameters.get(serial)
     )
 
+    # Inverter consumption metadata depends on entry-wide GridBOSS topology.
+    # Notify unchanged inverters on recognition so their entity-lifetime latch
+    # is evaluated before a later poll can omit the GridBOSS (#665).
+    if any(
+        device.get("type") == "gridboss" for device in new_devices.values()
+    ) and not any(device.get("type") == "gridboss" for device in old_devices.values()):
+        contexts.update(
+            device_listener_context(serial)
+            for serial, device in new_devices.items()
+            if device.get("type") == "inverter"
+        )
+
     contexts.update(device_listener_context(serial) for serial in changed_serials)
     if changed_serials:
         contexts.add(DISCOVERY_LISTENER_CONTEXT)
