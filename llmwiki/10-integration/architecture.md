@@ -307,7 +307,7 @@ counter to advance without granting validated status.
 A local read supersedes the authority of an older cloud record, including a startup
 record not previously filtered. Replaying it after link-down cannot authorize
 cleanup or validated-mode registry decisions, even when the cloud request fails
-or its new data is rejected. A newly accepted distinct cloud record restores
+or its new data is rejected. A newly accepted distinct cloud record with complete, valid port statuses restores
 authority. The separate provisional-adoption fallback described in section 4.1
 still applies; withholding validation does not remove that fallback.
 
