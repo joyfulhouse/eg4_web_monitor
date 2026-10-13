@@ -36,7 +36,11 @@ sources:
   - eg4_web_monitor issues #170, #256, #258, #261, #300, #367, #378, #380, #490, #511, #516
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/648
+  - tests/test_base_entity.py
 verified-against:
+  # Section 4.3.1 is independently verified at 883f403; existing sections
+  # retain their prior pins below. No whole-page re-verification is claimed.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
   # Quick Charge/H233) were falsified by PR #569 and re-verified at e9853eb
   # for the #570 sweep ingest — those sections carry their pin inline.
@@ -479,6 +483,36 @@ Evidence: `asserted-unverified` for the per-mode source mapping
 | A divergence of roughly 7 % between a computed value and a counter value is **expected, not a bug** | `asserted-unverified` — `memory/consumption-energy-sources.md` |
 | `hybridPower` has **no Modbus register** — it is cloud-computed and must be derived locally | `portal-correlated` — `memory/consumption-energy-sources.md`; register absence is owned by [../40-hardware/registers.md](../40-hardware/registers.md) |
 | Per-inverter consumption is computed from `energy_balance`, not from the Eload register and not from cloud `totalUsage` | `verified-against-code` (`coordinator_mixins.py` → the consumption computation) for what the code does; `asserted-unverified` for whether that is the right source |
+
+#### 4.3.1 GridBOSS per-inverter consumption is not a resetting meter (#648)
+
+At `883f403`, `EG4InverterSensor.state_class` returns no state class for
+`consumption` and `consumption_lifetime` on inverters once a GridBOSS appears in
+that entry's device data. The exclusion applies across connection modes and to
+all inverters in the entry: local discovery does not always establish electrical
+membership. It is latched for the entity lifetime, so missing GridBOSS data on a
+later poll cannot re-enable reset accounting. Reloading the entities re-evaluates
+the topology. Other inverter counters and parallel-group/GridBOSS consumption
+retain their configured classes (`verified-against-code` — `sensor.py` →
+`EG4InverterSensor.state_class`; `tests/test_base_entity.py` →
+`test_valid_energy_meters_keep_statistics`).
+
+The entity guard uses the effective state class, so these excluded balances pass
+through real decreases, including dips small enough that a `total_increasing`
+sensor would suppress them. Late GridBOSS discovery changes the actual HA
+published state's metadata (`verified-against-code` at `883f403` —
+`base_entity.py` → `EG4BaseSensor.native_value`; `tests/test_base_entity.py` →
+`test_gridboss_consumption_is_not_a_resetting_meter`,
+`test_late_gridboss_discovery_disables_consumption_statistics`).
+
+The balance is a difference of independently advancing counters, which does not
+imply monotonicity (`inferred` from `coordinator_mappings.py` → `_energy_balance`
+at `883f403`). Issue #648 reports daytime daily-consumption decreases on a live
+GridBOSS system (`asserted-unverified` — the issue's production scan). Missing
+AC-coupled energy is a hypothesis, not a proven missing term. This fix changes the
+statistics contract, not the formula or the contested physical-source claims
+below. Existing incorrect statistics are not rewritten; the upgrade guidance is
+owned by `CHANGELOG.md` → Unreleased / #648.
 
 #### The lifetime-consumption source is CONTESTED — no binding rule here
 

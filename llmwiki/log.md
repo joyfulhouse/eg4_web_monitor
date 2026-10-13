@@ -1333,3 +1333,14 @@ The restore source and tests are unchanged from `3727ff0`; the rebase only adds
 the reviewed select guard and preserves both append-only wiki histories.
 Updated the two owning pages to the reachable branch code pin; prior log entries
 remain unchanged as history.
+
+## [2026-10-13] ingest | GridBOSS per-inverter consumption statistics (#648)
+
+Read issue #648 and the balance implementation, then recorded the metadata fix
+at `883f403` in [data-semantics](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648).
+A difference of monotonic component counters need not be monotonic. Inverter
+daily/lifetime consumption therefore loses statistics eligibility after GridBOSS
+discovery, with a latch through missing polls and the effective class passed to
+the entity guard. Group and CT meters retain their metadata. The production scan
+is issue-reported evidence; the missing AC-coupled term stays unproven. The
+existing contested lifetime-source narrative is not resolved by this change.
