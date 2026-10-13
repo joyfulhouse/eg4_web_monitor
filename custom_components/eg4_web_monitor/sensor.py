@@ -848,7 +848,8 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
                 self._consumption_statistics_disabled = True
             if self._consumption_statistics_disabled:
                 return None
-        return self._attr_state_class
+        state_class = self._attr_state_class
+        return SensorStateClass(state_class) if state_class is not None else None
 
 
 class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):
