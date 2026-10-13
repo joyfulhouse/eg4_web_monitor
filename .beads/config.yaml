@@ -60,3 +60,6 @@
 # - linear.api-key
 # - github.org
 # - github.repo
+
+sync:
+    remote: "git+https://github.com/joyfulhouse/eg4_web_monitor.git"
