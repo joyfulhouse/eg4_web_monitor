@@ -8,14 +8,18 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from datetime import time as dt_time
+from decimal import Decimal
 import logging
+import math
 import time
 from typing import TYPE_CHECKING, Any, Generator, cast
 
+from homeassistant.components.sensor import RestoreSensor, SensorStateClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.util import dt as dt_util
 
 if TYPE_CHECKING:
     from homeassistant.components.select import SelectEntity
@@ -408,7 +412,46 @@ def _apply_sensor_config(
     return sensor_config
 
 
-class EG4BaseSensor(EG4DeviceEntity):
+class _EG4RestoredSensor(RestoreSensor):
+    """Restore only the native baseline used by the bounded energy dip guard."""
+
+    _sensor_key: str
+    _last_reported_value: float | None
+
+    async def async_added_to_hass(self) -> None:
+        """Seed the guard before the first state is published."""
+        await super().async_added_to_hass()
+        if self.state_class != SensorStateClass.TOTAL_INCREASING:
+            return
+
+        restored = await self.async_get_last_sensor_data()
+        if (
+            restored is None
+            or restored.native_unit_of_measurement != self.native_unit_of_measurement
+            or isinstance(restored.native_value, bool)
+            or not isinstance(restored.native_value, (str, int, float, Decimal))
+        ):
+            return
+        try:
+            value = float(restored.native_value)
+        except (TypeError, ValueError, OverflowError):
+            return
+        if not math.isfinite(value):
+            return
+
+        config = cast("dict[str, Any]", SENSOR_TYPES.get(self._sensor_key, {}))
+        if config.get("reset_period") == "daily":
+            state = await self.async_get_last_state()
+            if (
+                state is None
+                or dt_util.as_local(state.last_updated).date() != dt_util.now().date()
+            ):
+                return
+
+        self._last_reported_value = value
+
+
+class EG4BaseSensor(EG4DeviceEntity, _EG4RestoredSensor):
     """Base class for EG4 sensor entities with shared configuration logic.
 
     This class provides common sensor functionality:
@@ -498,7 +541,7 @@ class EG4BaseSensor(EG4DeviceEntity):
         return device_present_and_healthy(self.coordinator, self._serial)
 
 
-class EG4BaseBatterySensor(EG4BatteryEntity):
+class EG4BaseBatterySensor(EG4BatteryEntity, _EG4RestoredSensor):
     """Base class for EG4 individual battery sensor entities.
 
     Provides common functionality for battery-specific sensors:
@@ -597,7 +640,7 @@ class EG4BaseBatterySensor(EG4BatteryEntity):
         ].get("batteries", {})
 
 
-class EG4BatteryBankEntity(EG4DeviceEntity):
+class EG4BatteryBankEntity(EG4DeviceEntity, _EG4RestoredSensor):
     """Base class for EG4 battery bank entities (aggregate of all batteries).
 
     Battery bank entities represent the combined state of all batteries
