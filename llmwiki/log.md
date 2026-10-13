@@ -1249,3 +1249,24 @@ only these claims in scoped front-matter notes and inline citations; PR #657 rem
 provenance. Refreshed `last-verified: 2026-10-13` with explicit scope, preserving
 all unrelated verification pins and dates. No wholesale reverification is claimed.
 All earlier log entries remain unchanged.
+
+## [2026-10-13] ingest | Superseded cloud records cannot authorize smart-port registry changes
+
+PR #642 landed at `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`. Its final review
+reproduced a registry deletion with pinned `pylxpweb==0.10.0b10`: after local
+port data superseded a cloud record, link-down and a failed cloud fallback
+could validate the older record and remove an aggregate entity still in use.
+Removing the missing-read timestamp update alone did not fix the defect.
+
+Re-read `coordinator_mixins.py` at the landed commit: `_SmartPortRead` separates
+cloud identity from the last served read and its registry authority;
+`_smart_port_read_stamp` remembers even an unobserved startup cloud baseline;
+`_smart_port_cloud_read_superseded` withholds validation from superseded cloud
+replays. A newly accepted distinct cloud record restores authority. Missing
+local statuses remain unstamped for the existing unvalidated-adoption fallback.
+These claims are `verified-against-code` at the mainline commit above, including
+`tests/test_smart_port_devices.py` ->
+`TestIssue641.test_superseded_cloud_cannot_authorize_registry_changes`, which
+exercises real device refreshes, migration, and the deferred cleanup callback.
+The prerelease changelog describes the registry protection. Earlier log entries
+remain historical accounts of the preceding implementations.
