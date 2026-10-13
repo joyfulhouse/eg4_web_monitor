@@ -42,6 +42,10 @@ verified-against:
   # release-cut re-pin moves the mainline pin past the merge.
   eg4_web_monitor: 1a2c24e
   pylxpweb: c78ab7e
+# PR #657: section 9 control-discovery claims are verified against PR #657
+# head 63dd93a (2026-10-13), licensed per claim by their inline PR citation;
+# other claims retain their existing verification pins. Re-pin these claims
+# to the mainline merge SHA at the release cut.
 last-verified: 2026-09-02
 see-also:
   - ../40-hardware/registers.md

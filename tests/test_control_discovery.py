@@ -638,7 +638,10 @@ async def test_stable_identity_retains_registry_customisation(
     ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
 )
 @pytest.mark.parametrize("reverse", (False, True))
-@pytest.mark.parametrize("object_ids", (("original_2", "original"), ("zebra", "alpha")))
+@pytest.mark.parametrize(
+    "object_ids",
+    (("original_2", "original"), ("zebra", "alpha"), ("alpha_2", "beta")),
+)
 async def test_tied_legacy_creation_times_have_deterministic_survivor(
     hass, freezer, platform, setup, coordinator, key, reverse, object_ids
 ):

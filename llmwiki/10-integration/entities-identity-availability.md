@@ -23,6 +23,10 @@ sources:
 verified-against:
   eg4_web_monitor: e42ed86
   homeassistant: 2025.11.2
+# PR #657: the section 6 bounded initial-parameter wait claims are verified
+# against PR #657 head 63dd93a (2026-10-13), licensed per claim by their
+# inline PR citation; other claims retain their existing verification pins.
+# Re-pin these claims to the mainline merge SHA at the release cut.
 last-verified: 2026-08-12
 see-also:
   - ../60-history/open-contradictions.md

@@ -12,6 +12,10 @@ sources:
   - memory/architecture-patterns.md
 verified-against: 9f6d6e2
 # HA-stop lifecycle row below re-verified at a79b8eb; other sections retain this pin.
+# PR #657: the added async_wait_for_missing_parameters method is verified
+# against PR #657 head 63dd93a (2026-10-13), licensed per claim by its
+# inline PR citation; other claims retain their existing verification pins.
+# Re-pin this added claim to the mainline merge SHA at the release cut.
 last-verified: 2026-09-29
 see-also:
   - data-flow-by-mode.md
