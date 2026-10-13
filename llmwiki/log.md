@@ -1344,3 +1344,13 @@ discovery, with a latch through missing polls and the effective class passed to
 the entity guard. Group and CT meters retain their metadata. The production scan
 is issue-reported evidence; the missing AC-coupled term stays unproven. The
 existing contested lifetime-source narrative is not resolved by this change.
+
+## [2026-10-13] ingest | Missing GridBOSS CT consumption overlay fallback (#661)
+
+The #648 adversarial review identified a separate group-source fallback.
+Rechecked the group balance computation, conditional CT overlay and HTTP
+MID-processing catch at `883f403`, then reproduced the helper/entity boundary:
+missing CT data leaves approximately 19 -> 17 kWh published as
+`total_increasing`. Filed #661 for the coordinator failure-path fix and recorded
+the limitation in the owning data-semantics page. This is source-selection
+evidence, not a hardware proof or a claim that CT counters normally decrease.
