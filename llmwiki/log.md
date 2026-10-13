@@ -1364,3 +1364,15 @@ while a missing/unidentified device can delay the exclusion after restart.
 Filed #664 with a clear evidence limit: the metadata transition is code-verified,
 but production miscount in this exact startup window was not captured. Recorded
 this scope in data-semantics rather than presenting late discovery as persistence.
+
+
+## [2026-10-13] ingest | GridBOSS recognition dispatches unchanged inverter listeners (#665)
+
+Updated [data semantics §4.3.1](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648)
+against implementation commit `a339e7a`, scoped to the listener-dispatch claim;
+other sections keep their prior pins. The previous mocked-coordinator test did
+not prove that real scoped dispatch reached unchanged inverters on GridBOSS
+arrival. The real coordinator/HA regression now covers arrival, type recognition,
+published metadata, disappearance and a subsequent energy drop for both
+consumption keys, and checks ordinary notifications remain scoped. The sensor
+latch remains entity-local; restart persistence stays separate in #664.

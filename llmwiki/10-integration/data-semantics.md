@@ -40,8 +40,11 @@ sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/661
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/664
   - tests/test_base_entity.py
+  - tests/test_gridboss_listener_lifecycle.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
-  # Sections 4.3.1-4.3.2 are independently verified at 883f403; existing sections
+  # Section 4.3.1 listener dispatch is independently verified at a339e7a;
+  # other claims in sections 4.3.1-4.3.2 retain 883f403. Existing sections
   # retain their prior pins below. No whole-page re-verification is claimed.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
   # Quick Charge/H233) were falsified by PR #569 and re-verified at e9853eb
@@ -511,11 +514,31 @@ that specific startup window is not claimed proven.
 
 The entity guard uses the effective state class, so these excluded balances pass
 through real decreases, including dips small enough that a `total_increasing`
-sensor would suppress them. Late GridBOSS discovery changes the actual HA
-published state's metadata (`verified-against-code` at `883f403` —
+sensor would suppress them (`verified-against-code` at `883f403` —
 `base_entity.py` → `EG4BaseSensor.native_value`; `tests/test_base_entity.py` →
-`test_gridboss_consumption_is_not_a_resetting_meter`,
-`test_late_gridboss_discovery_disables_consumption_statistics`).
+`test_gridboss_consumption_is_not_a_resetting_meter`).
+
+When a coordinator update changes the entry from no recognized GridBOSS to a
+recognized GridBOSS, `_listener_contexts_for_data_change` also selects every
+current inverter device context. This covers both a newly arriving device and
+recognition of an existing device's type, even with unchanged inverter data.
+The real coordinator dispatch therefore republishes consumption metadata and
+evaluates the entity-lifetime latch before a later GridBOSS omission. Ordinary
+GridBOSS ticks and disappearance retain normal scoped notifications; no persisted
+topology is introduced (`verified-against-code` at `a339e7a` —
+`coordinator.py` → `_listener_contexts_for_data_change`;
+`tests/test_gridboss_listener_lifecycle.py` →
+`test_gridboss_recognition_notifies_unchanged_inverters`, exercising
+`EG4DataUpdateCoordinator.async_set_updated_data` with actual HA entities).
+Review of PR [#665](https://github.com/joyfulhouse/eg4_web_monitor/pull/665) exposed
+that the earlier mocked-coordinator late-discovery test did not establish this
+unchanged-inverter dispatch dependency; the regression observes published HA
+states without invoking the getter to establish the latch
+(`verified-against-code` at `a339e7a` —
+`tests/test_gridboss_listener_lifecycle.py` →
+`test_gridboss_recognition_notifies_unchanged_inverters`; compare the
+mocked listener in `tests/test_base_entity.py` →
+`test_late_gridboss_discovery_disables_consumption_statistics` at `883f403`).
 
 The balance is a difference of independently advancing counters, which does not
 imply monotonicity (`inferred` from `coordinator_mappings.py` → `_energy_balance`
