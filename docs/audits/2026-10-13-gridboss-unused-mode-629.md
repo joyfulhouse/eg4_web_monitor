@@ -87,3 +87,33 @@ call the entity method directly rather than the option service wrapper.
 
 These are software regression checks. They do not simulate firmware or
 promote the reporter's hardware claim to hardware-proven.
+
+## Validation and adversarial review
+
+Validation on 2026-10-13 used the pinned test requirements and both repository
+Home Assistant constraint files:
+
+- Minimum (Python 3.13): full suite 3,692 passed, 14 skipped.
+- Latest (Python 3.14): full suite 3,697 passed, 9 skipped.
+- Final focused select/retention suites: 117 passed in each environment,
+  including the three index-selection regressions added after full-suite
+  collection.
+- Repository-wide Ruff lint and format checks passed. Strict mypy passed
+  with zero errors in both environments (50 source files).
+
+**Kimi K3** (`kimi-code/k3`) reviewed the source paths, dependency, tests,
+and documentation and returned no blocking findings. Its low-priority
+documentation candidates were addressed by the breaking-change changelog
+entry and guidance for ports configured as Unused outside HA. It verified
+the local writer's fresh lock-held read-modify-write and found no other
+integration mode writer. Unverified firmware scope remains a limitation.
+
+**Grok 4.7** (`grok-4.7`) inspected repository and HA/dependency source paths.
+That traversal reached its turn limit before a final verdict. A final
+review supplied the complete committed change and relevant HA, integration,
+and pinned library source as a fixed evidence bundle, with tools disabled.
+It returned no blocking findings: the entry-point guard covers transport
+routing and HA index selection. It noted that last/non-cycling helpers
+are not separately tested but share the same guarded entity method, and
+that hardware/local reproduction and enable-entity work remain outside
+this fix. Neither review establishes hardware semantics.
