@@ -1270,3 +1270,12 @@ These claims are `verified-against-code` at the mainline commit above, including
 exercises real device refreshes, migration, and the deferred cleanup callback.
 The prerelease changelog describes the registry protection. Earlier log entries
 remain historical accounts of the preceding implementations.
+
+## [2026-10-13] ingest | Assign the smart-port registry-authority rule to its owner
+
+Filed the current rule in [architecture section 4.2](10-integration/architecture.md#42-smart-port-read-identity-and-registry-authority),
+beside the registry hygiene passes, and extended its `canonical-for:` and index row.
+The preceding entry records the defect and fix history; the architecture page owns
+the current behavior at mainline `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`.
+Explicitly retained the separate provisional-adoption fallback: an unvalidated
+record is barred from validated-mode decisions, not from that existing fallback.

@@ -47,7 +47,7 @@ defect.
 
 | Page | What it is | Owns |
 |---|---|---|
-| [`architecture.md`](10-integration/architecture.md) | Module inventory by layer, coordinator mixin composition, setup/unload sequence | Module inventory; mixin composition and MRO constraints; config-entry lifecycle |
+| [`architecture.md`](10-integration/architecture.md) | Module inventory by layer, coordinator mixin composition, setup/unload sequence | Module inventory; mixin composition and MRO constraints; config-entry lifecycle; smart-port read identity and registry authority |
 | [`config-flow.md`](10-integration/config-flow.md) | The `_config_flow` package, real step names, connection-type derivation | Package layout and shim; step names; connection-type derivation; unique-id construction and migration |
 | [`controls-and-writes.md`](10-integration/controls-and-writes.md) | How a control write reaches a device, and how to derive each mechanism's population | The control-write mechanisms; write routing; local-vs-cloud decision; optimistic state and TTL; post-write refresh; error surfacing |
 | [`data-flow-by-mode.md`](10-integration/data-flow-by-mode.md) | HTTP / LOCAL / HYBRID end to end, and why HYBRID is not a third code path | Per-mode data flow; poll intervals, throttles and cache TTLs; the LOCAL static first-refresh phase |

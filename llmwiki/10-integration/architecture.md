@@ -3,6 +3,7 @@ canonical-for:
   - "Module inventory by layer for custom_components/eg4_web_monitor"
   - "EG4DataUpdateCoordinator mixin composition and MRO ordering constraints"
   - "Config-entry setup, unload and removal sequence"
+  - "GridBOSS smart-port read identity and registry authority"
 sources:
   - custom_components/eg4_web_monitor/coordinator.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
@@ -16,6 +17,8 @@ verified-against: 9f6d6e2
 # Scope: section 3.2 added async_wait_for_missing_parameters method, re-verified 2026-10-13.
 # This immutable inline pin licenses only those claims; unrelated claims retain
 # their existing verification pins; prior last-verified: 2026-09-29.
+# Section 4.2 smart-port authority is verified at
+# 82bd1fbb2f360347bb68d7a448a1985c0e0e3294 on 2026-10-13.
 # The refreshed date applies only to the scope above (no wholesale reverification).
 last-verified: 2026-10-13
 see-also:
@@ -293,6 +296,28 @@ were added and verified with the smart-port devices change (branch `feat/smart-p
 > refresh carries no port keys, so cleaning there deleted every smart-port registry entry on each
 > reboot (issue #217) (`verified-against-code` — `__init__.py` → the smart-port purge guard;
 > `asserted-unverified` for the #217 field history, per `memory/architecture-patterns.md`).
+
+### 4.2 Smart-port read identity and registry authority
+
+Read identity and registry authority are separate. Complete local reads use their
+accepted refresh time; equal cloud payloads retain a stable read identity. Missing
+local port statuses are unstamped, allowing the existing unvalidated-adoption
+counter to advance without granting validated status.
+
+A local read supersedes the authority of an older cloud record, including a startup
+record not previously filtered. Replaying it after link-down cannot authorize
+cleanup or validated-mode registry decisions, even when the cloud request fails
+or its new data is rejected. A newly accepted distinct cloud record restores
+authority. The separate provisional-adoption fallback described in section 4.1
+still applies; withholding validation does not remove that fallback.
+
+`verified-against-code` at `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`:
+`coordinator_mixins.py` -> `_SmartPortRead`, `_smart_port_read_stamp`,
+`_smart_port_cloud_read_superseded`, `_filter_unused_smart_port_sensors`;
+`smart_port_devices.py` -> `PortSensorEnablement.async_sync`,
+`serials_resolving_unvalidated`. Regression evidence at the same pin:
+`tests/test_smart_port_devices.py` ->
+`TestIssue641.test_superseded_cloud_cannot_authorize_registry_changes`.
 
 ## 5. Unload and removal
 
