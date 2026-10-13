@@ -237,6 +237,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:power-plug",
     },
     "eps_energy_today_l2": {
@@ -244,6 +245,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:power-plug",
     },
     "eps_energy_total_l1": {
@@ -269,6 +271,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
         "enabled_default": False,
     },
@@ -277,6 +280,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
         "enabled_default": False,
     },
@@ -285,6 +289,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
         "enabled_default": False,
     },
@@ -293,6 +298,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
         "enabled_default": False,
     },
@@ -301,6 +307,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
         "enabled_default": False,
     },
@@ -309,6 +316,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
         "enabled_default": False,
     },
@@ -365,6 +373,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:flash",
         "enabled_default": False,
     },
@@ -381,6 +390,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:transmission-tower-import",
         "enabled_default": False,
     },
@@ -397,6 +407,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:power-plug",
         "enabled_default": False,
     },
@@ -413,6 +424,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:engine",
         "enabled_default": False,
     },
@@ -682,6 +694,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:calendar-today",
     },
     "monthly_energy": {
@@ -704,6 +717,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
     },
     "discharging": {
@@ -711,6 +725,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:battery-arrow-down",
     },
     "charging": {
@@ -718,6 +733,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:battery-arrow-up",
     },
     "consumption": {
@@ -725,6 +741,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:home-lightning-bolt",
     },
     # Load Energy (Eload, reg 171) — energy this inverter delivered to its own
@@ -737,6 +754,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:home-lightning-bolt-outline",
     },
     "grid_export": {
@@ -744,6 +762,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:transmission-tower-export",
     },
     "grid_import": {
@@ -751,6 +770,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:transmission-tower-import",
     },
     # Lifetime energy sensors (values need to be divided by 10)
@@ -868,6 +888,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:battery-charging",
     },
     "battery_discharge": {
@@ -875,6 +896,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:battery-minus",
     },
     "battery_charge_lifetime": {
@@ -1981,6 +2003,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:battery-charging-100",
     },
     "ups_total": {
@@ -1995,6 +2018,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:transmission-tower-export",
     },
     "grid_export_total": {
@@ -2009,6 +2033,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:transmission-tower-import",
     },
     "grid_import_total": {
@@ -2023,6 +2048,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:home-lightning-bolt",
     },
     "load_total": {
@@ -2038,6 +2064,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
     },
     "ac_couple1_total": {
@@ -2052,6 +2079,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
     },
     "ac_couple2_total": {
@@ -2066,6 +2094,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
     },
     "ac_couple3_total": {
@@ -2080,6 +2109,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:solar-power",
     },
     "ac_couple4_total": {
@@ -2095,6 +2125,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:electric-switch",
     },
     "smart_load1_total": {
@@ -2109,6 +2140,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:electric-switch",
     },
     "smart_load2_total": {
@@ -2123,6 +2155,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:electric-switch",
     },
     "smart_load3_total": {
@@ -2137,6 +2170,7 @@ SENSOR_TYPES = {
         "unit": UnitOfEnergy.KILO_WATT_HOUR,
         "device_class": "energy",
         "state_class": "total_increasing",
+        "reset_period": "daily",
         "icon": "mdi:electric-switch",
     },
     "smart_load4_total": {
