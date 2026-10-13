@@ -261,6 +261,7 @@ parameter sync.
 
 - **Operating Mode** — Normal or Standby.
 - **Mode** on each GridBOSS smart port device — Unused, Smart Load, or AC Couple.
+  Unused is readable but setting it from Home Assistant is blocked for safety.
   See [GridBOSS smart port devices](#gridboss-smart-port-devices).
 - **Battery Charge Control** / **Battery Discharge Control** — regulate the battery
   by **SOC** (closed-loop, default) or **Voltage** (open-loop). See
@@ -373,6 +374,26 @@ by the matching enable switch (e.g. the AC Charge switch, register 21 bit 7).
 > → Entities**. Entities you have already enabled keep their state.
 
 ### GridBOSS smart port devices
+
+**Mode is configuration, not load pause/resume.** Issue
+[#629](https://github.com/joyfulhouse/eg4_web_monitor/issues/629) reports that
+setting a port to **Unused** also clears its separate **Smart Load N Enable**
+flag. Returning to **Smart Load** does not restore that flag. The mode select
+and status sensor report the configured mode, not whether the load is enabled
+or delivering power, so reading them back cannot detect this condition.
+
+Home Assistant rejects **Unused** writes before sending a device command, on
+cloud, local, and hybrid connections. The value remains listed so a port
+configured as Unused outside Home Assistant can still display its mode. Use
+the EG4 portal for Unused configuration and the separate Smart Load Enable
+control. This integration does not expose that per-port enable flag.
+
+**Recovery after an earlier Unused/Smart Load round trip:** check **Smart Load
+N Enable** in the EG4 portal for the affected port. If that load should be
+running, turn the flag back on there and check the load's actual power. Merely
+selecting Smart Load again in Home Assistant does not repair the disabled flag.
+Replace automations that use Unused/Smart Load as pause/resume; the Unused step
+now raises an error.
 
 Each of a GridBOSS's four smart ports is its own device, "Smart Port N
 <GridBOSS serial>", connected via the GridBOSS. Every port device has the
