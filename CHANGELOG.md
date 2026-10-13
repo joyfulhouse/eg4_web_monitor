@@ -7,12 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.19] - 2026-10-13
+
+**Requires [pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**
+
 ### Changed
 
 - **Breaking - GridBOSS Unused mode writes are blocked for safety** ([#629](https://github.com/joyfulhouse/eg4_web_monitor/issues/629)): selecting Unused can clear the port's separate Smart Load Enable flag, and selecting Smart Load again does not restore it. Home Assistant now raises an actionable error before sending an Unused command on cloud, local, or hybrid connections. Unused remains readable for externally configured ports. Replace automations that use mode changes as load pause/resume, and check Smart Load Enable in the EG4 portal to recover an already affected port. See [configuration guidance](docs/CONFIGURATION.md#gridboss-smart-port-devices).
 
 ### Fixed
 
+- **Restore energy dip protection after restart** ([#649](https://github.com/joyfulhouse/eg4_web_monitor/issues/649)): seed the existing bounded guard from finite native Home Assistant restore data with matching units before first publication. Daily counters require a finite numeric saved state from the same HA local day; unavailable or unknown saved daily states are skipped, including after same-day outages. Lifetime counters retain eligible baselines across days. Display-unit values are never used as the baseline. Missing live readings remain unknown; the dip bound and large-reset behavior are unchanged. Older installations without native restore data acquire it while running this version. The separate running-entity midnight limitation remains tracked in [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666).
+- **GridBOSS discovery updates unchanged inverter statistics metadata**: first recognition of a GridBOSS, including a device type change, notifies inverter entities even when their readings have not changed. This activates the consumption exclusion before a later poll can omit GridBOSS; ordinary updates retain scoped notifications. State-class returns also normalize to the enum supported by both minimum and current Home Assistant.
 - **GridBOSS per-inverter consumption statistics** ([#648](https://github.com/joyfulhouse/eg4_web_monitor/issues/648)): daily and lifetime Consumption sensors on inverters in an entry containing a GridBOSS retain their IDs and readings but no longer advertise `total_increasing`. The attached-transport energy balance can decrease during the day; treating those drops as meter resets over-counted energy. The exclusion deliberately applies in cloud, local and hybrid modes, including cloud-only per-inverter counters, to keep eligibility stable across connection-mode changes. It takes effect when GridBOSS is recognized; retaining that knowledge across restart with delayed discovery is tracked in [#664](https://github.com/joyfulhouse/eg4_web_monitor/issues/664). Use the parallel group's whole-home consumption or GridBOSS consumption counters in the Energy dashboard; per-inverter load-energy meters remain available. Remove the affected per-inverter Consumption sensors from existing Energy dashboard configurations. Previously recorded incorrect statistics are not repaired automatically; review them in Developer Tools > Statistics. Home Assistant may report a "state class removed" repair notice for sensors with existing statistics. The exclusion persists until the entities are reloaded, so temporarily missing GridBOSS data cannot re-enable reset accounting. A separate existing parallel-group fallback when GridBOSS CT data is missing is tracked in [#661](https://github.com/joyfulhouse/eg4_web_monitor/issues/661).
 
 ## [3.5.1-beta.18] - 2026-10-13
