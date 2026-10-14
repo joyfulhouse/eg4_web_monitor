@@ -42,7 +42,7 @@
 2. [Inverter Input Registers](#2-inverter-input-registers)
 3. [Inverter Holding Registers (Parameters)](#3-inverter-holding-registers-parameters)
 4. [GridBOSS Input Registers](#4-gridboss-input-registers)
-5. [GridBOSS Holding Register 20 (Smart Port Status)](#5-gridboss-holding-register-20-smart-port-status)
+5. [GridBOSS Holding Register 20 (Smart Port Status)](#5-gridboss-holding-register-20-smart-port-status) — includes the [smart port option registers](#smart-port-option-registers-229-317-2101)
 6. [Cloud API Field Mappings](#6-cloud-api-field-mappings)
 7. [Individual Battery Data](#7-individual-battery-data)
 8. [Parallel Group Data](#8-parallel-group-data)
@@ -1221,6 +1221,48 @@ for port in range(1, 5):
 
 **Cloud API**: Uses `bitParamControl` with `BIT_MIDBOX_SP_MODE_N` to read/write
 this register. The `getMidboxRuntime` endpoint returns `smartPort{N}Status` fields.
+
+### Smart Port Option Registers (229-317, 2101)
+
+The per-port settings behind the smart port option entities
+([CONFIGURATION.md](CONFIGURATION.md#smart-port-settings)). pylxpweb's
+MIDBOX name map doesn't carry them, so the integration reads them raw over
+the local transport and decodes them in `const/midbox.py`, which holds the
+per-field evidence. Parameter keys are the cloud's own names
+(`MIDBOX_HOLD_SL_START_SOC_1`, …); n = port 1-4.
+
+| Register | Field | Encoding |
+|---|---|---|
+| 229 | `FUNC_SMART_LOAD_EN_n` bit n-1, `FUNC_SMART_LOAD_GRID_ON_n` bit n+3, `FUNC_AC_COUPLE_EN_n` bit n+7, `FUNC_SHEDDING_MODE_EN_n` bit n+11 | flags |
+| 229+n | Smart Load start / end SOC | low byte start, high byte end (%) |
+| 232+2n, 233+2n | Smart Load start / end voltage | ÷10 V |
+| 241+n | AC Couple start / end SOC | low / high byte (%) |
+| 244+2n, 245+2n | AC Couple start / end voltage | ÷10 V |
+| 253+n | Shedding start PV power | ÷10 kW |
+| 257+n | Shedding start / end SOC | low / high byte (%) |
+| 260+2n, 261+2n | Shedding start / end voltage | ÷10 V |
+| 270+6(n-1) … +5 | Smart Load windows: start 1, end 1, start 2, end 2, start 3, end 3 | low byte hour, high byte minute |
+| 294+6(n-1) … +5 | AC Couple windows, same layout | low byte hour, high byte minute |
+| 2101 | `BIT_SMART_LOAD_BASE_ON_n` bit n | 1 = SOC/Volt, 0 = Time |
+
+- The cloud also names `BIT_MID_INSTALL_POSITION` and
+  `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` (the mobile app's "Time+SOC/Volt"
+  option) in 2101; their bit positions are not pinned. Writes change only the
+  one based-on bit and preserve the rest.
+- Register 229 is read on every GridBOSS refresh (HYBRID: every cycle that
+  refreshes the MID over the dongle), and the full set (blocks 229+40,
+  269+40, 309+9, 2101+1) on the parameter refresh interval. Each block gets
+  one retry, and a failed block carries its previous values forward; a full
+  read that lost a block is retried after 2, 4, 8 … minutes, capped at the
+  refresh interval.
+- Writes are a locked read-modify-write of one register against a fresh read,
+  then a verify read 1.5 s later (the firmware reverts a rejected function
+  bit within a second). The GridBOSS's transport is resolved from the LOCAL
+  MID cache or, in HYBRID, from the station's MID device.
+- The voltage scale (÷10) follows the cloud's values but was not
+  change-tested. Every other field was written from Home Assistant on port 4
+  and read back over the dongle (2026-09-30); the shedding bit (229 bit 15)
+  was also confirmed in the portal.
 
 ---
 
