@@ -24,7 +24,7 @@ sources:
 verified-against:
   eg4_web_monitor: e42ed86
   homeassistant: 2025.11.2
-# Section 1 restore-sensor inheritance re-verified at a63b5328c8d527b857322d8b185b9d8d4f87b7d2 on 2026-10-13.
+# Section 1 restore-sensor inheritance re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13.
 # PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
 # Scope: section 6 bounded initial-parameter wait claims, re-verified 2026-10-13.
 # This immutable inline pin licenses only those claims; unrelated claims retain
@@ -78,7 +78,7 @@ CoordinatorEntity
 
 Evidence: `verified-against-code` — class declarations at the cited lines.
 
-At `a63b5328c8d527b857322d8b185b9d8d4f87b7d2` (#649), `EG4BaseSensor`, `EG4BaseBatterySensor` and
+At `0708cc52d101dfcaff7e1f813c14d51ce6dae717` (#649), `EG4BaseSensor`, `EG4BaseBatterySensor` and
 `EG4BatteryBankEntity` also inherit `_EG4RestoredSensor(RestoreSensor)` alongside
 the coordinator branch shown above. This multiple inheritance is
 `verified-against-code` — the class declarations in `base_entity.py` and real HA

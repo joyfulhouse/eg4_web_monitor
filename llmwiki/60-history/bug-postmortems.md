@@ -10,7 +10,9 @@ sources:
   - custom_components/eg4_web_monitor/select.py
   - tests/test_select_entities.py
 verified-against:
-  eg4_web_monitor: c79b772
+  eg4_web_monitor: 9f6d6e2
+  # Only the #629 guard/status/regression claims are re-verified at
+  # 8289d6f4558e1aa8779a0a49e6c21816f337ee29; unrelated claims retain prior pins.
   pylxpweb: 204b95d
 last-verified: 2026-10-13
 see-also:
@@ -103,7 +105,7 @@ the earlier refutation was never written down.
 The reported device side effect and its evidence grade belong to
 [GridBOSS](../40-hardware/gridboss.md#reported-unused-mode-side-effect-629).
 
-`verified-against-code` at `eg4_web_monitor@c79b772` -
+`verified-against-code` at `eg4_web_monitor@8289d6f4558e1aa8779a0a49e6c21816f337ee29` -
 `select.py` -> `EG4SmartPortModeSelect.current_option` reads only mode status.
 Its write path does not acquire or restore the separate per-port enable state.
 Consequently, mode convergence cannot establish that a load is enabled.

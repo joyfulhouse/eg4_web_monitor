@@ -3,7 +3,9 @@ canonical-for:
   - "Catalog of every llmwiki page and the facts it owns"
 sources:
   - llmwiki/*/*.md front matter (canonical-for declarations)
-verified-against: c79b772
+verified-against: 8ccc734
+# The GridBOSS ownership/catalog row was rechecked at
+# 8289d6f4558e1aa8779a0a49e6c21816f337ee29; other rows retain their prior scope.
 last-verified: 2026-10-13
 see-also:
   - README.md
