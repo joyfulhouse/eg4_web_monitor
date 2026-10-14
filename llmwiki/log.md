@@ -1400,3 +1400,14 @@ and firmware/portal evidence grades are unchanged. Restored the older page-wide
 pins beneath explicit scoped verification comments, avoiding an unsupported
 claim that unrelated firmware, catalog or historical entries were reverified.
 PR #665's final mainline repin remains pending its merge.
+
+
+## [2026-10-14] ingest | Landed consumption and listener evidence for beta.19
+
+Re-verified data-semantics sections 4.3.1-4.3.2 at mainline `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`
+for PR #665: effective consumption state class, entry-lifetime latch, first
+GridBOSS recognition dispatch, and the separately tracked group CT fallback.
+The cited source and lifecycle regression definitions exist at that pin; its
+production and test trees equal the independently reviewed combined candidate
+`84b39c4`. Only these sections receive the new pin and verification date; other
+scoped claims retain their pins. Prior log content is unchanged.
