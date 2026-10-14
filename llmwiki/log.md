@@ -1386,3 +1386,17 @@ The production tree and tests match the independently reviewed combined candidat
 `84b39c4`; conflicts preserved both changelog entries and append-only wiki
 histories. Updated the owner page to reachable branch pins without modifying
 prior log entries.
+
+
+## [2026-10-13] ingest | Landed select protection and restore evidence for beta.19
+
+Rechecked PR #662's select guard/status/regression claims at mainline
+`8289d6f4558e1aa8779a0a49e6c21816f337ee29`, and PR #663's restore eligibility,
+regressions and inheritance at `0708cc52d101dfcaff7e1f813c14d51ce6dae717`.
+Updated those scoped citations and the consumption upgrade-guidance link to the
+beta.19 changelog heading. The GridBOSS reported-side-effect section, its
+postmortem link and catalog ownership row were also rechecked; their reporter
+and firmware/portal evidence grades are unchanged. Restored the older page-wide
+pins beneath explicit scoped verification comments, avoiding an unsupported
+claim that unrelated firmware, catalog or historical entries were reverified.
+PR #665's final mainline repin remains pending its merge.

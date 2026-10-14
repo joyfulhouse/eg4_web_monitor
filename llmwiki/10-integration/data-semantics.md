@@ -58,7 +58,7 @@ verified-against:
   # verifies at the mainline pin below.
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
-# Section 4.2.1 re-verified at a63b5328c8d527b857322d8b185b9d8d4f87b7d2 on 2026-10-13; other sections retain their pins.
+# Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
 last-verified: 2026-10-13
 see-also:
   - ../40-hardware/registers.md
@@ -419,7 +419,7 @@ All rows: `verified-against-code`.
 
 ### 4.2.1 Restart baseline restoration (#649)
 
-`verified-against-code` at `a63b5328c8d527b857322d8b185b9d8d4f87b7d2` — `base_entity.py` →
+`verified-against-code` at `0708cc52d101dfcaff7e1f813c14d51ce6dae717` — `base_entity.py` →
 `_EG4RestoredSensor.async_added_to_hass`; `const/sensors/inverter.py` →
 `reset_period` metadata; `tests/test_energy_guard_restore.py`.
 
@@ -454,7 +454,7 @@ clamping it to yesterday's `14.3`; the lifetime counterpart retains `14.3`.
 The unknown-state lifecycle stores a missing native value in the tested HA
 versions; separate restore-cache cases reject nonnumeric or nonfinite display
 states even when native extra data is numeric. `verified-against-code` at
-`a63b5328c8d527b857322d8b185b9d8d4f87b7d2` —
+`0708cc52d101dfcaff7e1f813c14d51ce6dae717` —
 `tests/test_energy_guard_restore.py` →
 `test_nonnumeric_state_after_midnight_then_reload` and
 `test_nonnumeric_restore_with_numeric_payload`.
@@ -465,7 +465,7 @@ daily state and valid lifetime native data retain their existing restore behavio
 This eligibility check applies only during entity restoration; it does not expire
 a running entity's daily baseline across midnight or missed reset samples. That
 separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666).
-`verified-against-code` at `a63b5328c8d527b857322d8b185b9d8d4f87b7d2` —
+`verified-against-code` at `0708cc52d101dfcaff7e1f813c14d51ce6dae717` —
 `base_entity.py` → `_EG4RestoredSensor.async_added_to_hass` and
 `_guard_total_increasing`; the same-day nonnumeric restore cases are in
 `test_nonnumeric_restore_with_numeric_payload`.
@@ -547,7 +547,7 @@ GridBOSS system (`asserted-unverified` — the issue's production scan). Missing
 AC-coupled energy is a hypothesis, not a proven missing term. This fix changes the
 statistics contract, not the formula or the contested physical-source claims
 below. Existing incorrect statistics are not rewritten; the upgrade guidance is
-owned by `CHANGELOG.md` → Unreleased / #648.
+owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
 
 #### 4.3.2 Missing GridBOSS CT overlay can expose a different group source (#661)
 
