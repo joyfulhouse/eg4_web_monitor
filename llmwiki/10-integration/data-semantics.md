@@ -43,9 +43,8 @@ sources:
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
-  # Section 4.3.1 listener dispatch is independently verified at 363580713692385c5c730da15824d3f1395e5753;
-  # other claims in sections 4.3.1-4.3.2 retain 7b597aa0592665aad2e54f94dd764849f25315c4. Existing sections
-  # retain their prior pins below. No whole-page re-verification is claimed.
+  # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
+  # on 2026-10-14; other sections retain their scoped pins below.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
   # Quick Charge/H233) were falsified by PR #569 and re-verified at e9853eb
   # for the #570 sweep ingest — those sections carry their pin inline.
@@ -59,7 +58,7 @@ verified-against:
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -491,7 +490,7 @@ Evidence: `asserted-unverified` for the per-mode source mapping
 
 #### 4.3.1 GridBOSS per-inverter consumption is not a resetting meter (#648)
 
-At `7b597aa0592665aad2e54f94dd764849f25315c4`, `EG4InverterSensor.state_class` returns no state class for
+At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`, `EG4InverterSensor.state_class` returns no state class for
 `consumption` and `consumption_lifetime` on inverters once a GridBOSS appears in
 that entry's device data. The exclusion applies across connection modes and to
 all inverters in the entry: local discovery does not always establish electrical
@@ -505,7 +504,7 @@ retain their configured classes (`verified-against-code` — `sensor.py` →
 The latch is not persisted. A fresh entity whose initial data lacks GridBOSS
 advertises its configured class until discovery; explicitly configured LOCAL
 GridBOSS devices already appear in static startup data (`verified-against-code`
-at `7b597aa0592665aad2e54f94dd764849f25315c4` — `sensor.py` → `EG4InverterSensor.state_class`;
+at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` → `EG4InverterSensor.state_class`;
 `coordinator_local.py` → `LocalTransportMixin._build_static_local_data`).
 Issue [#664](https://github.com/joyfulhouse/eg4_web_monitor/issues/664) tracks retaining
 known topology through restart without preventing intentional GridBOSS removal.
@@ -514,7 +513,7 @@ that specific startup window is not claimed proven.
 
 The entity guard uses the effective state class, so these excluded balances pass
 through real decreases, including dips small enough that a `total_increasing`
-sensor would suppress them (`verified-against-code` at `7b597aa0592665aad2e54f94dd764849f25315c4` —
+sensor would suppress them (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
 `base_entity.py` → `EG4BaseSensor.native_value`; `tests/test_base_entity.py` →
 `test_gridboss_consumption_is_not_a_resetting_meter`).
 
@@ -525,7 +524,7 @@ recognition of an existing device's type, even with unchanged inverter data.
 The real coordinator dispatch therefore republishes consumption metadata and
 evaluates the entity-lifetime latch before a later GridBOSS omission. Ordinary
 GridBOSS ticks and disappearance retain normal scoped notifications; no persisted
-topology is introduced (`verified-against-code` at `363580713692385c5c730da15824d3f1395e5753` —
+topology is introduced (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
 `coordinator.py` → `_listener_contexts_for_data_change`;
 `tests/test_gridboss_listener_lifecycle.py` →
 `test_gridboss_recognition_notifies_unchanged_inverters`, exercising
@@ -534,15 +533,15 @@ Review of PR [#665](https://github.com/joyfulhouse/eg4_web_monitor/pull/665) exp
 that the earlier mocked-coordinator late-discovery test did not establish this
 unchanged-inverter dispatch dependency; the regression observes published HA
 states without invoking the getter to establish the latch
-(`verified-against-code` at `363580713692385c5c730da15824d3f1395e5753` —
+(`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
 `tests/test_gridboss_listener_lifecycle.py` →
 `test_gridboss_recognition_notifies_unchanged_inverters`; compare the
 mocked listener in `tests/test_base_entity.py` →
-`test_late_gridboss_discovery_disables_consumption_statistics` at `7b597aa0592665aad2e54f94dd764849f25315c4`).
+`test_late_gridboss_discovery_disables_consumption_statistics` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`).
 
 The balance is a difference of independently advancing counters, which does not
 imply monotonicity (`inferred` from `coordinator_mappings.py` → `_energy_balance`
-at `7b597aa0592665aad2e54f94dd764849f25315c4`). Issue #648 reports daytime daily-consumption decreases on a live
+at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`). Issue #648 reports daytime daily-consumption decreases on a live
 GridBOSS system (`asserted-unverified` — the issue's production scan). Missing
 AC-coupled energy is a hypothesis, not a proven missing term. This fix changes the
 statistics contract, not the formula or the contested physical-source claims
@@ -551,7 +550,7 @@ owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
 
 #### 4.3.2 Missing GridBOSS CT overlay can expose a different group source (#661)
 
-The group source above is conditional. At `7b597aa0592665aad2e54f94dd764849f25315c4`,
+The group source above is conditional. At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`,
 `DeviceProcessingMixin._process_parallel_group_object` can compute a transport
 energy balance before the HTTP/HYBRID group workflow applies GridBOSS CTs.
 `apply_gridboss_overlay` leaves that balance unchanged when both CT consumption
@@ -563,7 +562,7 @@ blanking the group's already-created balance (`verified-against-code` —
 Issue [#661](https://github.com/joyfulhouse/eg4_web_monitor/issues/661) records the
 helper/entity reproduction and the remaining coordinator failure-path work.
 The group remains `total_increasing` in this case; the #648 metadata fix applies
-only to inverter entities (`verified-against-code` at `7b597aa0592665aad2e54f94dd764849f25315c4` — `sensor.py` →
+only to inverter entities (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` →
 `EG4InverterSensor.state_class`). A switch from CT sums to an inverter balance
 can therefore change the meaning of a statistics series (`inferred` from those
 two source-selection paths). This limitation does not establish that the normal
