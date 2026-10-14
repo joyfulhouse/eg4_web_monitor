@@ -24,7 +24,6 @@ else:
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseSwitch
-from .smart_port_options import create_port_option_entities
 from .const import (
     FUNCTION_PARAM_MAPPING,
     PARAM_FUNC_AC_CHARGE,
@@ -46,6 +45,7 @@ from .const import (
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .control_discovery import setup_control_entity_discovery
+from .smart_port_options import create_port_option_entities
 from .utils import (
     flag_offgrid_control_suppression,
     is_family_control_supported,

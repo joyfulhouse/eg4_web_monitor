@@ -21,6 +21,7 @@ from .base_entity import (
     EG4BaseBatterySensor,
     EG4BaseSensor,
     EG4BatteryBankEntity,
+    EG4RegistrySyncedEntity,
     EG4StationEntity,
     device_present_and_healthy,
 )
@@ -852,7 +853,7 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
         return SensorStateClass(state_class) if state_class is not None else None
 
 
-class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):
+class EG4SmartPortSensor(EG4RegistrySyncedEntity, EG4BaseSensor, SensorEntity):
     """One sensor of a GridBOSS smart port device.
 
     A mode-neutral sensor (power, current) reads the key of whichever mode the
@@ -861,20 +862,6 @@ class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):
     entity ever switches counters.  Unavailable while it doesn't serve the
     port's mode; the registry sync in smart_port_devices disables it then.
     """
-
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        """Skip the coordinator-driven write while registry-disabled.
-
-        The smart port registry sync disables entities that don't serve the
-        port's mode, sometimes while HA is still adding them (startup adds
-        ~120 of them across four platforms). A write in that window makes HA
-        log "incorrectly being triggered for updates while it is disabled";
-        the entity is about to be removed, so there is nothing to publish.
-        """
-        if self.registry_entry is not None and self.registry_entry.disabled_by:
-            return
-        super()._handle_coordinator_update()
 
     def __init__(
         self,

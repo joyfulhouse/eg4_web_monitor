@@ -27,7 +27,6 @@ else:
 
 from . import EG4ConfigEntry
 from .base_entity import EG4BaseNumber, optimistic_value_context
-from .smart_port_options import create_port_option_entities
 from .const import (
     AC_CHARGE_END_SOC_OFFGRID_MIN,
     AC_CHARGE_END_VOLTAGE_OFFGRID_MAX,
@@ -162,6 +161,7 @@ from .const import (
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .control_discovery import setup_control_entity_discovery
+from .smart_port_options import create_port_option_entities
 from .utils import (
     async_write_with_cloud_fallback,
     flag_offgrid_control_suppression,
