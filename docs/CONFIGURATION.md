@@ -387,18 +387,24 @@ or delivering power, so reading them back cannot detect this condition.
 Home Assistant rejects **Unused** writes before sending a device command, on
 cloud, local, and hybrid connections. The value remains listed so a port
 configured as Unused outside Home Assistant can still display its mode. Use
-the EG4 portal for Unused configuration and the separate Smart Load Enable
-control. This integration does not expose that per-port enable flag.
-Selecting **Smart Load** sets only the mode; it does not turn on Smart Load
-Enable. This also applies when a port was configured as Unused in the portal:
-check its enable flag there before expecting it to deliver power.
+the EG4 portal for Unused configuration.
+
+The separate enable flag is the **Smart Load Enable** switch on the port
+device, which exists only with a local connection to the GridBOSS (see
+[Smart port settings](#smart-port-settings)). On a cloud-only GridBOSS the
+flag is set in the EG4 portal. Selecting **Smart Load** sets only the mode; it
+does not turn on Smart Load Enable. This also applies when a port was
+configured as Unused in the portal: check its enable flag before expecting it
+to deliver power.
 
 **Recovery after an earlier Unused/Smart Load round trip:** check **Smart Load
-N Enable** in the EG4 portal for the affected port. If that load should be
-running, turn the flag back on there and check the load's actual power. Merely
-selecting Smart Load again in Home Assistant does not repair the disabled flag.
-Replace automations that use Unused/Smart Load as pause/resume; the Unused step
-now raises an error.
+Enable** for the affected port: the port device's switch with a local
+connection, otherwise the EG4 portal. If that load should be running, turn it
+back on and check the load's actual power. Merely selecting Smart Load again
+does not repair the disabled flag. Replace automations that use Unused/Smart
+Load as pause/resume; the Unused step now raises an error. With a local
+connection, the Smart Load Enable switch is the replacement: on the unit the
+smart port settings were built on, it switched the port's power at once.
 
 Each of a GridBOSS's four smart ports is its own device, "Smart Port N
 <GridBOSS serial>", connected via the GridBOSS. Every port device has the

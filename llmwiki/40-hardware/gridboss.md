@@ -12,7 +12,9 @@ sources:
 verified-against: 9f6d6e2
 # Only the reported #629 side-effect section and postmortem link were rechecked
 # at 8289d6f4558e1aa8779a0a49e6c21816f337ee29. No firmware/portal grade promotion.
-last-verified: 2026-10-13
+# The GB-H229 pointer in that section is verified against the smart port
+# options branch (#639), not yet a merged pin.
+last-verified: 2026-10-14
 ---
 
 # GridBOSS / POWER_HUB UART map
@@ -84,6 +86,14 @@ enabling the load in the portal restores operation. The issue has no raw
 before/after register pair, so it does not meet `hardware-toggle-proven`.
 The responsible firmware/portal mechanism and local reproduction remain
 unestablished; do not infer an enable register address from the mode packing.
+
+The enable flag itself is cataloged independently of the mode packing: the
+Smart Load enables are GB-H229 bits 0-3, graded in the
+[GridBOSS register ledger](registers.md#gridboss-register-ledger) from portal
+and app round trips. With a local transport the integration exposes them as
+each port device's Smart Load Enable switch (`smart_port_options.py`). No
+capture shows an Unused write clearing that bit, so the #629 report keeps its
+grade.
 
 The software root cause, guard, and remaining limitations belong to
 [the #629 postmortem](../60-history/bug-postmortems.md#629-mode-verification-misses-independent-enable-state).

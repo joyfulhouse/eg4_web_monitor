@@ -490,12 +490,19 @@ class EG4SmartPortModeSelect(EG4BaseSelect):
         # Keep Unused readable, but reject its write before optimistic state or
         # routing: mode readback cannot detect the separate enable flag (#629).
         if option == "Unused":
+            # The Smart Load Enable switch exists only with a configured local
+            # transport (smart_port_options.create_port_option_entities).
+            enable_control = (
+                "the port device's Smart Load Enable switch"
+                if self.coordinator.has_configured_local_transport(self._serial)
+                else "the EG4 portal"
+            )
             raise HomeAssistantError(
                 f"Cannot set smart port {self._port} to Unused: this can clear "
                 "the port's separate Smart Load Enable flag, which changing "
                 "back to Smart Load does not restore. Use the EG4 portal for "
-                "Unused configuration and Smart Load Enable controls; the "
-                "mode select is not a load pause/resume control."
+                f"Unused configuration and {enable_control} to turn the load "
+                "on or off; the mode select is not a load pause/resume control."
             )
 
         int_value = SMART_PORT_MODE_TO_VALUE[option]

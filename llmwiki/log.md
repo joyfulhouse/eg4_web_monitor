@@ -1464,3 +1464,18 @@ portal still greyed port 4's Smart Load voltage fields. So the portal's SOC-vs-v
 isn't driven by the inverter regime, and the entities' `is_effective` attribute (which reads
 register 179) is unproven as a statement of what the GridBOSS applies. Recorded in
 `const/midbox.py`, `docs/CONFIGURATION.md` and `docs/DATA_MAPPING.md`.
+
+## [2026-10-14] ingest | #629 guidance meets the smart port Smart Load Enable switch
+
+Upstream's #629 guard (beta.18/19) told users the integration does not expose
+the per-port Smart Load Enable flag and sent recovery to the portal. The smart
+port options change (#639) exposes that flag as a switch for a GridBOSS with a
+configured local transport. Updated the #629 postmortem pointer in
+`60-history/bug-postmortems.md` (was "follow-up work in #638") and added a
+GB-H229 cross-reference to the #629 section of `40-hardware/gridboss.md`. No
+grade changed: nothing captures an Unused write clearing GB-H229, so the #629
+side effect stays `asserted-unverified`. Both pins note that the new sentences
+are verified against the #639 branch, not a merged commit. The user-facing
+recovery steps (`docs/CONFIGURATION.md`) and the Unused error text in
+`select.py` now name the switch when it exists and the portal otherwise.
+

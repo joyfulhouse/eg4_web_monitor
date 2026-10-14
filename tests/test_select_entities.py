@@ -338,6 +338,30 @@ class TestSmartPortModeSelect:
         assert select.options == SMART_PORT_MODE_OPTIONS
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("local", "pointer"),
+        [
+            (True, "the port device's Smart Load Enable switch to turn"),
+            (False, "the EG4 portal to turn"),
+        ],
+    )
+    async def test_unused_rejection_names_the_enable_control(self, local, pointer):
+        """The Smart Load Enable switch exists only with a local transport."""
+        coordinator = _mock_gridboss_coordinator(
+            sensors={"smart_port1_status": "smart_load"}
+        )
+        coordinator.has_configured_local_transport.return_value = local
+        select = EG4SmartPortModeSelect(
+            coordinator, "gb123", coordinator.data["devices"]["gb123"], port=1
+        )
+
+        with pytest.raises(HomeAssistantError) as raised:
+            await select.async_select_option("Unused")
+
+        assert pointer in str(raised.value)
+        coordinator.has_configured_local_transport.assert_called_once_with("gb123")
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("port", [1, 2, 3, 4])
     @pytest.mark.parametrize("transport", ["cloud", "local", "hybrid"])
     @pytest.mark.parametrize("status", ["smart_load", "ac_couple", "unused", None])
