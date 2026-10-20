@@ -6,7 +6,8 @@
         "description": "Podlacz swoje konto EG4 w chmurze, aby uzyskac pelny dostep do wszystkich funkcji, w tym GridBOSS, szybkiego ladowania i aktualizacji oprogramowania. Urzadzenia lokalne mozesz dodac pozniej dla szybszego odpytywania.",
         "menu_options": {
           "cloud_credentials": "Polacz konto w chmurze",
-          "local_device_type": "Pomin - tylko lokalnie"
+          "local_device_type": "Pomin - tylko lokalnie",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,17 @@
         "data_description": {
           "serial_port": "np. /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +353,7 @@
       "timeout": "Przekroczono limit czasu polaczenia z {brand_name} Web Monitor. Sprawdz polaczenie internetowe i sprobuj ponownie.",
       "modbus_not_installed": "Biblioteka pymodbus nie jest zainstalowana. Zainstaluj ja poleceniem: pip install pymodbus",
       "modbus_timeout": "Przekroczono limit czasu polaczenia Modbus. Sprawdz adres IP i upewnij sie, ze bramka Modbus jest wlaczona i podlaczona.",
-      "standalone_battery_not_supported": "To urządzenie jest baterią. Bezpośrednie połączenia z samodzielnymi bateriami nie są jeszcze obsługiwane; zobacz issue GitHub #176.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Nie udalo sie polaczyc z bramka Modbus. Sprawdz: (1) czy adres IP jest poprawny, (2) czy port 502 nie jest zablokowany, (3) czy Modbus TCP jest wlaczony na bramce.",
       "dongle_timeout": "Przekroczono limit czasu polaczenia z dongle WiFi. Sprawdz adres IP i upewnij sie, ze dongle jest podlaczony do sieci.",
       "dongle_connection_failed": "Nie udalo sie polaczyc z dongle WiFi. Sprawdz: (1) czy adres IP jest poprawny, (2) czy port 8000 nie jest zablokowany, (3) czy oprogramowanie dongle obsluguje lokalny dostep (ostatnie aktualizacje moga go blokowac).",
@@ -353,7 +365,9 @@
       "serial_port_error": "Nie udalo sie otworzyc portu szeregowego. Sprawdz: (1) czy sciezka portu jest poprawna, (2) czy adapter USB jest podlaczony, (3) czy urzadzenie nie jest uzywane przez inna aplikacje.",
       "serial_port_in_use": "Port szeregowy jest juz uzywany przez inna aplikacje. Zamknij inne aplikacje uzywajace tego portu i sprobuj ponownie.",
       "invalid_ip_range": "Nieprawidlowy zakres IP. Uzyj notacji CIDR (np. 192.168.1.0/24) lub zakresu (np. 192.168.1.1-192.168.1.254). Dozwolone sa tylko prywatne zakresy IP.",
-      "no_scan_type_selected": "Wybierz co najmniej jeden typ skanowania (Modbus lub Dongle)."
+      "no_scan_type_selected": "Wybierz co najmniej jeden typ skanowania (Modbus lub Dongle).",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
     },
     "abort": {
       "already_configured": "Ta stacja {brand_name} Web Monitor jest juz skonfigurowana. Kazda stacja wymaga oddzielnej instancji integracji.",
@@ -393,6 +407,12 @@
           "include_ac_couple_pv": "Dodaj moc falownika solarnego sprzężonego AC (z portów Smart GridBOSS) do sum PV grupy równoległej",
           "charge_control_mode": "Jak bateria decyduje, kiedy PRZERWAĆ ładowanie: SOC (pętla zamknięta, lit z BMS) lub Napięcie (pętla otwarta, kwasowo-ołowiowa / bez BMS). Niewybrane kontrolki limitów są domyślnie ukryte. ⚠️ Zmiana tego ustawienia rekonfiguruje także falownik.",
           "discharge_control_mode": "Jak bateria decyduje, kiedy PRZERWAĆ rozładowanie: SOC (pętla zamknięta, lit z BMS) lub Napięcie (pętla otwarta, kwasowo-ołowiowa / bez BMS). Niewybrane kontrolki odcięcia są domyślnie ukryte. ⚠️ Zmiana tego ustawienia rekonfiguruje także falownik."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

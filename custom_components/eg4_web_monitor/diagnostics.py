@@ -249,6 +249,17 @@ async def async_get_config_entry_diagnostics(
         },
     }
 
+    from .battery_bus import BatteryBusCoordinator
+
+    if isinstance(coordinator_candidate, BatteryBusCoordinator):
+        result["coordinator"] = {
+            "connection_type": "battery_bus",
+            "last_update_success": coordinator_candidate.last_update_success,
+            "update_interval": str(coordinator_candidate.update_interval),
+            "data": _clean(coordinator_candidate.data or {}),
+        }
+        return result
+
     if coordinator is None:
         result["coordinator"] = None
         return result

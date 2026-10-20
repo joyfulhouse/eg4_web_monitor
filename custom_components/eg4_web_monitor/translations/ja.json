@@ -6,7 +6,8 @@
         "description": "EG4クラウドアカウントに接続すると、GridBOSS、クイックチャージ、ファームウェア更新など、すべての機能にアクセスできます。後からローカルデバイスを追加して、より高速なポーリングも可能です。",
         "menu_options": {
           "cloud_credentials": "クラウドアカウントに接続",
-          "local_device_type": "スキップ — ローカルのみ"
+          "local_device_type": "スキップ — ローカルのみ",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,17 @@
         "data_description": {
           "serial_port": "例：/dev/ttyUSB0（Linux）、COM1（Windows）、/dev/tty.usbserial-*（macOS）"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +353,7 @@
       "timeout": "{brand_name} Web Monitorへの接続がタイムアウトしました。インターネット接続を確認して、再試行してください。",
       "modbus_not_installed": "pymodbusライブラリがインストールされていません。次のコマンドでインストールしてください：pip install pymodbus",
       "modbus_timeout": "Modbus接続がタイムアウトしました。IPアドレスを確認し、Modbusゲートウェイの電源が入っていて接続されていることを確認してください。",
-      "standalone_battery_not_supported": "このデバイスはバッテリーです。スタンドアロンバッテリーへの直接接続はまだサポートされていません。GitHub issue #176 を参照してください。",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Modbusゲートウェイへの接続に失敗しました。確認事項：(1) IPアドレスが正しい、(2) ポート502がブロックされていない、(3) ゲートウェイでModbus TCPが有効になっている。",
       "dongle_timeout": "WiFiドングル接続がタイムアウトしました。IPアドレスを確認し、ドングルがネットワークに接続されていることを確認してください。",
       "dongle_connection_failed": "WiFiドングルへの接続に失敗しました。確認事項：(1) IPアドレスが正しい、(2) ポート8000がブロックされていない、(3) ドングルのファームウェアがローカルアクセスをサポートしている（最近の更新でブロックされる場合があります）。",
@@ -353,7 +365,9 @@
       "serial_port_error": "シリアルポートを開けませんでした。確認事項：(1) ポートパスが正しい、(2) USBアダプターが接続されている、(3) 別のアプリケーションがデバイスを使用していない。",
       "serial_port_in_use": "シリアルポートはすでに別のアプリケーションによって使用されています。このポートを使用している他のアプリケーションを閉じて、再試行してください。",
       "invalid_ip_range": "無効なIPレンジです。CIDR表記（例：192.168.1.0/24）またはダッシュ範囲（例：192.168.1.1-192.168.1.254）を使用してください。プライベートIPレンジのみが許可されています。",
-      "no_scan_type_selected": "少なくとも1つのスキャンタイプ（ModbusまたはDongle）を選択してください。"
+      "no_scan_type_selected": "少なくとも1つのスキャンタイプ（ModbusまたはDongle）を選択してください。",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
     },
     "abort": {
       "already_configured": "この{brand_name} Web Monitorステーションはすでに設定されています。各ステーションには別々のインテグレーションインスタンスが必要です。",
@@ -393,6 +407,12 @@
           "include_ac_couple_pv": "GridBOSSスマートポートからのAC結合ソーラーインバーター電力をパラレルグループのPV合計に追加",
           "charge_control_mode": "バッテリーが充電を停止するタイミングの決め方: SOC（閉ループ、BMS 付きリチウム）または電圧（開ループ、鉛蓄電池 / BMS なし）。選択していない側の制限コントロールはデフォルトで非表示になります。⚠️ この変更はインバーター自体の設定も変更します。",
           "discharge_control_mode": "バッテリーが放電を停止するタイミングの決め方: SOC（閉ループ、BMS 付きリチウム）または電圧（開ループ、鉛蓄電池 / BMS なし）。選択していない側のカットオフコントロールはデフォルトで非表示になります。⚠️ この変更はインバーター自体の設定も変更します。"
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

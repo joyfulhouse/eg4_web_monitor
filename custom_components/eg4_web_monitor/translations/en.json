@@ -6,7 +6,8 @@
         "description": "Connect your EG4 cloud account for full access to all features including GridBOSS, Quick Charge, and firmware updates. You can add local devices later for faster polling.",
         "menu_options": {
           "cloud_credentials": "Connect Cloud Account",
-          "local_device_type": "Skip — Local Only"
+          "local_device_type": "Skip — Local Only",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,17 @@
         "data_description": {
           "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS), or esphome://host:6053 for an ESPHome serial proxy"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +353,7 @@
       "timeout": "Connection to {brand_name} Web Monitor timed out. Please check your internet connection and try again.",
       "modbus_not_installed": "The pymodbus library is not installed. Please install it using: pip install pymodbus",
       "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
-      "standalone_battery_not_supported": "This device is a battery. Direct standalone battery connections are not supported yet; see GitHub issue #176.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
       "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
       "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
@@ -353,7 +365,9 @@
       "serial_port_error": "Failed to open serial port. Please check: (1) port path is correct, (2) USB adapter is connected, (3) device is not in use by another application.",
       "serial_port_in_use": "Serial port is already in use by another application. Close other applications using this port and try again.",
       "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.168.1.0/24) or a dash range (e.g., 192.168.1.1-192.168.1.254). Only private IP ranges are allowed.",
-      "no_scan_type_selected": "Select at least one scan type (Modbus or Dongle)."
+      "no_scan_type_selected": "Select at least one scan type (Modbus or Dongle).",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",
@@ -393,6 +407,12 @@
           "include_ac_couple_pv": "Add AC-coupled solar inverter power (from GridBOSS smart ports) to parallel group PV totals",
           "charge_control_mode": "How your battery decides when to STOP charging: SOC (closed-loop, BMS lithium) or Voltage (open-loop, lead-acid / no BMS). The non-selected limit controls are hidden by default. ⚠️ Changing this also reconfigures your inverter.",
           "discharge_control_mode": "How your battery decides when to STOP discharging: SOC (closed-loop, BMS lithium) or Voltage (open-loop, lead-acid / no BMS). The non-selected cutoff controls are hidden by default. ⚠️ Changing this also reconfigures your inverter."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

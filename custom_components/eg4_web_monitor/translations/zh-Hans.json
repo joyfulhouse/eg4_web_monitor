@@ -6,7 +6,8 @@
         "description": "连接您的 EG4 云账户以获取所有功能，包括 GridBOSS、快速充电和固件更新。您可以稍后添加本地设备以实现更快的轮询。",
         "menu_options": {
           "cloud_credentials": "连接云账户",
-          "local_device_type": "跳过 — 仅本地"
+          "local_device_type": "跳过 — 仅本地",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,17 @@
         "data_description": {
           "serial_port": "例如 /dev/ttyUSB0 (Linux)、COM1 (Windows)、/dev/tty.usbserial-* (macOS)"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +353,7 @@
       "timeout": "连接 {brand_name} Web Monitor 超时。请检查您的网络连接并重试。",
       "modbus_not_installed": "pymodbus 库未安装。请使用以下命令安装：pip install pymodbus",
       "modbus_timeout": "Modbus 连接超时。请验证 IP 地址并确保 Modbus 网关已开机并连接。",
-      "standalone_battery_not_supported": "此设备是电池。目前尚不支持直接连接独立电池；请参阅 GitHub issue #176。",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "无法连接到 Modbus 网关。请检查：(1) IP 地址是否正确，(2) 端口 502 是否未被阻止，(3) 网关上是否已启用 Modbus TCP。",
       "dongle_timeout": "WiFi Dongle 连接超时。请验证 IP 地址并确保 Dongle 已连接到您的网络。",
       "dongle_connection_failed": "无法连接到 WiFi Dongle。请检查：(1) IP 地址是否正确，(2) 端口 8000 是否未被阻止，(3) Dongle 固件是否支持本地访问（最近的更新可能会阻止此功能）。",
@@ -353,7 +365,9 @@
       "serial_port_error": "无法打开串口。请检查：(1) 端口路径是否正确，(2) USB 适配器是否已连接，(3) 设备是否未被其他应用程序使用。",
       "serial_port_in_use": "串口已被其他应用程序使用。请关闭使用此端口的其他应用程序并重试。",
       "invalid_ip_range": "无效的 IP 范围。请使用 CIDR 表示法（例如 192.168.1.0/24）或范围（例如 192.168.1.1-192.168.1.254）。仅允许私有 IP 范围。",
-      "no_scan_type_selected": "请至少选择一种扫描类型（Modbus 或 Dongle）。"
+      "no_scan_type_selected": "请至少选择一种扫描类型（Modbus 或 Dongle）。",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
     },
     "abort": {
       "already_configured": "此 {brand_name} Web Monitor 电站已配置。每个电站需要单独的集成实例。",
@@ -393,6 +407,12 @@
           "include_ac_couple_pv": "将GridBOSS智能端口的交流耦合太阳能逆变器功率添加到并联组光伏总量中",
           "charge_control_mode": "电池如何决定何时停止充电：SOC（闭环，带 BMS 的锂电池）或电压（开环，铅酸/无 BMS）。未选中的限值控件默认隐藏。⚠️ 更改此项也会重新配置逆变器。",
           "discharge_control_mode": "电池如何决定何时停止放电：SOC（闭环，带 BMS 的锂电池）或电压（开环，铅酸/无 BMS）。未选中的截止控件默认隐藏。⚠️ 更改此项也会重新配置逆变器。"
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

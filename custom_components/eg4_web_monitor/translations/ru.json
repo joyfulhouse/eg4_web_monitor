@@ -6,7 +6,8 @@
         "description": "Подключите облачный аккаунт EG4 для полного доступа ко всем функциям, включая GridBOSS, быструю зарядку и обновления прошивки. Вы можете добавить локальные устройства позже для более быстрого опроса.",
         "menu_options": {
           "cloud_credentials": "Подключить облачный аккаунт",
-          "local_device_type": "Пропустить — только локально"
+          "local_device_type": "Пропустить — только локально",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,17 @@
         "data_description": {
           "serial_port": "например, /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +353,7 @@
       "timeout": "Превышено время ожидания подключения к {brand_name} Web Monitor. Проверьте интернет-соединение и попробуйте снова.",
       "modbus_not_installed": "Библиотека pymodbus не установлена. Установите её командой: pip install pymodbus",
       "modbus_timeout": "Превышено время ожидания подключения Modbus. Проверьте IP-адрес и убедитесь, что шлюз Modbus включён и подключён.",
-      "standalone_battery_not_supported": "Это устройство является батареей. Прямое подключение автономных батарей пока не поддерживается; см. issue GitHub #176.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Не удалось подключиться к шлюзу Modbus. Проверьте: (1) правильность IP-адреса, (2) порт 502 не заблокирован, (3) Modbus TCP включён на шлюзе.",
       "dongle_timeout": "Превышено время ожидания подключения к WiFi dongle. Проверьте IP-адрес и убедитесь, что dongle подключён к сети.",
       "dongle_connection_failed": "Не удалось подключиться к WiFi dongle. Проверьте: (1) правильность IP-адреса, (2) порт 8000 не заблокирован, (3) прошивка dongle поддерживает локальный доступ (последние обновления могут блокировать его).",
@@ -353,7 +365,9 @@
       "serial_port_error": "Не удалось открыть последовательный порт. Проверьте: (1) правильность пути к порту, (2) USB-адаптер подключён, (3) устройство не используется другим приложением.",
       "serial_port_in_use": "Последовательный порт уже используется другим приложением. Закройте другие приложения, использующие этот порт, и попробуйте снова.",
       "invalid_ip_range": "Недопустимый диапазон IP. Используйте нотацию CIDR (например, 192.168.1.0/24) или диапазон через дефис (например, 192.168.1.1-192.168.1.254). Разрешены только частные IP-диапазоны.",
-      "no_scan_type_selected": "Выберите хотя бы один тип сканирования (Modbus или Dongle)."
+      "no_scan_type_selected": "Выберите хотя бы один тип сканирования (Modbus или Dongle).",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
     },
     "abort": {
       "already_configured": "Эта станция {brand_name} Web Monitor уже настроена. Каждая станция требует отдельного экземпляра интеграции.",
@@ -393,6 +407,12 @@
           "include_ac_couple_pv": "Добавить мощность солнечного инвертора с AC-связью (от Smart Ports GridBOSS) к итогам PV параллельной группы",
           "charge_control_mode": "Как батарея решает, когда ОСТАНОВИТЬ заряд: SOC (замкнутый контур, литий с BMS) или Напряжение (разомкнутый контур, свинцово-кислотная / без BMS). Невыбранные элементы управления пределами по умолчанию скрыты. ⚠️ Изменение также перенастраивает инвертор.",
           "discharge_control_mode": "Как батарея решает, когда ОСТАНОВИТЬ разряд: SOC (замкнутый контур, литий с BMS) или Напряжение (разомкнутый контур, свинцово-кислотная / без BMS). Невыбранные элементы управления отсечкой по умолчанию скрыты. ⚠️ Изменение также перенастраивает инвертор."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

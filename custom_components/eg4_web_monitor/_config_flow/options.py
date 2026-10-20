@@ -92,6 +92,12 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
     # untouched picker never triggers an inverter write.
     _control_mode_prefill: tuple[str, str] | None = None
 
+    async def async_step_battery_bus(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Update battery polling without exposing inverter control options."""
+        return await self.async_step_init(user_input)
+
     def _has_transport_type(self, transport_type: str) -> bool:
         """Check if a specific transport type exists in local_transports config."""
         transports: list[dict[str, Any]] = self.config_entry.data.get(
@@ -129,6 +135,28 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         Returns:
             ConfigFlowResult - form or create_entry result.
         """
+        if self.config_entry.data.get(CONF_CONNECTION_TYPE) == "battery_bus":
+            from ..battery_bus import CONF_BATTERY_INTERVAL, DEFAULT_BATTERY_INTERVAL
+
+            if user_input is not None:
+                return self.async_create_entry(title="", data=user_input)
+            return self.async_show_form(
+                step_id="battery_bus",
+                data_schema=vol.Schema(
+                    {
+                        vol.Required(
+                            CONF_BATTERY_INTERVAL,
+                            default=self.config_entry.options.get(
+                                CONF_BATTERY_INTERVAL,
+                                self.config_entry.data.get(
+                                    CONF_BATTERY_INTERVAL, DEFAULT_BATTERY_INTERVAL
+                                ),
+                            ),
+                        ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                    }
+                ),
+            )
+
         errors: dict[str, str] = {}
         if user_input is not None:
             # Only write the regime when the user actually CHANGED a picker

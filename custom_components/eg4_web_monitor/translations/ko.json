@@ -6,7 +6,8 @@
         "description": "GridBOSS, 빠른 충전, 펌웨어 업데이트 등 모든 기능을 사용하려면 EG4 클라우드 계정에 연결하세요. 나중에 더 빠른 폴링을 위해 로컬 장치를 추가할 수 있습니다.",
         "menu_options": {
           "cloud_credentials": "클라우드 계정 연결",
-          "local_device_type": "건너뛰기 — 로컬 전용"
+          "local_device_type": "건너뛰기 — 로컬 전용",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,17 @@
         "data_description": {
           "serial_port": "예: /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +353,7 @@
       "timeout": "{brand_name} 웹 모니터 연결 시간이 초과되었습니다. 인터넷 연결을 확인하고 다시 시도하세요.",
       "modbus_not_installed": "pymodbus 라이브러리가 설치되지 않았습니다. 다음 명령으로 설치하세요: pip install pymodbus",
       "modbus_timeout": "Modbus 연결 시간이 초과되었습니다. IP 주소를 확인하고 Modbus 게이트웨이의 전원이 켜져 있고 연결되어 있는지 확인하세요.",
-      "standalone_battery_not_supported": "이 장치는 배터리입니다. 독립형 배터리 직접 연결은 아직 지원되지 않습니다. GitHub issue #176을 참조하세요.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Modbus 게이트웨이에 연결하지 못했습니다. 다음을 확인하세요: (1) IP 주소가 올바른지, (2) 포트 502가 차단되지 않았는지, (3) 게이트웨이에서 Modbus TCP가 활성화되어 있는지.",
       "dongle_timeout": "WiFi 동글 연결 시간이 초과되었습니다. IP 주소를 확인하고 동글이 네트워크에 연결되어 있는지 확인하세요.",
       "dongle_connection_failed": "WiFi 동글에 연결하지 못했습니다. 다음을 확인하세요: (1) IP 주소가 올바른지, (2) 포트 8000이 차단되지 않았는지, (3) 동글 펌웨어가 로컬 액세스를 지원하는지 (최근 업데이트로 차단될 수 있음).",
@@ -353,7 +365,9 @@
       "serial_port_error": "시리얼 포트를 열지 못했습니다. 다음을 확인하세요: (1) 포트 경로가 올바른지, (2) USB 어댑터가 연결되어 있는지, (3) 다른 애플리케이션에서 장치를 사용하고 있지 않은지.",
       "serial_port_in_use": "시리얼 포트가 이미 다른 애플리케이션에서 사용 중입니다. 이 포트를 사용하는 다른 애플리케이션을 닫고 다시 시도하세요.",
       "invalid_ip_range": "잘못된 IP 범위입니다. CIDR 표기법 (예: 192.168.1.0/24) 또는 대시 범위 (예: 192.168.1.1-192.168.1.254)를 사용하세요. 사설 IP 범위만 허용됩니다.",
-      "no_scan_type_selected": "최소 하나의 스캔 유형 (Modbus 또는 동글)을 선택하세요."
+      "no_scan_type_selected": "최소 하나의 스캔 유형 (Modbus 또는 동글)을 선택하세요.",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
     },
     "abort": {
       "already_configured": "이 {brand_name} 웹 모니터 발전소는 이미 구성되어 있습니다. 각 발전소에는 별도의 통합 인스턴스가 필요합니다.",
@@ -393,6 +407,12 @@
           "include_ac_couple_pv": "GridBOSS 스마트 포트의 AC 결합 태양광 인버터 전력을 병렬 그룹 PV 합계에 추가",
           "charge_control_mode": "배터리가 충전을 중지할 시점을 결정하는 방식: SOC(폐루프, BMS 리튬) 또는 전압(개루프, 납축전지/BMS 없음). 선택하지 않은 한도 컨트롤은 기본적으로 숨겨집니다. ⚠️ 이 설정을 변경하면 인버터도 다시 구성됩니다.",
           "discharge_control_mode": "배터리가 방전을 중지할 시점을 결정하는 방식: SOC(폐루프, BMS 리튬) 또는 전압(개루프, 납축전지/BMS 없음). 선택하지 않은 차단 컨트롤은 기본적으로 숨겨집니다. ⚠️ 이 설정을 변경하면 인버터도 다시 구성됩니다."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },
