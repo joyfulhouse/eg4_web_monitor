@@ -1556,3 +1556,10 @@ Previously registered eligible inverter/bank keys are seeded unknown before
 platform setup; first local data no longer needs to create those entities.
 Both delayed and hung-read scenarios fail on the baseline and pass with the
 change. Poll timing and never-observed sensor discovery are unchanged.
+## [2026-10-20] ingest | Portal-supported start discharge zero
+
+Issue #628 supplies reporter portal evidence that the LXP start-discharge
+threshold accepts 0 W; the 50 W default is not its minimum. Updated the H116
+keeper row with that scoped evidence and widened integration validation only
+for positively identified LXP inverters. No
+new register routing or hardware-semantic proof is claimed.

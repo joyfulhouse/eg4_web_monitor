@@ -1928,11 +1928,9 @@ SENSOR_TYPES = {
     },
     # GridBOSS Smart Load sensors
     # NOTE: "smart_load_power" is a SHARED key (like "load_power"): GridBOSS
-    # devices publish the all-ports smart-load aggregate, and EG4_OFFGRID
-    # inverters publish the cloud smartLoadPower field — the GEN-port smart
-    # load on 6000XP/12000XP (issue #222, CLOUD/HYBRID supplemental only).
-    # The inverter side is gated via OFFGRID_ONLY_SENSORS; GridBOSS bypasses
-    # that gate through device_type, so one definition serves both.
+    # devices publish the all-ports smart-load aggregate. Inverters publish
+    # cloud smartLoadPower for the GEN-port smart load (6000XP/12000XP #222,
+    # 18kPV #625; CLOUD/HYBRID supplemental only).
     "smart_load_power": {
         "name": "Smart Load Power",
         "unit": UnitOfPower.WATT,

@@ -2798,8 +2798,8 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
     LXP-protocol ``PtoUserStartdischg``: on-grid CT installs start
     discharging the battery once grid import (P_to_user) exceeds this
     wattage (given SOC above the On-Grid SOC Cut-Off) — "Start Discharge
-    P_import(W)" in the Luxpower web UI, which shows a ``[50, ]`` range
-    hint. The protocol register table pins scale **1 W** (default 50 W), NOT
+    P_import(W)" in the Luxpower web UI. The LXP portal accepts zero (#628);
+    50 W is the default. The protocol table pins scale **1 W**, NOT
     the 100 W encoding of regs 66/74/82/103: fleet scanner reads show raw
     100 == cloud "100" == 100 W. One register, two parameter spellings:
     pylxpweb's local name map uses HOLD_PTOUSER_START_DISCHARGE, while the
@@ -2815,12 +2815,19 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
         self._attr_unique_id = self._stable_control_unique_id(
             "start_discharge_power_threshold"
         )
-        self._attr_native_min_value = START_DISCHARGE_POWER_MIN
         self._attr_native_max_value = START_DISCHARGE_POWER_MAX
         self._attr_native_step = START_DISCHARGE_POWER_STEP
         self._attr_native_unit_of_measurement = "W"
         self._attr_icon = "mdi:transmission-tower-import"
         self._attr_native_precision = 0
+
+    @property
+    def native_min_value(self) -> float:
+        """Only the positively identified LXP family has portal zero evidence."""
+        features = self._device_data.get("features") or {}
+        if features.get("inverter_family") == "LXP":
+            return 0
+        return START_DISCHARGE_POWER_MIN
 
     @property
     def native_value(self) -> float | None:
@@ -2834,12 +2841,12 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
         if self._params_are_local_raw():
             return self._read_param_value(
                 param_key=PARAM_HOLD_PTOUSER_START_DISCHARGE,
-                value_min=START_DISCHARGE_POWER_MIN,
+                value_min=self.native_min_value,
                 value_max=START_DISCHARGE_POWER_MAX,
             )
         return self._read_param_value(
             param_key=PARAM_HOLD_P_TO_USER_START_DISCHG,
-            value_min=START_DISCHARGE_POWER_MIN,
+            value_min=self.native_min_value,
             value_max=START_DISCHARGE_POWER_MAX,
             inverter_dict_attr="parameters",
             inverter_dict_key=PARAM_HOLD_P_TO_USER_START_DISCHG,
@@ -2848,13 +2855,10 @@ class StartDischargePowerNumber(EG4BaseNumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set the start-discharge threshold in watts."""
         int_value = int(value)
-        if (
-            int_value < START_DISCHARGE_POWER_MIN
-            or int_value > START_DISCHARGE_POWER_MAX
-        ):
+        if int_value < self.native_min_value or int_value > START_DISCHARGE_POWER_MAX:
             raise HomeAssistantError(
                 f"Start discharge power threshold must be between "
-                f"{START_DISCHARGE_POWER_MIN}-{START_DISCHARGE_POWER_MAX} W, "
+                f"{self.native_min_value:g}-{START_DISCHARGE_POWER_MAX} W, "
                 f"got {value}"
             )
         if abs(value - int_value) > 0.01:
