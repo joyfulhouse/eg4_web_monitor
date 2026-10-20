@@ -43,7 +43,7 @@ sources:
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
-  # Section 4.3.2 re-verified at b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a.
+  # Section 4.3.2 re-verified at e4ca3f0f23254ee280669854eaafedef1c3e9f27.
   # Section 4.3.1 startup policy re-verified at d889f82feb88e75d4518fd09d5efc8224e8618ad.
 
   # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
@@ -562,7 +562,7 @@ owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
 
 #### 4.3.2 GridBOSS group consumption keeps its CT source through gaps (#661)
 
-At `b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a`, the shared
+At `e4ca3f0f23254ee280669854eaafedef1c3e9f27`, the shared
 `apply_gridboss_overlay` requires both UPS and non-backup Load CT components
 for each period independently. A missing component produces `None` for that
 consumption reading instead of a partial sum or inverter energy balance.
@@ -589,14 +589,24 @@ consumption entity registration. `gridboss_topology.group_consumption_source`
 uses that entry-owned marker and the #664 known-GridBOSS predicate on startup.
 A previously CT-backed group stays unknown if MID discovery is absent. A legacy
 unclassified group in a known-GridBOSS entry is conservatively unknown until its
-association is rediscovered; a confirmed inverter group in the same entry keeps
+association is rediscovered. In HTTP/HYBRID, positive current associations of
+all known GridBOSS serials to other groups or standalone devices also permit
+inverter classification; a still-unresolved known serial prevents that promotion.
+LOCAL has no equivalent unrelated-group association and retains its existing
+entry-wide MID overlay policy. A confirmed inverter group in the same entry keeps
 its inverter source. An entry with no known GridBOSS permits inverter consumption.
+The first positive MID association registers its topology before data processing,
+so an initial MID exception cannot erase that evidence at the next restart.
 Guarded GridBOSS device removal followed by reload (or authoritative LOCAL config
 removal) permits source re-evaluation; the runtime CT latch lasts for the run.
 Registry source changes invalidate cached device information so entity metadata
-cannot restore an old role. `test_restart_preserves_group_source` exercises new
+cannot restore an old role. Foreign/shared group registry records neither supply
+nor receive source markers; `get_device_info` applies the same guard even if a
+record became shared after its metadata was cached. The colliding-identifier
+regressions exercise both classification and actual device information.
+`test_restart_preserves_group_source` exercises new
 coordinators, legacy records, explicit removal, first CT samples with no numeric
-readings, repeated reload, and recovery across HTTP/HYBRID/LOCAL. These are
+readings, first-read exceptions, repeated reload, and recovery across HTTP/HYBRID/LOCAL. These are
 `verified-against-code` policy claims at the same scoped pin, not claims that a
 partial discovery can prove physical topology.
 

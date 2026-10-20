@@ -1557,3 +1557,12 @@ cloud failures now retain their cause inside HomeAssistantError. Regression
 tests reproduce the original failure and assert rejected SOC writes publish
 4 then 100 without cache seeding. No register limits or hardware evidence
 grades change; #668 remains open for control intent and firmware evidence.
+
+## [2026-10-20] ingest | Resolve legacy mixed groups and first-read source gaps (#661)
+
+Section 4.3.2 now pins `e4ca3f0f23254ee280669854eaafedef1c3e9f27`.
+Positive associations of every known GridBOSS elsewhere can resolve legacy
+HTTP/HYBRID groups without treating absence as topology proof. Foreign/shared
+registry roles are ignored and never overwritten by the classifier or cached
+device information. First MID discovery now persists its role before processing
+can fail. Added repeated-reload, partial-association and ownership regressions.
