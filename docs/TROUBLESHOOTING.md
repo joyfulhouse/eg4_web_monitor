@@ -13,9 +13,12 @@ A restart does not restore an old measurement as if it were a fresh reading.
 If the state persists, inspect the integration's connection diagnostics and debug
 log for transport failures. Reloading repeatedly does not make a stalled gateway
 respond sooner. In HYBRID mode, cloud measurements and transport-only measurements
-can arrive at different times; existing transport-only registry entries may show
-`unavailable` until discovery after the first local snapshot. This separate startup
-delay is tracked in [#653](https://github.com/joyfulhouse/eg4_web_monitor/issues/653).
+can arrive at different times. Previously registered inverter and battery-bank
+measurement sensors are created during setup when the inverter still has a local
+transport and its current capabilities permit the sensor. They show `unknown`
+until data arrives. New transport-only sensors are discovered after their first
+local snapshot. This does not accelerate gateway polling; a failed later refresh
+can still make measurements unavailable.
 
 
 ## Common Issues

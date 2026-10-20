@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Create previously registered HYBRID inverter and battery-bank measurement sensors during setup while their local readings are pending (#653). Current ownership, transport configuration and feature filters remain authoritative; no gateway read is added to setup.
+
 ### Added
 
 - **GridBOSS smart port settings**: with a local connection to the GridBOSS, each smart port device now carries the port's settings from the EG4 portal:

@@ -14,8 +14,10 @@ sources:
   - memory/consumption-energy-sources.md
   - eg4_web_monitor issues #83, #233, #653
   - tests/test_local_startup_snapshot.py
+  - tests/test_hybrid_startup_registry.py
 verified-against: 9f6d6e2
 # LOCAL static-phase claims below rechecked at f352c23; other sections retain this pin.
+# HYBRID registry-key startup seeding rechecked at f6abc8c.
 last-verified: 2026-10-20
 see-also:
   - ../00-orientation/repo-map.md
@@ -102,8 +104,16 @@ debouncer can defer the real read until after platform forwarding. Measurement
 entities therefore initially publish `unknown`. This is deliberate: setup stays
 independent of a stalled gateway. `tests/test_local_startup_snapshot.py` exercises
 HA's real first-refresh and sensor forwarding, including a never-completing read.
-HYBRID transport-only discovery is a separate delay described on #653; the LOCAL
-static-phase policy does not resolve that report.
+HYBRID transport-only discovery is a separate delay described on #653.
+At `f6abc8c`, `sensor.py` -> `_seed_registered_hybrid_sensor_keys` seeds missing
+keys with `None` before entity creation for previously registered inverter and
+battery-bank sensors belonging to this entry. The inverter must still have a
+configured local transport; inverter keys pass the current feature filter.
+Live values are preserved. The ordinary setup and late-discovery key tracking
+then create each entity once. Grade: `verified-against-code`, with real HA
+first-refresh/platform tests covering delayed and never-completing subsequent
+reads. This restores existing entity presence without waiting on a gateway;
+it does not accelerate the first poll or create never-observed transport keys.
 
 **Why the phase exists.**
 

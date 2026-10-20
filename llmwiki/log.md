@@ -1523,3 +1523,11 @@ in the data-flow owner and troubleshooting guide. Entity setup must remain
 independent of a stalled read; the real-HA regression covers first refresh,
 platform forwarding, eventual measurements and a never-completing read. The
 separate HYBRID transport-only discovery delay remains explicitly unresolved.
+
+## [2026-10-20] ingest | HYBRID measurement entity startup (#653)
+
+Updated data-flow-by-mode from f6abc8c and real HA lifecycle regressions.
+Previously registered eligible inverter/bank keys are seeded unknown before
+platform setup; first local data no longer needs to create those entities.
+Both delayed and hung-read scenarios fail on the baseline and pass with the
+change. Poll timing and never-observed sensor discovery are unchanged.
