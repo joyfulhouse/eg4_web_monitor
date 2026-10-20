@@ -17,6 +17,9 @@ sources:
   - custom_components/eg4_web_monitor/coordinator_http.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
   - custom_components/eg4_web_monitor/base_entity.py
+  - custom_components/eg4_web_monitor/const/sensors/inverter.py
+  - tests/test_energy_guard_restore.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/649
   - pylxpweb src/pylxpweb/transports/data.py
   - memory/issue-227-consumption-no-reset-local-clamp.md
   - memory/issue-258-battery-rr-reg96-unreliable.md
@@ -33,7 +36,15 @@ sources:
   - eg4_web_monitor issues #170, #256, #258, #261, #300, #367, #378, #380, #490, #511, #516
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/648
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/661
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/664
+  - tests/test_base_entity.py
+  - tests/test_gridboss_listener_lifecycle.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
+  # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
+  # on 2026-10-14; other sections retain their scoped pins below.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
   # Quick Charge/H233) were falsified by PR #569 and re-verified at e9853eb
   # for the #570 sweep ingest — those sections carry their pin inline.
@@ -46,7 +57,8 @@ verified-against:
   # verifies at the mainline pin below.
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
-last-verified: 2026-08-30
+# Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
+last-verified: 2026-10-14
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -404,9 +416,62 @@ All rows: `verified-against-code`.
 > **Ship both halves.** Removing the coordinator clamp *without* adding the bounded entity guard
 > re-surfaces the recorder warnings from 0.1 kWh rounding jitter.
 
+### 4.2.1 Restart baseline restoration (#649)
+
+`verified-against-code` at `0708cc52d101dfcaff7e1f813c14d51ce6dae717` — `base_entity.py` →
+`_EG4RestoredSensor.async_added_to_hass`; `const/sensors/inverter.py` →
+`reset_period` metadata; `tests/test_energy_guard_restore.py`.
+
+The guard previously initialized `_last_reported_value` to `None` on entity
+recreation. Its first reading therefore bypassed dip suppression, even when HA
+had recorded a slightly higher value before shutdown. The three guarded sensor
+bases now share `_EG4RestoredSensor`, which uses HA's `RestoreSensor` native extra
+data to seed the baseline before the first state publication.
+
+Restoration requires `total_increasing`, a finite numeric native value and an
+exact match of native units (including unitless counters). Display-unit state
+strings are not used as numeric baselines. Daily counters are classified by
+explicit `reset_period: daily` configuration, not runtime name heuristics; their
+restored state's `last_updated` must fall on the current HA local calendar day,
+and its display state must parse as a finite number. The display state is only
+an eligibility check; native extra data remains the numeric baseline.
+Lifetime baselines may span days and do not require a numeric display state. Missing or invalid restore data leaves the
+baseline empty; an older installation without native extra data must first save
+it while running the updated integration.
+
+Only the guard's comparison baseline is restored: a missing live reading remains
+unknown, and availability still follows the coordinator. The existing 10% bound
+and large-reset behavior are unchanged. The tests cover the first published
+state, native versus display units, invalid values, local/UTC day boundaries,
+unitless counters, missing live readings and remove/re-add persistence across
+the device, individual-battery and battery-bank sensor classes.
+
+HA can publish `unavailable` after midnight with a fresh `last_updated` while
+retaining yesterday's numeric native extra data. The real remove/re-add lifecycle
+regression verifies that combination and accepts live daily `13.5` instead of
+clamping it to yesterday's `14.3`; the lifetime counterpart retains `14.3`.
+The unknown-state lifecycle stores a missing native value in the tested HA
+versions; separate restore-cache cases reject nonnumeric or nonfinite display
+states even when native extra data is numeric. `verified-against-code` at
+`0708cc52d101dfcaff7e1f813c14d51ce6dae717` —
+`tests/test_energy_guard_restore.py` →
+`test_nonnumeric_state_after_midnight_then_reload` and
+`test_nonnumeric_restore_with_numeric_payload`.
+
+Conservative tradeoff: a daily sensor shut down while `unknown` or `unavailable`
+loses its restored dip protection even on the same local day. A numeric same-day
+daily state and valid lifetime native data retain their existing restore behavior.
+This eligibility check applies only during entity restoration; it does not expire
+a running entity's daily baseline across midnight or missed reset samples. That
+separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666).
+`verified-against-code` at `0708cc52d101dfcaff7e1f813c14d51ce6dae717` —
+`base_entity.py` → `_EG4RestoredSensor.async_added_to_hass` and
+`_guard_total_increasing`; the same-day nonnumeric restore cases are in
+`test_nonnumeric_restore_with_numeric_payload`.
+
 ### 4.3 Consumption and load are two distinct meters
 
-| Concept | CLOUD | LOCAL / HYBRID | Authoritative when a GridBOSS is present |
+| Concept | CLOUD | LOCAL / HYBRID | Authoritative when GridBOSS CT consumption is available |
 |---|---|---|---|
 | `consumption` / `consumption_lifetime` | cloud `todayUsage` (server-computed) | `_energy_balance()` = yield + discharge + grid_import − charge − grid_export | the **parallel-GROUP** value via the GridBOSS CT overlay |
 | `load_power` | — | reg 170, Modbus-only | — |
@@ -422,6 +487,86 @@ Evidence: `asserted-unverified` for the per-mode source mapping
 | A divergence of roughly 7 % between a computed value and a counter value is **expected, not a bug** | `asserted-unverified` — `memory/consumption-energy-sources.md` |
 | `hybridPower` has **no Modbus register** — it is cloud-computed and must be derived locally | `portal-correlated` — `memory/consumption-energy-sources.md`; register absence is owned by [../40-hardware/registers.md](../40-hardware/registers.md) |
 | Per-inverter consumption is computed from `energy_balance`, not from the Eload register and not from cloud `totalUsage` | `verified-against-code` (`coordinator_mixins.py` → the consumption computation) for what the code does; `asserted-unverified` for whether that is the right source |
+
+#### 4.3.1 GridBOSS per-inverter consumption is not a resetting meter (#648)
+
+At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`, `EG4InverterSensor.state_class` returns no state class for
+`consumption` and `consumption_lifetime` on inverters once a GridBOSS appears in
+that entry's device data. The exclusion applies across connection modes and to
+all inverters in the entry: local discovery does not always establish electrical
+membership. It is latched for the entity lifetime, so missing GridBOSS data on a
+later poll cannot re-enable reset accounting. Reloading the entities re-evaluates
+the topology. Other inverter counters and parallel-group/GridBOSS consumption
+retain their configured classes (`verified-against-code` — `sensor.py` →
+`EG4InverterSensor.state_class`; `tests/test_base_entity.py` →
+`test_valid_energy_meters_keep_statistics`).
+
+The latch is not persisted. A fresh entity whose initial data lacks GridBOSS
+advertises its configured class until discovery; explicitly configured LOCAL
+GridBOSS devices already appear in static startup data (`verified-against-code`
+at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` → `EG4InverterSensor.state_class`;
+`coordinator_local.py` → `LocalTransportMixin._build_static_local_data`).
+Issue [#664](https://github.com/joyfulhouse/eg4_web_monitor/issues/664) tracks retaining
+known topology through restart without preventing intentional GridBOSS removal.
+The initial/post-discovery metadata transition is tested; production miscount in
+that specific startup window is not claimed proven.
+
+The entity guard uses the effective state class, so these excluded balances pass
+through real decreases, including dips small enough that a `total_increasing`
+sensor would suppress them (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
+`base_entity.py` → `EG4BaseSensor.native_value`; `tests/test_base_entity.py` →
+`test_gridboss_consumption_is_not_a_resetting_meter`).
+
+When a coordinator update changes the entry from no recognized GridBOSS to a
+recognized GridBOSS, `_listener_contexts_for_data_change` also selects every
+current inverter device context. This covers both a newly arriving device and
+recognition of an existing device's type, even with unchanged inverter data.
+The real coordinator dispatch therefore republishes consumption metadata and
+evaluates the entity-lifetime latch before a later GridBOSS omission. Ordinary
+GridBOSS ticks and disappearance retain normal scoped notifications; no persisted
+topology is introduced (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
+`coordinator.py` → `_listener_contexts_for_data_change`;
+`tests/test_gridboss_listener_lifecycle.py` →
+`test_gridboss_recognition_notifies_unchanged_inverters`, exercising
+`EG4DataUpdateCoordinator.async_set_updated_data` with actual HA entities).
+Review of PR [#665](https://github.com/joyfulhouse/eg4_web_monitor/pull/665) exposed
+that the earlier mocked-coordinator late-discovery test did not establish this
+unchanged-inverter dispatch dependency; the regression observes published HA
+states without invoking the getter to establish the latch
+(`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
+`tests/test_gridboss_listener_lifecycle.py` →
+`test_gridboss_recognition_notifies_unchanged_inverters`; compare the
+mocked listener in `tests/test_base_entity.py` →
+`test_late_gridboss_discovery_disables_consumption_statistics` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`).
+
+The balance is a difference of independently advancing counters, which does not
+imply monotonicity (`inferred` from `coordinator_mappings.py` → `_energy_balance`
+at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`). Issue #648 reports daytime daily-consumption decreases on a live
+GridBOSS system (`asserted-unverified` — the issue's production scan). Missing
+AC-coupled energy is a hypothesis, not a proven missing term. This fix changes the
+statistics contract, not the formula or the contested physical-source claims
+below. Existing incorrect statistics are not rewritten; the upgrade guidance is
+owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
+
+#### 4.3.2 Missing GridBOSS CT overlay can expose a different group source (#661)
+
+The group source above is conditional. At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`,
+`DeviceProcessingMixin._process_parallel_group_object` can compute a transport
+energy balance before the HTTP/HYBRID group workflow applies GridBOSS CTs.
+`apply_gridboss_overlay` leaves that balance unchanged when both CT consumption
+fields are absent; the HTTP MID-processing exception path logs the error without
+blanking the group's already-created balance (`verified-against-code` —
+`coordinator_mixins.py` → those two symbols; `coordinator_http.py` →
+`HTTPUpdateMixin._process_station_data`, group MID-processing block).
+
+Issue [#661](https://github.com/joyfulhouse/eg4_web_monitor/issues/661) records the
+helper/entity reproduction and the remaining coordinator failure-path work.
+The group remains `total_increasing` in this case; the #648 metadata fix applies
+only to inverter entities (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` →
+`EG4InverterSensor.state_class`). A switch from CT sums to an inverter balance
+can therefore change the meaning of a statistics series (`inferred` from those
+two source-selection paths). This limitation does not establish that the normal
+CT-backed group counter is non-monotonic.
 
 #### The lifetime-consumption source is CONTESTED — no binding rule here
 

@@ -10,8 +10,10 @@ that have already been registered while marking them unsupported.
 
 from collections.abc import Callable, Hashable, Mapping, Sequence
 import logging
+import re
 from typing import Any
 
+from homeassistant.const import ATTR_RESTORED
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -71,17 +73,29 @@ def _migrate_model_prefixed_unique_ids(
     config_entry: Any,
     platform: str,
     entities: list[EG4OptimisticEntity],
-) -> None:
+    warned_conflicts: set[str],
+) -> set[str]:
     """Migrate ``{model}_{serial}_{key}`` IDs to ``{serial}_{key}`` in place.
 
     Number and time entities historically embedded the discovered model.  A
-    model transition therefore registered a second entity.  Matching the full
-    new unique ID as a suffix is unambiguous for a config entry; ambiguous
-    legacy data is left untouched rather than guessed at destructively.
+    model transition therefore registered a second entity, and a model that
+    changed more than once (HYBRID reports differ between the portal and the
+    transport) left one legacy entry per model (#656).  Matching the full new
+    unique ID as a suffix identifies every legacy entry for the same control
+    in this config entry.
+
+    Nothing can recreate a model-prefixed ID, so every match is the same
+    control. If no stable entry exists, one legacy entry is kept by rewriting
+    its unique ID, preferring enabled, then most recently created where HA
+    recorded it. Ties prefer an entity ID without a numeric suffix, then lexical
+    entity-ID ordering. An existing stable entry in this config entry is always
+    kept untouched; the legacy entries are removed unless they back loaded
+    entities. Return conflicted IDs to skip registration when a different config
+    entry owns the stable identity.
     """
     entry_id = getattr(config_entry, "entry_id", None)
     if not isinstance(entry_id, str):
-        return
+        return set()
 
     registry = er.async_get(hass)
     registry_entries = [
@@ -89,34 +103,75 @@ def _migrate_model_prefixed_unique_ids(
         for entry in er.async_entries_for_config_entry(registry, entry_id)
         if entry.domain == platform and entry.platform == DOMAIN
     ]
+    conflicts: set[str] = set()
 
     for entity in entities:
         unique_id = entity.unique_id
         if not unique_id:
-            continue
-        if registry.async_get_entity_id(platform, DOMAIN, unique_id) is not None:
             continue
 
         suffix = f"_{unique_id}"
         matches = [
             entry for entry in registry_entries if entry.unique_id.endswith(suffix)
         ]
-        if len(matches) == 1:
-            legacy = matches[0]
-            registry.async_update_entity(legacy.entity_id, new_unique_id=unique_id)
+        stable_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
+        stable = registry.async_get(stable_id) if stable_id is not None else None
+        if stable is not None and stable.config_entry_id != entry_id:
+            conflicts.add(unique_id)
+            if unique_id not in warned_conflicts:
+                warned_conflicts.add(unique_id)
+                _LOGGER.warning(
+                    "Skipping %s control identity %s: stable entity %s belongs to "
+                    "config entry %s, not %s",
+                    platform,
+                    unique_id,
+                    stable.entity_id,
+                    stable.config_entry_id,
+                    entry_id,
+                )
+            continue
+
+        if not matches:
+            continue
+
+        if stable is None:
+            keep = min(
+                matches,
+                key=lambda entry: (
+                    entry.disabled_by is not None,
+                    -entry.created_at.timestamp(),
+                    re.search(r"_\d+$", entry.entity_id) is not None,
+                    entry.entity_id,
+                ),
+            )
+            matches.remove(keep)
+            registry_entries.remove(keep)
+            registry.async_update_entity(keep.entity_id, new_unique_id=unique_id)
             _LOGGER.info(
                 "Migrated %s control identity %s -> %s",
                 platform,
-                legacy.unique_id,
+                keep.unique_id,
                 unique_id,
             )
-        elif len(matches) > 1:
+
+        for legacy in matches:
+            if _backs_loaded_entity(hass, legacy.entity_id):
+                continue
+            registry.async_remove(legacy.entity_id)
+            registry_entries.remove(legacy)
             _LOGGER.warning(
-                "Not migrating ambiguous %s control identity ending in %s: %s",
+                "Removed superseded %s control %s (legacy identity %s)",
                 platform,
-                unique_id,
-                [entry.entity_id for entry in matches],
+                legacy.entity_id,
+                legacy.unique_id,
             )
+    return conflicts
+
+
+def _backs_loaded_entity(hass: HomeAssistant, entity_id: str) -> bool:
+    """Return whether a live entity, not a startup placeholder, owns the ID."""
+    state = hass.states.get(entity_id)
+    return state is not None and not state.attributes.get(ATTR_RESTORED, False)
 
 
 def setup_control_entity_discovery(
@@ -133,6 +188,7 @@ def setup_control_entity_discovery(
 ) -> None:
     """Add current controls and converge their active set on later updates."""
     known_entities: dict[str, EG4OptimisticEntity] = {}
+    warned_conflicts: set[str] = set()
     previous_signature: object = _UNSET
 
     @callback
@@ -168,9 +224,15 @@ def setup_control_entity_discovery(
             return
         new_entities = list(new_by_id.values())
         if migrate_model_prefix:
-            _migrate_model_prefixed_unique_ids(
-                hass, config_entry, platform, new_entities
+            conflicts = _migrate_model_prefixed_unique_ids(
+                hass, config_entry, platform, new_entities, warned_conflicts
             )
+            new_by_id = {
+                unique_id: entity
+                for unique_id, entity in new_by_id.items()
+                if unique_id not in conflicts
+            }
+            new_entities = list(new_by_id.values())
         _LOGGER.info(
             "Discovered %d new %s control entities (%d active, %d retained)",
             len(new_entities),

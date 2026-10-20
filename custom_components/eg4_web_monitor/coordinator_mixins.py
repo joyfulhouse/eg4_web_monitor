@@ -13,8 +13,9 @@ import asyncio
 from builtins import BaseExceptionGroup
 import logging
 import time
+import weakref
 from collections.abc import Awaitable, Callable, Collection, Coroutine
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -25,6 +26,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 from pylxpweb.exceptions import LuxpowerConnectionError
+from pylxpweb.models import MidboxData
 
 if TYPE_CHECKING:
     from homeassistant.helpers.storage import Store
@@ -385,6 +387,10 @@ SMART_LOAD_STORE = CloudParamStoreSpec(
 # dongle outage doesn't add a full parameter read to every ~20-30 s poll.
 _PARAMETER_RETRY_INTERVAL = timedelta(minutes=2)
 
+# How often a setup wait for the first parameter read rechecks whether the
+# loader has stored every inverter's parameters.
+_PARAMETER_WAIT_POLL_SECONDS = 0.25
+
 # Eviction bound for once-published batteries served from cache (#258 review).
 # The carry-forward and the LOCAL round-robin re-serve absorb seconds-to-
 # minutes cloud/transport gaps; without a bound a PHYSICALLY REMOVED pack
@@ -399,6 +405,125 @@ BATTERY_CARRY_FORWARD_MAX_AGE = timedelta(hours=6)
 # Track devices that have already been warned about invalid smart port status
 # to avoid log spam on every poll cycle
 _warned_smart_port_devices: set[str] = set()
+
+
+@dataclass(frozen=True)
+class _SmartPortRead:
+    """Keep cloud identity separate from local reads and registry authority."""
+
+    cloud_payload: MidboxData | None
+    cloud_stamp: float
+    refreshed: datetime
+    stamp: float
+    cloud_superseded: bool
+    cloud_served: bool
+
+
+# Payload equality identifies cached portal responses even when pylxpweb
+# advances _last_refresh. A local read supersedes that payload's authority.
+_cloud_smart_port_reads: weakref.WeakKeyDictionary[Any, _SmartPortRead] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _cloud_payload(mid_device: Any) -> MidboxData | None:
+    """Return the portal payload of a cloud-served runtime, else None.
+
+    The cloud serves the runtime when no transport is attached, or while an
+    attached transport's link is down (pylxpweb's cloud fallback). A healthy
+    transport with missing port statuses is handled as an ineligible read.
+    """
+    payload = getattr(getattr(mid_device, "_runtime", None), "midboxData", None)
+    if not isinstance(payload, MidboxData):
+        return None
+    if (
+        getattr(mid_device, "has_local_transport", False) is True
+        and getattr(mid_device, "transport_link_down", False) is not True
+    ):
+        return None
+    return payload
+
+
+def _transport_smart_port_statuses_missing(mid_device: Any) -> bool:
+    """Whether a healthy local transport lacks any GridBOSS port status."""
+    if (
+        getattr(mid_device, "has_local_transport", False) is not True
+        or getattr(mid_device, "transport_link_down", False) is True
+    ):
+        return False
+    runtime = getattr(mid_device, "_transport_runtime", None)
+    return any(
+        getattr(runtime, f"smart_port_{port}_status", None) is None
+        for port in range(1, 5)
+    )
+
+
+def _smart_port_read_stamp(mid_device: Any) -> float | None:
+    """Return the identity of the GridBOSS read behind ``mid_device``'s data.
+
+    A cloud refresh is new when its full payload differs from the previous
+    record. Complete transport reads use ``_last_refresh``; missing port
+    statuses are unstamped so they cannot authorize sync or freeze the
+    unvalidated-adoption fallback.
+    """
+    refreshed = getattr(mid_device, "_last_refresh", None)
+    if not isinstance(refreshed, datetime):
+        return None
+    held = _cloud_smart_port_reads.get(mid_device)
+    if _transport_smart_port_statuses_missing(mid_device):
+        if held is not None:
+            # Remember acceptance time, without making the missing read eligible.
+            _cloud_smart_port_reads[mid_device] = replace(held, refreshed=refreshed)
+        return None
+    payload = _cloud_payload(mid_device)
+    if payload is not None and held is not None and held.cloud_payload == payload:
+        # Resolve the source before the same-refresh shortcut: link-down can
+        # clear local data without advancing _last_refresh if HTTP then fails.
+        # Retain the cloud identity so replay cannot advance adoption counters.
+        _cloud_smart_port_reads[mid_device] = replace(
+            held, refreshed=refreshed, stamp=held.cloud_stamp, cloud_served=True
+        )
+        return held.cloud_stamp
+    if held is not None and held.refreshed == refreshed:
+        return held.stamp
+    stamp = refreshed.timestamp()
+    # Startup may have populated _runtime before the first filtered local read.
+    # Remember that baseline too; seeing it after link-down is still a replay.
+    baseline = getattr(getattr(mid_device, "_runtime", None), "midboxData", None)
+    cloud_payload = (
+        payload
+        if payload is not None
+        else held.cloud_payload
+        if held is not None
+        else baseline
+        if isinstance(baseline, MidboxData)
+        else None
+    )
+    _cloud_smart_port_reads[mid_device] = _SmartPortRead(
+        cloud_payload,
+        stamp if payload is not None else held.cloud_stamp if held else stamp,
+        refreshed,
+        stamp,
+        cloud_superseded=payload is None,
+        cloud_served=payload is not None,
+    )
+    return stamp
+
+
+def _smart_port_cloud_read_superseded(mid_device: Any) -> bool:
+    """Whether the served read is a cloud replay superseded by local data.
+
+    The same refresh can survive a rejected local read after cloud fallback,
+    so authority follows the served read rather than the current link state.
+    """
+    held = _cloud_smart_port_reads.get(mid_device)
+    return (
+        held is not None
+        and held.cloud_superseded
+        and (held.cloud_served or _cloud_payload(mid_device) is not None)
+        and held.refreshed == getattr(mid_device, "_last_refresh", None)
+    )
+
 
 # Cache the last known good smart port statuses per MID device serial.
 # WiFi dongles return corrupt status register data ~3% of polls (out-of-range
@@ -2750,8 +2875,9 @@ class DeviceProcessingMixin(_MixinBase):
         # energy_today_usage (Eload, regs 171/172) — but Eload is the
         # inverter-served load, which omits grid-direct loads and so understates
         # whole-home consumption in a parallel/GridBOSS setup.  Energy balance
-        # (pv + discharge + import − charge − export) is the whole-home figure and
-        # mirrors how consumption_power is computed in pylxpweb.  (Eload itself is
+        # (pv + discharge + import − charge − export) is an approximation and
+        # can decrease on GridBOSS systems (#648); it is not a monotonic meter.
+        # It mirrors consumption_power in pylxpweb.  (Eload itself is
         # still surfaced verbatim as `load_energy` above.)
         #
         # Note: GridBOSS uses a different aggregation strategy — CT summation
@@ -3781,12 +3907,13 @@ class DeviceProcessingMixin(_MixinBase):
             for s in smart_port_statuses.values()
         )
         is_good_read = bool(smart_port_statuses) and all_valid_range
+        transport_statuses_missing = _transport_smart_port_statuses_missing(mid_device)
 
         # Identity of this read, validated or not: consumers count READS, and
         # the unvalidated ones matter too (adoption fallback, #195/#248).
-        refreshed = getattr(mid_device, "_last_refresh", None)
-        if isinstance(refreshed, datetime):
-            sensors[SMART_PORT_READ_KEY] = refreshed.timestamp()
+        read_stamp = _smart_port_read_stamp(mid_device)
+        if read_stamp is not None:
+            sensors[SMART_PORT_READ_KEY] = read_stamp
 
         # Log invalid values from the raw read before any cache substitution
         if not is_good_read:
@@ -3819,10 +3946,17 @@ class DeviceProcessingMixin(_MixinBase):
             _last_good_smart_port_statuses[serial] = {
                 p: s for p, s in smart_port_statuses.items() if s is not None
             }
-            if len(smart_port_statuses) == 4:
+            if (
+                len(smart_port_statuses) == 4
+                and not transport_statuses_missing
+                and not _smart_port_cloud_read_superseded(mid_device)
+            ):
                 # Per-cycle authority marker for the stale smart-port registry
-                # cleanup (#217): only a FRESH and COMPLETE good read proves
-                # the dynamic keys reflect the real port configuration.
+                # cleanup (#217): only a fresh, complete status read proves the
+                # dynamic keys reflect the real port configuration. A healthy
+                # transport can expose stale cloud statuses when a register is
+                # missing, or replay an old cloud payload after link-down.
+                # Neither fallback can authorize registry sync.
                 # Cached-fallback and suspect-skip cycles must not authorize
                 # registry removal (codex r2 HIGH), nor partial reads where
                 # some ports were never validated (codex r2 MEDIUM).
@@ -4611,6 +4745,39 @@ class ParameterManagementMixin(_MixinBase):
         task.add_done_callback(self._clear_missing_parameter_refresh_task)
         task.add_done_callback(self._log_task_exception)
         return task
+
+    async def async_wait_for_missing_parameters(self, timeout: float) -> bool:
+        """Wait up to ``timeout`` seconds for the in-flight parameter load.
+
+        Control entities (number/select/switch/time) read their state from
+        ``data["parameters"]`` and are unavailable until it holds their
+        inverter.  Setup waits here before forwarding the control platforms so
+        they are not created ahead of the first parameter read.
+
+        The loader stores each inverter's parameters before it ends with a
+        coordinator refresh request, which can run a full poll inline, so the
+        wait also ends once every serial it is loading has parameters.
+        ``asyncio.wait`` never cancels the loader and never raises its
+        exception; the loader logs its own failures.  Cancellation of the
+        caller still propagates.
+
+        Returns:
+            True when no load was in flight or it finished in time.
+        """
+        deadline = time.monotonic() + timeout
+        while (task := self._missing_parameter_refresh_task) is not None:
+            if task.done():
+                break
+            loaded = (self.data or {}).get("parameters", {})
+            if self._missing_parameter_active_serials.issubset(loaded):
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            await asyncio.wait(
+                (task,), timeout=min(remaining, _PARAMETER_WAIT_POLL_SECONDS)
+            )
+        return True
 
     def _clear_missing_parameter_refresh_task(self, task: asyncio.Task[None]) -> None:
         """Release the missing-parameter single-flight owner."""

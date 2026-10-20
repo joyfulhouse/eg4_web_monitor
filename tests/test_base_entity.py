@@ -37,6 +37,88 @@ def mock_coordinator():
     return coordinator
 
 
+@pytest.mark.parametrize("sensor_key", ["consumption", "consumption_lifetime"])
+def test_gridboss_consumption_is_not_a_resetting_meter(mock_coordinator, sensor_key):
+    """Real daytime drops must reach HA without reset accounting or clamping."""
+    from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
+
+    devices = mock_coordinator.data["devices"]
+    devices["gridboss"] = {"type": "gridboss", "sensors": {}}
+    devices["1234567890"]["sensors"] = {sensor_key: 19.0}
+    sensor = EG4InverterSensor(mock_coordinator, "1234567890", sensor_key)
+
+    assert sensor.state_class is None
+    assert sensor.unique_id == f"1234567890_{sensor_key}"
+    assert sensor.native_value == 19.0
+    # Includes a >10% drop and a smaller drop the rounding guard would hide.
+    for value in (17.0, 15.3, 14.8, 0.0):
+        devices["1234567890"]["sensors"][sensor_key] = value
+        assert sensor.native_value == value
+
+    del devices["gridboss"]
+    assert sensor.state_class is None
+    mock_coordinator.data = None
+    assert sensor.state_class is None
+
+
+async def test_late_gridboss_discovery_disables_consumption_statistics(
+    hass, mock_coordinator
+):
+    """Discovery after entity creation must also update its effective class."""
+    import logging
+
+    from homeassistant.components.sensor import SensorStateClass
+    from homeassistant.helpers.entity_component import EntityComponent
+
+    from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
+
+    sensor = EG4InverterSensor(mock_coordinator, "1234567890", "consumption")
+    mock_coordinator.get_device_info.return_value = None
+    mock_coordinator.data["devices"]["1234567890"]["sensors"] = {"consumption": 19.0}
+    component = EntityComponent(logging.getLogger(__name__), "sensor", hass)
+    await component.async_add_entities([sensor])
+    assert sensor.state_class == SensorStateClass.TOTAL_INCREASING
+    assert (
+        hass.states.get(sensor.entity_id).attributes["state_class"]
+        == "total_increasing"
+    )
+    mock_coordinator.data["devices"]["gridboss"] = {"type": "gridboss"}
+    mock_coordinator.data["devices"]["1234567890"]["sensors"]["consumption"] = 17.0
+    sensor.async_write_ha_state()
+    assert sensor.state_class is None
+    state = hass.states.get(sensor.entity_id)
+    assert "state_class" not in state.attributes
+    assert state.state == "17.0"
+
+
+@pytest.mark.parametrize(
+    ("device_type", "sensor_key", "has_gridboss"),
+    [
+        ("inverter", "consumption", False),
+        ("inverter", "consumption_lifetime", False),
+        ("inverter", "load_energy", True),
+        ("inverter", "yield", True),
+        ("parallel_group", "consumption", True),
+        ("parallel_group", "consumption_lifetime", True),
+        ("gridboss", "consumption", True),
+    ],
+)
+def test_valid_energy_meters_keep_statistics(
+    mock_coordinator, device_type, sensor_key, has_gridboss
+):
+    """The exclusion must not affect CT/group meters or other inverter counters."""
+    from homeassistant.components.sensor import SensorStateClass
+
+    from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
+
+    if has_gridboss:
+        mock_coordinator.data["devices"]["gridboss"] = {"type": "gridboss"}
+    sensor = EG4InverterSensor(
+        mock_coordinator, "1234567890", sensor_key, device_type=device_type
+    )
+    assert sensor.state_class == SensorStateClass.TOTAL_INCREASING
+
+
 class TestEG4DeviceEntity:
     """Test EG4DeviceEntity base class."""
 

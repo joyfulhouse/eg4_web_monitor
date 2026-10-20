@@ -6,11 +6,14 @@ canonical-for:
   - entity_id derivation, and why _attr_entity_id is inert
 sources:
   - custom_components/eg4_web_monitor/base_entity.py
+  - tests/test_energy_guard_restore.py
   - custom_components/eg4_web_monitor/sensor.py
   - custom_components/eg4_web_monitor/binary_sensor.py
   - custom_components/eg4_web_monitor/update.py
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
+  - custom_components/eg4_web_monitor/__init__.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/657
   - homeassistant/helpers/entity.py (installed Home Assistant, repo .venv)
   - memory/issue-261-hybrid-sensor-flicker.md
   - memory/issue-253-duplicate-has-runtime-data.md
@@ -21,7 +24,13 @@ sources:
 verified-against:
   eg4_web_monitor: e42ed86
   homeassistant: 2025.11.2
-last-verified: 2026-08-12
+# Section 1 restore-sensor inheritance re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13.
+# PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
+# Scope: section 6 bounded initial-parameter wait claims, re-verified 2026-10-13.
+# This immutable inline pin licenses only those claims; unrelated claims retain
+# their existing verification pins; prior last-verified: 2026-08-12.
+# The refreshed date applies only to the scope above (no wholesale reverification).
+last-verified: 2026-10-13
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -68,6 +77,13 @@ CoordinatorEntity
 ```
 
 Evidence: `verified-against-code` — class declarations at the cited lines.
+
+At `0708cc52d101dfcaff7e1f813c14d51ce6dae717` (#649), `EG4BaseSensor`, `EG4BaseBatterySensor` and
+`EG4BatteryBankEntity` also inherit `_EG4RestoredSensor(RestoreSensor)` alongside
+the coordinator branch shown above. This multiple inheritance is
+`verified-against-code` — the class declarations in `base_entity.py` and real HA
+entity-lifecycle tests in `tests/test_energy_guard_restore.py`. Restart-baseline
+rules are owned by [data-semantics.md §4.2.1](data-semantics.md#421-restart-baseline-restoration-649).
 
 Note the split: **measurement** entities descend from `EG4DeviceEntity` / `EG4BatteryEntity` /
 `EG4StationEntity`; **control** entities descend from `EG4OptimisticEntity`. The two branches have
@@ -408,6 +424,17 @@ This table and paragraph were re-verified in the change that introduced `via_dev
 Because of the parent chain, the `SENSOR` platform must be forwarded **before** every other
 platform — it creates the parent devices, and on HA ≥ 2026.8 an unregistered parent leaves the
 child unlinked (`verified-against-code` — `__init__.py` → `SENSOR_PLATFORM` / `OTHER_PLATFORMS`).
+Between the two groups, setup waits up to 15 s for an in-flight missing-parameter load
+(`async_wait_for_missing_parameters`), ending early once every inverter it is loading has
+parameters. On timeout the controls are added anyway and setup logs the measured elapsed
+time at INFO. This bounds the startup wait; it does not guarantee that parameters are
+present when a slow or failed load outlasts it (`verified-against-code`, re-verified 2026-10-13
+at mainline `b6644539588d189e4a2fc671b3730609555037e8` --
+`__init__.py` → `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`;
+`coordinator_mixins.py` → `ParameterManagementMixin.async_wait_for_missing_parameters`).
+[PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) is change provenance;
+the immutable mainline commit is the verification target for this wait behavior
+only. Other section 6 claims retain their existing pins.
 
 **Battery identity is serial-first across all three modes**, with in-place registry migration
 (`battery_migration.py`), so switching modes no longer duplicates battery devices (#252). Identity

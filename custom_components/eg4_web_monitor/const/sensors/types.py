@@ -5,7 +5,7 @@ This module contains TypedDict definitions for sensor configurations.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from typing_extensions import TypedDict
 
@@ -24,6 +24,7 @@ class SensorConfig(TypedDict, total=False):
         icon: MDI icon string (e.g., "mdi:solar-power")
         entity_category: Entity category (diagnostic, config, etc.)
         suggested_display_precision: Number of decimal places to display
+        reset_period: Calendar reset period, used to reject stale restored baselines
     """
 
     name: str
@@ -35,3 +36,4 @@ class SensorConfig(TypedDict, total=False):
     entity_category: EntityCategory | None
     suggested_display_precision: int
     enabled_default: bool
+    reset_period: Literal["daily"]

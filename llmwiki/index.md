@@ -4,7 +4,9 @@ canonical-for:
 sources:
   - llmwiki/*/*.md front matter (canonical-for declarations)
 verified-against: 8ccc734
-last-verified: 2026-08-13
+# The GridBOSS ownership/catalog row was rechecked at
+# 8289d6f4558e1aa8779a0a49e6c21816f337ee29; other rows retain their prior scope.
+last-verified: 2026-10-13
 see-also:
   - README.md
   - log.md
@@ -47,7 +49,7 @@ defect.
 
 | Page | What it is | Owns |
 |---|---|---|
-| [`architecture.md`](10-integration/architecture.md) | Module inventory by layer, coordinator mixin composition, setup/unload sequence | Module inventory; mixin composition and MRO constraints; config-entry lifecycle |
+| [`architecture.md`](10-integration/architecture.md) | Module inventory by layer, coordinator mixin composition, setup/unload sequence | Module inventory; mixin composition and MRO constraints; config-entry lifecycle; smart-port read identity and registry authority |
 | [`config-flow.md`](10-integration/config-flow.md) | The `_config_flow` package, real step names, connection-type derivation | Package layout and shim; step names; connection-type derivation; unique-id construction and migration |
 | [`controls-and-writes.md`](10-integration/controls-and-writes.md) | How a control write reaches a device, and how to derive each mechanism's population | The control-write mechanisms; write routing; local-vs-cloud decision; optimistic state and TTL; post-write refresh; error surfacing |
 | [`data-flow-by-mode.md`](10-integration/data-flow-by-mode.md) | HTTP / LOCAL / HYBRID end to end, and why HYBRID is not a third code path | Per-mode data flow; poll intervals, throttles and cache TTLs; the LOCAL static first-refresh phase |
@@ -79,7 +81,7 @@ defect.
 | Page | What it is | Owns |
 |---|---|---|
 | [`registers.md`](40-hardware/registers.md) | **The register keeper.** Per-row evidence grades for every inverter and GridBOSS register. Authoritative for any register question | Inverter and GridBOSS register ground truth |
-| [`gridboss.md`](40-hardware/gridboss.md) | GridBOSS specifics, including the smart-port mode register | GridBOSS POWER_HUB UART map |
+| [`gridboss.md`](40-hardware/gridboss.md) | GridBOSS specifics, including the smart-port mode register | GridBOSS POWER_HUB UART map; smart-port mode packing and reported mode-write side effects |
 | [`firmware-re.md`](40-hardware/firmware-re.md) | Firmware acquisition/decoding methodology, invalid-artifact boundaries, and ESP32 WLAN local-listener analysis | Acquisition, decoding and register-RE methodology; ESP32 WLAN listener behaviour and patch lineage |
 | [`dongle-emulation.md`](40-hardware/dongle-emulation.md) | Local-transport-only phased contract for replacing a physical WLAN dongle; every eligible mode is single-path and HYBRID adds cloud-echo controls; no port-8000 listener | Dongle-emulation product boundary; single-owner arbitration and snapshots; mode eligibility and anti-loopback; security, rollout, rollback and success criteria |
 | [`probing-playbook.md`](40-hardware/probing-playbook.md) | The safe procedure for dumping and verifying registers on live hardware. **Runbook — read before touching a device** | Safe register dumping and live verification |

@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 import logging
+from time import monotonic
 from typing import Any, TypeAlias
 
 import homeassistant.helpers.config_validation as cv
@@ -178,6 +179,9 @@ RECONCILE_HISTORY_SCHEMA = vol.Schema(
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 _LIBRARY_LOGGING_DATA_KEY = f"{DOMAIN}_library_logging"
+
+# How long setup waits for the first parameter read before adding controls.
+_INITIAL_PARAMETER_WAIT_SECONDS = 15
 
 
 @dataclass(slots=True)
@@ -1497,6 +1501,19 @@ async def _async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool
         # still rolls back the members that did load.
         coordinator._forwarded_platforms = list(SENSOR_PLATFORM)
         await hass.config_entries.async_forward_entry_setups(entry, SENSOR_PLATFORM)
+        # Sensor setup no longer waits on a refresh, so without this the
+        # controls were created before the first parameter read and showed
+        # unavailable until it landed.  Bounded: a slow read only delays
+        # control setup, never blocks it.
+        parameter_wait_started = monotonic()
+        if not await coordinator.async_wait_for_missing_parameters(
+            _INITIAL_PARAMETER_WAIT_SECONDS
+        ):
+            _LOGGER.info(
+                "Parameters for %s not loaded after %.1fs; adding controls anyway",
+                entry.title,
+                monotonic() - parameter_wait_started,
+            )
         coordinator._forwarded_platforms = list(PLATFORMS)
         await hass.config_entries.async_forward_entry_setups(entry, OTHER_PLATFORMS)
     except asyncio.CancelledError:

@@ -1120,3 +1120,294 @@ stays in `after_dependencies`: from 2026.9.0, core's `modbus` manifest pins
 `esphome://` serial ports and the shared `async_get_unit` path need Home Assistant 2026.9 or newer.
 CI job `bronze-requirements-resolve` resolves the manifest's requirements under each HA minor's
 constraints from 2026.1.0. No other `llmwiki/` page claimed the extra pin.
+
+## [2026-10-05] ingest | Control setup waits for parameters; legacy control IDs collapse (#656)
+
+Branch `fix/control-setup-order-656`. Two code changes, filed where they are owned:
+`10-integration/entities-identity-availability.md` (control platforms are forwarded after a
+bounded wait for the first parameter read) and `10-integration/controls-and-writes.md` §9
+(the model-prefix migration now keeps one legacy entry and removes the rest);
+`10-integration/architecture.md` lists the new mixin method. Wrong before: the §9 row said
+ambiguous legacy entries were "left untouched", which on a HYBRID install whose model was
+reported two ways meant three entities per control, two of them permanently unavailable
+(#656, 80 warnings in the reporter's log). The wait is grounded in #653's recorder data
+(37 controls unavailable for 1–20 s at startup after #652), not in a log of the mechanism.
+
+
+## [2026-10-12] ingest | Control migration ownership and preservation; durable setup evidence
+
+Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation at
+`e804788d73ed779c13a90fde5d4a4c824bbe2e4f`. Updated [controls and writes §9](10-integration/controls-and-writes.md)
+for foreign config-entry conflicts, promotion of plain stable duplicates, preservation of
+customised or loaded stable entries, deterministic creation-time ties, and WARNING removal logs.
+The earlier rule treated a stable ID anywhere in the registry as this entry's survivor and
+could delete its legacy controls; blindly keeping a plain third entry also discarded the
+original entity ID. Updated [entity lifecycle §6](10-integration/entities-identity-availability.md)
+for measured INFO timeout logging. The prior mutable-branch citations could not verify the
+new claims at the pages' declared pins; replaced them with this immutable implementation pin
+and checked each cited symbol via `git show`. Refreshed verification metadata while preserving
+older sections' historical pins. The 2026-10-05 entry remains as append-only history;
+this entry corrects its branch-based provenance and incomplete migration rule.
+
+## [2026-10-12] ingest | Keep stable controls; restore page provenance and pin the added wait method
+
+Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) at
+`9ebd2b8a567753125631c2e756fdfd931e7e7e6b`. Corrected [controls and writes §9](10-integration/controls-and-writes.md):
+an existing same-entry stable control is always kept untouched; only unloaded legacy entries
+are removed, with WARNING logs naming both IDs. The prior plain-stable replacement rule
+could remove the working control and promote a user-disabled legacy entry, changing the
+target used by automations and losing settings the predicate did not inspect. That policy
+is withdrawn; the previous log entry remains as append-only history. No-stable selection
+and foreign-entry conflict handling retain their existing rules. Restored both owner pages'
+pre-existing page-level verification pins, dates and provenance comments; the re-verified
+§9 and [entity lifecycle §6](10-integration/entities-identity-availability.md) claims cite
+this implementation pin inline. Added the missing immutable method citation to
+[architecture §3.2](10-integration/architecture.md), leaving its older page pin intact.
+Confirmed the cited symbols with `git show` at the implementation commit.
+
+## [2026-10-12] ingest | Durable PR citations and foreign control ownership without legacy entries
+
+Re-verified [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation.
+The earlier `e804788` and `9ebd2b8` implementation pins were superseded by a branch rebase;
+main also uses rebase merges, so another branch SHA would not provide durable provenance.
+Updated [controls and writes §9](10-integration/controls-and-writes.md),
+[architecture §3.2](10-integration/architecture.md) and
+[entity lifecycle §6](10-integration/entities-identity-availability.md) to cite the durable
+PR artifact and explicitly use its own implementation as the verification target.
+Preserved the pages' older verification metadata and all previous log entries.
+The foreign stable-ID ownership check now precedes the no-legacy early exit: the
+conflicted control is skipped and warned once even on an entry with no legacy matches,
+without writing either entry's registry records. Number/time regression cases also
+check ordinary no-legacy setup offers all controls without registry writes.
+
+## [2026-10-13] lint | PR #657 verification-source notes and release-cut re-pin tracking
+
+Re-verified the added parameter-wait method and setup behavior, and the control-discovery
+section, against PR #657 head `63dd93a`. The inline PR citations identified the in-flight
+source, but the front matter did not distinguish those claims from the older page pins.
+Added scoped verification-source comments to
+[`architecture.md`](10-integration/architecture.md),
+[`controls-and-writes.md`](10-integration/controls-and-writes.md), and
+[`entities-identity-availability.md`](10-integration/entities-identity-availability.md).
+Existing pins continue to license the older claims; the inline PR #657 citations license
+only the added claims, following the #559 / #600 precedent.
+
+**REQUIRED POST-MERGE ACTION (release cut):** re-verify the PR #657 change-set claims
+in those three pages against the mainline merge SHA and re-pin their front matter
+accordingly, refreshing `last-verified:` without implying that unrelated older claims
+were re-verified. This entry tracks the pending action; merge has not occurred.
+
+## [2026-10-12] ingest | Smart-port devices: issue #641 follow-ups (LOCAL poll test, cloud read identity, rename hint)
+
+The three non-blocking findings left open by the #632/#640 reviews. (1) The LOCAL forced GridBOSS
+poll (`coordinator_local.py` → `_async_update_local_data`, `or serial in awaiting_port_mode`) had
+no test: deleting the line kept the suite green. It now has one that drives the real method with
+no transport interval elapsed. (2) The read stamp `SMART_PORT_READ_KEY` came from the MID device's
+`_last_refresh`, which pylxpweb advances on every accepted cloud refresh, including one answered
+by the client's `midbox_runtime` response cache. So one portal payload could count as both reads
+`PortSensorEnablement.REQUIRED_READS` asks for. On the cloud path (no transport, or
+`transport_link_down` with the cloud fallback serving) an accepted refresh whose payload
+(`MidboxRuntime.midboxData`) equals the one already counted keeps its stamp
+(`coordinator_mixins.py` → `_smart_port_read_stamp`, `_cloud_payload`, state held per MID device
+object); a cloud reading counts again only when the portal returns a new record. Complete local
+transport reads still use `_last_refresh`. A healthy transport refresh with any missing port
+status falls back to the prior cloud status in pylxpweb and emits no read stamp. The held cloud
+payload identity is refreshed, while the validation authority marker stays unset so every
+unstamped unvalidated cycle can count toward the existing adoption fallback. Why the
+earlier entry was wrong: [2026-09-28] called the stamp "the MID device's last successful refresh"
+and treated that as a read, which holds for a register read and not for a cached HTTP response.
+Two things issue #641 states did not survive a check against the code. The cache lifetime is not
+pylxpweb's 20 s default: `coordinator_http.py` → `_align_client_cache_with_http_interval` sets it
+to the HTTP polling interval, and HTTP-only mode ticks at that same interval, so "Cloud sensor
+interval below the TTL" is not the trigger. The exposure is HYBRID with a cloud-served GridBOSS
+(the coordinator ticks at the local rate) and any extra refresh inside the interval. And the
+issue's suggested key, the server timestamp, is unsafe as an identity: whether a midbox payload's
+`serverTime` is the request time or the record's time is not established here (no portal capture
+pair was taken), so the rule compares the whole payload and does not depend on it. Blind spot:
+while the portal serves the same record (dongle offline, `lost`), cloud reads stop being counted,
+so the sync does not act on a frozen mirror. (3) A port with a single legacy power/current entry
+adopts it whatever the port's mode, so its entity ID can name the other mode. Behaviour unchanged;
+the adoption logs a rename hint at info when a validated read already names the mode, and otherwise
+marks the entry (`smart_port_named_for`) so the registry sync's first validated active mode logs it
+(`smart_port_devices.py` → `_settle_rename_hint`). LOCAL always takes the second route: it adopts
+on its static first refresh, before any port status is read. `docs/CONFIGURATION.md` documents it.
+No wiki page stated the stamp's source, so no page changed.
+
+## [2026-10-13] ingest | PR #657 post-merge verification completed
+
+Completed the REQUIRED POST-MERGE ACTION recorded on 2026-10-13: re-read the
+landed implementation with `git show b6644539588d189e4a2fc671b3730609555037e8:<path>`.
+Updated [architecture §3.2](10-integration/architecture.md) for
+`ParameterManagementMixin.async_wait_for_missing_parameters`;
+[controls and writes §9](10-integration/controls-and-writes.md) for
+`control_capability_signature`, `setup_control_entity_discovery` / `_rediscover_controls`,
+`_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity`, and the number/switch
+route signatures; and [entity lifecycle §6](10-integration/entities-identity-availability.md)
+for `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`, and the bounded wait.
+The immutable mainline commit `b6644539588d189e4a2fc671b3730609555037e8` now licenses
+only these claims in scoped front-matter notes and inline citations; PR #657 remains
+provenance. Refreshed `last-verified: 2026-10-13` with explicit scope, preserving
+all unrelated verification pins and dates. No wholesale reverification is claimed.
+All earlier log entries remain unchanged.
+
+## [2026-10-13] ingest | Superseded cloud records cannot authorize smart-port registry changes
+
+PR #642 landed at `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`. Its final review
+reproduced a registry deletion with pinned `pylxpweb==0.10.0b10`: after local
+port data superseded a cloud record, link-down and a failed cloud fallback
+could validate the older record and remove an aggregate entity still in use.
+Removing the missing-read timestamp update alone did not fix the defect.
+
+Re-read `coordinator_mixins.py` at the landed commit: `_SmartPortRead` separates
+cloud identity from the last served read and its registry authority;
+`_smart_port_read_stamp` remembers even an unobserved startup cloud baseline;
+`_smart_port_cloud_read_superseded` withholds validation from superseded cloud
+replays. A newly accepted distinct cloud record restores authority. Missing
+local statuses remain unstamped for the existing unvalidated-adoption fallback.
+These claims are `verified-against-code` at the mainline commit above, including
+`tests/test_smart_port_devices.py` ->
+`TestIssue641.test_superseded_cloud_cannot_authorize_registry_changes`, which
+exercises real device refreshes, migration, and the deferred cleanup callback.
+The prerelease changelog describes the registry protection. Earlier log entries
+remain historical accounts of the preceding implementations.
+
+## [2026-10-13] ingest | Assign the smart-port registry-authority rule to its owner
+
+Filed the current rule in [architecture section 4.2](10-integration/architecture.md#42-smart-port-read-identity-and-registry-authority),
+beside the registry hygiene passes, and extended its `canonical-for:` and index row.
+The preceding entry records the defect and fix history; the architecture page owns
+the current behavior at mainline `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`.
+Explicitly retained the separate provisional-adoption fallback: an unvalidated
+record is barred from validated-mode decisions, not from that existing fallback.
+
+Authority still requires complete, valid port statuses in the filter at that pin;
+a distinct accepted cloud record alone does not bypass those existing checks.
+
+## [2026-10-13] ingest | #629 GridBOSS mode write and independent enable state
+
+Read issue #629, integration write/status paths, and the public pinned
+pylxpweb control helper. Filed the reported Unused side effect in
+[GridBOSS](40-hardware/gridboss.md), graded `asserted-unverified`: no raw
+before/after pair supports a hardware-grade promotion. Recorded the software
+root cause and pre-write rejection at `c79b772` in
+[bug postmortems](60-history/bug-postmortems.md). Updated the index ownership
+row and checked mode/Unused claims across the wiki; the existing packing
+grades remain unchanged. Mode readback had concealed an independent disabled
+flag, so the fix blocks the destructive trigger rather than inferring that
+mode convergence proves load enablement. Recovery remains explicit; broader
+per-port settings are tracked by #638. Historical postmortem table checks
+retain their explicit old pins; the new section has its own newer scope.
+
+## [2026-10-13] ingest | Restore the energy dip guard across HA restarts (#649)
+
+Read the shared sensor bases, HA native restore lifecycle and sensor mappings.
+The original bases discarded their comparison baseline on entity recreation;
+first-publication regression tests fail on `5f42769` for all three sensor classes.
+Recorded the fix at `447e5ef5d5ed0e24496aa423325a51406905679c` in
+[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649),
+with the new multiple-inheritance edge in
+[entities-identity-availability.md §1](10-integration/entities-identity-availability.md#1-inheritance-graph).
+The owner page explains native-unit validation, daily local-date eligibility and
+why restoration must seed only the guard rather than publish stale live data.
+
+## [2026-10-13] ingest | Daily restore eligibility rejects fresh nonnumeric states
+
+Re-verified the restore implementation and actual HA remove/re-add lifecycle tests
+at `3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a` and updated only
+[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649).
+A same-day `last_updated` alone was insufficient: an unavailable publication after
+midnight retained yesterday's numeric native payload and incorrectly clamped the
+reloaded daily sensor. Daily restoration now also requires a finite numeric display
+state as eligibility, while the native payload remains the baseline and lifetime
+restoration is unchanged. Recorded the conservative loss of same-day daily dip
+protection after a nonnumeric shutdown and linked separate running-entity issue
+#666. Lifecycle tests cover all three guarded classes on HA 2026.1.0 and 2026.9.4.
+Grade: `verified-against-code`; other page sections retain their existing pins.
+
+
+## [2026-10-13] ingest | Restore fix evidence after rebasing PR #663
+
+Re-verified the scoped restore eligibility and inheritance claims against
+`a63b5328c8d527b857322d8b185b9d8d4f87b7d2` after rebasing onto merged PR #662.
+The restore source and tests are unchanged from `3727ff0`; the rebase only adds
+the reviewed select guard and preserves both append-only wiki histories.
+Updated the two owning pages to the reachable branch code pin; prior log entries
+remain unchanged as history.
+
+## [2026-10-13] ingest | GridBOSS per-inverter consumption statistics (#648)
+
+Read issue #648 and the balance implementation, then recorded the metadata fix
+at `883f403` in [data-semantics](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648).
+A difference of monotonic component counters need not be monotonic. Inverter
+daily/lifetime consumption therefore loses statistics eligibility after GridBOSS
+discovery, with a latch through missing polls and the effective class passed to
+the entity guard. Group and CT meters retain their metadata. The production scan
+is issue-reported evidence; the missing AC-coupled term stays unproven. The
+existing contested lifetime-source narrative is not resolved by this change.
+
+## [2026-10-13] ingest | Missing GridBOSS CT consumption overlay fallback (#661)
+
+The #648 adversarial review identified a separate group-source fallback.
+Rechecked the group balance computation, conditional CT overlay and HTTP
+MID-processing catch at `883f403`, then reproduced the helper/entity boundary:
+missing CT data leaves approximately 19 -> 17 kWh published as
+`total_increasing`. Filed #661 for the coordinator failure-path fix and recorded
+the limitation in the owning data-semantics page. This is source-selection
+evidence, not a hardware proof or a claim that CT counters normally decrease.
+
+## [2026-10-13] ingest | Startup topology window in consumption exclusion (#664)
+
+Kimi K3 review of #648 confirmed that the exclusion latch is entity-local and
+not persisted. Rechecked the state-class property and LOCAL static startup data
+at `883f403`: explicitly configured GridBOSS devices are recognized immediately,
+while a missing/unidentified device can delay the exclusion after restart.
+Filed #664 with a clear evidence limit: the metadata transition is code-verified,
+but production miscount in this exact startup window was not captured. Recorded
+this scope in data-semantics rather than presenting late discovery as persistence.
+
+
+## [2026-10-13] ingest | GridBOSS recognition dispatches unchanged inverter listeners (#665)
+
+Updated [data semantics §4.3.1](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648)
+against implementation commit `a339e7a`, scoped to the listener-dispatch claim;
+other sections keep their prior pins. The previous mocked-coordinator test did
+not prove that real scoped dispatch reached unchanged inverters on GridBOSS
+arrival. The real coordinator/HA regression now covers arrival, type recognition,
+published metadata, disappearance and a subsequent energy drop for both
+consumption keys, and checks ordinary notifications remain scoped. The sensor
+latch remains entity-local; restart persistence stays separate in #664.
+
+
+## [2026-10-13] ingest | Consumption evidence after rebasing PR #665
+
+Re-verified the scoped consumption and listener claims at `7b597aa0592665aad2e54f94dd764849f25315c4`
+and `363580713692385c5c730da15824d3f1395e5753` after rebasing onto merged PR #663.
+The production tree and tests match the independently reviewed combined candidate
+`84b39c4`; conflicts preserved both changelog entries and append-only wiki
+histories. Updated the owner page to reachable branch pins without modifying
+prior log entries.
+
+
+## [2026-10-13] ingest | Landed select protection and restore evidence for beta.19
+
+Rechecked PR #662's select guard/status/regression claims at mainline
+`8289d6f4558e1aa8779a0a49e6c21816f337ee29`, and PR #663's restore eligibility,
+regressions and inheritance at `0708cc52d101dfcaff7e1f813c14d51ce6dae717`.
+Updated those scoped citations and the consumption upgrade-guidance link to the
+beta.19 changelog heading. The GridBOSS reported-side-effect section, its
+postmortem link and catalog ownership row were also rechecked; their reporter
+and firmware/portal evidence grades are unchanged. Restored the older page-wide
+pins beneath explicit scoped verification comments, avoiding an unsupported
+claim that unrelated firmware, catalog or historical entries were reverified.
+PR #665's final mainline repin remains pending its merge.
+
+
+## [2026-10-14] ingest | Landed consumption and listener evidence for beta.19
+
+Re-verified data-semantics sections 4.3.1-4.3.2 at mainline `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`
+for PR #665: effective consumption state class, entry-lifetime latch, first
+GridBOSS recognition dispatch, and the separately tracked group CT fallback.
+The cited source and lifecycle regression definitions exist at that pin; its
+production and test trees equal the independently reviewed combined candidate
+`84b39c4`. Only these sections receive the new pin and verification date; other
+scoped claims retain their pins. Prior log content is unchanged.

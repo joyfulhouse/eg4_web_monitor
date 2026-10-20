@@ -59,6 +59,12 @@ may work, but this is what we recommend:
 > Ethernet — no separate power supply needed. For cable runs over 50 feet, use
 > shielded cable to reduce interference.
 
+> If your inverter has an auxiliary DC power output, you may be able to power
+> the adapter from it instead of a separate supply. Check your inverter's manual
+> for the terminals, polarity, voltage and current rating, and confirm the
+> voltage is within your adapter's input range, before connecting anything —
+> miswiring power into an RS485 or BMS terminal can damage both devices.
+
 #### Wiring
 
 ```
@@ -86,7 +92,15 @@ EG4 Inverter RS485 Port          Waveshare RS485 to ETH (B)
      gateway = your router IP.
    - **Serial port:** baud `19200`, data bits `8`, stop bits `1`, parity `None`.
    - **Working mode:** `TCP Server`, local port `502` (standard Modbus TCP).
+   - **Protocol:** `Modbus TCP <--> RTU`. The integration speaks standard
+     Modbus TCP, so the adapter must convert it to Modbus RTU for the inverter.
 4. Save and restart the adapter.
+
+> **Multi-channel adapters (2-CH / 4-CH):** configure every channel you use,
+> and give each one its **own unique static IP** — do not reuse the example
+> address above for every channel. Use Waveshare's VirCom tool to find each
+> channel's current address. In Home Assistant, add each channel as a separate
+> **Local Modbus TCP** device using that channel's IP and port `502`.
 
 #### Home Assistant side
 
@@ -247,6 +261,7 @@ parameter sync.
 
 - **Operating Mode** — Normal or Standby.
 - **Mode** on each GridBOSS smart port device — Unused, Smart Load, or AC Couple.
+  Unused is readable but setting it from Home Assistant is blocked for safety.
   See [GridBOSS smart port devices](#gridboss-smart-port-devices).
 - **Battery Charge Control** / **Battery Discharge Control** — regulate the battery
   by **SOC** (closed-loop, default) or **Voltage** (open-loop). See
@@ -360,6 +375,29 @@ by the matching enable switch (e.g. the AC Charge switch, register 21 bit 7).
 
 ### GridBOSS smart port devices
 
+**Mode is configuration, not load pause/resume.** Issue
+[#629](https://github.com/joyfulhouse/eg4_web_monitor/issues/629) reports that
+setting a port to **Unused** also clears its separate **Smart Load N Enable**
+flag. Returning to **Smart Load** does not restore that flag. The mode select
+and status sensor report the configured mode, not whether the load is enabled
+or delivering power, so reading them back cannot detect this condition.
+
+Home Assistant rejects **Unused** writes before sending a device command, on
+cloud, local, and hybrid connections. The value remains listed so a port
+configured as Unused outside Home Assistant can still display its mode. Use
+the EG4 portal for Unused configuration and the separate Smart Load Enable
+control. This integration does not expose that per-port enable flag.
+Selecting **Smart Load** sets only the mode; it does not turn on Smart Load
+Enable. This also applies when a port was configured as Unused in the portal:
+check its enable flag there before expecting it to deliver power.
+
+**Recovery after an earlier Unused/Smart Load round trip:** check **Smart Load
+N Enable** in the EG4 portal for the affected port. If that load should be
+running, turn the flag back on there and check the load's actual power. Merely
+selecting Smart Load again in Home Assistant does not repair the disabled flag.
+Replace automations that use Unused/Smart Load as pause/resume; the Unused step
+now raises an error.
+
 Each of a GridBOSS's four smart ports is its own device, "Smart Port N
 <GridBOSS serial>", connected via the GridBOSS. Every port device has the
 same entities, and the port's mode decides which are enabled and what they
@@ -414,8 +452,12 @@ history) becomes the port sensor. The other one is left disabled rather than
 deleted, and is not touched again: delete it from its entity settings if you don't need its
 history. To switch to the new ID format, open the port device and choose ⋮ →
 **Recreate entity IDs** (rename the device first if you want the IDs to use
-your name). Downgrading afterwards re-creates the old per-mode sensors under
-new entity IDs without their history.
+your name). The same fixes a port sensor whose entity ID names the other mode:
+a port that only ever had, say, a Smart Load power sensor keeps it when the
+port is in AC Couple mode, so the ID still says `smart_load` while the sensor
+shows AC Couple power. Its readings and history are right, and the log notes
+it at info level once the port's mode is confirmed. Downgrading afterwards re-creates the old
+per-mode sensors under new entity IDs without their history.
 
 ### Notable sensors
 

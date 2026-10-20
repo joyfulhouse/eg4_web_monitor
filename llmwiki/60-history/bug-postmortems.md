@@ -6,10 +6,15 @@ sources:
   - docs/audits/2026-08-02-register-race-performance-audit.md
   - custom_components/eg4_web_monitor/ (fix-symbol presence only)
   - pylxpweb src/pylxpweb/transports/data.py (fix-symbol presence only)
+  - docs/audits/2026-10-13-gridboss-unused-mode-629.md
+  - custom_components/eg4_web_monitor/select.py
+  - tests/test_select_entities.py
 verified-against:
   eg4_web_monitor: 9f6d6e2
+  # Only the #629 guard/status/regression claims are re-verified at
+  # 8289d6f4558e1aa8779a0a49e6c21816f337ee29; unrelated claims retain prior pins.
   pylxpweb: 204b95d
-last-verified: 2026-08-08
+last-verified: 2026-10-13
 see-also:
   - open-contradictions.md
   - superseded-claims.md
@@ -94,6 +99,30 @@ the earlier refutation was never written down.
 | **pylxpweb cloud writes** | "Cloud raw-register writes fail parameter-specifically" (for years) | `write_parameters` form-encoded a dict, so aiohttp serialized `data=<key>&data=<key>` and dropped every value. Broken since inception, and it looked successful | Map register → named write with correct scaling | Only a delta test (write → readback → restore) proves a write path works | `asserted-unverified` (established by delta test against the live portal) |
 | **per-transport interval** | With two or more same-type local devices, only the first is ever polled | `_should_poll_transport()` used one shared timestamp per transport **type** but was called per device | Pre-compute pollable types once per cycle | A shared throttle stamp consumed in a per-item loop starves every later item | `asserted-unverified` |
 | **INT-01** (2026-08-02 audit) | Mixed Modbus TCP + serial: the later type starved every cycle | The same class as above, across cadence classes | One due-decision per cadence class plus an explicit never-polled sentinel | — | `asserted-unverified` (source: `docs/audits/2026-08-02-register-race-performance-audit.md`) |
+
+## #629: mode verification misses independent enable state
+
+The reported device side effect and its evidence grade belong to
+[GridBOSS](../40-hardware/gridboss.md#reported-unused-mode-side-effect-629).
+
+`verified-against-code` at `eg4_web_monitor@8289d6f4558e1aa8779a0a49e6c21816f337ee29` -
+`select.py` -> `EG4SmartPortModeSelect.current_option` reads only mode status.
+Its write path does not acquire or restore the separate per-port enable state.
+Consequently, mode convergence cannot establish that a load is enabled.
+`EG4SmartPortModeSelect.async_select_option` now rejects Unused before
+optimistic state or routing, including on missing or already-Unused status.
+Unused remains readable; Smart Load and AC Couple keep their existing paths.
+`test_select_entities.py` ->
+`TestSmartPortModeSelect.test_unused_rejected_before_any_side_effect` checks
+the rejection across four ports, three connection modes, and four status cases.
+
+This guard prevents the reported HA automation trigger; it does not repair
+an existing disabled flag, prove local hardware behavior, or automatically
+energize a port. [The durable RCA](../../docs/audits/2026-10-13-gridboss-unused-mode-629.md)
+owns the source walk and operational rationale;
+[configuration guidance](../../docs/CONFIGURATION.md#gridboss-smart-port-devices)
+owns user recovery steps. Per-port settings are follow-up work in
+[issue #638](https://github.com/joyfulhouse/eg4_web_monitor/issues/638).
 
 ## Cross-cutting patterns
 

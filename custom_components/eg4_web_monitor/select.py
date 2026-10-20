@@ -409,7 +409,7 @@ class EG4PVInputModeSelect(EG4BaseSelect):
 
 
 class EG4SmartPortModeSelect(EG4BaseSelect):
-    """Select to control GridBOSS smart port mode (Off/Smart Load/AC Couple).
+    """Select for GridBOSS port configuration, not load pause/resume.
 
     Controls holding register 20 (bit-packed, 2 bits per port).
     Supports both local Modbus and cloud API write paths.
@@ -482,6 +482,17 @@ class EG4SmartPortModeSelect(EG4BaseSelect):
         """Change the smart port mode via local Modbus or cloud API."""
         if option not in SMART_PORT_MODE_TO_VALUE:
             raise HomeAssistantError(f"Invalid smart port mode: {option}")
+
+        # Keep Unused readable, but reject its write before optimistic state or
+        # routing: mode readback cannot detect the separate enable flag (#629).
+        if option == "Unused":
+            raise HomeAssistantError(
+                f"Cannot set smart port {self._port} to Unused: this can clear "
+                "the port's separate Smart Load Enable flag, which changing "
+                "back to Smart Load does not restore. Use the EG4 portal for "
+                "Unused configuration and Smart Load Enable controls; the "
+                "mode select is not a load pause/resume control."
+            )
 
         int_value = SMART_PORT_MODE_TO_VALUE[option]
 

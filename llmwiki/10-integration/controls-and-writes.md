@@ -20,6 +20,7 @@ sources:
   - memory/issue-476-green-mode-bit14.md
   - memory/battery-control-mode-soc-vs-voltage.md
   - eg4_web_monitor issues #310, #328, #362, #476, #485
+  - https://github.com/joyfulhouse/eg4_web_monitor/pull/657
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against:
@@ -41,7 +42,12 @@ verified-against:
   # release-cut re-pin moves the mainline pin past the merge.
   eg4_web_monitor: 1a2c24e
   pylxpweb: c78ab7e
-last-verified: 2026-09-02
+# PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
+# Scope: section 9 control-discovery claims, re-verified 2026-10-13.
+# This immutable inline pin licenses only those claims; unrelated claims retain
+# their existing verification pins; prior last-verified: 2026-09-02.
+# The refreshed date applies only to the scope above (no wholesale reverification).
+last-verified: 2026-10-13
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -585,19 +591,31 @@ All rows: `verified-against-code`. Repairs detail: [diagnostics-repairs.md](diag
 
 ## 9. Late control discovery
 
-Location: `control_discovery.py:122-189`. Evidence: `verified-against-code`.
+Location: `control_discovery.py` → `setup_control_entity_discovery`.
+Evidence for this section: `verified-against-code`, re-verified 2026-10-13 at
+mainline `b6644539588d189e4a2fc671b3730609555037e8` (including the platform route
+signatures cited below). [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)
+is change provenance; the immutable mainline commit is the verification target
+for this section only. Other sections retain their existing pins.
 
-| Mechanism | Detail |
+| Mechanism | Detail / cited symbol in `control_discovery.py` |
 |---|---|
-| One **capability signature** per platform: per-serial type / model / features + a platform-specific `extra_signature` | `control_discovery.py:43-66` |
-| Fast-moving sensor values are **deliberately excluded** from the signature | otherwise every tick would rebuild candidates |
-| On signature change: rebuild candidates, mark already-registered entities supported/unsupported via `_set_control_discovery_supported`, add only genuinely new unique IDs | `control_discovery.py:122-185` |
-| `migrate_model_prefix` renames legacy `{model}_{serial}_{key}` IDs when the suffix match is unambiguous | `control_discovery.py:69-119` |
-| The listener is registered **before** the first `_rediscover_controls()` call, so capability convergence happens in the same tick as entity updates | `control_discovery.py:186-189` |
+| Capability signature per platform | Per-serial type / model / features plus a platform-specific `extra_signature`; fast-moving readings are excluded. `control_capability_signature` |
+| Signature change | Rebuild candidates, mark known entities supported/unsupported, add only new unique IDs. `setup_control_entity_discovery` → `_rediscover_controls` |
+| Legacy selection | With `migrate_model_prefix` and no stable entry, promote one same-config-entry, same-platform legacy suffix match to the model-free ID. Prefer enabled, then most recently created where HA recorded it; tied timestamps prefer an entity ID without a trailing numeric suffix, then lexical entity-ID order. `_migrate_model_prefixed_unique_ids` |
+| Same-entry stable identity | Always keep the existing stable entry untouched. Remove its legacy entries unless they back loaded entities; no stable entry is removed, rewritten or replaced, regardless of metadata, references or legacy disabled state. `_migrate_model_prefixed_unique_ids` |
+| Foreign stable identity | Preserve the local legacy entries and foreign stable entry, skip registration of that conflicted control even when there are no local legacy entries, and warn once per control during platform setup. `_migrate_model_prefixed_unique_ids`; `setup_control_entity_discovery` → `warned_conflicts` |
+| Removal | Remove superseded legacy entries, except entries backing a loaded entity (a state without `restored`). Each removal logs a WARNING naming the entity ID and its legacy unique ID. `_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity` |
+| Listener ordering | Register before the first discovery call so capability convergence occurs in the same tick as entity updates. `setup_control_entity_discovery` |
 
-Platform route signatures: `number.py:743-759`, `switch.py:385-405`.
+Historical motivation: two model-prefixed entries were skipped as ambiguous and a third
+entity appeared beside them (`asserted-unverified` —
+[issue #656](https://github.com/joyfulhouse/eg4_web_monitor/issues/656)).
 
-`_control_discovery_supported` feeds directly into control availability — see
+Platform route signatures: `number.py` → `_number_route_signature`,
+`switch.py` → `_switch_route_signature` (`verified-against-code` against the section's verification target).
+
+`_control_discovery_supported` feeds into availability — see
 [entities-identity-availability.md](entities-identity-availability.md) §2.
 
 ## 10. Write-path landmines

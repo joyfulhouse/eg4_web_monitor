@@ -1,13 +1,18 @@
 ---
-canonical-for: gridboss-power-hub-uart-map
+canonical-for:
+  - "GridBOSS POWER_HUB UART map"
+  - "GridBOSS smart-port mode packing and reported mode-write side effects"
 sources:
   - docs/reference/firmware/FIRMWARE_ACQUISITION.md
   - docs/CONFIGURATION.md
   - docs/DATA_MAPPING.md
   - docs/audits/2026-08-02-register-race-performance-audit.md
   - memory/gridboss-powerhub-uart-map.md
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/629
 verified-against: 9f6d6e2
-last-verified: 2026-08-09
+# Only the reported #629 side-effect section and postmortem link were rechecked
+# at 8289d6f4558e1aa8779a0a49e6c21816f337ee29. No firmware/portal grade promotion.
+last-verified: 2026-10-13
 ---
 
 # GridBOSS / POWER_HUB UART map
@@ -68,3 +73,17 @@ The full-word decoding is `mode(port) = (GB-H20 >> (2 × (port - 1))) & 0x3`. It
 | GB-I18-I25 carry smart-port currents. | `lineage-inferred` | These are Modbus-only in the current map; the UART decode does not independently prove their units/semantics. |
 
 See [registers.md](registers.md) for the family-scoped register ledger and evidence accounting.
+
+## Reported Unused mode side effect (#629)
+
+`asserted-unverified` - [issue #629](https://github.com/joyfulhouse/eg4_web_monitor/issues/629)
+reports that writing Unused on a cloud-connected GridBOSS clears the port's
+separate Smart Load Enable flag, and returning to Smart Load does not restore
+it. The mode and status return to Smart Load despite no load power; explicitly
+enabling the load in the portal restores operation. The issue has no raw
+before/after register pair, so it does not meet `hardware-toggle-proven`.
+The responsible firmware/portal mechanism and local reproduction remain
+unestablished; do not infer an enable register address from the mode packing.
+
+The software root cause, guard, and remaining limitations belong to
+[the #629 postmortem](../60-history/bug-postmortems.md#629-mode-verification-misses-independent-enable-state).

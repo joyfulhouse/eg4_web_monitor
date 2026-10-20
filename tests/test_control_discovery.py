@@ -1,6 +1,7 @@
 """Regression tests for late control discovery and stable control identities."""
 
 from datetime import time
+import logging
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -394,3 +395,415 @@ async def test_model_prefixed_control_identity_is_migrated_in_place(
         registry.async_get_entity_id(platform, DOMAIN, new_unique_id)
         == legacy.entity_id
     )
+
+
+def _registry_control(
+    registry: er.EntityRegistry,
+    entry: MockConfigEntry,
+    platform: str,
+    unique_id: str,
+    **kwargs: Any,
+) -> er.RegistryEntry:
+    """Register one control identity for ``entry``."""
+    return registry.async_get_or_create(
+        platform, DOMAIN, unique_id, config_entry=entry, **kwargs
+    )
+
+
+def _control_entry(hass, platform: str, coordinator: Any) -> MockConfigEntry:
+    """Add a config entry whose runtime data is ``coordinator``."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title=f"{platform} migration",
+        data={},
+        entry_id=f"control-migration-{platform}",
+    )
+    entry.add_to_hass(hass)
+    entry.runtime_data = coordinator
+    return entry
+
+
+_LEGACY_CONTROL_CASES = (
+    ("number", async_setup_number, _number_coordinator, "ac_charge_power"),
+    ("time", async_setup_time, _time_coordinator, "ac_charge_start_time_1"),
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_foreign_stable_identity_preserves_local_legacy_controls(
+    hass, caplog, platform, setup, coordinator, key
+):
+    """A stable identity owned by another config entry cannot consume ours."""
+    runtime = coordinator()
+    entry = _control_entry(hass, platform, runtime)
+    foreign = MockConfigEntry(domain=DOMAIN, data={}, entry_id=f"foreign-{platform}")
+    foreign.add_to_hass(hass)
+    registry = er.async_get(hass)
+    legacy = [
+        _registry_control(registry, entry, platform, f"{model}_{SERIAL}_{key}")
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    ]
+    legacy[0] = registry.async_update_entity(legacy[0].entity_id, name="My control")
+    stable = _registry_control(registry, foreign, platform, f"{SERIAL}_{key}")
+    added = []
+
+    await setup(hass, entry, lambda entities, **_kwargs: added.extend(entities))
+
+    # A later capability change must neither register the conflict nor warn again.
+    rediscover = runtime.async_add_listener.call_args.args[0]
+    runtime.data["devices"][SERIAL].setdefault("features", {})["conflict_probe"] = True
+    rediscover()
+
+    for original in (*legacy, stable):
+        assert registry.async_get(original.entity_id) == original
+    assert added
+    assert all(entity.unique_id != stable.unique_id for entity in added)
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.eg4_web_monitor.control_discovery"
+        and record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+    assert stable.entity_id in warnings[0].message
+    assert foreign.entry_id in warnings[0].message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_foreign_stable_identity_without_legacy_is_not_registered(
+    hass, caplog, platform, setup, coordinator, key
+):
+    """Ownership applies even on installs with no model-prefixed identities."""
+    runtime = coordinator()
+    entry = _control_entry(hass, platform, runtime)
+    registry = er.async_get(hass)
+    normal = []
+    with (
+        patch.object(
+            registry, "async_update_entity", wraps=registry.async_update_entity
+        ) as update,
+        patch.object(registry, "async_remove", wraps=registry.async_remove) as remove,
+        patch.object(
+            registry, "async_get_or_create", wraps=registry.async_get_or_create
+        ) as create,
+    ):
+        await setup(hass, entry, lambda entities, **_kwargs: normal.extend(entities))
+        update.assert_not_called()
+        remove.assert_not_called()
+        create.assert_not_called()
+    normal_ids = {entity.unique_id for entity in normal}
+    target_id = f"{SERIAL}_{key}"
+    assert target_id in normal_ids
+    assert not er.async_entries_for_config_entry(registry, entry.entry_id)
+
+    foreign = MockConfigEntry(domain=DOMAIN, data={}, entry_id=f"foreign-{platform}")
+    foreign.add_to_hass(hass)
+    stable = _registry_control(registry, foreign, platform, target_id)
+    stable = registry.async_update_entity(stable.entity_id, name="My control")
+    added = []
+    with (
+        patch.object(
+            registry, "async_update_entity", wraps=registry.async_update_entity
+        ) as update,
+        patch.object(registry, "async_remove", wraps=registry.async_remove) as remove,
+        patch.object(
+            registry, "async_get_or_create", wraps=registry.async_get_or_create
+        ) as create,
+    ):
+        await setup(hass, entry, lambda entities, **_kwargs: added.extend(entities))
+        rediscover = runtime.async_add_listener.call_args.args[0]
+        runtime.data["devices"][SERIAL].setdefault("features", {})["conflict_probe"] = (
+            True
+        )
+        rediscover()
+        update.assert_not_called()
+        remove.assert_not_called()
+        create.assert_not_called()
+
+    assert {entity.unique_id for entity in added} == normal_ids - {target_id}
+    assert registry.async_get(stable.entity_id) == stable
+    assert not er.async_entries_for_config_entry(registry, entry.entry_id)
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "custom_components.eg4_web_monitor.control_discovery"
+        and record.levelno == logging.WARNING
+    ]
+    assert len(warnings) == 1
+    assert target_id in warnings[0].message
+    assert stable.entity_id in warnings[0].message
+    assert foreign.entry_id in warnings[0].message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+@pytest.mark.parametrize("restored", (False, True))
+@pytest.mark.parametrize("disabled_by", (None, er.RegistryEntryDisabler.USER))
+async def test_enabled_stable_identity_survives_legacy_cleanup(
+    hass, freezer, caplog, platform, setup, coordinator, key, restored, disabled_by
+):
+    """Keep the working stable control even when its legacy copies are disabled."""
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    legacy = [
+        _registry_control(
+            registry,
+            entry,
+            platform,
+            f"{model}_{SERIAL}_{key}",
+            disabled_by=disabled_by,
+        )
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    ]
+    freezer.tick(60)
+    stable = _registry_control(
+        registry,
+        entry,
+        platform,
+        f"{SERIAL}_{key}",
+        suggested_object_id="working_control",
+    )
+    assert stable.disabled_by is None
+    if restored:
+        hass.states.async_set(stable.entity_id, "unavailable", {"restored": True})
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get(stable.entity_id) == stable
+    assert (
+        registry.async_get_entity_id(platform, DOMAIN, stable.unique_id)
+        == stable.entity_id
+    )
+    for removed in legacy:
+        assert registry.async_get(removed.entity_id) is None
+        assert any(
+            record.levelno == logging.WARNING
+            and removed.entity_id in record.message
+            and removed.unique_id in record.message
+            for record in caplog.records
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+@pytest.mark.parametrize("customisation", ("entity_id", "aliases", "options"))
+async def test_stable_identity_retains_registry_customisation(
+    hass, platform, setup, coordinator, key, customisation
+):
+    """Stable registry identity and user metadata survive unloaded startup."""
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    legacy = [
+        _registry_control(registry, entry, platform, f"{model}_{SERIAL}_{key}")
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    ]
+    stable = _registry_control(registry, entry, platform, f"{SERIAL}_{key}")
+    if customisation == "entity_id":
+        stable = registry.async_update_entity(
+            stable.entity_id, new_entity_id=f"{platform}.my_working_control"
+        )
+    elif customisation == "aliases":
+        stable = registry.async_update_entity(
+            stable.entity_id, aliases=["My working control"]
+        )
+    else:
+        registry.async_update_entity_options(
+            stable.entity_id, platform, {"mode": "box"}
+        )
+        stable = registry.async_get(stable.entity_id)
+    assert stable is not None
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get(stable.entity_id) == stable
+    assert (
+        registry.async_get_entity_id(platform, DOMAIN, stable.unique_id)
+        == stable.entity_id
+    )
+    assert all(registry.async_get(item.entity_id) is None for item in legacy)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+@pytest.mark.parametrize("reverse", (False, True))
+@pytest.mark.parametrize(
+    "object_ids",
+    (("original_2", "original"), ("zebra", "alpha"), ("alpha_2", "beta")),
+)
+async def test_tied_legacy_creation_times_have_deterministic_survivor(
+    hass, freezer, platform, setup, coordinator, key, reverse, object_ids
+):
+    """Backfilled timestamps prefer an unsuffixed ID, then lexical ordering."""
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    registrations = list(zip(("lxp_eu_12k", "lxp_lb_eu_12k"), object_ids, strict=True))
+    if reverse:
+        registrations.reverse()
+    legacy = [
+        _registry_control(
+            registry,
+            entry,
+            platform,
+            f"{model}_{SERIAL}_{key}",
+            suggested_object_id=object_id,
+        )
+        for model, object_id in registrations
+    ]
+    assert legacy[0].created_at == legacy[1].created_at
+    expected_id = f"{platform}.{object_ids[1]}"
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert (
+        registry.async_get_entity_id(platform, DOMAIN, f"{SERIAL}_{key}") == expected_id
+    )
+    assert (
+        registry.async_get(
+            next(item.entity_id for item in legacy if item.entity_id != expected_id)
+        )
+        is None
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_one_of_several_model_prefixed_identities_is_kept(
+    hass, freezer, platform, setup, coordinator, key
+):
+    """A control registered under two models keeps the newest entry (#656).
+
+    The older one is removed instead of leaving both behind next to a newly
+    registered stable entity.
+    """
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    older = _registry_control(registry, entry, platform, f"lxp_eu_12k_{SERIAL}_{key}")
+    freezer.tick(60)
+    newer = _registry_control(
+        registry, entry, platform, f"lxp_lb_eu_12k_{SERIAL}_{key}"
+    )
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    new_unique_id = f"{SERIAL}_{key}"
+    assert registry.async_get_entity_id(platform, DOMAIN, new_unique_id) == (
+        newer.entity_id
+    )
+    assert registry.async_get(older.entity_id) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_enabled_model_prefixed_identity_wins_over_newer_disabled(
+    hass, freezer, platform, setup, coordinator, key
+):
+    """An entry the user disabled is not the one kept."""
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    enabled = _registry_control(registry, entry, platform, f"lxp_eu_12k_{SERIAL}_{key}")
+    freezer.tick(60)
+    disabled = _registry_control(
+        registry,
+        entry,
+        platform,
+        f"lxp_lb_eu_12k_{SERIAL}_{key}",
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get_entity_id(platform, DOMAIN, f"{SERIAL}_{key}") == (
+        enabled.entity_id
+    )
+    assert registry.async_get(disabled.entity_id) is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+@pytest.mark.parametrize(
+    "customisation",
+    (
+        {"name": "My control"},
+        {"icon": "mdi:solar-power"},
+        {"area_id": "my_area"},
+        {"labels": {"my_label"}},
+        {"hidden_by": er.RegistryEntryHider.USER},
+        {"disabled_by": er.RegistryEntryDisabler.USER},
+        "loaded",
+    ),
+    ids=("name", "icon", "area", "labels", "hidden", "disabled", "loaded"),
+)
+async def test_model_prefixed_leftovers_removed_once_stable_identity_exists(
+    hass, caplog, platform, setup, coordinator, key, customisation
+):
+    """A customised or loaded stable entry survives legacy cleanup."""
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    legacy = [
+        _registry_control(registry, entry, platform, f"{model}_{SERIAL}_{key}")
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    ]
+    stable = _registry_control(registry, entry, platform, f"{SERIAL}_{key}")
+    if customisation == "loaded":
+        hass.states.async_set(stable.entity_id, "1")
+    else:
+        stable = registry.async_update_entity(stable.entity_id, **customisation)
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get(stable.entity_id) is not None
+    assert registry.async_get(stable.entity_id).unique_id == f"{SERIAL}_{key}"
+    for entry_ in legacy:
+        assert registry.async_get(entry_.entity_id) is None
+        assert any(
+            record.levelno == logging.WARNING and entry_.entity_id in record.message
+            for record in caplog.records
+        )
+    assert registry.async_get(stable.entity_id) == stable
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("platform", "setup", "coordinator", "key"), _LEGACY_CONTROL_CASES
+)
+async def test_model_prefixed_entry_backing_a_live_entity_is_kept(
+    hass, platform, setup, coordinator, key
+):
+    """Only orphans are removed: a loaded entity's entry is left alone.
+
+    A restored placeholder state (what HA writes for an entry with no entity)
+    does not count as loaded.
+    """
+    entry = _control_entry(hass, platform, coordinator())
+    registry = er.async_get(hass)
+    live, placeholder = (
+        _registry_control(registry, entry, platform, f"{model}_{SERIAL}_{key}")
+        for model in ("lxp_eu_12k", "lxp_lb_eu_12k")
+    )
+    stable = _registry_control(registry, entry, platform, f"{SERIAL}_{key}")
+    hass.states.async_set(stable.entity_id, "1")
+    hass.states.async_set(live.entity_id, "1")
+    hass.states.async_set(placeholder.entity_id, "unavailable", {"restored": True})
+
+    await setup(hass, entry, lambda _entities, **_kwargs: None)
+
+    assert registry.async_get(live.entity_id) is not None
+    assert registry.async_get(placeholder.entity_id) is None

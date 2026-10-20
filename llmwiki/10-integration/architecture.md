@@ -3,6 +3,7 @@ canonical-for:
   - "Module inventory by layer for custom_components/eg4_web_monitor"
   - "EG4DataUpdateCoordinator mixin composition and MRO ordering constraints"
   - "Config-entry setup, unload and removal sequence"
+  - "GridBOSS smart-port read identity and registry authority"
 sources:
   - custom_components/eg4_web_monitor/coordinator.py
   - custom_components/eg4_web_monitor/coordinator_mixins.py
@@ -12,7 +13,14 @@ sources:
   - memory/architecture-patterns.md
 verified-against: 9f6d6e2
 # HA-stop lifecycle row below re-verified at a79b8eb; other sections retain this pin.
-last-verified: 2026-09-29
+# PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
+# Scope: section 3.2 added async_wait_for_missing_parameters method, re-verified 2026-10-13.
+# This immutable inline pin licenses only those claims; unrelated claims retain
+# their existing verification pins; prior last-verified: 2026-09-29.
+# Section 4.2 smart-port authority is verified at
+# 82bd1fbb2f360347bb68d7a448a1985c0e0e3294 on 2026-10-13.
+# The refreshed date applies only to the scope above (no wholesale reverification).
+last-verified: 2026-10-13
 see-also:
   - data-flow-by-mode.md
   - controls-and-writes.md
@@ -214,12 +222,21 @@ Do not infer runtime behaviour from `_MixinBase`.
 | `LocalTransportMixin` | `coordinator_local.py` | Local transports | `_async_update_local_data`, `_async_update_modbus_data`, `_async_update_dongle_data`, `_merge_round_robin_batteries`, `_read_modbus_parameters`, `_build_static_local_data`, `_process_local_parallel_groups`, `_attach_local_transports_to_station`, `_sync_transport_link_state`, `get_local_transport`, `has_local_transport`, `has_configured_local_transport`, `has_local_register_path`, `is_local_only` |
 | `DeviceProcessingMixin` | `coordinator_mixins.py` | Device object → sensor dicts; all supplemental cloud side-fetches | `_process_inverter_object`, `_process_mid_device_object`, `_process_parallel_group_object`, `_extract_battery_*`, `_filter_unused_smart_port_sensors`, `_calculate_gridboss_aggregates`, `_fetch_quick_charge_status`, `_fetch_last_event`, `_fetch_pv_string_energy`, `_fetch_cloud_param_store`, `_breakered_cloud_call`, `_prefetch_firmware_update_info` |
 | `DeviceInfoMixin` | `coordinator_mixins.py` | `DeviceInfo` construction and per-cycle caches | `clear_device_info_caches`, `get_device_info`, `get_battery_device_info`, `get_battery_bank_device_info`, `get_station_device_info`, `_get_parallel_group_for_device` |
-| `ParameterManagementMixin` | `coordinator_mixins.py` | Parameter reads and publishing | `refresh_all_device_parameters`, `async_refresh_device_parameters`, `_refresh_device_parameters`, `_refresh_missing_parameters`, `_schedule_missing_parameter_refresh`, `_hourly_parameter_refresh`, `_should_refresh_parameters`, `_all_parameter_fetches_complete`, `note_parameter_verification_pending` |
+| `ParameterManagementMixin` | `coordinator_mixins.py` | Parameter reads and publishing | `refresh_all_device_parameters`, `async_refresh_device_parameters`, `_refresh_device_parameters`, `_refresh_missing_parameters`, `_schedule_missing_parameter_refresh`, `async_wait_for_missing_parameters` ¹, `_hourly_parameter_refresh`, `_should_refresh_parameters`, `_all_parameter_fetches_complete`, `note_parameter_verification_pending` |
 | `DSTSyncMixin` | `coordinator_mixins.py` | Hourly portal DST reconciliation | `_should_sync_dst`, `_perform_dst_sync` |
 | `BackgroundTaskMixin` | `coordinator_mixins.py` | Task and transport lifecycle | `async_shutdown`, `_async_handle_shutdown`, `_cancel_background_tasks`, `_disconnect_all_transports`, `_remove_task_from_set`, `_log_task_exception` |
 | `FirmwareUpdateMixin` | `coordinator_mixins.py` | Firmware info extraction | `_extract_firmware_update_info` |
 
-Whole table: `verified-against-code` — method definitions read in the cited modules.
+Table: `verified-against-code` — method definitions read in the cited modules at the
+page-level pin, with the added method's verification target below.
+
+¹ `ParameterManagementMixin.async_wait_for_missing_parameters` in `coordinator_mixins.py`
+was re-verified 2026-10-13 at mainline `b6644539588d189e4a2fc671b3730609555037e8`
+(`verified-against-code`). [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)
+is change provenance; the immutable mainline commit is the verification target for
+this added method only. Its setup behavior is owned by
+[entities-identity-availability.md](entities-identity-availability.md) §6.
+
 
 ### 3.3 MRO ordering constraints — do not reorder
 
@@ -279,6 +296,28 @@ were added and verified with the smart-port devices change (branch `feat/smart-p
 > refresh carries no port keys, so cleaning there deleted every smart-port registry entry on each
 > reboot (issue #217) (`verified-against-code` — `__init__.py` → the smart-port purge guard;
 > `asserted-unverified` for the #217 field history, per `memory/architecture-patterns.md`).
+
+### 4.2 Smart-port read identity and registry authority
+
+Read identity and registry authority are separate. Complete local reads use their
+accepted refresh time; equal cloud payloads retain a stable read identity. Missing
+local port statuses are unstamped, allowing the existing unvalidated-adoption
+counter to advance without granting validated status.
+
+A local read supersedes the authority of an older cloud record, including a startup
+record not previously filtered. Replaying it after link-down cannot authorize
+cleanup or validated-mode registry decisions, even when the cloud request fails
+or its new data is rejected. A newly accepted distinct cloud record with complete, valid port statuses restores
+authority. The separate provisional-adoption fallback described in section 4.1
+still applies; withholding validation does not remove that fallback.
+
+`verified-against-code` at `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`:
+`coordinator_mixins.py` -> `_SmartPortRead`, `_smart_port_read_stamp`,
+`_smart_port_cloud_read_superseded`, `_filter_unused_smart_port_sensors`;
+`smart_port_devices.py` -> `PortSensorEnablement.async_sync`,
+`serials_resolving_unvalidated`. Regression evidence at the same pin:
+`tests/test_smart_port_devices.py` ->
+`TestIssue641.test_superseded_cloud_cannot_authorize_registry_changes`.
 
 ## 5. Unload and removal
 

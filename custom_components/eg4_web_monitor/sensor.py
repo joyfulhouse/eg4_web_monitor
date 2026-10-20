@@ -830,7 +830,26 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
     - Diagnostic entity category detection
     """
 
-    pass  # All functionality provided by EG4BaseSensor
+    _consumption_statistics_disabled = False
+
+    @property
+    def state_class(self) -> SensorStateClass | None:
+        """Exclude GridBOSS inverter energy balances from energy statistics."""
+        if self._device_type == "inverter" and self._sensor_key in {
+            "consumption",
+            "consumption_lifetime",
+        }:
+            # Independent counters can produce real decreases (#648). Latch
+            # the exclusion so a missing GridBOSS during a failed poll cannot
+            # briefly re-enable reset accounting. Apply to the whole entry:
+            # local discovery does not always know the electrical topology.
+            devices = (self.coordinator.data or {}).get("devices", {})
+            if any(device.get("type") == "gridboss" for device in devices.values()):
+                self._consumption_statistics_disabled = True
+            if self._consumption_statistics_disabled:
+                return None
+        state_class = self._attr_state_class
+        return SensorStateClass(state_class) if state_class is not None else None
 
 
 class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):

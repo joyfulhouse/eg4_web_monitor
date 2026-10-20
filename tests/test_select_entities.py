@@ -1,7 +1,7 @@
 """Tests for EG4 select entities."""
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.exceptions import HomeAssistantError
 from pylxpweb import OperatingMode
@@ -327,11 +327,74 @@ class TestSmartPortModeSelect:
         assert select.current_option == "AC Couple"
 
     def test_options_list(self):
-        """Options should be Off, Smart Load, AC Couple."""
+        """Unused stays representable for modes configured outside HA."""
         coordinator = _mock_gridboss_coordinator()
         device_data = coordinator.data["devices"]["gb123"]
         select = EG4SmartPortModeSelect(coordinator, "gb123", device_data, port=1)
         assert select.options == SMART_PORT_MODE_OPTIONS
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("port", [1, 2, 3, 4])
+    @pytest.mark.parametrize("transport", ["cloud", "local", "hybrid"])
+    @pytest.mark.parametrize("status", ["smart_load", "ac_couple", "unused", None])
+    async def test_unused_rejected_before_any_side_effect(
+        self, port, transport, status
+    ):
+        """A pause automation must fail before a destructive mode write (#629)."""
+        coordinator = _mock_gridboss_coordinator(
+            sensors={f"smart_port{port}_status": status}
+        )
+        coordinator.has_local_transport.return_value = transport != "cloud"
+        coordinator.has_http_api.return_value = transport != "local"
+        # Even if the local path would fail, no cloud fallback may run.
+        coordinator.write_named_parameter.side_effect = HomeAssistantError("timeout")
+        select = EG4SmartPortModeSelect(
+            coordinator, "gb123", coordinator.data["devices"]["gb123"], port=port
+        )
+        select.async_write_ha_state = MagicMock()
+        before = select.current_option
+
+        with (
+            patch.object(select, "_begin_optimistic_write") as begin_write,
+            patch(
+                "custom_components.eg4_web_monitor.select.note_port_mode_written"
+            ) as note_written,
+            pytest.raises(HomeAssistantError, match="separate Smart Load Enable flag"),
+        ):
+            await select.async_select_option("Unused")
+
+        begin_write.assert_not_called()
+        note_written.assert_not_called()
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.set_smart_port_mode.assert_not_awaited()
+        coordinator.async_request_refresh.assert_not_awaited()
+        select.async_write_ha_state.assert_not_called()
+        assert select.current_option == before
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("method", "status"),
+        [
+            ("async_first", "smart_load"),
+            ("async_previous", "smart_load"),
+            ("async_next", "ac_couple"),
+        ],
+    )
+    async def test_index_selection_cannot_bypass_unused_guard(self, method, status):
+        """HA index/cycle services also reach the guard before transport writes."""
+        coordinator = _mock_gridboss_coordinator(sensors={"smart_port1_status": status})
+        select = EG4SmartPortModeSelect(
+            coordinator, "gb123", coordinator.data["devices"]["gb123"], port=1
+        )
+        with pytest.raises(HomeAssistantError, match="separate Smart Load Enable flag"):
+            if method == "async_first":
+                await select.async_first()
+            else:
+                await getattr(select, method)(cycle=True)
+
+        coordinator.write_named_parameter.assert_not_awaited()
+        coordinator.client.api.control.set_smart_port_mode.assert_not_awaited()
+        assert select._optimistic_state is None
 
     def test_available_gridboss(self):
         """Available when device type is gridboss."""
@@ -438,7 +501,7 @@ class TestSmartPortModeSelect:
         select.async_write_ha_state = MagicMock()
 
         with pytest.raises(HomeAssistantError, match="Failed to set smart port"):
-            await select.async_select_option("Unused")
+            await select.async_select_option("Smart Load")
 
     @pytest.mark.asyncio
     async def test_select_invalid_option(self):

@@ -838,11 +838,13 @@ SMART_PORT_STATUS_KEYS: frozenset[str] = frozenset(
 # dynamic power/energy keys reflect the real port configuration).
 SMART_PORT_VALIDATED_KEY = "smart_port_statuses_validated"
 
-# Identity of the GridBOSS read behind the port statuses (the MID device's
-# last successful runtime refresh, as a POSIX timestamp).  Written on every
-# filtered read, validated or not (SMART_PORT_VALIDATED_KEY says which);
-# unchanged when a cycle reuses cached device data, so consumers can tell a
-# NEW read from a re-processed or carried-forward one.
+# Identity of the GridBOSS read behind the port statuses, as a POSIX timestamp.
+# Missing healthy-local port statuses and data without a refresh time are
+# unstamped. Otherwise cached reads retain their identity. A cloud baseline
+# first encountered during local startup gets a stable replay token; replay
+# after a complete local read cannot carry SMART_PORT_VALIDATED_KEY. Repeated
+# copies keep the same token instead of counting as distinct adoption reads
+# (coordinator_mixins._smart_port_read_stamp).
 SMART_PORT_READ_KEY = "smart_port_statuses_read_at"
 
 # Keys that live in the coordinator sensors dict but must NOT become HA sensor
