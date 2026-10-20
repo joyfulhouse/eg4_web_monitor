@@ -15,7 +15,7 @@ sources:
   - eg4_web_monitor issues #83, #233, #653
   - tests/test_local_startup_snapshot.py
 verified-against: 9f6d6e2
-# LOCAL static-phase claims below rechecked at 98ae596; other sections retain this pin.
+# LOCAL static-phase claims below rechecked at f352c23; other sections retain this pin.
 last-verified: 2026-10-20
 see-also:
   - ../00-orientation/repo-map.md
@@ -96,7 +96,7 @@ Entry point: `_async_update_local_data` (`coordinator_local.py:1946-2221`). Evid
 | It schedules an immediate follow-up `async_request_refresh()` as a tracked background task; Phase 2 populates real data | `verified-against-code` — `coordinator_local.py:1978-1985` |
 | Features on this path come from `_features_from_family()` — without it, BOTH split-phase and three-phase sensors get created | `verified-against-code` — `coordinator_mappings.py:1935` |
 
-**Startup states (#653).** `verified-against-code` at `98ae596`:
+**Startup states (#653).** `verified-against-code` at `f352c23`:
 `_async_update_local_data` schedules `async_request_refresh`, but HA's first-refresh
 debouncer can defer the real read until after platform forwarding. Measurement
 entities therefore initially publish `unknown`. This is deliberate: setup stays
