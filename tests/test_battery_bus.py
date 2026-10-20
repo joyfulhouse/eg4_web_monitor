@@ -112,11 +112,11 @@ def test_slave_zero_current_and_missing_cells_are_distinct():
     assert result["temperature_1"] == 0
 
 
-def test_complete_bus_does_not_publish_unreconstructed_master_bank_soc():
+def test_incomplete_topology_keeps_master_bank_soc_unknown():
     from pylxpweb.battery_protocols.eg4_master import EG4MasterProtocol
 
     data = EG4MasterProtocol().decode_with_slaves({21: 59, 33: 5600}, [])
-    assert data.soc == 59
+    assert data.soc is None
     assert data.current_capacity is None
     result = project_battery(data, "eg4_master")
     assert result["soc"] is None
