@@ -4196,6 +4196,11 @@ class DeviceInfoMixin(_MixinBase):
             "model": model,
         }
 
+        if device_type == "gridboss":
+            # Persist the discovered role independently of firmware model text.
+            # Sensor startup uses this until delayed discovery returns (#664).
+            device_info["model_id"] = "eg4_web_monitor:gridboss"
+
         if device_type != "parallel_group":
             device_info["serial_number"] = serial
             sw_version = "1.0.0"

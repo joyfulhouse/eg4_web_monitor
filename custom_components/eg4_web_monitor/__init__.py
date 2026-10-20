@@ -35,6 +35,7 @@ from .const import (
     CONF_HTTP_POLLING_INTERVAL,
     CONF_LIBRARY_DEBUG,
     CONF_LOCAL_TRANSPORTS,
+    CONNECTION_TYPE_LOCAL,
     CONF_PLANT_ID,
     CONF_SENSOR_UPDATE_INTERVAL,
     CONNECTION_TYPE_HTTP,
@@ -337,6 +338,13 @@ def _async_cleanup_removed_registry_devices(
             identifier.startswith("station_") for identifier in identifiers
         )
         is_physical_device = device.serial_number is not None
+        # A partial cloud discovery is not permanent removal of known CT
+        # topology. Keep that registry evidence until explicit device deletion.
+        # LOCAL configuration removal remains an authoritative reset policy.
+        if coordinator.connection_type != CONNECTION_TYPE_LOCAL and (
+            device.model_id == "eg4_web_monitor:gridboss" or device.model == "GridBOSS"
+        ):
+            continue
         if (is_station or is_physical_device) and identifiers.isdisjoint(
             live_root_identifiers
         ):
