@@ -1514,3 +1514,12 @@ The shared overlay no longer substitutes zero for absent CT components or retain
 an inverter balance through a gap. HTTP failure and temporary MID discovery loss
 are covered alongside LOCAL; prior stale-source guidance described the old code.
 Evidence is coordinator regression coverage, not a hardware outage capture.
+
+## [2026-10-20] ingest | Persist group consumption authority across restart (#661)
+
+Rechecked section 4.3.2 at `b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a`.
+The earlier runtime-only marker did not protect the first poll after reload.
+Entry-owned registry group roles now retain CT authority while MID discovery is
+missing; legacy unclassified groups in known-GridBOSS entries remain unknown.
+Documented confirmed inverter groups, explicit removal/reset, and software
+regressions across three connection modes without asserting discovery freshness.

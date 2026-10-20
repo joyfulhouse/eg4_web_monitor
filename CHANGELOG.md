@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- GridBOSS parallel-group Consumption stays on its CT source when either daily or lifetime CT data is incomplete, MID processing fails, or MID discovery temporarily disappears (#661). The affected reading becomes unknown until both CT components return; inverter balances and partial CT sums are no longer substituted. Existing LOCAL device-error availability is unchanged.
+- GridBOSS parallel-group Consumption stays on its CT source when either daily or lifetime CT data is incomplete, MID processing fails, or MID discovery temporarily disappears (#661). The affected reading becomes unknown until both CT components return; inverter balances and partial CT sums are no longer substituted. The group source persists across restart; an unclassified legacy group in a known GridBOSS entry stays unknown until association returns. Confirmed inverter-only groups retain their source, and deliberate GridBOSS removal/reload permits re-evaluation. Existing LOCAL device-error availability is unchanged.
 - Remember known GridBOSS topology before publishing inverter Consumption statistics after restart (#664), including delayed cloud discovery. The existing device registry retains this knowledge. To restore statistics after permanently removing a GridBOSS, delete its device using Home Assistant's guarded removal flow, then reload the entry; removing it from a LOCAL configuration also clears the topology during setup. Actual inverter-only entries retain their statistics.
 
 ### Added

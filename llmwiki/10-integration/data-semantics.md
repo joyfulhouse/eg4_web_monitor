@@ -43,7 +43,7 @@ sources:
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
-  # Section 4.3.2 re-verified at ac4174d772c67004a8104ae62c42ffb7f430ac0d.
+  # Section 4.3.2 re-verified at b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a.
   # Section 4.3.1 startup policy re-verified at d889f82feb88e75d4518fd09d5efc8224e8618ad.
 
   # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
@@ -562,7 +562,7 @@ owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
 
 #### 4.3.2 GridBOSS group consumption keeps its CT source through gaps (#661)
 
-At `ac4174d772c67004a8104ae62c42ffb7f430ac0d`, the shared
+At `b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a`, the shared
 `apply_gridboss_overlay` requires both UPS and non-backup Load CT components
 for each period independently. A missing component produces `None` for that
 consumption reading instead of a partial sum or inverter energy balance.
@@ -583,8 +583,22 @@ including missing daily/lifetime components, missing MID discovery, processing
 failure and recovery. It is software evidence, not a captured hardware outage.
 The group remains `total_increasing`; missing readings are unknown, while LOCAL
 error-marked contributors retain the existing whole-group unavailability policy.
-The group-source marker is runtime data, not a durable topology store across
-restart; per-inverter topology retention is the separate #664 contract.
+The group source also persists in the HA device registry as a `model_id`
+(`eg4_web_monitor:gridboss_group` or `eg4_web_monitor:inverter_group`), before
+consumption entity registration. `gridboss_topology.group_consumption_source`
+uses that entry-owned marker and the #664 known-GridBOSS predicate on startup.
+A previously CT-backed group stays unknown if MID discovery is absent. A legacy
+unclassified group in a known-GridBOSS entry is conservatively unknown until its
+association is rediscovered; a confirmed inverter group in the same entry keeps
+its inverter source. An entry with no known GridBOSS permits inverter consumption.
+Guarded GridBOSS device removal followed by reload (or authoritative LOCAL config
+removal) permits source re-evaluation; the runtime CT latch lasts for the run.
+Registry source changes invalidate cached device information so entity metadata
+cannot restore an old role. `test_restart_preserves_group_source` exercises new
+coordinators, legacy records, explicit removal, first CT samples with no numeric
+readings, repeated reload, and recovery across HTTP/HYBRID/LOCAL. These are
+`verified-against-code` policy claims at the same scoped pin, not claims that a
+partial discovery can prove physical topology.
 
 
 #### The lifetime-consumption source is CONTESTED — no binding rule here
