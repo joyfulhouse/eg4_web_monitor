@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
+
 ## [3.5.1-beta.19] - 2026-10-14
 
 **Requires [pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**
