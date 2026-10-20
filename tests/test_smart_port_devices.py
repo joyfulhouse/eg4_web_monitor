@@ -87,6 +87,9 @@ class _Coordinator(DeviceInfoMixin):
     def has_configured_local_transport(self, serial: str) -> bool:
         return self._local
 
+    def has_http_api(self) -> bool:
+        return not self._local
+
     def async_add_listener(self, update_callback: Any, context: Any = None) -> Any:
         self.listeners.append(update_callback)
         return lambda: None
