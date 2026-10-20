@@ -47,7 +47,8 @@ verified-against:
 # This immutable inline pin licenses only those claims; unrelated claims retain
 # their existing verification pins; prior last-verified: 2026-09-02.
 # The refreshed date applies only to the scope above (no wholesale reverification).
-last-verified: 2026-10-13
+# Cloud error normalization below reverified at ad79479; other claims retain their pins.
+last-verified: 2026-10-20
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -563,6 +564,18 @@ All rows: `verified-against-code`.
 All rows: `verified-against-code`.
 
 ## 7. Error surfacing
+
+The shared router normalizes `pylxpweb.exceptions.LuxpowerError` raised by the
+cloud callback to `HomeAssistantError`, naming the action and preserving the
+original exception as its cause. This applies to direct cloud writes and local
+fallback. A rejected write does not seed the parameter cache; the number
+entity's optimistic context clears the requested state on failure. Existing
+HA exceptions and unrelated programming errors propagate unchanged.
+`verified-against-code` at `ad79479`: `utils.py` ->
+`async_write_with_cloud_fallback`, `base_entity.py` -> `optimistic_value_context`,
+and `tests/test_number_entities.py` ->
+`TestHybridCloudFallback.test_soc_cloud_rejection_is_actionable_and_rolls_back`.
+This error contract does not establish the firmware constraint in [#668](https://github.com/joyfulhouse/eg4_web_monitor/issues/668).
 
 | Exception | When | Cite |
 |---|---|---|

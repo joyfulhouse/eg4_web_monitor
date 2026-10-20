@@ -53,8 +53,9 @@ GRID_PEAK_SHAVING_SOC_MAX = 100
 GRID_PEAK_SHAVING_SOC_STEP = 1
 
 # Grid Peak Shaving Voltage 1/2 (regs 208/219, decivolts). The pinned
-# pylxpweb rows carry NO min/max, so the write bounds are a maintainer
-# decision copying SYSTEM_CHARGE_VOLT_LIMIT_* (48 V bank window with margin).
+# pylxpweb rows carry the same 40.0-64.0 V bounds since 0.10.0b8 (PR #327).
+# These remain a maintainer guard copied from SYSTEM_CHARGE_VOLT_LIMIT_*
+# (48 V bank window with margin), not hardware-proven firmware/portal bounds.
 # The READ window is deliberately wider than the write window so a value the
 # portal stored outside 40-64 renders instead of blanking to unknown (#603).
 GRID_PEAK_SHAVING_VOLT_MIN = 40.0

@@ -12,6 +12,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
+from pylxpweb.exceptions import LuxpowerError
 
 if TYPE_CHECKING:
     from .coordinator import EG4DataUpdateCoordinator
@@ -299,7 +300,12 @@ async def async_write_with_cloud_fallback(
                     serial,
                 )
     if cloud_available and cloud_write is not None:
-        await cloud_write()
+        try:
+            await cloud_write()
+        except LuxpowerError as err:
+            raise HomeAssistantError(
+                f"Failed to set {action_name} via cloud API: {err}"
+            ) from err
         if local_attached and local_values:
             # Cloud fallback with an attached local transport: seed the
             # (local-raw) parameter cache with the acknowledged write so
