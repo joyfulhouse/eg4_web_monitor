@@ -1411,3 +1411,10 @@ The cited source and lifecycle regression definitions exist at that pin; its
 production and test trees equal the independently reviewed combined candidate
 `84b39c4`. Only these sections receive the new pin and verification date; other
 scoped claims retain their pins. Prior log content is unchanged.
+
+## [2026-10-20] ingest | Partial parallel-group runtime availability
+
+Updated `10-integration/data-semantics.md` from commit `e5fa860` and its real
+ParallelGroup regression tests. A cloud-lost member no longer blanks live
+siblings' runtime measurements. Energy keeps fixed membership and remains
+unknown during a partial outage; #619 remains open for that continuity work.

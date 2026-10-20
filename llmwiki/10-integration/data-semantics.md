@@ -58,7 +58,8 @@ verified-against:
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
-last-verified: 2026-10-14
+# Partial-group runtime behavior re-verified at e5fa860 on 2026-10-20.
+last-verified: 2026-10-20
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -77,6 +78,21 @@ once. Several of them are *irreversible for the user* when they go wrong — a w
 entities and the customizations attached to them.
 
 ## 1. Staleness, carry-forward and eviction
+
+### Partial parallel-group outages (#619)
+
+At `e5fa860`, `_process_parallel_group_object` computes runtime measurements
+from members whose cloud `is_lost` flag is false, using a shallow group copy.
+The original membership remains intact for discovery and controls. The result
+includes `has_lost_member` and `available_member_count`; a member lost before
+its first runtime payload still counts as missing. Grade: `verified-against-code`
+(`coordinator_mixins.py`, `tests/test_issue_479_cloud_lost_blanking.py`).
+
+Daily and lifetime energy remain unknown while any member is missing: summing
+a changing online subset would introduce counter drops and recovery spikes.
+GridBOSS CT overlays retain their independent source authority. This improves
+the runtime portion of [#619](https://github.com/joyfulhouse/eg4_web_monitor/issues/619);
+cumulative-energy continuity is still unresolved.
 
 ### 1.1 The rules
 
