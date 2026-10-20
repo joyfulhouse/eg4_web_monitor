@@ -45,6 +45,7 @@ from .const import (
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .control_discovery import setup_control_entity_discovery
+from .smart_port_options import create_port_option_entities
 from .utils import (
     flag_offgrid_control_suppression,
     is_family_control_supported,
@@ -379,6 +380,9 @@ def _create_switch_entities(
                             mode_config=mode_config,
                         )
                     )
+
+    # Per-port smart port options (GridBOSS with a local transport only).
+    entities.extend(create_port_option_entities(coordinator, "switch"))
 
     return entities
 

@@ -21,6 +21,7 @@ from .base_entity import (
     EG4BaseBatterySensor,
     EG4BaseSensor,
     EG4BatteryBankEntity,
+    EG4RegistrySyncedEntity,
     EG4StationEntity,
     device_present_and_healthy,
 )
@@ -870,7 +871,7 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
         return SensorStateClass(state_class) if state_class is not None else None
 
 
-class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):
+class EG4SmartPortSensor(EG4RegistrySyncedEntity, EG4BaseSensor, SensorEntity):
     """One sensor of a GridBOSS smart port device.
 
     A mode-neutral sensor (power, current) reads the key of whichever mode the

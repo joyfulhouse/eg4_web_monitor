@@ -10,6 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Remember known GridBOSS topology before publishing inverter Consumption statistics after restart (#664), including delayed cloud discovery. The existing device registry retains this knowledge. To restore statistics after permanently removing a GridBOSS, delete its device using Home Assistant's guarded removal flow, then reload the entry; removing it from a LOCAL configuration also clears the topology during setup. Actual inverter-only entries retain their statistics.
+
+### Added
+
+- **GridBOSS smart port settings**: with a local connection to the GridBOSS, each smart port device now carries the port's settings from the EG4 portal:
+  - Smart Load: Smart Load Enable, Grid Always On, Power Shedding, Based On (Time / SOC/Volt), start/end SOC and voltage, the shedding thresholds (start PV power, start/end SOC and voltage), and three start/end time windows.
+  - AC Couple: AC Couple Enable, start/end SOC and voltage, and three start/end time windows.
+
+  Settings for the port's other mode are disabled, as the port sensors are, and the SOC or voltage thresholds follow the Battery Charge / Discharge Control options (the unselected set is disabled). A setting the portal greys out, such as the Smart Load times when Based On is SOC/Volt or the shedding settings with Power Shedding off, shows unavailable. Changes made in the portal or app show up on the parameter refresh interval (the enables, on every GridBOSS update). Smart Load Enable is also the way to repair the flag an earlier Unused write cleared (#629), and the Unused error now points to it when it exists. See [Smart port settings](docs/CONFIGURATION.md#smart-port-settings).
+
+### Changed
+
+
 - Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
 
 ## [3.5.1-beta.19] - 2026-10-14
