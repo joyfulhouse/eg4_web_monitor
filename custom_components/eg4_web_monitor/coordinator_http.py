@@ -974,7 +974,7 @@ class HTTPUpdateMixin(_MixinBase):
                         .get("devices", {})
                         .get(f"parallel_group_{group.name.lower()}", {})
                     )
-                    has_mid = bool(getattr(group, "mid_device", None))
+                    mid_device = getattr(group, "mid_device", None)
                     if (
                         has_mid
                         or previous_group.get("consumption_source") == "gridboss"
@@ -984,14 +984,10 @@ class HTTPUpdateMixin(_MixinBase):
                         group_data["consumption_source"] = "gridboss"
                         pg_sensors["consumption"] = None
                         pg_sensors["consumption_lifetime"] = None
-                    if has_mid:
+                    if mid_device:
                         try:
-                            mid_data = await self._process_mid_device_object(
-                                group.mid_device
-                            )
-                            processed["devices"][group.mid_device.serial_number] = (
-                                mid_data
-                            )
+                            mid_data = await self._process_mid_device_object(mid_device)
+                            processed["devices"][mid_device.serial_number] = mid_data
 
                             # Apply the canonical GridBOSS workflow to the
                             # parallel group (overlay + AC-couple PV).  GridBOSS
@@ -1016,7 +1012,7 @@ class HTTPUpdateMixin(_MixinBase):
                         except Exception as e:
                             _LOGGER.error(
                                 "Error processing MID device %s: %s",
-                                group.mid_device.serial_number,
+                                mid_device.serial_number,
                                 e,
                             )
                 except Exception as e:
