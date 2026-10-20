@@ -462,7 +462,7 @@ async def test_reconcile_import_accepted_by_real_recorder_api(
         ),
         patch(
             "custom_components.eg4_web_monitor.services._fetch_cloud_data",
-            return_value={start: 1.25},
+            return_value={start: 1250.0},
         ),
         patch(
             "homeassistant.components.recorder.statistics.get_instance",
