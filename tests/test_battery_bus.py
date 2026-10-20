@@ -51,7 +51,9 @@ def mock_bus():
     bus.is_connected = False
     bus.connect = AsyncMock()
     bus.disconnect = AsyncMock()
-    bus.read_all = AsyncMock(return_value=[battery(1), battery(2), battery(3)])
+    bus.read_all = AsyncMock(
+        return_value=[battery(1, current_capacity=160), battery(2), battery(3)]
+    )
     bus._detected_protocols = {
         1: SimpleNamespace(name="eg4_master"),
         2: SimpleNamespace(name="eg4_slave"),
@@ -108,6 +110,17 @@ def test_slave_zero_current_and_missing_cells_are_distinct():
     assert result["cell_1_voltage"] == 3.28
     assert result["cell_2_voltage"] is None
     assert result["temperature_1"] == 0
+
+
+def test_complete_bus_does_not_publish_unreconstructed_master_bank_soc():
+    from pylxpweb.battery_protocols.eg4_master import EG4MasterProtocol
+
+    data = EG4MasterProtocol().decode_with_slaves({21: 59, 33: 5600}, [])
+    assert data.soc == 59
+    assert data.current_capacity is None
+    result = project_battery(data, "eg4_master", complete=True)
+    assert result["soc"] is None
+    assert result["remaining_capacity"] is None
 
 
 def test_external_endpoint_reservation_excludes_all_protocol_owners():

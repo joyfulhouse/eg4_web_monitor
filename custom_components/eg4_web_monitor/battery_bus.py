@@ -75,6 +75,7 @@ def project_battery(
 ) -> dict[str, Any]:
     """Keep aggregate master measurements out of per-pack sensors."""
     master = protocol == "eg4_master"
+    master_reconstructed = complete and data.current_capacity is not None
     known = protocol in {"eg4_master", "eg4_slave"}
     result: dict[str, Any] = {"protocol": protocol, "firmware": data.firmware_version}
     if not known:
@@ -82,11 +83,13 @@ def project_battery(
     result.update(
         voltage=data.voltage if data.voltage > 0 else None,
         current=None if master else data.current,
-        soc=data.soc if not master or complete else None,
+        soc=data.soc if not master or master_reconstructed else None,
         soh=data.soh,
         temperature=None if master else data.temperature,
         capacity=data.max_capacity if data.max_capacity > 0 else None,
-        remaining_capacity=data.current_capacity if not master or complete else None,
+        remaining_capacity=(
+            data.current_capacity if not master or master_reconstructed else None
+        ),
         cycle_count=None if master else data.cycle_count,
         min_cell_voltage=data.min_cell_voltage if data.min_cell_voltage > 0 else None,
         max_cell_voltage=data.max_cell_voltage if data.max_cell_voltage > 0 else None,
