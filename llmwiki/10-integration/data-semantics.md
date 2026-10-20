@@ -667,8 +667,12 @@ removal) permits source re-evaluation; the runtime CT latch lasts for the run.
 Registry source changes invalidate cached device information so entity metadata
 cannot restore an old role. Foreign/shared group registry records neither supply
 nor receive source markers; `get_device_info` applies the same guard even if a
-record became shared after its metadata was cached. The colliding-identifier
-regressions exercise both classification and actual device information.
+record became shared after its metadata was cached. On HA versions with entry-scoped
+registry identities, topology and device-information lookup select the current entry
+explicitly; identical identifiers in another entry cannot hide its own role. The
+legacy global lookup retains foreign/shared-record guards. The colliding-identifier
+regressions exercise both registry models, classification and actual device information
+(`verified-against-code`, PR #678; `gridboss_topology.get_topology_device`).
 `test_restart_preserves_group_source` exercises new
 coordinators, legacy records, explicit removal, first CT samples with no numeric
 readings, first-read exceptions, repeated reload, and recovery across HTTP/HYBRID/LOCAL. These are

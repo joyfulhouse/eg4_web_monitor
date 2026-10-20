@@ -1638,3 +1638,11 @@ with and without complete independent GridBOSS CT energy: paired CT totals
 remain authoritative at20kWh today/2000kWh lifetime while inverter-derived
 counters stay unknown during the outage. This does not solve missing-member
 cumulative-energy continuity for groups without complete independent CT data.
+
+## [2026-10-20] ingest | Entry-scoped GridBOSS registry compatibility
+
+PR #678 full-matrix validation exposed HA2026.9.4 entry-scoped device identities,
+while minimumHA2026.1 retains global/shared records. Updated the data-semantics
+owner with the capability-selected topology lookup and matching DeviceInfo guard.
+Regressions preserve legacy foreign/shared protection and assert independent
+markers for newer per-entry identities. This is software ownership evidence.

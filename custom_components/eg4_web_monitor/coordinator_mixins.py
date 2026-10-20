@@ -90,6 +90,7 @@ from .gridboss_topology import (
     GRIDBOSS_MODEL_ID,
     GRIDBOSS_GROUP_MODEL_ID,
     INVERTER_GROUP_MODEL_ID,
+    get_topology_device,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -4197,8 +4198,8 @@ class DeviceInfoMixin(_MixinBase):
                 GRIDBOSS_GROUP_MODEL_ID,
                 INVERTER_GROUP_MODEL_ID,
             }:
-                registered = dr.async_get(self.hass).async_get_device(
-                    identifiers={(DOMAIN, serial)}
+                registered = get_topology_device(
+                    dr.async_get(self.hass), self.entry.entry_id, serial
                 )
                 if registered is not None and registered.config_entries != {
                     self.entry.entry_id
@@ -4234,8 +4235,8 @@ class DeviceInfoMixin(_MixinBase):
         }
 
         if device_type == "parallel_group":
-            registered = dr.async_get(self.hass).async_get_device(
-                identifiers={(DOMAIN, serial)}
+            registered = get_topology_device(
+                dr.async_get(self.hass), self.entry.entry_id, serial
             )
             if registered is None or registered.config_entries == {self.entry.entry_id}:
                 source = device_data.get("consumption_source")
