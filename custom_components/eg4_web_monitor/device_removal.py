@@ -447,6 +447,19 @@ async def async_remove_config_entry_device(
     if not identifiers:
         return False
 
+    from .battery_bus import BatteryBusCoordinator
+
+    if isinstance(coordinator, BatteryBusCoordinator):
+        # A configured address is still owned even when its pack is offline.
+        # Explicit removal from the entry's unit list permits registry cleanup.
+        prefix = f"battery_bus_{config_entry.entry_id}_unit_"
+        return all(
+            identifier.startswith(prefix)
+            and identifier[len(prefix) :].isdigit()
+            and int(identifier[len(prefix) :]) not in coordinator.unit_ids
+            for identifier in identifiers
+        )
+
     provided = provided_identifiers(data, coordinator.plant_id)
     if any(identifier in provided for identifier in identifiers):
         return False

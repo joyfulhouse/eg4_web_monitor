@@ -6,7 +6,8 @@
         "description": "Conecte sua conta EG4 na nuvem para acesso completo a todos os recursos, incluindo GridBOSS, Carga Rápida e atualizações de firmware. Você pode adicionar dispositivos locais depois para atualização mais rápida.",
         "menu_options": {
           "cloud_credentials": "Conectar Conta na Nuvem",
-          "local_device_type": "Pular — Somente Local"
+          "local_device_type": "Pular — Somente Local",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -336,6 +337,17 @@
         "data": {
           "confirm": "Converter a instalação existente para híbrida"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -348,7 +360,7 @@
       "timeout": "A conexão com o {brand_name} Web Monitor expirou. Por favor, verifique sua conexão com a internet e tente novamente.",
       "modbus_not_installed": "A biblioteca pymodbus não está instalada. Por favor, instale usando: pip install pymodbus",
       "modbus_timeout": "A conexão Modbus expirou. Por favor, verifique o endereço IP e certifique-se de que o gateway Modbus está ligado e conectado.",
-      "standalone_battery_not_supported": "Este dispositivo é uma bateria. Conexões diretas com baterias independentes ainda não são suportadas; consulte a issue #176 no GitHub.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Falha ao conectar ao gateway Modbus. Por favor, verifique: (1) o endereço IP está correto, (2) a porta 502 não está bloqueada, (3) Modbus TCP está habilitado no gateway.",
       "dongle_timeout": "A conexão com o dongle WiFi expirou. Por favor, verifique o endereço IP e certifique-se de que o dongle está conectado à sua rede.",
       "dongle_connection_failed": "Falha ao conectar ao dongle WiFi. Por favor, verifique: (1) o endereço IP está correto, (2) a porta 8000 não está bloqueada, (3) o firmware do dongle suporta acesso local (atualizações recentes podem bloquear isso).",
@@ -360,7 +372,10 @@
       "serial_port_error": "Falha ao abrir a porta serial. Por favor, verifique: (1) o caminho da porta está correto, (2) o adaptador USB está conectado, (3) o dispositivo não está em uso por outro aplicativo.",
       "serial_port_in_use": "A porta serial já está em uso por outro aplicativo. Feche outros aplicativos usando esta porta e tente novamente.",
       "invalid_ip_range": "Faixa de IP inválida. Use notação CIDR (ex.: 192.168.1.0/24) ou uma faixa com traço (ex.: 192.168.1.1-192.168.1.254). Apenas faixas de IP privadas são permitidas.",
-      "no_scan_type_selected": "Selecione pelo menos um tipo de escaneamento (Modbus ou Dongle)."
+      "no_scan_type_selected": "Selecione pelo menos um tipo de escaneamento (Modbus ou Dongle).",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "Esta estação {brand_name} Web Monitor já está configurada. Cada estação requer uma instância de integração separada.",
@@ -403,6 +418,12 @@
           "include_ac_couple_pv": "Adicionar potência do inversor solar acoplado em CA (das Smart Ports do GridBOSS) aos totais de PV do grupo paralelo",
           "charge_control_mode": "Como a bateria decide quando PARAR de carregar: SOC (malha fechada, lítio com BMS) ou Tensão (malha aberta, chumbo-ácido / sem BMS). Os controlos de limite não selecionados ficam ocultos por predefinição. ⚠️ Alterar isto também reconfigura o inversor.",
           "discharge_control_mode": "Como a bateria decide quando PARAR de descarregar: SOC (malha fechada, lítio com BMS) ou Tensão (malha aberta, chumbo-ácido / sem BMS). Os controlos de corte não selecionados ficam ocultos por predefinição. ⚠️ Alterar isto também reconfigura o inversor."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

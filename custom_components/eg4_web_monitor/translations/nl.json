@@ -6,7 +6,8 @@
         "description": "Verbind uw EG4-cloudaccount voor volledige toegang tot alle functies, waaronder GridBOSS, Snel Laden en firmware-updates. U kunt later lokale apparaten toevoegen voor snellere polling.",
         "menu_options": {
           "cloud_credentials": "Cloudaccount verbinden",
-          "local_device_type": "Overslaan — Alleen lokaal"
+          "local_device_type": "Overslaan — Alleen lokaal",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -336,6 +337,17 @@
         "data": {
           "confirm": "Bestaande installatie omzetten naar hybride"
         }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -348,7 +360,7 @@
       "timeout": "Verbinding met {brand_name} Web Monitor is verlopen. Controleer uw internetverbinding en probeer het opnieuw.",
       "modbus_not_installed": "De pymodbus-bibliotheek is niet geïnstalleerd. Installeer deze met: pip install pymodbus",
       "modbus_timeout": "Modbus-verbinding is verlopen. Controleer het IP-adres en zorg ervoor dat de Modbus-gateway is ingeschakeld en verbonden.",
-      "standalone_battery_not_supported": "Dit apparaat is een batterij. Directe verbindingen met zelfstandige batterijen worden nog niet ondersteund; zie GitHub-issue #176.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Kan geen verbinding maken met Modbus-gateway. Controleer: (1) IP-adres is correct, (2) poort 502 is niet geblokkeerd, (3) Modbus TCP is ingeschakeld op de gateway.",
       "dongle_timeout": "WiFi-dongle-verbinding is verlopen. Controleer het IP-adres en zorg ervoor dat de dongle is verbonden met uw netwerk.",
       "dongle_connection_failed": "Kan geen verbinding maken met WiFi-dongle. Controleer: (1) IP-adres is correct, (2) poort 8000 is niet geblokkeerd, (3) dongle-firmware ondersteunt lokale toegang (recente updates kunnen dit blokkeren).",
@@ -360,7 +372,10 @@
       "serial_port_error": "Kan seriële poort niet openen. Controleer: (1) poortpad is correct, (2) USB-adapter is aangesloten, (3) apparaat wordt niet gebruikt door een andere applicatie.",
       "serial_port_in_use": "Seriële poort wordt al gebruikt door een andere applicatie. Sluit andere applicaties die deze poort gebruiken en probeer het opnieuw.",
       "invalid_ip_range": "Ongeldig IP-bereik. Gebruik CIDR-notatie (bijv. 192.168.1.0/24) of een bereik (bijv. 192.168.1.1-192.168.1.254). Alleen privé IP-bereiken zijn toegestaan.",
-      "no_scan_type_selected": "Selecteer ten minste één scantype (Modbus of Dongle)."
+      "no_scan_type_selected": "Selecteer ten minste één scantype (Modbus of Dongle).",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "Dit {brand_name} Web Monitor-station is al geconfigureerd. Elk station vereist een aparte integratie-instantie.",
@@ -403,6 +418,12 @@
           "include_ac_couple_pv": "AC-gekoppeld zonne-invertervermogen (van GridBOSS Smart Ports) toevoegen aan de PV-totalen van de parallelle groep",
           "charge_control_mode": "Hoe uw batterij bepaalt wanneer het laden STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde limietbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer.",
           "discharge_control_mode": "Hoe uw batterij bepaalt wanneer het ontladen STOPT: SOC (gesloten lus, lithium met BMS) of Spanning (open lus, loodzuur / zonder BMS). De niet-geselecteerde afschakelbedieningen zijn standaard verborgen. ⚠️ Wijzigen herconfigureert ook uw omvormer."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

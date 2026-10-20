@@ -16,7 +16,7 @@ known device serials; identical display names do not establish a match.
 
 ## Connection Types
 
-The integration supports five ways to reach your equipment. The connection
+The integration supports five ways to reach your inverter equipment. The connection
 *type* is derived automatically from what you configure — you do not choose it
 upfront.
 
@@ -37,6 +37,41 @@ upfront.
 Every one of these is a default defined in
 `custom_components/eg4_web_monitor/const/config_keys.py` and is adjustable in the
 integration options.
+
+### Dedicated battery bridge
+
+Choose **Battery bridge** when adding a separate, read-only EG4 battery bus.
+Provide the bridge host and TCP port, the complete comma-separated list of
+configured battery Modbus unit IDs, and a polling interval (30 seconds by
+default). Unit IDs must be distinct addresses from 1 through 247; broadcast
+address 0 is not accepted. Options change polling; Reconfigure changes the
+endpoint and configured unit list.
+
+Use a dedicated RS485 channel with no other active Modbus master. The integration
+reserves that host and port against its inverter polling and discovery clients.
+The hardware evidence in [#574](https://github.com/joyfulhouse/eg4_web_monitor/issues/574)
+covers Indoor Wall Mount firmware Z02T11 with stable DIP addresses 1, 2 and 3;
+it does not establish compatibility with every EG4 battery family.
+
+Each configured address has a separate device. Voltage, state of charge, state
+of health, capacity, cycle count, and temperatures appear where the detected
+protocol supplies a per-pack measurement. Individual cell voltages and
+temperature channels are disabled by default and can be enabled in the entity
+settings. A unit that stops responding becomes unavailable while its siblings
+continue updating. Device identity follows the integration entry and unit ID:
+changing a physical pack's address changes its identity.
+
+The master protocol reports bank current and bank-wide maximum temperature and
+cycle count, so those master per-pack sensors remain unknown. Master state of charge and remaining capacity also remain unknown: the
+released library can choose an incorrect capacity overflow multiple, even with
+a complete bank. Slave state of charge and capacity are unaffected.
+Cell-balance status is not exposed by the pinned library. No battery writes are
+available.
+
+These direct devices coexist with inverter-reported battery devices. The
+integration does not automatically join their identities or replace inverter
+CAN/cloud values: the observed firmware does not supply a trustworthy pack
+serial that establishes that relationship.
 
 ### Cloud API (HTTP)
 

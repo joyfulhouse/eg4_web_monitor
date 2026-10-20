@@ -1245,6 +1245,10 @@ async def _async_cleanup_failed_entry_setup(
 
 async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up an entry and unwind every acquired resource on failure."""
+    if entry.data.get(CONF_CONNECTION_TYPE) == "battery_bus":
+        from .battery_bus import async_setup_battery_entry
+
+        return await async_setup_battery_entry(hass, entry)
     try:
         return await _async_setup_entry_logged(hass, entry)
     except (Exception, asyncio.CancelledError):
@@ -1551,6 +1555,10 @@ async def _async_options_updated(hass: HomeAssistant, entry: EG4ConfigEntry) -> 
 
 async def async_unload_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Unload a config entry."""
+    if entry.data.get(CONF_CONNECTION_TYPE) == "battery_bus":
+        from .battery_bus import async_unload_battery_entry
+
+        return await async_unload_battery_entry(hass, entry)
     _LOGGER.debug("Unloading EG4 Web Monitor entry: %s", entry.entry_id)
 
     # Unload platforms

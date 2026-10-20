@@ -268,6 +268,12 @@ async def async_setup_entry(
     See: https://github.com/joyfulhouse/eg4_web_monitor/issues/81
     See: https://github.com/joyfulhouse/eg4_web_monitor/issues/154
     """
+    if entry.data.get("connection_type") == "battery_bus":
+        from .battery_bus import async_setup_battery_sensors
+
+        async_setup_battery_sensors(entry, async_add_entities)
+        return
+
     coordinator: EG4DataUpdateCoordinator = entry.runtime_data
 
     # Phase 1 entities: root devices (station, parallel groups) - no via_device

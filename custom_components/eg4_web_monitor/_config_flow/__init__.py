@@ -230,13 +230,21 @@ class EG4ConfigFlow(
         """Initial step - cloud-first menu with local-only skip option."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["cloud_credentials", "local_device_type"],
+            menu_options=["cloud_credentials", "local_device_type", "battery_bridge"],
             description_placeholders={"brand_name": BRAND_NAME},
         )
 
     # =========================================================================
     # ONBOARDING: Cloud-first path
     # =========================================================================
+
+    async def async_step_battery_bridge(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure a dedicated read-only battery bridge."""
+        from .battery import async_battery_bridge_step
+
+        return await async_battery_bridge_step(self, user_input)
 
     async def async_step_cloud_credentials(
         self, user_input: dict[str, Any] | None = None
@@ -885,6 +893,9 @@ class EG4ConfigFlow(
         )
         if entry is None:
             return self.async_abort(reason="entry_not_found")
+
+        if entry.data.get(CONF_CONNECTION_TYPE) == "battery_bus":
+            return await self.async_step_battery_bridge(user_input)
 
         # Auto-migrate legacy entries (modbus/dongle -> local)
         connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)

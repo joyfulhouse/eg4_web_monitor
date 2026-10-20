@@ -1116,6 +1116,23 @@ class EndpointBusRegistry:
         self._owners: dict[_PhysicalEndpointKey, _EndpointBusOwner] = {}
         self._failed_shutdown_capabilities: set[EndpointBusCapability] = set()
         self._next_identity = 0
+        self._external_endpoints: set[_PhysicalEndpointKey] = set()
+
+    def reserve_external_endpoint(self, config: TransportConfig) -> Callable[[], None]:
+        """Reserve a dedicated protocol client against inverter/discovery owners."""
+        key = _endpoint_key(config)
+        if key in self._owners or key in self._external_endpoints:
+            raise EndpointOwnerInUseError("Endpoint is already owned")
+        self._external_endpoints.add(key)
+        released = False
+
+        def release() -> None:
+            nonlocal released
+            if not released:
+                released = True
+                self._external_endpoints.discard(key)
+
+        return release
 
     @property
     def raw_transport_factory(self) -> RawTransportFactory:
@@ -1138,6 +1155,8 @@ class EndpointBusRegistry:
         for one entry, so the coordinator passes its own per call.
         """
         key = _endpoint_key(config)
+        if key in self._external_endpoints:
+            raise EndpointOwnerInUseError("Endpoint is reserved for a dedicated client")
         owner = self._owners.get(key)
         created_owner = owner is None
         if owner is not None and owner.status().state != _OwnerState.OPEN.value:
