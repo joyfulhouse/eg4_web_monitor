@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.20] - 2026-10-20
+
+**Requires [pylxpweb==0.10.0b13](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b13)**
+
 ### Added
 
 - Add optional read-only direct battery bridge entries with explicit unit IDs, independent device identities, cell measurements, and endpoint ownership protection (#176, #574). Master aggregate/reconstructed fields without a reliable per-pack interpretation remain unknown; automatic inverter-battery joining and unsupported protocol fields remain open.
@@ -21,9 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
+- Update the library dependency for exact GEN-LB-EU code 20 and 12000XP code 2102 recognition, cached battery discovery, and conservative master-capacity reconstruction. The integration continues to withhold master SOC and remaining capacity until complete physical topology is established; publishing the library does not enable that opt-in automatically.
 
 ### Fixed
+
+- Import reconciled entity energy history using Home Assistant's recorder source and reject ambiguous ownership (#645). Existing incorrect statistics are not repaired automatically.
 
 - GridBOSS parallel-group Consumption stays on its CT source when either daily or lifetime CT data is incomplete, MID processing fails, or MID discovery temporarily disappears (#661). The affected reading becomes unknown until both CT components return; inverter balances and partial CT sums are no longer substituted. The group source persists across restart; an unclassified legacy group in a known GridBOSS entry stays unknown until association returns. Confirmed inverter-only groups retain their source, and deliberate GridBOSS removal/reload permits re-evaluation. Existing LOCAL device-error availability is unchanged.
 

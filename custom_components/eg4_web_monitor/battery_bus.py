@@ -80,8 +80,8 @@ def project_battery(data: BatteryData, protocol: str) -> dict[str, Any]:
     result.update(
         voltage=data.voltage if data.voltage > 0 else None,
         current=None if master else data.current,
-        # Released master capacity unwrapping can add 655.36 Ah at low SOC.
-        # Even a complete bank cannot establish an accurate per-pack value.
+        # Per-pack reconstruction needs verified complete physical topology;
+        # configured polling IDs alone do not establish that inventory.
         soc=None if master else data.soc,
         soh=data.soh,
         temperature=None if master else data.temperature,

@@ -1463,10 +1463,11 @@ class TestIssue641:
 
     @staticmethod
     def _payload(server_time: str, status: int = 1, total: int | None = None):
-        """A portal midbox response: every field None but the ones named."""
+        """Missing portal measurements with valid empty provenance metadata."""
         from pylxpweb.models import MidboxData, MidboxRuntime
 
         fields: dict[str, Any] = dict.fromkeys(MidboxData.model_fields)
+        fields.pop("provenance")
         fields.update(serverTime=server_time, deviceTime=server_time, status=0)
         fields.update({f"smartPort{port}Status": status for port in range(1, 5)})
         if total is not None:
@@ -1941,7 +1942,6 @@ class TestIssue641:
             if cloud_stamp is None:
                 cloud_stamp = sensors[SMART_PORT_READ_KEY]
             sync.async_sync({"devices": {GB: _gridboss(sensors)}})
-        local_stamp = sensors[SMART_PORT_READ_KEY]
         assert registry.async_get(ac_total.entity_id).disabled_by is None
         assert registry.async_get(smart_total.entity_id).disabled_by is INTEGRATION
 
@@ -2005,13 +2005,11 @@ class TestIssue641:
         assert registry.async_get(aggregate.entity_id) is not None
         assert registry.async_get(ac_total.entity_id).disabled_by is None
         assert registry.async_get(smart_total.entity_id).disabled_by is INTEGRATION
-        assert sensors[SMART_PORT_READ_KEY] == (
-            local_stamp if fallback_kind == "rejected" else cloud_stamp
-        )
+        assert sensors[SMART_PORT_READ_KEY] == cloud_stamp
         assert SMART_PORT_VALIDATED_KEY not in sensors
         coordinator.async_add_listener.return_value.assert_not_called()
         if fallback_kind == "rejected":
-            assert mid._runtime.midboxData.eLoadTodayL1 == 9_000_000
+            assert mid._runtime is cloud
 
         # A distinct cloud record can restore authority and complete cleanup.
         stale = _seed(hass, entry, f"{GB}_smart_load_power", "sensor.stale_sl")
