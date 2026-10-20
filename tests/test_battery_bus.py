@@ -252,7 +252,7 @@ async def test_failed_onboarding_releases_probe(hass):
                 "dedicated_bus": True,
             },
         )
-    assert result["errors"] == {"base": "cannot_connect"}
+    assert result["errors"] == {"base": "battery_cannot_connect"}
     bus.disconnect.assert_awaited_once()
     release = get_endpoint_bus_registry(hass).reserve_external_endpoint(
         battery_endpoint(DATA)

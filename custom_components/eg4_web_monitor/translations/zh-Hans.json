@@ -367,7 +367,8 @@
       "invalid_ip_range": "无效的 IP 范围。请使用 CIDR 表示法（例如 192.168.1.0/24）或范围（例如 192.168.1.1-192.168.1.254）。仅允许私有 IP 范围。",
       "no_scan_type_selected": "请至少选择一种扫描类型（Modbus 或 Dongle）。",
       "battery_no_response": "None of the configured battery units responded.",
-      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "此 {brand_name} Web Monitor 电站已配置。每个电站需要单独的集成实例。",

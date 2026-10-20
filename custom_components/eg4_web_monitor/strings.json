@@ -367,7 +367,8 @@
       "invalid_ip_range": "Invalid IP range. Use CIDR notation (e.g., 192.168.1.0/24) or a dash range (e.g., 192.168.1.1-192.168.1.254). Only private IP ranges are allowed.",
       "no_scan_type_selected": "Select at least one scan type (Modbus or Dongle).",
       "battery_no_response": "None of the configured battery units responded.",
-      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "This {brand_name} Web Monitor station is already configured. Each station requires a separate integration instance.",

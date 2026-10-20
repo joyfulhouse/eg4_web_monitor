@@ -367,7 +367,8 @@
       "invalid_ip_range": "Nieprawidlowy zakres IP. Uzyj notacji CIDR (np. 192.168.1.0/24) lub zakresu (np. 192.168.1.1-192.168.1.254). Dozwolone sa tylko prywatne zakresy IP.",
       "no_scan_type_selected": "Wybierz co najmniej jeden typ skanowania (Modbus lub Dongle).",
       "battery_no_response": "None of the configured battery units responded.",
-      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "Ta stacja {brand_name} Web Monitor jest juz skonfigurowana. Kazda stacja wymaga oddzielnej instancji integracji.",

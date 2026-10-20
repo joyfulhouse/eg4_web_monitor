@@ -367,7 +367,8 @@
       "invalid_ip_range": "無効なIPレンジです。CIDR表記（例：192.168.1.0/24）またはダッシュ範囲（例：192.168.1.1-192.168.1.254）を使用してください。プライベートIPレンジのみが許可されています。",
       "no_scan_type_selected": "少なくとも1つのスキャンタイプ（ModbusまたはDongle）を選択してください。",
       "battery_no_response": "None of the configured battery units responded.",
-      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus."
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "この{brand_name} Web Monitorステーションはすでに設定されています。各ステーションには別々のインテグレーションインスタンスが必要です。",

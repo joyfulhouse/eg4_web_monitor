@@ -100,7 +100,7 @@ async def async_battery_bridge_step(
         except EndpointOwnerInUseError:
             errors["base"] = "endpoint_in_use"
         except Exception:
-            errors["base"] = "cannot_connect"
+            errors["base"] = "battery_cannot_connect"
     unit_default = defaults.get(CONF_BATTERY_UNITS, "1,2,3")
     if isinstance(unit_default, list):
         unit_default = ",".join(str(unit) for unit in unit_default)
