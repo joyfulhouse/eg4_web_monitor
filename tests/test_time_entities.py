@@ -457,14 +457,23 @@ class TestTimePlatformSetup:
         assert await _setup_keys(hass, coordinator) == set()
 
     @pytest.mark.asyncio
-    async def test_setup_skips_non_inverter_devices(self, hass):
-        """GridBOSS/MID devices have no inverter schedules."""
+    @pytest.mark.parametrize("local", [False, True])
+    async def test_setup_skips_non_inverter_devices(self, hass, local):
+        """GridBOSS/MID devices have no inverter schedules; with a local
+        transport they get only the smart port windows."""
         coordinator = _mock_coordinator()
         coordinator.data["devices"] = {
             "gb123": {"type": "gridboss", "model": "GridBOSS"}
         }
+        coordinator.has_configured_local_transport = MagicMock(return_value=local)
+        entry = MagicMock()
+        entry.runtime_data = coordinator
+        entities = []
+        await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        assert await _setup_keys(hass, coordinator) == set()
+        type_names = {type(e).__name__ for e in entities}
+        assert type_names == ({"EG4SmartPortWindowTime"} if local else set())
+        assert len(entities) == (48 if local else 0)
 
     @pytest.mark.asyncio
     async def test_all_schedule_entities_disabled_by_default(self, hass):
