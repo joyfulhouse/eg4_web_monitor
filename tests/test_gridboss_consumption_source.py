@@ -168,6 +168,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
         _async_cleanup_removed_registry_devices,
         async_remove_config_entry_device,
     )
+    from custom_components.eg4_web_monitor.device_removal import DEVICE_ABSENCE_WINDOW
     from custom_components.eg4_web_monitor.gridboss_topology import (
         GRIDBOSS_GROUP_MODEL_ID,
         INVERTER_GROUP_MODEL_ID,
@@ -330,7 +331,17 @@ async def test_restart_preserves_group_source(hass, mode, history):
         first._removal_device_observed_since = 0.0
         first.data = {"devices": {}}
         first.station = None
-        assert await async_remove_config_entry_device(hass, entry, device)
+        # Exercise the observation window independently of the runner's uptime.
+        with patch(
+            "custom_components.eg4_web_monitor.device_removal.monotonic",
+            return_value=DEVICE_ABSENCE_WINDOW - 1,
+        ):
+            assert not await async_remove_config_entry_device(hass, entry, device)
+        with patch(
+            "custom_components.eg4_web_monitor.device_removal.monotonic",
+            return_value=DEVICE_ABSENCE_WINDOW + 1,
+        ):
+            assert await async_remove_config_entry_device(hass, entry, device)
         registry.async_remove_device(device.id)
     await first.async_shutdown()
 
