@@ -1655,3 +1655,14 @@ Updated the quality-gates matrix and release-process HACS row; historical
 validation records remain historical. Published integration beta.20 keeps
 its original requirements. The library follows the new HA compatibility
 matrix while retaining standalone Python 3.13 support.
+
+## [2026-10-20] ingest | October schema and device ownership migration
+
+PR #682 testing exposed October HA schema typing changes and deprecated device
+ownership access. Source commit `9ae5cde` migrates forms/services to `probatio`
+and uses singular config-entry ownership for topology and registry cleanup.
+Updated [config flow](10-integration/config-flow.md) and
+[architecture](10-integration/architecture.md): the old Voluptuous and shared-row
+cleanup descriptions no longer describe the supported minimum. Invalid-input
+regressions and cross-entry cleanup/topology tests verify software behavior;
+no hardware claim is made.

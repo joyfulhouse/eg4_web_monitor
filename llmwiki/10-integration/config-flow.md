@@ -21,6 +21,7 @@ sources:
 verified-against: c411499
 # Physical-device conversion subsection reverified at 9ea6c83.
 # Direct battery sections verified against 7bbb0b2 on 2026-10-20.
+# Schema API row and paragraph verified against 9ae5cde on 2026-10-20.
 last-verified: 2026-10-20
 see-also:
   - architecture.md
@@ -78,13 +79,20 @@ __all__ = ["EG4ConfigFlow", "EG4OptionsFlow"]
 | `_config_flow/__init__.py` | Single `EG4ConfigFlow` (`VERSION = 3`) — onboarding, network scan, reauth, reconfigure, entry build/update |
 | `_config_flow/options.py` | `EG4OptionsFlow` — connection-aware interval form and battery-control-mode pickers |
 | `_config_flow/discovery.py` | Device auto-discovery over Modbus / dongle / serial |
-| `_config_flow/schemas.py` | Voluptuous schema builders |
+| `_config_flow/schemas.py` | Probatio schema builders (verified at `9ae5cde`) |
 | `_config_flow/helpers.py` | `build_unique_id`, `cloud_unique_id_from_data`, conflict finders, `migrate_legacy_entry`, `timezone_observes_dst` |
 | `_config_flow/serial_ports.py` | Serial port enumeration |
 
 All rows: `verified-against-code`. This table is the **canonical** `_config_flow/` package layout
 (adjudication A7); `architecture.md` and `00-orientation/repo-map.md` link here instead of
 restating it.
+
+Form schemas use Home Assistant's October `probatio` API directly, including
+required/optional markers, defaults, coercion and bounds. Missing required cloud
+credentials are handled by HA as `data_entry_flow.InvalidData` before login.
+`verified-against-code` at `9ae5cde`: `_config_flow/schemas.py`,
+`_config_flow/options.py`, `_config_flow/battery.py`, and
+`tests/test_config_flow.py::test_cloud_credentials_schema_error_uses_ha_validation`.
 
 ## 2. The flow class
 
