@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Remember known GridBOSS topology before publishing inverter Consumption statistics after restart (#664), including delayed cloud discovery. The existing device registry retains this knowledge. To restore statistics after permanently removing a GridBOSS, delete its device using Home Assistant's guarded removal flow, then reload the entry; removing it from a LOCAL configuration also clears the topology during setup. Actual inverter-only entries retain their statistics.
 - Create previously registered HYBRID inverter and battery-bank measurement sensors during setup while their local readings are pending (#653). Current ownership, transport configuration and feature filters remain authoritative; no gateway read is added to setup.
+- Physical LOCAL daily energy sensors clear yesterday's dip-guard baseline when a newly accepted transport snapshot belongs to a later Home Assistant local day (#666). Cached reads and availability changes cannot redate samples; lifetime behavior is unchanged. An undated restored daily baseline does not pin the first trusted LOCAL reading. Cloud, parallel-group and independent-battery provenance remain tracked in #666 / pylxpweb #383.
 
 ### Added
 
