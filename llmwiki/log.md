@@ -1523,3 +1523,13 @@ in the data-flow owner and troubleshooting guide. Entity setup must remain
 independent of a stalled read; the real-HA regression covers first refresh,
 platform forwarding, eventual measurements and a never-completing read. The
 separate HYBRID transport-only discovery delay remains explicitly unresolved.
+
+## [2026-10-20] ingest | Cloud write rejection normalization
+
+Updated [controls and writes](10-integration/controls-and-writes.md) from
+`ad79479` and the primary #668 traceback. The router previously allowed
+LuxpowerAPIError to escape into HA as an unexpected exception; known library
+cloud failures now retain their cause inside HomeAssistantError. Regression
+tests reproduce the original failure and assert rejected SOC writes publish
+4 then 100 without cache seeding. No register limits or hardware evidence
+grades change; #668 remains open for control intent and firmware evidence.
