@@ -1549,3 +1549,10 @@ hybrid conversion. Reviewed guards include both directions of partial overlap,
 concurrent target changes, identity conflicts, and retained options. The prior
 separate unique-ID namespaces alone could not prevent physical duplicate entries.
 No hardware capability or register claim changes.
+## [2026-10-20] ingest | HYBRID measurement entity startup (#653)
+
+Updated data-flow-by-mode from f6abc8c and real HA lifecycle regressions.
+Previously registered eligible inverter/bank keys are seeded unknown before
+platform setup; first local data no longer needs to create those entities.
+Both delayed and hung-read scenarios fail on the baseline and pass with the
+change. Poll timing and never-observed sensor discovery are unchanged.
