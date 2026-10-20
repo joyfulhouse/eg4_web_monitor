@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Settings for the port's other mode are disabled, as the port sensors are, and the SOC or voltage thresholds follow the Battery Charge / Discharge Control options (the unselected set is disabled). A setting the portal greys out, such as the Smart Load times when Based On is SOC/Volt or the shedding settings with Power Shedding off, shows unavailable. Changes made in the portal or app show up on the parameter refresh interval (the enables, on every GridBOSS update). Smart Load Enable is also the way to repair the flag an earlier Unused write cleared (#629), and the Unused error now points to it when it exists. See [Smart port settings](docs/CONFIGURATION.md#smart-port-settings).
 
+### Changed
+
+- Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
+
 ## [3.5.1-beta.19] - 2026-10-14
 
 **Requires [pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**
