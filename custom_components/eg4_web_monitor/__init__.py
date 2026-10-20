@@ -11,7 +11,7 @@ import homeassistant.helpers.config_validation as cv
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 import homeassistant.helpers.issue_registry as ir
-import voluptuous as vol
+import probatio
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
 from homeassistant.core import (
@@ -161,20 +161,20 @@ SERVICE_REFRESH_DATA = "refresh_data"
 SERVICE_RECONCILE_HISTORY = "reconcile_history"
 SERVICE_FETCH_EVENTS = "fetch_events"
 
-REFRESH_DATA_SCHEMA = vol.Schema(
+REFRESH_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Optional("entry_id"): cv.string,
+        probatio.Optional("entry_id"): cv.string,
     }
 )
 
-RECONCILE_HISTORY_SCHEMA = vol.Schema(
+RECONCILE_HISTORY_SCHEMA = probatio.Schema(
     {
-        vol.Optional("lookback_hours", default=48): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=8760)
+        probatio.Optional("lookback_hours", default=48): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=1, max=8760)
         ),
-        vol.Optional("start_date"): cv.string,
-        vol.Optional("end_date"): cv.string,
-        vol.Optional("entry_id"): cv.string,
+        probatio.Optional("start_date"): cv.string,
+        probatio.Optional("end_date"): cv.string,
+        probatio.Optional("entry_id"): cv.string,
     }
 )
 
@@ -255,8 +255,8 @@ def _async_remove_registry_ownership(
 
     If ``device_ids`` is provided, only that device subtree is detached (the
     reconfigure path).  Otherwise all records owned by the entry are removed
-    (the config-entry deletion path).  A device linked to another config entry
-    is retained and only this entry's ownership is removed.
+    (the config-entry deletion path). Devices belonging to another config entry
+    are retained, even when they use the same identifiers.
     """
     entity_registry = er.async_get(hass)
     device_registry = dr.async_get(hass)
@@ -275,15 +275,7 @@ def _async_remove_registry_ownership(
 
     removed_devices = 0
     for device in entry_devices:
-        # The registry itself deletes a device when its final config-entry link
-        # is removed.  Keep shared devices by detaching only this entry; remove
-        # exclusively-owned devices explicitly after their entities are gone.
-        other_config_entries = device.config_entries - {entry.entry_id}
-        if other_config_entries:
-            device_registry.async_update_device(
-                device.id, remove_config_entry_id=entry.entry_id
-            )
-            continue
+        # Supported HA versions give each device exactly one config-entry owner.
         device_registry.async_remove_device(device.id)
         removed_devices += 1
 

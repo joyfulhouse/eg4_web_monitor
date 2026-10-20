@@ -1,6 +1,6 @@
 """Persistent GridBOSS topology shared by statistics source decisions."""
 
-from typing import Any, cast
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -15,15 +15,10 @@ INVERTER_GROUP_MODEL_ID = "eg4_web_monitor:inverter_group"
 def get_topology_device(
     registry: dr.DeviceRegistry, config_entry_id: str, identifier: str
 ) -> dr.DeviceEntry | None:
-    """Use entry-scoped registry lookup, retaining legacy collision checks."""
-    lookup = getattr(registry, "async_get_device_by_identifier", None)
-    if callable(lookup):
-        return cast(
-            dr.DeviceEntry | None, lookup((DOMAIN, identifier), config_entry_id)
-        )
-    # Older HA shares identifiers across entries. Return the global match so
-    # callers can reject foreign/shared ownership before writing a role marker.
-    return registry.async_get_device(identifiers={(DOMAIN, identifier)})
+    """Use the supported HA registry's entry-scoped device identity."""
+    return registry.async_get_device_by_identifier(
+        (DOMAIN, identifier), config_entry_id
+    )
 
 
 def is_registered_gridboss(device: dr.DeviceEntry) -> bool:
@@ -63,7 +58,7 @@ def group_consumption_source(
     registry = dr.async_get(coordinator.hass)
     if has_mid and mid_serial:
         mid = get_topology_device(registry, coordinator.entry.entry_id, mid_serial)
-        if mid is None or mid.config_entries == {coordinator.entry.entry_id}:
+        if mid is None or mid.config_entry_id == coordinator.entry.entry_id:
             # Association is topology evidence even when the first data read
             # fails before any GridBOSS entity can register its device.
             registry.async_get_or_create(
@@ -73,9 +68,7 @@ def group_consumption_source(
                 model_id=GRIDBOSS_MODEL_ID,
             )
     device = get_topology_device(registry, coordinator.entry.entry_id, group_id)
-    may_persist = device is None or device.config_entries == {
-        coordinator.entry.entry_id
-    }
+    may_persist = device is None or device.config_entry_id == coordinator.entry.entry_id
     if not may_persist:
         # Group identifiers predate entry scoping; never borrow or overwrite a
         # foreign/shared record's source classification.

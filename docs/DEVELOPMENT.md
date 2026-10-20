@@ -4,7 +4,7 @@ How to set up a development environment for EG4 Web Monitor.
 
 ## Prerequisites
 
-- Python 3.13+ and [`uv`](https://docs.astral.sh/uv/).
+- Python 3.14.2+ and [`uv`](https://docs.astral.sh/uv/).
 - The [pylxpweb](https://github.com/joyfulhouse/pylxpweb) library (the API and
   transport layer this integration is built on).
 
@@ -13,7 +13,7 @@ How to set up a development environment for EG4 Web Monitor.
 ```bash
 git clone https://github.com/joyfulhouse/eg4_web_monitor.git
 cd eg4_web_monitor
-uv venv --python 3.13
+uv venv --python 3.14
 source .venv/bin/activate
 uv pip install -r tests/requirements-test.txt
 ```

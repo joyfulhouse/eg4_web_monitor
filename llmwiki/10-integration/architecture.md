@@ -20,7 +20,8 @@ verified-against: 9f6d6e2
 # Section 4.2 smart-port authority is verified at
 # 82bd1fbb2f360347bb68d7a448a1985c0e0e3294 on 2026-10-13.
 # The refreshed date applies only to the scope above (no wholesale reverification).
-last-verified: 2026-10-13
+# Service schema and removal ownership notes reverified at 9ae5cde on 2026-10-20.
+last-verified: 2026-10-20
 see-also:
   - data-flow-by-mode.md
   - controls-and-writes.md
@@ -325,7 +326,7 @@ still applies; withholding validation does not remove that fallback.
 |---|---|---|
 | Unload | Unload platforms → `coordinator.async_shutdown()` (disconnect transports, cancel background tasks) → close the HTTP client → unregister library logging | `verified-against-code` (`__init__.py` → `async_unload_entry`) |
 | HA stop | Mark the one-shot stop listener consumed, then run the shared `_async_shutdown_work()` teardown, including base coordinator/debouncer shutdown; the outer coordinator HA-stop wrapper closes the cloud client/session once | `verified-against-code` at `a79b8eb` (`coordinator_mixins.py` → `BackgroundTaskMixin._async_handle_shutdown_work`; `coordinator.py` → `_async_handle_shutdown`; `tests/test_coordinator_ha_stop.py` and `tests/test_cloud_session_isolation.py` → stop regressions) |
-| Removal | Purge recorder statistics for all entities, remove entity/device registry ownership (**shared devices are detached, not deleted**), remove the PV lifetime `Store` | `verified-against-code` (`__init__.py` → `async_remove_entry`) |
+| Removal | Purge recorder statistics for all entities, remove this entry's entity/device records, and remove the PV lifetime `Store`. Other entries' device records survive even when identifiers overlap; supported HA gives each device one `config_entry_id` owner | `verified-against-code` at `9ae5cde` (`__init__.py` → `async_remove_entry`, `_async_remove_registry_ownership`; `tests/test_init.py` → `TestRegistryLifecycleCleanup`) |
 
 Per-device removal — the user deleting one device from the UI — is a separate, ledger-governed
 path; see [diagnostics-repairs.md](diagnostics-repairs.md#6-device-removal-observation-ledger).
@@ -369,3 +370,11 @@ _async_update_data()                         # coordinator.py → _async_update_
 | Staleness, gating, energy, batteries, throttles | [data-semantics.md](data-semantics.md) |
 | Register ground truth | [../40-hardware/registers.md](../40-hardware/registers.md) |
 | Unresolved conflicts touching this chapter | [../60-history/open-contradictions.md](../60-history/open-contradictions.md) |
+
+## October service validation
+
+Service schemas use `probatio` in `__init__.py`, `services.py` and
+`history_import.py`, matching the supported Home Assistant service registry API.
+Invalid service input is rejected before handlers run. `verified-against-code`
+at `9ae5cde`; regression coverage:
+`tests/test_init.py::TestAsyncSetup::test_service_schema_rejects_invalid_input`.

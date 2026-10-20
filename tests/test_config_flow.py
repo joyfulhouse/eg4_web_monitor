@@ -203,6 +203,22 @@ async def _init_and_select_cloud(hass: HomeAssistant):
     return result
 
 
+async def test_cloud_credentials_schema_error_uses_ha_validation(hass: HomeAssistant):
+    """HA handles missing required credentials before invoking cloud login."""
+    result = await _init_and_select_cloud(hass)
+
+    with patch(
+        "custom_components.eg4_web_monitor._config_flow.LuxpowerClient"
+    ) as client:
+        with pytest.raises(data_entry_flow.InvalidData) as error:
+            await hass.config_entries.flow.async_configure(
+                result["flow_id"], {CONF_USERNAME: "test@example.com"}
+            )
+
+    assert error.value.path == [CONF_PASSWORD]
+    client.assert_not_called()
+
+
 async def test_user_flow_success_multiple_plants(hass: HomeAssistant, mock_api):
     """Test successful user flow with multiple plants."""
     result = await _init_and_select_cloud(hass)

@@ -64,7 +64,7 @@ from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, TypedDict
 
 import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
+import probatio
 from homeassistant.components.recorder.models import (
     StatisticData,
     StatisticMeanType,
@@ -142,12 +142,12 @@ _IMPORT_LOCKS: dict[str, asyncio.Lock] = {}
 # cross-plant imports from losing one another's marker updates.
 _TZ_MARKER_LOCK = asyncio.Lock()
 
-IMPORT_HISTORICAL_DATA_SCHEMA = vol.Schema(
+IMPORT_HISTORICAL_DATA_SCHEMA = probatio.Schema(
     {
-        vol.Required("config_entry"): cv.string,
-        vol.Required("start_date"): cv.date,
-        vol.Optional("end_date"): cv.date,
-        vol.Optional("dry_run", default=False): cv.boolean,
+        probatio.Required("config_entry"): cv.string,
+        probatio.Required("start_date"): cv.date,
+        probatio.Optional("end_date"): cv.date,
+        probatio.Optional("dry_run", default=False): cv.boolean,
     }
 )
 

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
+import probatio
 from homeassistant.components.recorder.statistics import (
     async_import_statistics,
     statistics_during_period,
@@ -699,12 +699,12 @@ def _transform_to_statistics(
 # inverters AND GridBOSS/MID devices both return events).
 _EVENT_DEVICE_TYPES = ("inverter", "gridboss")
 
-FETCH_EVENTS_SCHEMA = vol.Schema(
+FETCH_EVENTS_SCHEMA = probatio.Schema(
     {
-        vol.Required("config_entry"): cv.string,
-        vol.Optional("serial"): cv.string,
-        vol.Optional("count", default=30): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=100)
+        probatio.Required("config_entry"): cv.string,
+        probatio.Optional("serial"): cv.string,
+        probatio.Optional("count", default=30): probatio.All(
+            probatio.Coerce(int), probatio.Range(min=1, max=100)
         ),
     }
 )

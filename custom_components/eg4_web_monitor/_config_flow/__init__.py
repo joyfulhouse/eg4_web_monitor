@@ -23,7 +23,7 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
+import probatio
 from homeassistant import config_entries
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.helpers import aiohttp_client
@@ -479,7 +479,9 @@ class EG4ConfigFlow(
 
         return self.async_show_form(
             step_id="network_scan_results",
-            data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
+            data_schema=probatio.Schema(
+                {probatio.Required("device"): probatio.In(device_options)}
+            ),
             description_placeholders={
                 "device_count": str(len(self._scan_results)),
                 "scanned_range": self._scan_ip_range or "",
@@ -822,7 +824,9 @@ class EG4ConfigFlow(
 
         return self.async_show_form(
             step_id="local_finish",
-            data_schema=vol.Schema({vol.Optional("station_name", default=""): str}),
+            data_schema=probatio.Schema(
+                {probatio.Optional("station_name", default=""): str}
+            ),
             description_placeholders={
                 "device_summary": ", ".join(
                     f"{t.get('model', '?')} ({t.get('serial', '?')})"
@@ -1047,7 +1051,7 @@ class EG4ConfigFlow(
 
         return self.async_show_form(
             step_id="reconfigure_cloud_remove",
-            data_schema=vol.Schema({}),
+            data_schema=probatio.Schema({}),
             description_placeholders={"brand_name": BRAND_NAME},
         )
 
@@ -1112,7 +1116,9 @@ class EG4ConfigFlow(
         }
         return self.async_show_form(
             step_id="reconfigure_device_remove",
-            data_schema=vol.Schema({vol.Required("device"): vol.In(device_options)}),
+            data_schema=probatio.Schema(
+                {probatio.Required("device"): probatio.In(device_options)}
+            ),
         )
 
     async def async_step_reconfigure_devices_save(
@@ -1629,7 +1635,9 @@ class EG4ConfigFlow(
         if user_input is None:
             return self.async_show_form(
                 step_id="convert_hybrid",
-                data_schema=vol.Schema({vol.Required("confirm", default=False): bool}),
+                data_schema=probatio.Schema(
+                    {probatio.Required("confirm", default=False): bool}
+                ),
                 description_placeholders={"entry_title": entry.title},
             )
         if not user_input.get("confirm"):

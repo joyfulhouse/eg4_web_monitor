@@ -4,6 +4,7 @@ import asyncio
 import logging
 from types import SimpleNamespace
 
+import probatio
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -92,6 +93,30 @@ def mock_config_entry(mock_coordinator):
 
 class TestAsyncSetup:
     """Test async_setup function."""
+
+    @pytest.mark.parametrize(
+        ("service", "data", "return_response"),
+        [
+            ("refresh_data", {"entry_id": []}, False),
+            ("reconcile_history", {"lookback_hours": 0}, False),
+            ("import_historical_data", {}, False),
+            ("fetch_events", {"config_entry": "test", "count": 101}, True),
+        ],
+    )
+    async def test_service_schema_rejects_invalid_input(
+        self, hass: HomeAssistant, service, data, return_response
+    ):
+        """Registered services reject invalid input using HA's validation API."""
+        await async_setup(hass, {})
+
+        with pytest.raises(probatio.Invalid):
+            await hass.services.async_call(
+                DOMAIN,
+                service,
+                data,
+                blocking=True,
+                return_response=return_response,
+            )
 
     async def test_setup_registers_service(self, hass: HomeAssistant):
         """Test that setup registers the refresh_data service."""
@@ -1029,7 +1054,7 @@ class TestRegistryLifecycleCleanup:
             dr.async_get(hass), (DOMAIN, "SHARED123"), other_entry.entry_id
         )
         assert surviving is not None
-        assert surviving.config_entries == {other_entry.entry_id}
+        assert surviving.config_entry_id == other_entry.entry_id
         assert (
             get_registry_device(
                 dr.async_get(hass), (DOMAIN, "SHARED123"), mock_config_entry.entry_id
@@ -1085,7 +1110,7 @@ class TestRegistryLifecycleCleanup:
             device_registry, (DOMAIN, "SHARED123"), other_entry.entry_id
         )
         assert surviving is not None
-        assert surviving.config_entries == {other_entry.entry_id}
+        assert surviving.config_entry_id == other_entry.entry_id
         assert (
             get_registry_device(
                 device_registry, (DOMAIN, "SHARED123"), mock_config_entry.entry_id

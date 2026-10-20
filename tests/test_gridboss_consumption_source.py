@@ -422,7 +422,7 @@ async def test_group_source_never_borrows_or_overwrites_foreign_role(
         registry.async_get_or_create(
             config_entry_id=entry.entry_id, identifiers=foreign_device.identifiers
         )
-    ownership = registry.async_get(foreign_device.id).config_entries
+    ownership = registry.async_get(foreign_device.id).config_entry_id
     with patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"):
         coordinator = EG4DataUpdateCoordinator(hass, entry)
     source = group_consumption_source(
@@ -430,7 +430,7 @@ async def test_group_source_never_borrows_or_overwrites_foreign_role(
     )
     assert source == ("gridboss" if has_mid else "inverter")
     current = registry.async_get(foreign_device.id)
-    assert current.config_entries == ownership
+    assert current.config_entry_id == ownership
     assert current.model_id == GRIDBOSS_GROUP_MODEL_ID
     coordinator.data = {
         "devices": {
@@ -441,7 +441,7 @@ async def test_group_source_never_borrows_or_overwrites_foreign_role(
     if hasattr(registry, "async_get_device_by_identifier"):
         own_device = _entry_device(registry, entry.entry_id, "parallel_group_a")
         assert own_device.id != foreign_device.id
-        assert own_device.config_entries == {entry.entry_id}
+        assert own_device.config_entry_id == entry.entry_id
         expected_marker = f"eg4_web_monitor:{source}_group"
         assert own_device.model_id == expected_marker
         assert info["model_id"] == expected_marker
@@ -489,5 +489,5 @@ async def test_cached_group_role_is_not_republished_after_ownership_changes(hass
     else:
         assert info["model_id"] == INVERTER_GROUP_MODEL_ID
         assert registry.async_get(other_device.id).model_id is None
-        assert registry.async_get(own_device.id).config_entries == {entry.entry_id}
+        assert registry.async_get(own_device.id).config_entry_id == entry.entry_id
     await coordinator.async_shutdown()

@@ -256,16 +256,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {ha: '2026.1.0', python: '3.13'}
-          - {ha: '2026.2.0', python: '3.13'}
-          - {ha: '2026.3.0', python: '3.14'}
-          - {ha: '2026.4.0', python: '3.14'}
-          - {ha: '2026.5.0', python: '3.14'}
-          - {ha: '2026.6.0', python: '3.14'}
-          - {ha: '2026.7.0', python: '3.14'}
-          - {ha: '2026.8.0', python: '3.14'}
-          - {ha: '2026.9.0', python: '3.14'}
-          - {ha: '2026.9.4', python: '3.14'}
+          - {ha: '2026.10.0', python: '3.14'}
+          - {ha: '2026.10.2', python: '3.14'}
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
@@ -742,7 +734,7 @@ jobs:
       matrix:
         include:
           - ha: minimum
-            python: '3.13'
+            python: '3.14'
             constraints: tests/constraints-ha-minimum.txt
           - ha: latest
             python: '3.14'
@@ -901,7 +893,7 @@ jobs:
       matrix:
         include:
           - ha: minimum
-            python: '3.13'
+            python: '3.14'
             constraints: tests/constraints-ha-minimum.txt
           - ha: latest
             python: '3.14'
@@ -936,7 +928,7 @@ jobs:
           MODBUS_CONNECTION_REQ=$(grep -oE '^modbus-connection(\[[a-z0-9,-]+\])?[><=!~]+[0-9a-zA-Z.]+' tests/requirements-test.txt)
           echo "Using requirement: $MODBUS_CONNECTION_REQ"
           # mypy pinned to match tests/requirements-test.txt (#528 review)
-          uv pip install --system 'homeassistant>=2026.1.0' 'mypy==2.3.0' "$PYLXPWEB_PIN" "$MODBUS_CONNECTION_REQ" -c ${{ matrix.constraints }}
+          uv pip install --system 'homeassistant>=2026.10.0' 'mypy==2.3.0' "$PYLXPWEB_PIN" "$MODBUS_CONNECTION_REQ" -c ${{ matrix.constraints }}
 
       - name: Verify strict typing configuration
         run: |
