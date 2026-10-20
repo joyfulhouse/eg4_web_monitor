@@ -2547,10 +2547,12 @@ class LocalTransportMixin(_MixinBase):
             # the authoritative source for grid interaction — inverters don't
             # see the actual grid import/export.
             has_mid_device = False
+            mid_serial = None
             for serial, device_data in processed.get("devices", {}).items():
                 if device_data.get("type") != "gridboss":
                     continue
                 has_mid_device = True
+                mid_serial = serial
                 # The GridBOSS CTs are authoritative contributors to the
                 # group's grid/consumption values — any stale/error-marked
                 # GridBOSS taints the aggregate the same way an inverter
@@ -2630,6 +2632,7 @@ class LocalTransportMixin(_MixinBase):
                 self,
                 group_device_id,
                 has_mid=has_mid_device,
+                mid_serial=mid_serial,
                 previous_source=previous_group.get("consumption_source"),
             )
             pg_device_data["consumption_source"] = source

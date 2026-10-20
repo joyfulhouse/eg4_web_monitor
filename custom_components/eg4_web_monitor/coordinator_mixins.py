@@ -4190,7 +4190,24 @@ class DeviceInfoMixin(_MixinBase):
         """Get device information for a specific serial number."""
         cache = self._get_cache("_device_info_cache")
         if serial in cache:
-            return cache[serial]
+            cached = cache[serial]
+            if cached.get("model_id") in {
+                GRIDBOSS_GROUP_MODEL_ID,
+                INVERTER_GROUP_MODEL_ID,
+            }:
+                registered = dr.async_get(self.hass).async_get_device(
+                    identifiers={(DOMAIN, serial)}
+                )
+                if registered is not None and registered.config_entries != {
+                    self.entry.entry_id
+                }:
+                    # Another entry may have claimed this legacy group ID after
+                    # the cache was populated; do not republish its old marker.
+                    cache.pop(serial)
+                else:
+                    return cached
+            else:
+                return cached
 
         if not self.data or "devices" not in self.data:
             return None

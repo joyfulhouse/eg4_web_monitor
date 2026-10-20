@@ -1018,6 +1018,7 @@ class HTTPUpdateMixin(_MixinBase):
                         self,
                         f"parallel_group_{group.name.lower()}",
                         has_mid=bool(mid_device),
+                        mid_serial=mid_device.serial_number if mid_device else None,
                         previous_source=previous_group.get("consumption_source"),
                     )
                     group_data["consumption_source"] = source

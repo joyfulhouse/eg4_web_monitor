@@ -38,6 +38,7 @@ def group_consumption_source(
     *,
     has_mid: bool,
     previous_source: str | None,
+    mid_serial: str | None = None,
 ) -> str:
     """Keep a group's meter source through reload and incomplete discovery.
 
@@ -46,6 +47,17 @@ def group_consumption_source(
     resets the registry decision on reload; the runtime CT latch lasts the run.
     """
     registry = dr.async_get(coordinator.hass)
+    if has_mid and mid_serial:
+        mid = registry.async_get_device(identifiers={(DOMAIN, mid_serial)})
+        if mid is None or mid.config_entries == {coordinator.entry.entry_id}:
+            # Association is topology evidence even when the first data read
+            # fails before any GridBOSS entity can register its device.
+            registry.async_get_or_create(
+                config_entry_id=coordinator.entry.entry_id,
+                identifiers={(DOMAIN, mid_serial)},
+                serial_number=mid_serial,
+                model_id=GRIDBOSS_MODEL_ID,
+            )
     device = registry.async_get_device(identifiers={(DOMAIN, group_id)})
     may_persist = device is None or device.config_entries == {
         coordinator.entry.entry_id

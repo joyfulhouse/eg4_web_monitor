@@ -141,6 +141,7 @@ async def test_ct_gap_and_recovery_preserve_consumption_source(hass, mode, missi
     [
         "ct",
         "ct_first_gap",
+        "ct_first_error",
         "legacy",
         "legacy_mixed",
         "legacy_partial",
@@ -188,7 +189,12 @@ async def test_restart_preserves_group_source(hass, mode, history):
         return result
 
     async def process(
-        coordinator, *, mid_present, readings=None, associate_elsewhere=False
+        coordinator,
+        *,
+        mid_present,
+        readings=None,
+        associate_elsewhere=False,
+        error=False,
     ):
         inverter = {
             "type": "inverter",
@@ -202,6 +208,9 @@ async def test_restart_preserves_group_source(hass, mode, history):
             "serial": "GB001",
             "sensors": ct if readings is None else readings,
         }
+        if error:
+            mid["error"] = "MID data read failed"
+            mid["sensors"] = {}
         if mode == "local":
             result = {"devices": {"INV001": inverter}}
             if mid_present:
@@ -238,7 +247,12 @@ async def test_restart_preserves_group_source(hass, mode, history):
                 patch.object(
                     coordinator,
                     "_process_mid_device_object",
-                    new=AsyncMock(return_value=mid),
+                    new=AsyncMock(
+                        return_value=mid,
+                        side_effect=RuntimeError("MID data read failed")
+                        if error
+                        else None,
+                    ),
                 ),
                 patch.object(coordinator, "_rebuild_inverter_cache"),
             ):
@@ -264,6 +278,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
             first,
             mid_present=initial_ct,
             readings={} if history == "ct_first_gap" else None,
+            error=history == "ct_first_error",
         )
         expected_marker = (
             GRIDBOSS_GROUP_MODEL_ID if initial_ct else INVERTER_GROUP_MODEL_ID
@@ -274,9 +289,16 @@ async def test_restart_preserves_group_source(hass, mode, history):
             == expected_marker
         )
         assert first.get_device_info(group_id)["model_id"] == expected_marker
-        if initial_ct:
+        if initial_ct and history != "ct_first_error":
             registry.async_get_or_create(
                 config_entry_id=entry.entry_id, **first.get_device_info("GB001")
+            )
+        elif history == "ct_first_error":
+            # No GridBOSS entity was registered: the positive association alone
+            # must survive the failure and the following restart.
+            assert (
+                registry.async_get_device(identifiers={(DOMAIN, "GB001")}).model_id
+                == "eg4_web_monitor:gridboss"
             )
         elif history == "mixed_inverter":
             registry.async_get_or_create(
@@ -310,6 +332,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
     expected_ct = history in {
         "ct",
         "ct_first_gap",
+        "ct_first_error",
         "legacy",
         "legacy_mixed",
         "legacy_partial",
@@ -393,5 +416,42 @@ async def test_group_source_never_borrows_or_overwrites_foreign_role(
             "parallel_group_a": {"type": "parallel_group", "consumption_source": source}
         }
     }
+    assert "model_id" not in coordinator.get_device_info("parallel_group_a")
+    await coordinator.async_shutdown()
+
+
+async def test_cached_group_role_is_not_republished_after_ownership_changes(hass):
+    """Previously cached metadata must respect a later shared registry record."""
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.eg4_web_monitor.gridboss_topology import (
+        INVERTER_GROUP_MODEL_ID,
+    )
+
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_CONNECTION_TYPE: "local"})
+    entry.add_to_hass(hass)
+    other = MockConfigEntry(domain=DOMAIN, data={CONF_CONNECTION_TYPE: "local"})
+    other.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    registry.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "parallel_group_a")}
+    )
+    with patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"):
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+    coordinator.data = {
+        "devices": {
+            "parallel_group_a": {
+                "type": "parallel_group",
+                "consumption_source": "inverter",
+            }
+        }
+    }
+    assert (
+        coordinator.get_device_info("parallel_group_a")["model_id"]
+        == INVERTER_GROUP_MODEL_ID
+    )
+    registry.async_get_or_create(
+        config_entry_id=other.entry_id, identifiers={(DOMAIN, "parallel_group_a")}
+    )
     assert "model_id" not in coordinator.get_device_info("parallel_group_a")
     await coordinator.async_shutdown()
