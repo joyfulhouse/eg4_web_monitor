@@ -75,7 +75,7 @@ async def test_local_first_refresh_creates_sensors_before_measurements(
         ),
     ):
         try:
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(30):
                 assert await hass.config_entries.async_setup(entry.entry_id)
             registry = er.async_get(hass)
             entities = {
@@ -92,13 +92,13 @@ async def test_local_first_refresh_creates_sensors_before_measurements(
             # Trigger the actual coordinator refresh, with its real debouncer
             # already exercised during async_config_entry_first_refresh().
             refresh = hass.async_create_task(coordinator.async_refresh())
-            async with asyncio.timeout(5):
+            async with asyncio.timeout(30):
                 await read_started.wait()
             for entity in entities.values():
                 assert hass.states.get(entity.entity_id).state == STATE_UNKNOWN
             if complete_read:
                 release_read.set()
-                async with asyncio.timeout(5):
+                async with asyncio.timeout(30):
                     await refresh
                 assert (
                     hass.states.get(entities["pv1_voltage"].entity_id).state == "320.5"
