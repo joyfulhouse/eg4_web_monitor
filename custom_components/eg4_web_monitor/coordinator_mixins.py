@@ -85,7 +85,11 @@ from .utils import (
     normalize_event_row,
 )
 
-from .gridboss_topology import GRIDBOSS_MODEL_ID
+from .gridboss_topology import (
+    GRIDBOSS_MODEL_ID,
+    GRIDBOSS_GROUP_MODEL_ID,
+    INVERTER_GROUP_MODEL_ID,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -4209,6 +4213,13 @@ class DeviceInfoMixin(_MixinBase):
             "manufacturer": MANUFACTURER,
             "model": model,
         }
+
+        if device_type == "parallel_group":
+            source = device_data.get("consumption_source")
+            if source == "gridboss":
+                device_info["model_id"] = GRIDBOSS_GROUP_MODEL_ID
+            elif source == "inverter":
+                device_info["model_id"] = INVERTER_GROUP_MODEL_ID
 
         if device_type == "gridboss":
             # Persist the discovered role independently of firmware model text.

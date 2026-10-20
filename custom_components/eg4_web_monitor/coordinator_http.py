@@ -54,6 +54,8 @@ from .endpoint_bus import EndpointBusCapability
 from .smart_port_devices import serials_awaiting_port_mode
 from .utils import battery_row_is_absent, cloud_battery_key
 
+from .gridboss_topology import group_consumption_source
+
 _LOGGER = logging.getLogger(__name__)
 
 # HYBRID battery overlay freshness window.
@@ -1012,13 +1014,16 @@ class HTTPUpdateMixin(_MixinBase):
                         .get(f"parallel_group_{group.name.lower()}", {})
                     )
                     mid_device = getattr(group, "mid_device", None)
-                    if (
-                        mid_device
-                        or previous_group.get("consumption_source") == "gridboss"
-                    ):
+                    source = group_consumption_source(
+                        self,
+                        f"parallel_group_{group.name.lower()}",
+                        has_mid=bool(mid_device),
+                        previous_source=previous_group.get("consumption_source"),
+                    )
+                    group_data["consumption_source"] = source
+                    if source != "inverter":
                         # CT consumption owns this series through MID processing
                         # failure or temporary loss of the group's MID discovery.
-                        group_data["consumption_source"] = "gridboss"
                         pg_sensors["consumption"] = None
                         pg_sensors["consumption_lifetime"] = None
                     if mid_device:

@@ -65,6 +65,7 @@ from .const.midbox import (
     MIDBOX_REG_SMART_PORT_FUNCTIONS,
     decode_midbox_options,
 )
+from .gridboss_topology import group_consumption_source
 from .endpoint_bus import EndpointBusCapability
 from .smart_port_devices import serials_awaiting_port_mode
 from .utils import (
@@ -2625,11 +2626,16 @@ class LocalTransportMixin(_MixinBase):
             previous_group = (
                 (self.data or {}).get("devices", {}).get(group_device_id, {})
             )
-            if has_mid_device or previous_group.get("consumption_source") == "gridboss":
-                pg_device_data["consumption_source"] = "gridboss"
-                if not has_mid_device:
-                    group_sensors["consumption"] = None
-                    group_sensors["consumption_lifetime"] = None
+            source = group_consumption_source(
+                self,
+                group_device_id,
+                has_mid=has_mid_device,
+                previous_source=previous_group.get("consumption_source"),
+            )
+            pg_device_data["consumption_source"] = source
+            if source != "inverter" and not has_mid_device:
+                group_sensors["consumption"] = None
+                group_sensors["consumption_lifetime"] = None
 
             if stale_members:
                 # Error key -> all PG sensor entities go unavailable
