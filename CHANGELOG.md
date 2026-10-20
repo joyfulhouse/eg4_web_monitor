@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Offer an in-place hybrid conversion when new cloud/local setup matches physical devices in an existing complementary entry, preserving entities and options and rejecting ambiguous or partial matches (#615).
+
 - **GridBOSS smart port settings**: with a local connection to the GridBOSS, each smart port device now carries the port's settings from the EG4 portal:
   - Smart Load: Smart Load Enable, Grid Always On, Power Shedding, Based On (Time / SOC/Volt), start/end SOC and voltage, the shedding thresholds (start PV power, start/end SOC and voltage), and three start/end time windows.
   - AC Couple: AC Couple Enable, start/end SOC and voltage, and three start/end time windows.

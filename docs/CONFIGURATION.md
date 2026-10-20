@@ -2,6 +2,18 @@
 
 Full configuration reference for EG4 Web Monitor.
 
+## Adding a second connection to an existing installation
+
+When you finish adding a cloud plant or local device whose serial already belongs
+to an existing installation, setup offers to convert that installation to hybrid.
+Confirm to keep its existing entities, settings and options while adding the
+complementary connection. Declining leaves the existing installation unchanged.
+
+If the devices overlap several entries or include local devices outside the
+matching plant, setup stops automatic conversion. Reconfigure the appropriate
+existing installation and resolve duplicates before trying again. Matching uses
+known device serials; identical display names do not establish a match.
+
 ## Connection Types
 
 The integration supports five ways to reach your equipment. The connection

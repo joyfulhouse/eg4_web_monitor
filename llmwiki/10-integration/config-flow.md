@@ -17,7 +17,8 @@ sources:
   - eg4_web_monitor issue #275
   - eg4_web_monitor issue #574
 verified-against: c411499
-last-verified: 2026-09-04
+# Physical-device conversion subsection reverified at 9ea6c83.
+last-verified: 2026-10-20
 see-also:
   - architecture.md
   - ../00-orientation/repo-map.md
@@ -162,6 +163,30 @@ Issue #574 preserves the motivating master/slave holding-register dumps and the 
 input-register request. Those device observations are `asserted-unverified`; the code and
 tests prove only how the integration classifies matching responses, not a general hardware
 claim about every EG4 battery.
+
+### 4.2 Convert a matching physical installation to hybrid (#615)
+
+`verified-against-code` at `9ea6c83`: `_create_entry` checks physical serial
+ownership after the existing canonical identity guards. A single complementary
+entry leads to `async_step_convert_hybrid`, a confirmation form. Matching uses
+configured local/legacy serials, persisted `cloud_device_serials` from the
+already-loaded Station hierarchy, and HA device registry identifiers for older
+cloud entries (`helpers.py` -> `config_entry_device_serials`). Display names do
+not establish physical identity.
+
+Confirmation rechecks the owner and its data before updating the existing entry
+in place. It preserves entry identity, existing settings and options, migrates
+legacy local transport data, derives the canonical account/plant unique ID,
+and retains automatic dongle data validation. Multiple owners, partial local
+membership in either direction, conflicting endpoints, and intervening target
+changes stop conversion. Declining does not mutate the entry. Reconfiguration
+also rejects adding a transport that overlaps another known physical owner.
+
+Evidence: `_physical_device_matches`, `_can_convert_to_hybrid`,
+`async_step_convert_hybrid`, `_update_entry`, and
+`tests/test_config_flow.py` -> `TestPhysicalDeviceHybridConversion`.
+Old cloud entries with neither persisted serials nor registered devices have no
+physical ownership evidence to correlate; station names are not used as a guess.
 
 ## 5. Reauth
 

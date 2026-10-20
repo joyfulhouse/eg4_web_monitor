@@ -1498,3 +1498,12 @@ The same review reproduced a long-running option-read failure overflowing
 the exponential backoff before its cap was applied. The retry calculation
 now stops doubling at the configured interval, retaining successful blocks
 when another block remains unsupported. Regression tests cover both findings.
+
+## [2026-10-20] ingest | Physical-device hybrid conversion
+
+Updated [config flow](10-integration/config-flow.md) from `9ea6c83`: onboarding
+now correlates discovered serials with existing entries and offers an in-place
+hybrid conversion. Reviewed guards include both directions of partial overlap,
+concurrent target changes, identity conflicts, and retained options. The prior
+separate unique-ID namespaces alone could not prevent physical duplicate entries.
+No hardware capability or register claim changes.
