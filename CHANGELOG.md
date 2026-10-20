@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Remember known GridBOSS topology before publishing inverter Consumption statistics after restart (#664), including delayed cloud discovery. The existing device registry retains this knowledge. To restore statistics after permanently removing a GridBOSS, delete its device using Home Assistant's guarded removal flow, then reload the entry; removing it from a LOCAL configuration also clears the topology during setup. Actual inverter-only entries retain their statistics.
+
 ## [3.5.1-beta.19] - 2026-10-14
 
 **Requires [pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**

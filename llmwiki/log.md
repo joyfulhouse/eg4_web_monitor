@@ -1411,3 +1411,11 @@ The cited source and lifecycle regression definitions exist at that pin; its
 production and test trees equal the independently reviewed combined candidate
 `84b39c4`. Only these sections receive the new pin and verification date; other
 scoped claims retain their pins. Prior log content is unchanged.
+
+## [2026-10-20] ingest | Retain known GridBOSS startup topology (#664)
+
+Updated data-semantics section 4.3.1 against `d889f82feb88e75d4518fd09d5efc8224e8618ad`.
+Existing HA registry ownership now seeds the exclusion before first publication;
+partial cloud startup no longer prunes that evidence. Documented the explicit
+reset via guarded device deletion/reload or LOCAL configuration removal. The
+previous entity-lifetime-only explanation left the restart window unresolved.
