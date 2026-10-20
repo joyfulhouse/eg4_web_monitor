@@ -1411,3 +1411,13 @@ The cited source and lifecycle regression definitions exist at that pin; its
 production and test trees equal the independently reviewed combined candidate
 `84b39c4`. Only these sections receive the new pin and verification date; other
 scoped claims retain their pins. Prior log content is unchanged.
+
+## [2026-10-20] ingest | Cloud write rejection normalization
+
+Updated [controls and writes](10-integration/controls-and-writes.md) from
+`ad79479` and the primary #668 traceback. The router previously allowed
+LuxpowerAPIError to escape into HA as an unexpected exception; known library
+cloud failures now retain their cause inside HomeAssistantError. Regression
+tests reproduce the original failure and assert rejected SOC writes publish
+4 then 100 without cache seeding. No register limits or hardware evidence
+grades change; #668 remains open for control intent and firmware evidence.
