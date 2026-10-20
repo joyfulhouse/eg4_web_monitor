@@ -626,8 +626,9 @@ class TestGroupResurrectionPaths:
         result = await coordinator._process_parallel_group_object(group)
         assert result["has_lost_member"] is False
 
+    @pytest.mark.parametrize("with_complete_ct", [False, True])
     async def test_pipeline_does_not_resurrect_battery_current(
-        self, hass, mock_config_entry
+        self, hass, mock_config_entry, with_complete_ct
     ) -> None:
         """Full station pipeline: with a lost member, the member-battery
         aggregation override must not write parallel_battery_current back
@@ -657,6 +658,20 @@ class TestGroupResurrectionPaths:
         group.inverters = [lost, live]
         group.mid_device = None
         group._fetch_energy_data = AsyncMock()
+        if with_complete_ct:
+            group.mid_device = MagicMock(serial_number="GB001")
+            coordinator._process_mid_device_object = AsyncMock(
+                return_value={
+                    "type": "gridboss",
+                    "serial": "GB001",
+                    "sensors": {
+                        "ups_today": 8.0,
+                        "load_today": 12.0,
+                        "ups_total": 800.0,
+                        "load_total": 1200.0,
+                    },
+                }
+            )
 
         station = MagicMock()
         station.id = "12345"
@@ -678,6 +693,11 @@ class TestGroupResurrectionPaths:
         assert pg["sensors"].get("parallel_battery_current") is None
         assert pg["sensors"]["pv_total_power"] == live.pv_total_power
         assert pg["sensors"]["parallel_battery_count"] == 2
+        if with_complete_ct:
+            assert pg["sensors"]["consumption"] == 20.0
+            assert pg["sensors"]["consumption_lifetime"] == 2000.0
+        else:
+            assert pg["sensors"]["consumption_lifetime"] is None
 
         from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
 
@@ -700,6 +720,10 @@ class TestGroupResurrectionPaths:
             "has_lost_member": False,
         }
         assert sensor.native_value == lost.pv_total_power + live.pv_total_power
+        if with_complete_ct:
+            recovered_sensors = recovered["devices"]["parallel_group_group1"]["sensors"]
+            assert recovered_sensors["consumption"] == 20.0
+            assert recovered_sensors["consumption_lifetime"] == 2000.0
 
 
 class TestLostCloudBankKeepsKeys:
