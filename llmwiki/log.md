@@ -1507,3 +1507,11 @@ expiration follows sample-day changes instead of publication/access time.
 Documented the undated restore policy and kept cloud/aggregate/battery gaps
 explicit under issue #666 and library dependency #383. No hardware reset-clock
 semantics or cloud freshness claims are inferred from these software tests.
+
+## [2026-10-20] ingest | Verify LOCAL daily snapshot provenance against pinned library
+
+Rechecked the energy and MID register assembly, data conversion, and device
+acceptance paths at pylxpweb `v0.10.0b12` (unchanged in those files at
+`0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`). Updated data-semantics section
+4.2.2 with the absence of per-field cached energy carry-forward into fresh
+snapshots, MID subblock failure behavior, and unchanged scope limits.

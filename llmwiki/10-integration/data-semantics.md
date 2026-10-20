@@ -491,6 +491,21 @@ boundaries, a real library failed-read cache, active MID mapping, restore and
 availability transitions. This is a policy based on accepted LOCAL snapshot
 acquisition day, not a hardware claim about an inverter's reset clock.
 
+The snapshot assumption was rechecked against pinned pylxpweb `v0.10.0b12`
+(the inspected files are unchanged at `0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`).
+`transports/_register_data.py` -> `read_energy`, `read_all_input_data`, and
+`read_midbox_runtime` build fresh register maps; a MID input-subblock read
+exception rejects the whole snapshot. `InverterEnergyData.from_modbus_registers`
+and `MidboxRuntimeData.from_modbus_registers` decode absent fields as `None`,
+without copying prior individual energy fields into a new timestamp.
+`BaseInverter._fetch_energy` / `_fetch_combined_input_data` and
+`MIDDevice.refresh` / `_validate_runtime_energy` reject invalid new data before
+replacing the accepted snapshot. Thus failed/rejected reads retain the old
+object and acquisition stamp; no accepted LOCAL energy field carry-forward with
+a renewed timestamp occurs in these paths (`verified-against-code` at that
+library pin). Battery accumulator carry-forward is separate and outside this
+policy's scope.
+
 **Remaining scope:** HTTP/HYBRID cloud values, group/independent-battery aggregates
 and chart-derived values do not receive invented provenance. Issue #666 remains
 open; [pylxpweb #383](https://github.com/joyfulhouse/pylxpweb/issues/383) requests
