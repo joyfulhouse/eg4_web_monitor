@@ -1507,6 +1507,23 @@ partial cloud startup no longer prunes that evidence. Documented the explicit
 reset via guarded device deletion/reload or LOCAL configuration removal. The
 previous entity-lifetime-only explanation left the restart window unresolved.
 
+## [2026-10-20] ingest | GridBOSS consumption source continuity (#661)
+
+Updated data-semantics section 4.3.2 against `ac4174d772c67004a8104ae62c42ffb7f430ac0d`.
+The shared overlay no longer substitutes zero for absent CT components or retains
+an inverter balance through a gap. HTTP failure and temporary MID discovery loss
+are covered alongside LOCAL; prior stale-source guidance described the old code.
+Evidence is coordinator regression coverage, not a hardware outage capture.
+
+## [2026-10-20] ingest | Persist group consumption authority across restart (#661)
+
+Rechecked section 4.3.2 at `b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a`.
+The earlier runtime-only marker did not protect the first poll after reload.
+Entry-owned registry group roles now retain CT authority while MID discovery is
+missing; legacy unclassified groups in known-GridBOSS entries remain unknown.
+Documented confirmed inverter groups, explicit removal/reset, and software
+regressions across three connection modes without asserting discovery freshness.
+
 ## [2026-10-20] lint | Correct stale SOC routing and peak-shaving provenance (#606, #609)
 
 Rechecked `number.py` at integration `98ae596` against the register keeper's
@@ -1540,3 +1557,92 @@ cloud failures now retain their cause inside HomeAssistantError. Regression
 tests reproduce the original failure and assert rejected SOC writes publish
 4 then 100 without cache seeding. No register limits or hardware evidence
 grades change; #668 remains open for control intent and firmware evidence.
+
+## [2026-10-20] ingest | Physical-device hybrid conversion
+
+Updated [config flow](10-integration/config-flow.md) from `9ea6c83`: onboarding
+now correlates discovered serials with existing entries and offers an in-place
+hybrid conversion. Reviewed guards include both directions of partial overlap,
+concurrent target changes, identity conflicts, and retained options. The prior
+separate unique-ID namespaces alone could not prevent physical duplicate entries.
+No hardware capability or register claim changes.
+## [2026-10-20] ingest | HYBRID measurement entity startup (#653)
+
+Updated data-flow-by-mode from f6abc8c and real HA lifecycle regressions.
+Previously registered eligible inverter/bank keys are seeded unknown before
+platform setup; first local data no longer needs to create those entities.
+Both delayed and hung-read scenarios fail on the baseline and pass with the
+change. Poll timing and never-observed sensor discovery are unchanged.
+## [2026-10-20] ingest | Portal-supported start discharge zero
+
+Issue #628 supplies reporter portal evidence that the LXP start-discharge
+threshold accepts 0 W; the 50 W default is not its minimum. Updated the H116
+keeper row with that scoped evidence and widened integration validation only
+for positively identified LXP inverters. No
+new register routing or hardware-semantic proof is claimed.
+## [2026-10-20] ingest | Dedicated direct battery bridge
+
+Recorded the direct battery implementation at `6e5115c` in config-flow,
+data-semantics and entities-identity-availability. Updated obsolete discovery
+guidance. Identity is explicit entry/unit address; bank aggregate master
+fields and incomplete/unreconstructed master SOC remain unknown. Later #574
+reporter evidence resolves its earlier passive-capture gate only for the
+observed Z02T11 dedicated bus. Broader #176 acceptance remains open.
+
+## [2026-10-20] ingest | Direct battery independent-review corrections
+
+Commit `7bbb0b2` supersedes the initial master reconstruction gate: all master
+SOC/remaining capacity is withheld because the real released decoder can add
+655.36 Ah at low SOC, even with complete topology. Upstream issue
+https://github.com/joyfulhouse/pylxpweb/issues/384 records the reproducer.
+Config-flow and identity owners also record complete-poll shutdown draining,
+atomic effective polling options, changed-endpoint validation, and explicit
+address-removal policy. Regression tests and independent review cover these
+software paths; no new hardware validation is claimed.
+## [2026-10-20] ingest | Scoped LOCAL daily guard expiration (#666)
+
+Added data-semantics section 4.2.2 at `a9bab41`. Accepted LOCAL physical-counter
+snapshots now carry acquisition timestamps through mapping; daily baseline
+expiration follows sample-day changes instead of publication/access time.
+Documented the undated restore policy and kept cloud/aggregate/battery gaps
+explicit under issue #666 and library dependency #383. No hardware reset-clock
+semantics or cloud freshness claims are inferred from these software tests.
+
+## [2026-10-20] ingest | Verify LOCAL daily snapshot provenance against pinned library
+
+Rechecked the energy and MID register assembly, data conversion, and device
+acceptance paths at pylxpweb `v0.10.0b12` (unchanged in those files at
+`0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`). Updated data-semantics section
+4.2.2 with the absence of per-field cached energy carry-forward into fresh
+snapshots, MID subblock failure behavior, and unchanged scope limits.
+## [2026-10-20] ingest | Resolve legacy mixed groups and first-read source gaps (#661)
+
+Section 4.3.2 now pins `e4ca3f0f23254ee280669854eaafedef1c3e9f27`.
+Positive associations of every known GridBOSS elsewhere can resolve legacy
+HTTP/HYBRID groups without treating absence as topology proof. Foreign/shared
+registry roles are ignored and never overwritten by the classifier or cached
+device information. First MID discovery now persists its role before processing
+can fail. Added repeated-reload, partial-association and ownership regressions.
+## [2026-10-20] ingest | Partial parallel-group runtime availability
+
+Updated `10-integration/data-semantics.md` from commit `e5fa860` and its real
+ParallelGroup regression tests. A cloud-lost member no longer blanks live
+siblings' runtime measurements. Energy keeps fixed membership and remains
+unknown during a partial outage; #619 remains open for that continuity work.
+
+## [2026-10-20] ingest | Partial-group observability and independent CT authority
+
+The group sensor state now exposes total and available member counts plus the
+lost-member flag. Real station-pipeline regressions cover outage and recovery
+with and without complete independent GridBOSS CT energy: paired CT totals
+remain authoritative at20kWh today/2000kWh lifetime while inverter-derived
+counters stay unknown during the outage. This does not solve missing-member
+cumulative-energy continuity for groups without complete independent CT data.
+
+## [2026-10-20] ingest | Entry-scoped GridBOSS registry compatibility
+
+PR #678 full-matrix validation exposed HA2026.9.4 entry-scoped device identities,
+while minimumHA2026.1 retains global/shared records. Updated the data-semantics
+owner with the capability-selected topology lookup and matching DeviceInfo guard.
+Regressions preserve legacy foreign/shared protection and assert independent
+markers for newer per-entry identities. This is software ownership evidence.

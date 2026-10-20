@@ -9,6 +9,8 @@ canonical-for:
   - parameter cache seeding after writes
   - the time.monotonic() fresh-boot throttle trap
 sources:
+  - custom_components/eg4_web_monitor/battery_bus.py
+  - tests/test_battery_bus.py
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/sensor.py
   - custom_components/eg4_web_monitor/const/device_types.py
@@ -43,7 +45,10 @@ sources:
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
+  # Section 4.3.2 re-verified at e4ca3f0f23254ee280669854eaafedef1c3e9f27.
   # Section 4.3.1 startup policy re-verified at d889f82feb88e75d4518fd09d5efc8224e8618ad.
+  # Section 4.2.2 verified at a9bab41 (scoped LOCAL day provenance).
+
   # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
   # on 2026-10-14; other sections retain their scoped pins below.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
@@ -59,6 +64,8 @@ verified-against:
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
+# Direct battery sections verified against 7bbb0b2 on 2026-10-20.
+# Partial-group runtime behavior re-verified at e5fa860 on 2026-10-20.
 last-verified: 2026-10-20
 see-also:
   - ../40-hardware/registers.md
@@ -78,6 +85,21 @@ once. Several of them are *irreversible for the user* when they go wrong — a w
 entities and the customizations attached to them.
 
 ## 1. Staleness, carry-forward and eviction
+
+### Partial parallel-group outages (#619)
+
+At `e5fa860`, `_process_parallel_group_object` computes runtime measurements
+from members whose cloud `is_lost` flag is false, using a shallow group copy.
+The original membership remains intact for discovery and controls. The result
+includes `has_lost_member` and `available_member_count`; a member lost before
+its first runtime payload still counts as missing. Grade: `verified-against-code`
+(`coordinator_mixins.py`, `tests/test_issue_479_cloud_lost_blanking.py`).
+
+Daily and lifetime energy remain unknown while any member is missing: summing
+a changing online subset would introduce counter drops and recovery spikes.
+GridBOSS CT overlays retain their independent source authority. This improves
+the runtime portion of [#619](https://github.com/joyfulhouse/eg4_web_monitor/issues/619);
+cumulative-energy continuity is still unresolved.
 
 ### 1.1 The rules
 
@@ -470,6 +492,51 @@ separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/
 `_guard_total_increasing`; the same-day nonnumeric restore cases are in
 `test_nonnumeric_restore_with_numeric_payload`.
 
+### 4.2.2 LOCAL daily baselines follow accepted snapshot days (#666)
+
+At `a9bab41`, physical LOCAL inverter and GridBOSS daily sensor mappings carry
+`energy_sample_times` from the accepted transport snapshot. Naive library
+snapshot timestamps are interpreted in the host timezone and normalized to
+aware UTC; `EG4BaseSensor` compares their dates in HA's configured timezone.
+The first sample from a later HA local day clears the previous daily baseline,
+so missed low/reset samples cannot pin yesterday's high value. Same-day small
+dips remain guarded; lifetime counters and large-reset behavior are unchanged.
+A restored daily baseline without acquisition provenance cannot pin the first
+trusted LOCAL sample. Cached processing, availability transitions and restore
+serialization retain the original snapshot stamp and cannot expire the guard.
+
+Evidence: `verified-against-code` at `a9bab41` - `energy_provenance.py` ->
+`local_daily_sample_times`, `coordinator_local.py` -> `_build_local_device_data`
+and `_process_single_local_device`, `base_entity.py` -> `EG4BaseSensor`, and
+`tests/test_local_daily_sample_provenance.py`. The tests cover HA timezone
+boundaries, a real library failed-read cache, active MID mapping, restore and
+availability transitions. This is a policy based on accepted LOCAL snapshot
+acquisition day, not a hardware claim about an inverter's reset clock.
+
+The snapshot assumption was rechecked against pinned pylxpweb `v0.10.0b12`
+(the inspected files are unchanged at `0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`).
+`transports/_register_data.py` -> `read_energy`, `read_all_input_data`, and
+`read_midbox_runtime` build fresh register maps; a MID input-subblock read
+exception rejects the whole snapshot. `InverterEnergyData.from_modbus_registers`
+and `MidboxRuntimeData.from_modbus_registers` decode absent fields as `None`,
+without copying prior individual energy fields into a new timestamp.
+`BaseInverter._fetch_energy` / `_fetch_combined_input_data` and
+`MIDDevice.refresh` / `_validate_runtime_energy` reject invalid new data before
+replacing the accepted snapshot. Thus failed/rejected reads retain the old
+object and acquisition stamp; no accepted LOCAL energy field carry-forward with
+a renewed timestamp occurs in these paths (`verified-against-code` at that
+library pin). Battery accumulator carry-forward is separate and outside this
+policy's scope.
+
+**Remaining scope:** HTTP/HYBRID cloud values, group/independent-battery aggregates
+and chart-derived values do not receive invented provenance. Issue #666 remains
+open; [pylxpweb #383](https://github.com/joyfulhouse/pylxpweb/issues/383) requests
+source identity and per-field acquisition/sample-day metadata preserved through
+caches and aggregation. At library `0ee50a8`, `EnergyInfo` has no sample date,
+`_fetch_energy_http` can stamp a cached endpoint result, and
+`InverterEnergyData.from_http_response` stamps conversion. None proves the
+numeric cloud sample's day. Those paths keep the prior bounded guard contract.
+
 ### 4.3 Consumption and load are two distinct meters
 
 | Concept | CLOUD | LOCAL / HYBRID | Authoritative when GridBOSS CT consumption is available |
@@ -558,25 +625,60 @@ statistics contract, not the formula or the contested physical-source claims
 below. Existing incorrect statistics are not rewritten; the upgrade guidance is
 owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
 
-#### 4.3.2 Missing GridBOSS CT overlay can expose a different group source (#661)
+#### 4.3.2 GridBOSS group consumption keeps its CT source through gaps (#661)
 
-The group source above is conditional. At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`,
-`DeviceProcessingMixin._process_parallel_group_object` can compute a transport
-energy balance before the HTTP/HYBRID group workflow applies GridBOSS CTs.
-`apply_gridboss_overlay` leaves that balance unchanged when both CT consumption
-fields are absent; the HTTP MID-processing exception path logs the error without
-blanking the group's already-created balance (`verified-against-code` —
-`coordinator_mixins.py` → those two symbols; `coordinator_http.py` →
-`HTTPUpdateMixin._process_station_data`, group MID-processing block).
+At `e4ca3f0f23254ee280669854eaafedef1c3e9f27`, the shared
+`apply_gridboss_overlay` requires both UPS and non-backup Load CT components
+for each period independently. A missing component produces `None` for that
+consumption reading instead of a partial sum or inverter energy balance.
+Zero is a valid component. The HTTP/HYBRID workflow blanks consumption before
+MID processing so an exception cannot expose its already-computed inverter balance.
+Both coordinator paths retain `consumption_source: gridboss` on the group record
+through temporary MID discovery loss; complete CT data restores the same series.
+Other power/grid overlay fields keep their existing policy.
 
-Issue [#661](https://github.com/joyfulhouse/eg4_web_monitor/issues/661) records the
-helper/entity reproduction and the remaining coordinator failure-path work.
-The group remains `total_increasing` in this case; the #648 metadata fix applies
-only to inverter entities (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` →
-`EG4InverterSensor.state_class`). A switch from CT sums to an inverter balance
-can therefore change the meaning of a statistics series (`inferred` from those
-two source-selection paths). This limitation does not establish that the normal
-CT-backed group counter is non-monotonic.
+Evidence: `verified-against-code` at the commit above -
+`coordinator_mixins.py` -> `apply_gridboss_overlay`, `coordinator_http.py` ->
+`HTTPUpdateMixin._process_station_data`, `coordinator_local.py` ->
+`LocalTransportMixin._process_local_parallel_groups`, and
+`tests/test_gridboss_consumption_source.py` ->
+`test_ct_gap_and_recovery_preserve_consumption_source`.
+The regression exercises real coordinator processing in HTTP, HYBRID and LOCAL,
+including missing daily/lifetime components, missing MID discovery, processing
+failure and recovery. It is software evidence, not a captured hardware outage.
+The group remains `total_increasing`; missing readings are unknown, while LOCAL
+error-marked contributors retain the existing whole-group unavailability policy.
+The group source also persists in the HA device registry as a `model_id`
+(`eg4_web_monitor:gridboss_group` or `eg4_web_monitor:inverter_group`), before
+consumption entity registration. `gridboss_topology.group_consumption_source`
+uses that entry-owned marker and the #664 known-GridBOSS predicate on startup.
+A previously CT-backed group stays unknown if MID discovery is absent. A legacy
+unclassified group in a known-GridBOSS entry is conservatively unknown until its
+association is rediscovered. In HTTP/HYBRID, positive current associations of
+all known GridBOSS serials to other groups or standalone devices also permit
+inverter classification; a still-unresolved known serial prevents that promotion.
+LOCAL has no equivalent unrelated-group association and retains its existing
+entry-wide MID overlay policy. A confirmed inverter group in the same entry keeps
+its inverter source. An entry with no known GridBOSS permits inverter consumption.
+The first positive MID association registers its topology before data processing,
+so an initial MID exception cannot erase that evidence at the next restart.
+Guarded GridBOSS device removal followed by reload (or authoritative LOCAL config
+removal) permits source re-evaluation; the runtime CT latch lasts for the run.
+Registry source changes invalidate cached device information so entity metadata
+cannot restore an old role. Foreign/shared group registry records neither supply
+nor receive source markers; `get_device_info` applies the same guard even if a
+record became shared after its metadata was cached. On HA versions with entry-scoped
+registry identities, topology and device-information lookup select the current entry
+explicitly; identical identifiers in another entry cannot hide its own role. The
+legacy global lookup retains foreign/shared-record guards. The colliding-identifier
+regressions exercise both registry models, classification and actual device information
+(`verified-against-code`, PR #678; `gridboss_topology.get_topology_device`).
+`test_restart_preserves_group_source` exercises new
+coordinators, legacy records, explicit removal, first CT samples with no numeric
+readings, first-read exceptions, repeated reload, and recovery across HTTP/HYBRID/LOCAL. These are
+`verified-against-code` policy claims at the same scoped pin, not claims that a
+partial discovery can prove physical topology.
+
 
 #### The lifetime-consumption source is CONTESTED — no binding rule here
 
@@ -821,3 +923,26 @@ Before shipping a change in this area, confirm each line:
 | 10 | New staleness rules checked against what the existing three already assume |
 | 11 | The **sibling mode path** grepped and fixed too (HTTP vs LOCAL vs the HYBRID delegate) |
 | 12 | Any new register claim is recorded in `40-hardware/registers.md` with a grade from README's legend, and no local write ships on a bit mapping weaker than toggle-proven without a gate |
+
+## Direct battery projection
+
+At `7bbb0b2`, `battery_bus.py` -> `project_battery` accepts only the library's
+`eg4_master` and `eg4_slave` detected protocols. Unknown protocols publish no
+measurements. Master current, temperature and cycle count stay unknown because
+the decoded fields have bank aggregate/maximum semantics. Master SOC and remaining capacity are also withheld: independent review
+reproduced an incorrect uint16 capacity overflow choice at low SOC in the
+released decoder even with complete configured-unit response. The real decoder
+regression uses three 280 Ah packs at 10%, master registers 21=10, 26=8400,
+27=18464, 33=5600 and slave remaining capacities of 28 Ah each. No integration
+heuristic claims to repair that ambiguity. Missing units are removed from each
+coordinator snapshot without carrying forward old measurements. A zero cell
+voltage is missing, while zero current and zero Celsius remain real values.
+Grade: `verified-against-code` (`battery_bus.py`, `tests/test_battery_bus.py`,
+including a real master-decoder early-return regression).
+
+The direct path does not overlay inverter/cloud battery measurements or
+publish a duplicate bank-current sum. Its detected-protocol cache access is
+a pinned private library seam and fails closed if absent. Cell-balance bits
+are not present in the pinned `BatteryData` contract and are not synthesized.
+These are implementation boundaries; #176 remains open for its broader
+acceptance criteria.

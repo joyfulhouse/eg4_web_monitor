@@ -208,8 +208,8 @@ DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
 #     zeroes its reg-170 mirror for EG4_OFFGRID, so the value comes from the
 #     LOCAL register only (LOCAL mapping + HYBRID transport overlay).
 #   - battery_discharge_power: input reg 11 / cloud pDisCharge (W)
-#   - smart_load_power / grid_load_power / eps_load_power: the cloud
-#     smartLoadPower / gridLoadPower / epsLoadPower fields (W) — the GEN-port
+#   - grid_load_power / eps_load_power: the cloud
+#     gridLoadPower / epsLoadPower fields (W) — the GEN-port
 #     smart load + grid-side + EPS-loads split of the backup output (issue
 #     #222: consumption = epsLoadPower + smartLoadPower + gridLoadPower).
 #     CLOUD/HYBRID supplemental only: no validated local register on this
@@ -225,12 +225,13 @@ DISCHARGE_RECOVERY_SENSORS: frozenset[str] = frozenset(
 # NOTE: "load_power" is also a GridBOSS/parallel-group sensor key — this gate
 # only applies to inverter entities (GridBOSS devices carry no inverter
 # features, so _should_create_sensor passes them through).
+# smart_load_power is also reported by the 18kPV cloud runtime (#625), so
+# it is not family-gated; it still requires an actual cloud value.
 OFFGRID_ONLY_SENSORS: frozenset[str] = frozenset(
     {
         "eps_load_power",
         "load_power",
         "battery_discharge_power",
-        "smart_load_power",
         "grid_load_power",
     }
 )

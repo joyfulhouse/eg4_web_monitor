@@ -54,6 +54,8 @@ from .endpoint_bus import EndpointBusCapability
 from .smart_port_devices import serials_awaiting_port_mode
 from .utils import battery_row_is_absent, cloud_battery_key
 
+from .gridboss_topology import group_consumption_source
+
 _LOGGER = logging.getLogger(__name__)
 
 # HYBRID battery overlay freshness window.
@@ -1006,14 +1008,29 @@ class HTTPUpdateMixin(_MixinBase):
                     # Compute parallel group charge/discharge C-rates (%/h)
                     compute_parallel_group_charge_rate(pg_sensors)
 
-                    if hasattr(group, "mid_device") and group.mid_device:
+                    previous_group = (
+                        (self.data or {})
+                        .get("devices", {})
+                        .get(f"parallel_group_{group.name.lower()}", {})
+                    )
+                    mid_device = getattr(group, "mid_device", None)
+                    source = group_consumption_source(
+                        self,
+                        f"parallel_group_{group.name.lower()}",
+                        has_mid=bool(mid_device),
+                        mid_serial=mid_device.serial_number if mid_device else None,
+                        previous_source=previous_group.get("consumption_source"),
+                    )
+                    group_data["consumption_source"] = source
+                    if source != "inverter":
+                        # CT consumption owns this series through MID processing
+                        # failure or temporary loss of the group's MID discovery.
+                        pg_sensors["consumption"] = None
+                        pg_sensors["consumption_lifetime"] = None
+                    if mid_device:
                         try:
-                            mid_data = await self._process_mid_device_object(
-                                group.mid_device
-                            )
-                            processed["devices"][group.mid_device.serial_number] = (
-                                mid_data
-                            )
+                            mid_data = await self._process_mid_device_object(mid_device)
+                            processed["devices"][mid_device.serial_number] = mid_data
 
                             # Apply the canonical GridBOSS workflow to the
                             # parallel group (overlay + AC-couple PV).  GridBOSS
@@ -1038,7 +1055,7 @@ class HTTPUpdateMixin(_MixinBase):
                         except Exception as e:
                             _LOGGER.error(
                                 "Error processing MID device %s: %s",
-                                group.mid_device.serial_number,
+                                mid_device.serial_number,
                                 e,
                             )
                 except Exception as e:

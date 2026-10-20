@@ -17,6 +17,7 @@ from __future__ import annotations
 CONF_BASE_URL = "base_url"
 CONF_VERIFY_SSL = "verify_ssl"
 CONF_PLANT_ID = "plant_id"
+CONF_CLOUD_DEVICE_SERIALS = "cloud_device_serials"
 CONF_PLANT_NAME = "plant_name"
 CONF_DST_SYNC = "dst_sync"
 CONF_LIBRARY_DEBUG = "library_debug"

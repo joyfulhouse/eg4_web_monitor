@@ -108,6 +108,8 @@ _CLOUD_ONLY_KEYS = (
     "eps_load_power",
 )
 
+_OFFGRID_KEYS = _LOCAL_KEYS + ("grid_load_power", "eps_load_power")
+
 # Retired by #335: fabricated aliases of eps_power_l1/l2 (regs 129/130 /
 # cloud pEpsL1N/L2N carry the COMBINED backup output — no per-leg source
 # for the EPS-loads subset exists on any path).
@@ -172,9 +174,7 @@ class TestSensorDefinitions:
 
     def test_offgrid_only_set_matches_issue_scope(self) -> None:
         """OFFGRID_ONLY_SENSORS is exactly the surviving key set (drift guard)."""
-        assert OFFGRID_ONLY_SENSORS == frozenset(_LOCAL_KEYS) | frozenset(
-            _CLOUD_ONLY_KEYS
-        )
+        assert OFFGRID_ONLY_SENSORS == frozenset(_OFFGRID_KEYS)
 
 
 # =========================================================================
@@ -190,7 +190,7 @@ class TestOffgridGating:
         features = {"inverter_family": INVERTER_FAMILY_EG4_OFFGRID}
         assert _should_create_sensor(key, features) is True
 
-    @pytest.mark.parametrize("key", _LOCAL_KEYS + _CLOUD_ONLY_KEYS)
+    @pytest.mark.parametrize("key", _OFFGRID_KEYS)
     @pytest.mark.parametrize(
         "family", [INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_LXP]
     )
@@ -198,7 +198,7 @@ class TestOffgridGating:
         features = {"inverter_family": family}
         assert _should_create_sensor(key, features) is False
 
-    @pytest.mark.parametrize("key", _LOCAL_KEYS + _CLOUD_ONLY_KEYS)
+    @pytest.mark.parametrize("key", _OFFGRID_KEYS)
     def test_no_features_is_fail_closed(self, key: str) -> None:
         """No detected features → DO NOT create (review: fail-closed).
 
@@ -226,7 +226,7 @@ class TestOffgridGating:
 
         offgrid = _features_from_family("EG4_OFFGRID", None)
         hybrid = _features_from_family("EG4_HYBRID", None)
-        for key in _LOCAL_KEYS + _CLOUD_ONLY_KEYS:
+        for key in _OFFGRID_KEYS:
             assert _should_create_sensor(key, offgrid) is True
             assert _should_create_sensor(key, hybrid) is False
 
@@ -806,6 +806,13 @@ class TestSmartLoadSensors:
     which #335 extended with eps_load_power); this class keeps the
     GEN-port-specific contracts.
     """
+
+    @pytest.mark.parametrize(
+        "family", [INVERTER_FAMILY_EG4_HYBRID, INVERTER_FAMILY_EG4_OFFGRID]
+    )
+    def test_smart_load_available_for_grid_tied_and_offgrid(self, family: str) -> None:
+        """The cloud GEN-port value also exists on the 18kPV (#625)."""
+        assert _should_create_sensor("smart_load_power", {"inverter_family": family})
 
     def test_gridboss_smart_load_power_unaffected(self) -> None:
         """ "smart_load_power" is a SHARED key (like "load_power"): GridBOSS

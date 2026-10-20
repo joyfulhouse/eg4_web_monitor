@@ -6,6 +6,8 @@ canonical-for:
   - Modbus discovery error classification
   - unique-id construction, conflict detection, entry migration
 sources:
+  - custom_components/eg4_web_monitor/battery_bus.py
+  - tests/test_battery_bus.py
   - custom_components/eg4_web_monitor/_config_flow/__init__.py
   - custom_components/eg4_web_monitor/_config_flow/helpers.py
   - custom_components/eg4_web_monitor/_config_flow/options.py
@@ -17,7 +19,9 @@ sources:
   - eg4_web_monitor issue #275
   - eg4_web_monitor issue #574
 verified-against: c411499
-last-verified: 2026-09-04
+# Physical-device conversion subsection reverified at 9ea6c83.
+# Direct battery sections verified against 7bbb0b2 on 2026-10-20.
+last-verified: 2026-10-20
 see-also:
   - architecture.md
   - ../00-orientation/repo-map.md
@@ -150,7 +154,7 @@ otherwise non-battery response re-raises the original discovery error unchanged.
 On a match, discovery raises `StandaloneBatteryDetectedError`; both
 `async_step_local_modbus` and `async_step_reconfigure_add_modbus` map it to
 `standalone_battery_not_supported`. Every shipped locale explains that the target is a
-battery and points to issue #176 instead of presenting the generic Modbus timeout.
+battery and, as of `6e5115c`, points to the dedicated Direct battery bridge flow instead of presenting the generic Modbus timeout.
 
 `verified-against-code` — `_config_flow/discovery.py` →
 `_detect_standalone_battery_protocol`, `discover_modbus_device`;
@@ -162,6 +166,30 @@ Issue #574 preserves the motivating master/slave holding-register dumps and the 
 input-register request. Those device observations are `asserted-unverified`; the code and
 tests prove only how the integration classifies matching responses, not a general hardware
 claim about every EG4 battery.
+
+### 4.2 Convert a matching physical installation to hybrid (#615)
+
+`verified-against-code` at `9ea6c83`: `_create_entry` checks physical serial
+ownership after the existing canonical identity guards. A single complementary
+entry leads to `async_step_convert_hybrid`, a confirmation form. Matching uses
+configured local/legacy serials, persisted `cloud_device_serials` from the
+already-loaded Station hierarchy, and HA device registry identifiers for older
+cloud entries (`helpers.py` -> `config_entry_device_serials`). Display names do
+not establish physical identity.
+
+Confirmation rechecks the owner and its data before updating the existing entry
+in place. It preserves entry identity, existing settings and options, migrates
+legacy local transport data, derives the canonical account/plant unique ID,
+and retains automatic dongle data validation. Multiple owners, partial local
+membership in either direction, conflicting endpoints, and intervening target
+changes stop conversion. Declining does not mutate the entry. Reconfiguration
+also rejects adding a transport that overlaps another known physical owner.
+
+Evidence: `_physical_device_matches`, `_can_convert_to_hybrid`,
+`async_step_convert_hybrid`, `_update_entry`, and
+`tests/test_config_flow.py` -> `TestPhysicalDeviceHybridConversion`.
+Old cloud entries with neither persisted serials nor registered devices have no
+physical ownership evidence to correlate; station names are not used as a guess.
 
 ## 5. Reauth
 
@@ -310,3 +338,24 @@ All rows: `verified-against-code`.
 | **Station IDs are ints in production** | The frontend submits station selections as **strings**. Comparing without normalizing broke multi-station cloud onboarding (#275). `create_mock_station`'s docstring records this | `verified-against-code` — `tests/conftest.py:347-380` |
 | Legacy `hybrid_`-prefixed unique IDs exist in the wild | `find_config_entry_identity_conflicts` matches derived cloud identity precisely to catch them | `verified-against-code` — `_config_flow/helpers.py:124-146` |
 | `local` mode unique IDs are derived from the **station name** | Two local installs with the same station name collide. This is why `_update_entry` preserves an established local unique_id rather than recomputing it | `verified-against-code` — `helpers.py:104-108`, `__init__.py:1513-1577` |
+
+## Dedicated direct battery bridge
+
+At `7bbb0b2`, `async_step_battery_bridge` delegates to `_config_flow/battery.py`.
+It requires explicit unit IDs and confirmation of a dedicated bus, probes only
+`BatteryModbusTransport`, and reserves the physical endpoint against inverter
+discovery/polling. The entry uses `connection_type=battery_bus`; reconfigure
+updates its host/port/units, and options expose only the battery polling interval.
+Setup forwards only the sensor platform. Probe and coordinator teardown release
+endpoint ownership only after the complete active multi-unit poll and disconnect
+finish, including cancellation. Reconfigure probes a changed endpoint before
+mutating the entry, skips probing its currently owned endpoint, and updates
+both stored and effective polling options atomically.
+Grade: `verified-against-code` (`_config_flow/battery.py`, `battery_bus.py`,
+`endpoint_bus.py`, `tests/test_battery_bus.py`).
+
+The later #574 reporter comments supply DIP-address stability through power
+cycles and a passive idle-bus observation for Indoor Wall Mount Z02T11. These
+are `asserted-unverified` reporter observations, scoped to that hardware. They
+resolve the previously stated missing-capture gate for this dedicated-bus
+implementation, not compatibility across all battery families.

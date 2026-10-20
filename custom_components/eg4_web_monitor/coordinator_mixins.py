@@ -15,6 +15,7 @@ import logging
 import time
 import weakref
 from collections.abc import Awaitable, Callable, Collection, Coroutine
+from copy import copy
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
@@ -85,7 +86,12 @@ from .utils import (
     normalize_event_row,
 )
 
-from .gridboss_topology import GRIDBOSS_MODEL_ID
+from .gridboss_topology import (
+    GRIDBOSS_MODEL_ID,
+    GRIDBOSS_GROUP_MODEL_ID,
+    INVERTER_GROUP_MODEL_ID,
+    get_topology_device,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -707,8 +713,11 @@ def apply_gridboss_overlay(
     for period, pg_key in (("today", "consumption"), ("total", "consumption_lifetime")):
         ups = gb_sensors.get(f"ups_{period}")
         load = gb_sensors.get(f"load_{period}")
-        if ups is not None or load is not None:
-            total = float(ups or 0) + float(load or 0)
+        # Missing CTs are unknown, not zero. Never substitute the inverter
+        # balance (or a partial CT total) into this meter's statistics series.
+        pg_sensors[pg_key] = None
+        if ups is not None and load is not None:
+            total = float(ups) + float(load)
             pg_sensors[pg_key] = total
             _LOGGER.debug(
                 "Parallel group %s: consumption %s = ups(%s) + load(%s) = %s",
@@ -3265,8 +3274,8 @@ class DeviceProcessingMixin(_MixinBase):
             "eps_apparent_power_l1": "eps_apparent_power_l1",
             "eps_apparent_power_l2": "eps_apparent_power_l2",
             # Smart load (GEN port) + grid-side load split — cloud-only
-            # smartLoadPower/gridLoadPower fields (#222), entities gated to
-            # EG4_OFFGRID via OFFGRID_ONLY_SENSORS.  The pylxpweb properties
+            # smartLoadPower/gridLoadPower fields (#222). Only grid_load_power
+            # is off-grid-gated; 18kPV also reports smartLoadPower (#625).  The pylxpweb properties
             # read the HTTP runtime even when a transport is attached, so
             # HYBRID gets them as cloud-supplemental data; pure LOCAL has no
             # source (no validated register) and never creates the keys.
@@ -3599,26 +3608,27 @@ class DeviceProcessingMixin(_MixinBase):
                 sensors.get("grid_export_lifetime"),
             )
 
-        # A cloud-lost member's frozen register mirror is baked into every
-        # aggregate above — the pylxpweb group properties sum raw member
-        # values, bypassing the per-inverter blanking (#479).  With a lost
-        # member the sums are unknowable (not merely incomplete), so blank
-        # them rather than publish a plausible-looking wrong total.  Members
-        # with live transport data read is_lost=False and keep the group
-        # aggregates alive in HYBRID.  The flag is published so downstream
-        # post-processing (the member battery count/current override) can
-        # skip its own partial-sum writes; the GridBOSS CT overlay still
-        # applies — those measurements come from an independent device and
-        # stay authoritative during a sibling inverter's cloud outage.
-        processed["has_lost_member"] = any(
-            getattr(inv, "is_lost", False) and getattr(inv, "has_runtime_data", False)
-            for inv in getattr(group, "inverters", [])
-        )
+        # Runtime measurements can describe the online subset, but cumulative
+        # counters must keep fixed membership to avoid outage/recovery jumps.
+        # Use a copy so discovery, energy reads and controls retain the full group.
+        members = getattr(group, "inverters", [])
+        live_members = [inv for inv in members if not getattr(inv, "is_lost", False)]
+        processed["has_lost_member"] = len(live_members) != len(members)
+        processed["available_member_count"] = len(live_members)
         if processed["has_lost_member"]:
             sensors = processed["sensors"]
             for key in sensors:
                 if key != "parallel_group_last_polled":
                     sensors[key] = None
+            if live_members:
+                live_group = copy(group)
+                live_group.inverters = live_members
+                runtime_map = {
+                    prop: key
+                    for prop, key in property_map.items()
+                    if not prop.startswith(("today_", "total_"))
+                }
+                sensors.update(_map_device_properties(live_group, runtime_map))
 
         return processed
 
@@ -4183,7 +4193,24 @@ class DeviceInfoMixin(_MixinBase):
         """Get device information for a specific serial number."""
         cache = self._get_cache("_device_info_cache")
         if serial in cache:
-            return cache[serial]
+            cached = cache[serial]
+            if cached.get("model_id") in {
+                GRIDBOSS_GROUP_MODEL_ID,
+                INVERTER_GROUP_MODEL_ID,
+            }:
+                registered = get_topology_device(
+                    dr.async_get(self.hass), self.entry.entry_id, serial
+                )
+                if registered is not None and registered.config_entries != {
+                    self.entry.entry_id
+                }:
+                    # Another entry may have claimed this legacy group ID after
+                    # the cache was populated; do not republish its old marker.
+                    cache.pop(serial)
+                else:
+                    return cached
+            else:
+                return cached
 
         if not self.data or "devices" not in self.data:
             return None
@@ -4206,6 +4233,17 @@ class DeviceInfoMixin(_MixinBase):
             "manufacturer": MANUFACTURER,
             "model": model,
         }
+
+        if device_type == "parallel_group":
+            registered = get_topology_device(
+                dr.async_get(self.hass), self.entry.entry_id, serial
+            )
+            if registered is None or registered.config_entries == {self.entry.entry_id}:
+                source = device_data.get("consumption_source")
+                if source == "gridboss":
+                    device_info["model_id"] = GRIDBOSS_GROUP_MODEL_ID
+                elif source == "inverter":
+                    device_info["model_id"] = INVERTER_GROUP_MODEL_ID
 
         if device_type == "gridboss":
             # Persist the discovered role independently of firmware model text.

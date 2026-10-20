@@ -20,6 +20,7 @@ Directory Structure:
 from __future__ import annotations
 
 import logging
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -46,6 +47,7 @@ from .discovery import (
 from .helpers import (
     build_unique_id,
     cloud_unique_id_from_data,
+    config_entry_device_serials,
     find_config_entry_identity_conflicts,
     find_plant_by_id,
     find_serial_conflict,
@@ -74,6 +76,7 @@ from ..const import (
     BRAND_NAME,
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
+    CONF_CLOUD_DEVICE_SERIALS,
     CONF_DATA_VALIDATION,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
@@ -150,6 +153,9 @@ class EG4ConfigFlow(
         self._plant_id: str | None = None
         self._plant_name: str | None = None
         self._plants: list[dict[str, Any]] | None = None
+        self._cloud_serials_by_plant: dict[str, set[str]] = {}
+        self._hybrid_target_id: str | None = None
+        self._hybrid_target_data: dict[str, Any] | None = None
 
         # Local device state
         self._local_transports: list[dict[str, Any]] = []
@@ -224,13 +230,21 @@ class EG4ConfigFlow(
         """Initial step - cloud-first menu with local-only skip option."""
         return self.async_show_menu(
             step_id="user",
-            menu_options=["cloud_credentials", "local_device_type"],
+            menu_options=["cloud_credentials", "local_device_type", "battery_bridge"],
             description_placeholders={"brand_name": BRAND_NAME},
         )
 
     # =========================================================================
     # ONBOARDING: Cloud-first path
     # =========================================================================
+
+    async def async_step_battery_bridge(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure a dedicated read-only battery bridge."""
+        from .battery import async_battery_bridge_step
+
+        return await async_battery_bridge_step(self, user_input)
 
     async def async_step_cloud_credentials(
         self, user_input: dict[str, Any] | None = None
@@ -880,6 +894,9 @@ class EG4ConfigFlow(
         if entry is None:
             return self.async_abort(reason="entry_not_found")
 
+        if entry.data.get(CONF_CONNECTION_TYPE) == "battery_bus":
+            return await self.async_step_battery_bridge(user_input)
+
         # Auto-migrate legacy entries (modbus/dongle -> local)
         connection_type = entry.data.get(CONF_CONNECTION_TYPE, CONNECTION_TYPE_HTTP)
         if connection_type in ("modbus", "dongle"):
@@ -901,6 +918,10 @@ class EG4ConfigFlow(
         self._plant_id = str(plant_id) if plant_id is not None else None
         self._plant_name = entry.data.get(CONF_PLANT_NAME)
         self._local_transports = list(entry.data.get(CONF_LOCAL_TRANSPORTS, []))
+        if self._plant_id and CONF_CLOUD_DEVICE_SERIALS in entry.data:
+            self._cloud_serials_by_plant[self._plant_id] = set(
+                entry.data[CONF_CLOUD_DEVICE_SERIALS]
+            )
 
         return await self.async_step_reconfigure_menu()
 
@@ -1462,6 +1483,14 @@ class EG4ConfigFlow(
                 {"plantId": str(station.id), "name": station.name}
                 for station in stations
             ]
+            self._cloud_serials_by_plant = {
+                str(station.id): {
+                    device.serial_number
+                    for device in [*station.all_inverters, *station.all_mid_devices]
+                    if isinstance(device.serial_number, str) and device.serial_number
+                }
+                for station in stations
+            }
             if not self._plants:
                 raise LuxpowerAPIError("No plants found for this account")
         finally:
@@ -1488,6 +1517,10 @@ class EG4ConfigFlow(
             data[CONF_BASE_URL] = self._base_url
             data[CONF_PLANT_ID] = self._plant_id
             data[CONF_PLANT_NAME] = self._plant_name
+            if self._plant_id in self._cloud_serials_by_plant:
+                data[CONF_CLOUD_DEVICE_SERIALS] = sorted(
+                    self._cloud_serials_by_plant[self._plant_id]
+                )
 
         return data
 
@@ -1532,6 +1565,14 @@ class EG4ConfigFlow(
             description_placeholders={"brand_name": BRAND_NAME},
         )
 
+        matches = self._physical_device_matches()
+        if matches:
+            if len(matches) != 1 or not self._can_convert_to_hybrid(matches[0]):
+                return self.async_abort(reason="hybrid_merge_conflict")
+            self._hybrid_target_id = matches[0].entry_id
+            self._hybrid_target_data = deepcopy(dict(matches[0].data))
+            return await self.async_step_convert_hybrid()
+
         # Auto-enable data validation when a WiFi dongle is configured.
         # Dongle transports share a Modbus bus with the coordinator, so
         # concurrent reads cause TID mismatches and corrupt register data.
@@ -1544,6 +1585,96 @@ class EG4ConfigFlow(
             data=self._build_entry_data(),
             options=options,
         )
+
+    def _physical_device_matches(self) -> list[config_entries.ConfigEntry]:
+        """Match discovered physical serials, never station display names."""
+        serials = self._all_serials | self._cloud_serials_by_plant.get(
+            self._plant_id or "", set()
+        )
+        return [
+            entry
+            for entry in self.hass.config_entries.async_entries(DOMAIN)
+            if serials & config_entry_device_serials(self.hass, entry)
+        ]
+
+    def _can_convert_to_hybrid(self, entry: config_entries.ConfigEntry) -> bool:
+        """Require complementary transports without changing an existing endpoint."""
+        existing_cloud = cloud_unique_id_from_data(entry.data) is not None
+        if existing_cloud == self._has_cloud:
+            return False
+        if existing_cloud and not self._all_serials.issubset(
+            config_entry_device_serials(self.hass, entry)
+        ):
+            return False
+        existing = migrate_legacy_entry(dict(entry.data))
+        old_transports = existing.get(CONF_LOCAL_TRANSPORTS, [])
+        # Do not silently absorb unrelated local installations into a cloud plant.
+        if self._has_cloud and not {
+            t["serial"] for t in old_transports if t.get("serial")
+        }.issubset(self._cloud_serials_by_plant.get(self._plant_id or "", set())):
+            return False
+        for old in old_transports:
+            for new in self._local_transports:
+                if old.get("serial") == new.get("serial") and old != new:
+                    return False
+        return bool(old_transports or self._local_transports)
+
+    async def async_step_convert_hybrid(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm adding a complementary transport to its existing config entry."""
+        entry = self.hass.config_entries.async_get_entry(self._hybrid_target_id or "")
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
+        if user_input is None:
+            return self.async_show_form(
+                step_id="convert_hybrid",
+                data_schema=vol.Schema({vol.Required("confirm", default=False): bool}),
+                description_placeholders={"entry_title": entry.title},
+            )
+        if not user_input.get("confirm"):
+            return self.async_abort(reason="hybrid_conversion_cancelled")
+        # Recheck ownership after the user-facing pause, before any mutation.
+        matches = self._physical_device_matches()
+        if (
+            [match.entry_id for match in matches] != [entry.entry_id]
+            or dict(entry.data) != self._hybrid_target_data
+            or not self._can_convert_to_hybrid(entry)
+        ):
+            return self.async_abort(reason="hybrid_merge_conflict")
+
+        existing = migrate_legacy_entry(dict(entry.data))
+        if not self._has_cloud:
+            self._username = existing.get(CONF_USERNAME)
+            self._password = existing.get(CONF_PASSWORD)
+            self._plant_id = str(existing[CONF_PLANT_ID])
+            self._plant_name = existing.get(CONF_PLANT_NAME)
+            self._base_url = existing.get(CONF_BASE_URL, DEFAULT_BASE_URL)
+            self._verify_ssl = existing.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+            self._dst_sync = existing.get(CONF_DST_SYNC, True)
+        old_transports = list(existing.get(CONF_LOCAL_TRANSPORTS, []))
+        self._local_transports = old_transports + [
+            t for t in self._local_transports if t not in old_transports
+        ]
+        unique_id = self._build_unique_id()
+        if find_config_entry_identity_conflicts(
+            self.hass,
+            unique_id,
+            cloud_unique_id=unique_id,
+            exclude_entry_id=entry.entry_id,
+        ):
+            return self.async_abort(reason="hybrid_merge_conflict")
+        options = dict(entry.options)
+        if self._has_dongle:
+            options[CONF_DATA_VALIDATION] = True
+        self.hass.config_entries.async_update_entry(
+            entry,
+            data={**existing, **self._build_entry_data()},
+            title=self._build_title(),
+            unique_id=unique_id,
+            options=options,
+        )
+        return self.async_abort(reason="hybrid_conversion_successful")
 
     def _update_entry(self) -> ConfigFlowResult:
         """Update existing config entry during reconfigure."""
@@ -1592,6 +1723,20 @@ class EG4ConfigFlow(
                 reason="already_configured",
                 description_placeholders={"brand_name": BRAND_NAME},
             )
+
+        old_serials = {
+            t["serial"]
+            for t in entry.data.get(CONF_LOCAL_TRANSPORTS, [])
+            if t.get("serial")
+        }
+        adding_transport = (
+            self._has_cloud and cloud_unique_id_from_data(entry.data) is None
+        ) or bool(self._all_serials - old_serials)
+        if adding_transport and any(
+            match.entry_id != entry.entry_id
+            for match in self._physical_device_matches()
+        ):
+            return self.async_abort(reason="hybrid_merge_conflict")
 
         # Auto-enable data validation when a WiFi dongle is added during
         # reconfigure (if not already explicitly set by the user).

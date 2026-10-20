@@ -60,11 +60,13 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
+from .energy_provenance import local_daily_sample_times
 from .const.midbox import (
     MIDBOX_OPTION_READ_BLOCKS,
     MIDBOX_REG_SMART_PORT_FUNCTIONS,
     decode_midbox_options,
 )
+from .gridboss_topology import group_consumption_source
 from .endpoint_bus import EndpointBusCapability
 from .smart_port_devices import serials_awaiting_port_mode
 from .utils import (
@@ -896,7 +898,11 @@ class LocalTransportMixin(_MixinBase):
         }
 
         if energy_data := inverter.transport_energy:
-            device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
+            energy_sensors = _build_energy_sensor_mapping(energy_data)
+            device_data["sensors"].update(energy_sensors)
+            device_data["energy_sample_times"] = local_daily_sample_times(
+                energy_sensors, energy_data
+            )
 
         if battery_data := inverter.transport_battery:
             device_data["sensors"].update(
@@ -1362,6 +1368,9 @@ class LocalTransportMixin(_MixinBase):
                     "firmware_version": firmware_version,
                     "sensors": sensors,
                     "binary_sensors": {},
+                    "energy_sample_times": local_daily_sample_times(
+                        sensors, mid_device.transport_runtime
+                    ),
                 }
 
                 processed["devices"][serial] = device_data
@@ -1491,8 +1500,10 @@ class LocalTransportMixin(_MixinBase):
                 }
 
                 if energy_data:
-                    device_data["sensors"].update(
-                        _build_energy_sensor_mapping(energy_data)
+                    energy_sensors = _build_energy_sensor_mapping(energy_data)
+                    device_data["sensors"].update(energy_sensors)
+                    device_data["energy_sample_times"] = local_daily_sample_times(
+                        energy_sensors, energy_data
                     )
 
                 battery_data = inverter.transport_battery
@@ -2546,10 +2557,12 @@ class LocalTransportMixin(_MixinBase):
             # the authoritative source for grid interaction — inverters don't
             # see the actual grid import/export.
             has_mid_device = False
+            mid_serial = None
             for serial, device_data in processed.get("devices", {}).items():
                 if device_data.get("type") != "gridboss":
                     continue
                 has_mid_device = True
+                mid_serial = serial
                 # The GridBOSS CTs are authoritative contributors to the
                 # group's grid/consumption values — any stale/error-marked
                 # GridBOSS taints the aggregate the same way an inverter
@@ -2622,6 +2635,21 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
             }
+            previous_group = (
+                (self.data or {}).get("devices", {}).get(group_device_id, {})
+            )
+            source = group_consumption_source(
+                self,
+                group_device_id,
+                has_mid=has_mid_device,
+                mid_serial=mid_serial,
+                previous_source=previous_group.get("consumption_source"),
+            )
+            pg_device_data["consumption_source"] = source
+            if source != "inverter" and not has_mid_device:
+                group_sensors["consumption"] = None
+                group_sensors["consumption_lifetime"] = None
+
             if stale_members:
                 # Error key -> all PG sensor entities go unavailable
                 # (base_entity availability contract), exactly like the

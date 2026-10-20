@@ -2408,3 +2408,210 @@ class TestDetectGridType:
         """Unknown family defaults to split_phase."""
         device = _make_discovered_device(family="UNKNOWN")
         assert detect_grid_type(device) == "split_phase"
+
+
+class TestPhysicalDeviceHybridConversion:
+    """#615: complementary setup retains the existing config-entry identity."""
+
+    @staticmethod
+    def _local_entry(hass, serial="INV1", suffix="roof"):
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id=f"local_{suffix}",
+            title=suffix,
+            data={
+                CONF_CONNECTION_TYPE: "local",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "serial": serial,
+                        "host": "192.0.2.1",
+                        "port": 8000,
+                        "transport_type": "wifi_dongle",
+                    }
+                ],
+                "preserved_setting": True,
+            },
+            options={"sensor_update_interval": 17},
+        )
+        entry.add_to_hass(hass)
+        return entry
+
+    @staticmethod
+    async def _cloud_finish(hass, serials=("INV1",)):
+        from types import SimpleNamespace
+        from tests.conftest import create_mock_station
+
+        station = create_mock_station("123", "Plant")
+        station.all_inverters = [SimpleNamespace(serial_number=s) for s in serials]
+        station.all_mid_devices = []
+        with _mock_luxpower_client(stations=[station]):
+            result = await _init_and_select_cloud(hass)
+            result = await _submit_cloud_credentials(hass, result)
+        return await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "cloud_finish"}
+        )
+
+    @pytest.mark.parametrize("confirm", [True, False])
+    async def test_cloud_setup_offers_existing_local_conversion(self, hass, confirm):
+        entry = self._local_entry(hass)
+        original = dict(entry.data)
+        result = await self._cloud_finish(hass)
+        assert result["step_id"] == "convert_hybrid"
+        assert dict(entry.data) == original
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"confirm": confirm}
+        )
+        assert result["type"] == data_entry_flow.FlowResultType.ABORT
+        assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+        if confirm:
+            assert result["reason"] == "hybrid_conversion_successful"
+            assert entry.data[CONF_CONNECTION_TYPE] == "hybrid"
+            assert entry.unique_id == "test@example.com_123"
+            assert entry.data["cloud_device_serials"] == ["INV1"]
+            assert entry.data[CONF_LOCAL_TRANSPORTS] == original[CONF_LOCAL_TRANSPORTS]
+            assert entry.data["preserved_setting"] is True
+            assert entry.options["sensor_update_interval"] == 17
+            assert entry.options["data_validation"] is True
+        else:
+            assert result["reason"] == "hybrid_conversion_cancelled"
+            assert dict(entry.data) == original
+            assert entry.unique_id == "local_roof"
+
+    @pytest.mark.parametrize("extra_device", [False, True])
+    async def test_local_setup_finds_older_cloud_registry_owner(
+        self, hass, extra_device
+    ):
+        from homeassistant.helpers import device_registry as dr
+
+        entry = MockConfigEntry(
+            domain=DOMAIN,
+            unique_id="test@example.com_123",
+            title="Plant",
+            data={
+                CONF_CONNECTION_TYPE: "http",
+                CONF_USERNAME: "test@example.com",
+                CONF_PASSWORD: "secret",
+                CONF_PLANT_ID: "123",
+                CONF_PLANT_NAME: "Plant",
+                CONF_LOCAL_TRANSPORTS: [],
+            },
+        )
+        entry.add_to_hass(hass)
+        dr.async_get(hass).async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers={(DOMAIN, "INV1")}
+        )
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(
+                side_effect=[
+                    _make_discovered_device(serial="INV1"),
+                    _make_discovered_device(serial="UNRELATED"),
+                ]
+            ),
+        ):
+            result = await _init_and_select_local(hass)
+            inputs = [
+                {"next_step_id": "local_modbus"},
+                {"modbus_host": "192.0.2.1", "modbus_port": 502, "modbus_unit_id": 1},
+                {"grid_type": "split_phase"},
+            ]
+            if extra_device:
+                inputs.extend(
+                    [
+                        {"next_step_id": "local_device_type"},
+                        {"next_step_id": "local_modbus"},
+                        {
+                            "modbus_host": "192.0.2.2",
+                            "modbus_port": 502,
+                            "modbus_unit_id": 1,
+                        },
+                        {"grid_type": "split_phase"},
+                    ]
+                )
+            inputs.extend(
+                [
+                    {"next_step_id": "local_finish"},
+                    {"station_name": "Another display name"},
+                ]
+            )
+            for user_input in inputs:
+                result = await hass.config_entries.flow.async_configure(
+                    result["flow_id"], user_input
+                )
+        if extra_device:
+            assert result["reason"] == "hybrid_merge_conflict"
+            assert entry.data[CONF_CONNECTION_TYPE] == "http"
+            assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+            return
+        assert result["step_id"] == "convert_hybrid"
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"confirm": True}
+        )
+        assert result["reason"] == "hybrid_conversion_successful"
+        assert len(hass.config_entries.async_entries(DOMAIN)) == 1
+        assert entry.data[CONF_CONNECTION_TYPE] == "hybrid"
+        assert entry.data[CONF_PASSWORD] == "secret"
+        assert entry.data[CONF_LOCAL_TRANSPORTS][0]["serial"] == "INV1"
+        assert entry.unique_id == "test@example.com_123"
+
+    async def test_ambiguous_plant_does_not_merge_installations(self, hass):
+        first = self._local_entry(hass)
+        second = self._local_entry(hass, "INV2", "garage")
+        result = await self._cloud_finish(hass, ("INV1", "INV2"))
+        assert result["reason"] == "hybrid_merge_conflict"
+        assert first.data[CONF_CONNECTION_TYPE] == "local"
+        assert second.data[CONF_CONNECTION_TYPE] == "local"
+
+    async def test_changed_target_is_not_overwritten_after_confirmation(self, hass):
+        entry = self._local_entry(hass)
+        result = await self._cloud_finish(hass)
+        changed = {**entry.data, "preserved_setting": False}
+        hass.config_entries.async_update_entry(entry, data=changed)
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"confirm": True}
+        )
+        assert result["reason"] == "hybrid_merge_conflict"
+        assert dict(entry.data) == changed
+
+    async def test_unrelated_local_members_prevent_silent_plant_absorption(self, hass):
+        entry = self._local_entry(hass)
+        hass.config_entries.async_update_entry(
+            entry,
+            data={
+                **entry.data,
+                CONF_LOCAL_TRANSPORTS: [
+                    *entry.data[CONF_LOCAL_TRANSPORTS],
+                    {"serial": "UNRELATED"},
+                ],
+            },
+        )
+        result = await self._cloud_finish(hass)
+        assert result["reason"] == "hybrid_merge_conflict"
+        assert entry.data[CONF_CONNECTION_TYPE] == "local"
+
+    async def test_reconfigure_does_not_absorb_another_local_entry(self, hass):
+        from types import SimpleNamespace
+        from tests.conftest import create_mock_station
+
+        entry = self._local_entry(hass)
+        other = self._local_entry(hass, "INV2", "garage")
+        station = create_mock_station("123", "Plant")
+        station.all_inverters = [
+            SimpleNamespace(serial_number=s) for s in ("INV1", "INV2")
+        ]
+        station.all_mid_devices = []
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={
+                "source": config_entries.SOURCE_RECONFIGURE,
+                "entry_id": entry.entry_id,
+            },
+        )
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "reconfigure_cloud_add"}
+        )
+        with _mock_luxpower_client(stations=[station]):
+            result = await _submit_cloud_credentials(hass, result)
+        assert result["reason"] == "hybrid_merge_conflict"
+        assert entry.data[CONF_CONNECTION_TYPE] == "local"
+        assert other.data[CONF_CONNECTION_TYPE] == "local"

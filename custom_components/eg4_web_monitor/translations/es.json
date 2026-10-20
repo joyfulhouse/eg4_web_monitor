@@ -6,7 +6,8 @@
         "description": "Conecte su cuenta en la nube de EG4 para acceso completo a todas las funciones, incluyendo GridBOSS, Carga Rapida y actualizaciones de firmware. Puede agregar dispositivos locales despues para un sondeo mas rapido.",
         "menu_options": {
           "cloud_credentials": "Conectar Cuenta en la Nube",
-          "local_device_type": "Omitir - Solo Local"
+          "local_device_type": "Omitir - Solo Local",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,24 @@
         "data_description": {
           "serial_port": "ej., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "¿Añadir conexión a la instalación existente?",
+        "description": "Este dispositivo ya pertenece a {entry_title}. La conversión a híbrido conserva las entidades y opciones existentes.",
+        "data": {
+          "confirm": "Convertir la instalación existente a híbrida"
+        }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +360,7 @@
       "timeout": "La conexion a {brand_name} Web Monitor ha expirado. Por favor verifique su conexion a internet e intente de nuevo.",
       "modbus_not_installed": "La libreria pymodbus no esta instalada. Por favor instalela usando: pip install pymodbus",
       "modbus_timeout": "La conexion Modbus ha expirado. Por favor verifique la direccion IP y asegurese de que el gateway Modbus este encendido y conectado.",
-      "standalone_battery_not_supported": "Este dispositivo es una batería. Las conexiones directas a baterías independientes aún no son compatibles; consulte el issue #176 de GitHub.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Fallo la conexion al gateway Modbus. Por favor verifique: (1) la direccion IP es correcta, (2) el puerto 502 no esta bloqueado, (3) Modbus TCP esta habilitado en el gateway.",
       "dongle_timeout": "La conexion del WiFi dongle ha expirado. Por favor verifique la direccion IP y asegurese de que el dongle esta conectado a su red.",
       "dongle_connection_failed": "Fallo la conexion al WiFi dongle. Por favor verifique: (1) la direccion IP es correcta, (2) el puerto 8000 no esta bloqueado, (3) el firmware del dongle soporta acceso local (actualizaciones recientes pueden bloquear esto).",
@@ -353,14 +372,20 @@
       "serial_port_error": "Fallo al abrir el puerto serial. Por favor verifique: (1) la ruta del puerto es correcta, (2) el adaptador USB esta conectado, (3) el dispositivo no esta en uso por otra aplicacion.",
       "serial_port_in_use": "El puerto serial ya esta en uso por otra aplicacion. Cierre otras aplicaciones que usen este puerto e intente de nuevo.",
       "invalid_ip_range": "Rango IP no valido. Use notacion CIDR (ej., 192.168.1.0/24) o un rango con guion (ej., 192.168.1.1-192.168.1.254). Solo se permiten rangos IP privados.",
-      "no_scan_type_selected": "Seleccione al menos un tipo de escaneo (Modbus o Dongle)."
+      "no_scan_type_selected": "Seleccione al menos un tipo de escaneo (Modbus o Dongle).",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "Esta estacion de {brand_name} Web Monitor ya esta configurada. Cada estacion requiere una instancia de integracion separada.",
       "reauth_successful": "Reautenticacion exitosa! Su integracion de {brand_name} Web Monitor esta reconectada.",
       "reconfigure_successful": "Reconfiguracion exitosa! La configuracion de su {brand_name} Web Monitor ha sido actualizada.",
       "entry_not_found": "Entrada de configuracion no encontrada. La integracion puede haber sido eliminada. Por favor agreguela de nuevo desde la pagina de Integraciones.",
-      "serial_already_configured": "El inversor {serial} ya esta configurado en \"{entry_title}\". Elimine esa entrada primero, o use el flujo de Reconfiguracion para cambiar los tipos de conexion."
+      "serial_already_configured": "El inversor {serial} ya esta configurado en \"{entry_title}\". Elimine esa entrada primero, o use el flujo de Reconfiguracion para cambiar los tipos de conexion.",
+      "hybrid_conversion_successful": "La instalación existente ahora usa conexiones locales y de nube.",
+      "hybrid_conversion_cancelled": "Conversión cancelada. La instalación existente no ha cambiado.",
+      "hybrid_merge_conflict": "Estos dispositivos coinciden con instalaciones existentes que no se pueden combinar automáticamente. Reconfigure la instalación existente o resuelva las entradas duplicadas."
     }
   },
   "options": {
@@ -393,6 +418,12 @@
           "include_ac_couple_pv": "Agregar la potencia del inversor solar acoplado en CA (de los Smart Ports del GridBOSS) a los totales de PV del grupo paralelo",
           "charge_control_mode": "Cómo decide su batería cuándo DETENER la carga: SOC (lazo cerrado, litio con BMS) o Voltaje (lazo abierto, plomo-ácido / sin BMS). Los controles de límite no seleccionados quedan ocultos por defecto. ⚠️ Cambiar esto también reconfigura su inversor.",
           "discharge_control_mode": "Cómo decide su batería cuándo DETENER la descarga: SOC (lazo cerrado, litio con BMS) o Voltaje (lazo abierto, plomo-ácido / sin BMS). Los controles de corte no seleccionados quedan ocultos por defecto. ⚠️ Cambiar esto también reconfigura su inversor."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },

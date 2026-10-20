@@ -21,6 +21,7 @@ from pylxpweb.transports import (
 )
 from pylxpweb.transports.capabilities import TransportCapabilities
 from pylxpweb.transports.config import TransportConfig, TransportType
+from pylxpweb.transports.data import MidboxRuntimeData
 
 from custom_components.eg4_web_monitor.bus_eligibility import (
     BusEligibilityReason,
@@ -210,6 +211,7 @@ def _observations(
 class _CoordinatorMidDevice:
     def __init__(self, capability: Any, refresh: Any) -> None:
         self.transport = capability
+        self.transport_runtime = MidboxRuntimeData()
         self.has_data = True
         self.refresh = refresh
 

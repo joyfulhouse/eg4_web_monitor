@@ -499,7 +499,14 @@ async def test_config_flow_login_cannot_overwrite_loaded_account_cookie(
             patch(
                 "pylxpweb.devices.Station.load_all",
                 new=AsyncMock(
-                    return_value=[SimpleNamespace(id="plant-b", name="Plant B")]
+                    return_value=[
+                        SimpleNamespace(
+                            id="plant-b",
+                            name="Plant B",
+                            all_inverters=[],
+                            all_mid_devices=[],
+                        )
+                    ]
                 ),
             ),
         ):
@@ -565,7 +572,16 @@ async def test_config_flow_uses_configured_unverified_connector(
         ),
         patch(
             "pylxpweb.devices.Station.load_all",
-            new=AsyncMock(return_value=[SimpleNamespace(id="plant-b", name="Plant B")]),
+            new=AsyncMock(
+                return_value=[
+                    SimpleNamespace(
+                        id="plant-b",
+                        name="Plant B",
+                        all_inverters=[],
+                        all_mid_devices=[],
+                    )
+                ]
+            ),
         ),
     ):
         await flow._test_cloud_credentials()

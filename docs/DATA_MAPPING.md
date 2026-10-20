@@ -635,7 +635,7 @@ if reg1 & 0x100:
 | 103 | `grid_sell_back_power` | number | kW | 0-25.5 |
 | 82 | `forced_discharge_power` | number | kW | 0-25.5 |
 | 83 | `forced_discharge_soc_limit` | number | % | 0-100 |
-| 116 | `start_discharge_power_threshold` | number | W | 50-10000 |
+| 116 | `start_discharge_power_threshold` | number | W | 50-10000; LXP 0-10000 (#628 portal evidence) |
 | 117 | `start_charge_power_threshold` | number | W (signed) | -10000-10000 |
 | 206 | `grid_peak_shaving_power` | number | kW | 0-25.5 |
 | 207 | `grid_peak_shaving_soc` | number | % | 0-100 |
@@ -704,8 +704,8 @@ if reg1 & 0x100:
 
 > **`start_discharge_power_threshold` (reg 116, `PtoUserStartdischg`)** starts
 > battery discharge once grid import (P_to_user) exceeds the value — the
-> Luxpower web UI's "Start Discharge P_import(W)", range hint `[50, ]`
-> ([#272](https://github.com/joyfulhouse/eg4_web_monitor/issues/272)). Raw
+> Luxpower web UI's "Start Discharge P_import(W)". The original `[50, ]`
+> hint (#272) was not a minimum: the LXP portal accepts zero (#628). Raw
 > register IS **whole watts** (protocol register table scale "1W", default
 > 50 W) — NOT the 100 W encoding of regs 66/74/82/103: fleet scanner reads
 > show raw 100 == cloud "100" == 100 W. TWO parameter keys for the one
@@ -1775,7 +1775,7 @@ value; the `status_code` sensor retains it for diagnosis).
 | Smart port power | Modbus regs 34-41 | API fields | Both | Filtered by port status |
 | `load_power` (inverter) | Yes | No | Yes (overlay) | Reg 170; EG4_OFFGRID-only — cloud zeroes its mirror field (#197) |
 | `battery_discharge_power` | Yes | API (pDisCharge) | Yes (transport) | Reg 11; EG4_OFFGRID-only entities (#197) |
-| `smart_load_power` / `grid_load_power` / `eps_load_power` | No | API (smartLoadPower/gridLoadPower/epsLoadPower) | API (cloud supplemental) | Cloud-only backup-output split; EG4_OFFGRID-only entities (#222/#335); pylxpweb ≥0.9.36 properties. The former `eps_load_power_l1/_l2` (#197) were retired duplicates of `eps_power_l1/l2` (#335) |
+| `smart_load_power` / `grid_load_power` / `eps_load_power` | No | API (smartLoadPower/gridLoadPower/epsLoadPower) | API (cloud supplemental) | Cloud-only backup-output split; smart load also supported on 18kPV (#625), other split entities EG4_OFFGRID-only (#222/#335); pylxpweb ≥0.9.36 properties. The former `eps_load_power_l1/_l2` (#197) were retired duplicates of `eps_power_l1/l2` (#335) |
 | `fault_code` / `warning_code` | Yes | No | Yes (overlay) | Regs 60-63 (32-bit, BMS fallback merge); no cloud field (eg4-23a6) |
 | `pv1_yield`..`pv3_yield` / lifetime | Yes | Yes (chart side-fetch) | Yes (local preferred) | Cloud exposes `ePv1Day`..`ePv3Day`; not in the inverter property map |
 | `pv4_yield`..`pv6_yield` / lifetime | Yes | No | Yes (overlay) | Local registers only; cloud has no `ePv4Day` |
@@ -2180,7 +2180,7 @@ No per-leg fields for the EPS-loads subset exist on any path.  The keys were
 removed from `SENSOR_TYPES`/key sets and orphaned registry entries are purged
 at setup (`_DEPRECATED_DUPLICATE_SENSOR_SUFFIXES` in `__init__.py`).
 
-#### `smart_load_power` / `grid_load_power` / `eps_load_power` (Inverter, EG4_OFFGRID only, #222/#335)
+#### `smart_load_power` / `grid_load_power` / `eps_load_power` (Inverter, #222/#335/#625)
 
 Cloud-only backup-output split, mapped from the pylxpweb `smart_load_power` /
 `grid_load_power` / `eps_load_power` properties (cloud `smartLoadPower` /
@@ -2193,6 +2193,10 @@ cloud runtime is attached, so the key stays absent in pure-LOCAL operation):
 | CLOUD | `getInverterRuntime` fields via the HTTP property map |
 | HYBRID | Same cloud fields — the pylxpweb properties intentionally read the HTTP runtime even with a transport attached, and `BaseInverter.refresh()` schedules a supplemental `_fetch_runtime_http()` for EG4_OFFGRID devices with a healthy transport so the values track the cloud on the runtime TTL instead of freezing at the setup-time snapshot |
 | LOCAL | **Absent** — no validated register on the off-grid family; keys are deliberately NOT in `ALL_INVERTER_SENSOR_KEYS` |
+
+The `smart_load_power` entity also exposes the 18kPV cloud GEN-port value
+(reporter-confirmed in #625). Only `grid_load_power` and `eps_load_power`
+retain the off-grid family gate.
 
 Live evidence (6000XP, EV charging on the GEN port): `smartLoadPower`
 2999 W + `epsLoadPower` 365 W ≈ `peps` 3371 W combined backup output.

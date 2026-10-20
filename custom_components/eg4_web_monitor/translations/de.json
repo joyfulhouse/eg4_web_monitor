@@ -6,7 +6,8 @@
         "description": "Verbinden Sie Ihr EG4 Cloud-Konto für vollen Zugriff auf alle Funktionen, einschließlich GridBOSS, Schnellladung und Firmware-Updates. Sie können später lokale Geräte für schnelleres Polling hinzufügen.",
         "menu_options": {
           "cloud_credentials": "Cloud-Konto verbinden",
-          "local_device_type": "Überspringen — Nur lokal"
+          "local_device_type": "Überspringen — Nur lokal",
+          "battery_bridge": "Direct battery bridge (RS485 / Modbus TCP)"
         }
       },
       "cloud_credentials": {
@@ -329,6 +330,24 @@
         "data_description": {
           "serial_port": "z.B. /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "Verbindung zur vorhandenen Anlage hinzufügen?",
+        "description": "Dieses Gerät gehört bereits zu {entry_title}. Die Umstellung auf Hybrid behält vorhandene Entitäten und Optionen bei.",
+        "data": {
+          "confirm": "Vorhandene Anlage auf Hybrid umstellen"
+        }
+      },
+      "battery_bridge": {
+        "title": "Direct battery bridge",
+        "description": "Use a dedicated Modbus TCP bridge connected to the battery RS485 bus. Include every battery unit ID on this bus. Confirm that the bus has no other polling master. Battery devices are identified by this bridge and unit ID; they remain separate from inverter battery entities.",
+        "data": {
+          "modbus_host": "Bridge host",
+          "modbus_port": "Bridge port",
+          "battery_unit_ids": "Unit IDs (comma separated)",
+          "battery_poll_interval": "Polling interval (seconds)",
+          "dedicated_bus": "This is a dedicated battery bus with no other polling master"
+        }
       }
     },
     "error": {
@@ -341,7 +360,7 @@
       "timeout": "Verbindung zu {brand_name} Web Monitor hat das Zeitlimit überschritten. Bitte überprüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.",
       "modbus_not_installed": "Die pymodbus-Bibliothek ist nicht installiert. Bitte installieren Sie sie mit: pip install pymodbus",
       "modbus_timeout": "Modbus-Verbindung hat das Zeitlimit überschritten. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass das Modbus-Gateway eingeschaltet und verbunden ist.",
-      "standalone_battery_not_supported": "Dieses Gerät ist eine Batterie. Direkte Verbindungen zu eigenständigen Batterien werden noch nicht unterstützt; siehe GitHub-Issue #176.",
+      "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Verbindung zum Modbus-Gateway fehlgeschlagen. Bitte überprüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 502 ist nicht blockiert, (3) Modbus TCP ist am Gateway aktiviert.",
       "dongle_timeout": "WiFi-Dongle-Verbindung hat das Zeitlimit überschritten. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass der Dongle mit Ihrem Netzwerk verbunden ist.",
       "dongle_connection_failed": "Verbindung zum WiFi-Dongle fehlgeschlagen. Bitte überprüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 8000 ist nicht blockiert, (3) Dongle-Firmware unterstützt lokalen Zugriff (neuere Updates können dies blockieren).",
@@ -353,14 +372,20 @@
       "serial_port_error": "Öffnen des seriellen Ports fehlgeschlagen. Bitte überprüfen Sie: (1) Port-Pfad ist korrekt, (2) USB-Adapter ist angeschlossen, (3) Gerät wird nicht von einer anderen Anwendung verwendet.",
       "serial_port_in_use": "Serieller Port wird bereits von einer anderen Anwendung verwendet. Schließen Sie andere Anwendungen, die diesen Port verwenden, und versuchen Sie es erneut.",
       "invalid_ip_range": "Ungültiger IP-Bereich. Verwenden Sie CIDR-Notation (z.B. 192.168.1.0/24) oder einen Bereichsformat (z.B. 192.168.1.1-192.168.1.254). Nur private IP-Bereiche sind erlaubt.",
-      "no_scan_type_selected": "Wählen Sie mindestens einen Scan-Typ (Modbus oder Dongle)."
+      "no_scan_type_selected": "Wählen Sie mindestens einen Scan-Typ (Modbus oder Dongle).",
+      "battery_no_response": "None of the configured battery units responded.",
+      "invalid_battery_units": "Enter a bridge host, unique unit IDs from 1 to 247, and confirm the dedicated bus.",
+      "battery_cannot_connect": "Unable to read the battery bridge. Check the host, port, configured unit IDs, and dedicated RS485 connection."
     },
     "abort": {
       "already_configured": "Diese {brand_name} Web Monitor Station ist bereits konfiguriert. Jede Station erfordert eine separate Integrationsinstanz.",
       "reauth_successful": "Erneute Authentifizierung erfolgreich! Ihre {brand_name} Web Monitor Integration ist jetzt wieder verbunden.",
       "reconfigure_successful": "Neukonfiguration erfolgreich! Ihre {brand_name} Web Monitor Einstellungen wurden aktualisiert.",
       "entry_not_found": "Konfigurationseintrag nicht gefunden. Die Integration wurde möglicherweise entfernt. Bitte fügen Sie sie erneut über die Integrationsseite hinzu.",
-      "serial_already_configured": "Wechselrichter {serial} ist bereits in \"{entry_title}\" konfiguriert. Entfernen Sie zuerst diesen Eintrag oder verwenden Sie den Neukonfigurationsablauf, um den Verbindungstyp zu ändern."
+      "serial_already_configured": "Wechselrichter {serial} ist bereits in \"{entry_title}\" konfiguriert. Entfernen Sie zuerst diesen Eintrag oder verwenden Sie den Neukonfigurationsablauf, um den Verbindungstyp zu ändern.",
+      "hybrid_conversion_successful": "Die vorhandene Anlage nutzt jetzt Cloud- und lokale Verbindungen.",
+      "hybrid_conversion_cancelled": "Umstellung abgebrochen. Die vorhandene Anlage wurde nicht geändert.",
+      "hybrid_merge_conflict": "Diese Geräte gehören zu vorhandenen Anlagen, die nicht automatisch zusammengeführt werden können. Konfigurieren Sie die vorhandene Anlage neu oder beheben Sie doppelte Einträge."
     }
   },
   "options": {
@@ -393,6 +418,12 @@
           "include_ac_couple_pv": "AC-gekoppelte Solar-Wechselrichterleistung (von GridBOSS Smart Ports) zu den PV-Gesamtwerten der Parallelgruppe hinzufügen",
           "charge_control_mode": "Wie Ihre Batterie entscheidet, wann das Laden GESTOPPT wird: SOC (geschlossener Regelkreis, BMS-Lithium) oder Spannung (offener Regelkreis, Blei-Säure / ohne BMS). Die nicht ausgewählten Grenzwert-Steuerelemente sind standardmäßig ausgeblendet. ⚠️ Eine Änderung konfiguriert auch Ihren Wechselrichter um.",
           "discharge_control_mode": "Wie Ihre Batterie entscheidet, wann das Entladen GESTOPPT wird: SOC (geschlossener Regelkreis, BMS-Lithium) oder Spannung (offener Regelkreis, Blei-Säure / ohne BMS). Die nicht ausgewählten Abschalt-Steuerelemente sind standardmäßig ausgeblendet. ⚠️ Eine Änderung konfiguriert auch Ihren Wechselrichter um."
+        }
+      },
+      "battery_bus": {
+        "title": "Battery polling",
+        "data": {
+          "battery_poll_interval": "Polling interval (seconds)"
         }
       }
     },
