@@ -976,7 +976,7 @@ class HTTPUpdateMixin(_MixinBase):
                     )
                     mid_device = getattr(group, "mid_device", None)
                     if (
-                        has_mid
+                        mid_device
                         or previous_group.get("consumption_source") == "gridboss"
                     ):
                         # CT consumption owns this series through MID processing
