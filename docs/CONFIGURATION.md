@@ -263,6 +263,8 @@ parameter sync.
 - **Mode** on each GridBOSS smart port device — Unused, Smart Load, or AC Couple.
   Unused is readable but setting it from Home Assistant is blocked for safety.
   See [GridBOSS smart port devices](#gridboss-smart-port-devices).
+- **Based On** (Time or SOC/Volt) and the other per-port settings — see
+  [Smart port settings](#smart-port-settings).
 - **Battery Charge Control** / **Battery Discharge Control** — regulate the battery
   by **SOC** (closed-loop, default) or **Voltage** (open-loop). See
   [Battery control mode](#battery-control-mode-soc-vs-voltage) below.
@@ -385,18 +387,24 @@ or delivering power, so reading them back cannot detect this condition.
 Home Assistant rejects **Unused** writes before sending a device command, on
 cloud, local, and hybrid connections. The value remains listed so a port
 configured as Unused outside Home Assistant can still display its mode. Use
-the EG4 portal for Unused configuration and the separate Smart Load Enable
-control. This integration does not expose that per-port enable flag.
-Selecting **Smart Load** sets only the mode; it does not turn on Smart Load
-Enable. This also applies when a port was configured as Unused in the portal:
-check its enable flag there before expecting it to deliver power.
+the EG4 portal for Unused configuration.
+
+The separate enable flag is the **Smart Load Enable** switch on the port
+device, which exists only with a local connection to the GridBOSS (see
+[Smart port settings](#smart-port-settings)). On a cloud-only GridBOSS the
+flag is set in the EG4 portal. Selecting **Smart Load** sets only the mode; it
+does not turn on Smart Load Enable. This also applies when a port was
+configured as Unused in the portal: check its enable flag before expecting it
+to deliver power.
 
 **Recovery after an earlier Unused/Smart Load round trip:** check **Smart Load
-N Enable** in the EG4 portal for the affected port. If that load should be
-running, turn the flag back on there and check the load's actual power. Merely
-selecting Smart Load again in Home Assistant does not repair the disabled flag.
-Replace automations that use Unused/Smart Load as pause/resume; the Unused step
-now raises an error.
+Enable** for the affected port: the port device's switch with a local
+connection, otherwise the EG4 portal. If that load should be running, turn it
+back on and check the load's actual power. Merely selecting Smart Load again
+does not repair the disabled flag. Replace automations that use Unused/Smart
+Load as pause/resume; the Unused step now raises an error. With a local
+connection, the Smart Load Enable switch is the replacement: on the unit the
+smart port settings were built on, it switched the port's power at once.
 
 Each of a GridBOSS's four smart ports is its own device, "Smart Port N
 <GridBOSS serial>", connected via the GridBOSS. Every port device has the
@@ -435,6 +443,66 @@ current for the GridBOSS.
   port's energy to the dashboard, add the pair for the mode the port is in.
 - The cross-port **Smart Load Power** / **AC Couple Power** totals stay on the
   GridBOSS device.
+
+#### Smart port settings
+
+With a local connection to the GridBOSS (LOCAL, or HYBRID with its dongle
+or Modbus adapter configured), each port device also carries the settings the
+EG4 portal shows for that port. They are read from and written to the
+GridBOSS over the local connection only, so a cloud-only GridBOSS doesn't get
+them.
+
+| Setting | Type | Port mode |
+|---|---|---|
+| Smart Load Enable | switch | Smart Load |
+| Grid Always On | switch | Smart Load |
+| Power Shedding | switch | Smart Load |
+| Based On (Time / SOC/Volt) | select | Smart Load |
+| Smart Load Start / End SOC, Start / End Voltage | number | Smart Load |
+| Shedding Start PV Power, Shedding Start / End SOC, Start / End Voltage | number | Smart Load |
+| Smart Load Start / End Time 1–3 | time | Smart Load |
+| AC Couple Enable | switch | AC Couple |
+| AC Couple Start / End SOC, Start / End Voltage | number | AC Couple |
+| AC Couple Start / End Time 1–3 | time | AC Couple |
+
+- Like the port sensors, a setting for the other mode is disabled while the
+  port is in this one, and re-enabled when the port changes mode.
+- The SOC and voltage thresholds follow the **Battery Charge Control** /
+  **Battery Discharge Control** options, like the inverter's limit controls:
+  with SOC selected the voltage thresholds are disabled, and with Voltage the
+  SOC thresholds. Smart Load and shedding thresholds follow Battery Discharge
+  Control; AC Couple thresholds follow Battery Charge Control. Changing the
+  option re-enables the other set. As with mode changes, a threshold you
+  disable or re-enable yourself keeps your choice. These options select which
+  controls Home Assistant displays; they do not establish which threshold
+  the GridBOSS firmware applies. No effectiveness attribute is inferred from
+  the inverter's control mode. Which mode the GridBOSS applies is not confirmed:
+  in testing, the portal greyed a port's voltage fields while the inverter
+  reported voltage control.
+- A setting the portal greys out shows **unavailable**:
+  - the Smart Load times unless Based On is Time;
+  - the shedding settings unless Power Shedding is on.
+- A setting also shows unavailable while the GridBOSS's local link is down or
+  before its value has first been read.
+- On the unit this was built on, turning **Smart Load Enable** on or off
+  switched the port's power at once, including with Grid Always On set
+  (observed, not documented by EG4).
+- The four enables are read on every GridBOSS update (in HYBRID, every update
+  that reads the GridBOSS over its dongle). The other settings are read on the
+  **parameter refresh interval** (see
+  [Configuration Options](#configuration-options-refresh-intervals)), so a
+  change made in the portal or app can take that long to show up. A change
+  made in Home Assistant shows immediately: each write is read back from the
+  GridBOSS, and a value the GridBOSS doesn't keep raises an error.
+- The mobile app also offers a combined "Time+SOC/Volt" option that the web
+  portal doesn't. It isn't exposed here.
+
+What each setting does is described in the GridBOSS user manual (§8.4 Smart
+Load / AC Couple). As the manual describes them:
+- A Smart Load port turns on above its start SOC or voltage (inside a time
+  window when Based On is Time), and turns off below its end SOC or voltage.
+- Power shedding also requires PV power of at least Shedding Start PV Power.
+- Grid Always On keeps the port powered whenever the grid is present.
 
 **Upgrading from earlier versions.** The per-port sensors used to sit on the
 GridBOSS device, one set per mode (e.g.

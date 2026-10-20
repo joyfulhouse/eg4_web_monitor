@@ -21,6 +21,7 @@ from .base_entity import (
     EG4BaseBatterySensor,
     EG4BaseSensor,
     EG4BatteryBankEntity,
+    EG4RegistrySyncedEntity,
     EG4StationEntity,
     device_present_and_healthy,
 )
@@ -69,6 +70,7 @@ from .smart_port_devices import (
     set_deferred_port_sensors,
     spec_serves,
 )
+from .gridboss_topology import entry_has_known_gridboss
 from .utils import is_supported_control_model
 
 _LOGGER = logging.getLogger(__name__)
@@ -832,6 +834,23 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
 
     _consumption_statistics_disabled = False
 
+    async def async_added_to_hass(self) -> None:
+        """Restore known topology before the first statistics metadata publish.
+
+        Registry ownership survives reloads and failed discovery. Deliberate
+        removal uses the existing guarded device deletion (or LOCAL config
+        cleanup); reload then re-evaluates the remaining topology.
+        """
+        if self._device_type == "inverter" and self._sensor_key in {
+            "consumption",
+            "consumption_lifetime",
+        }:
+            self._consumption_statistics_disabled = (
+                self._consumption_statistics_disabled
+                or entry_has_known_gridboss(self.hass, self.coordinator.entry)
+            )
+        await super().async_added_to_hass()
+
     @property
     def state_class(self) -> SensorStateClass | None:
         """Exclude GridBOSS inverter energy balances from energy statistics."""
@@ -852,7 +871,7 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
         return SensorStateClass(state_class) if state_class is not None else None
 
 
-class EG4SmartPortSensor(EG4BaseSensor, SensorEntity):
+class EG4SmartPortSensor(EG4RegistrySyncedEntity, EG4BaseSensor, SensorEntity):
     """One sensor of a GridBOSS smart port device.
 
     A mode-neutral sensor (power, current) reads the key of whichever mode the

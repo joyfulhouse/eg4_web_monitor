@@ -44,6 +44,8 @@ sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
   # Section 4.3.2 re-verified at ac4174d772c67004a8104ae62c42ffb7f430ac0d.
+  # Section 4.3.1 startup policy re-verified at d889f82feb88e75d4518fd09d5efc8224e8618ad.
+
   # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
   # on 2026-10-14; other sections retain their scoped pins below.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
@@ -491,26 +493,36 @@ Evidence: `asserted-unverified` for the per-mode source mapping
 
 #### 4.3.1 GridBOSS per-inverter consumption is not a resetting meter (#648)
 
-At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`, `EG4InverterSensor.state_class` returns no state class for
-`consumption` and `consumption_lifetime` on inverters once a GridBOSS appears in
-that entry's device data. The exclusion applies across connection modes and to
-all inverters in the entry: local discovery does not always establish electrical
-membership. It is latched for the entity lifetime, so missing GridBOSS data on a
-later poll cannot re-enable reset accounting. Reloading the entities re-evaluates
-the topology. Other inverter counters and parallel-group/GridBOSS consumption
-retain their configured classes (`verified-against-code` — `sensor.py` →
-`EG4InverterSensor.state_class`; `tests/test_base_entity.py` →
-`test_valid_energy_meters_keep_statistics`).
+At `d889f82feb88e75d4518fd09d5efc8224e8618ad`, inverter `consumption` and
+`consumption_lifetime` omit their state class when GridBOSS topology is known.
+The exclusion applies to every inverter in the entry, across connection modes.
+It remains latched for the entity lifetime, so a transient missing device cannot
+re-enable reset accounting. Other inverter counters and group/GridBOSS meters
+keep their configured classes.
 
-The latch is not persisted. A fresh entity whose initial data lacks GridBOSS
-advertises its configured class until discovery; explicitly configured LOCAL
-GridBOSS devices already appear in static startup data (`verified-against-code`
-at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` → `EG4InverterSensor.state_class`;
-`coordinator_local.py` → `LocalTransportMixin._build_static_local_data`).
-Issue [#664](https://github.com/joyfulhouse/eg4_web_monitor/issues/664) tracks retaining
-known topology through restart without preventing intentional GridBOSS removal.
-The initial/post-discovery metadata transition is tested; production miscount in
-that specific startup window is not claimed proven.
+Startup seeds the exclusion before native baseline restoration and first state
+publication from configured `is_gridboss` transports or persistent HA device
+registry ownership. Newly registered GridBOSS devices carry
+`model_id: eg4_web_monitor:gridboss`; historical registry records with the exact
+library model `GridBOSS` are also recognized. A different config entry's GridBOSS
+does not affect eligibility. HTTP/HYBRID startup cleanup preserves this known
+registry topology when discovery is incomplete.
+
+**Explicit reset policy:** permanently remove the GridBOSS using the existing
+HA device deletion flow (which retains its observation/health safeguards), then
+reload the entry. Removing it from a LOCAL configuration also permits normal
+registry cleanup on setup. Missing discovery alone is never permanent removal.
+After removal/reload, an actual inverter-only entry regains its normal class;
+rediscovery disables it again. No additional persistent boolean is introduced.
+
+Evidence: `verified-against-code` at `d889f82feb88e75d4518fd09d5efc8224e8618ad` -
+`sensor.py` -> `EG4InverterSensor.async_added_to_hass` and `state_class`,
+`coordinator_mixins.py` -> `get_device_info`, `__init__.py` ->
+`_async_cleanup_removed_registry_devices`, and
+`tests/test_gridboss_topology_restore.py`. Tests cover first published metadata,
+reload with failed/delayed discovery, entry isolation, legacy registry records,
+explicit removal/reload and LOCAL configuration removal. These are software
+lifecycle tests, not production miscount captures.
 
 The entity guard uses the effective state class, so these excluded balances pass
 through real decreases, including dips small enough that a `total_increasing`
@@ -524,8 +536,7 @@ current inverter device context. This covers both a newly arriving device and
 recognition of an existing device's type, even with unchanged inverter data.
 The real coordinator dispatch therefore republishes consumption metadata and
 evaluates the entity-lifetime latch before a later GridBOSS omission. Ordinary
-GridBOSS ticks and disappearance retain normal scoped notifications; no persisted
-topology is introduced (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
+GridBOSS ticks and disappearance retain normal scoped notifications; startup topology retention is described above (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` —
 `coordinator.py` → `_listener_contexts_for_data_change`;
 `tests/test_gridboss_listener_lifecycle.py` →
 `test_gridboss_recognition_notifies_unchanged_inverters`, exercising

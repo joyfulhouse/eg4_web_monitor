@@ -85,6 +85,8 @@ from .utils import (
     normalize_event_row,
 )
 
+from .gridboss_topology import GRIDBOSS_MODEL_ID
+
 _LOGGER = logging.getLogger(__name__)
 
 # Bound (seconds) on the offgrid cloud quick-charge status read (#296). The
@@ -973,6 +975,8 @@ if TYPE_CHECKING:
         _param_attempted_this_cycle: bool
         _parameter_refresh_interval: timedelta
         _parameter_write_generation: int
+        _midbox_option_next_read: dict[str, float]
+        _midbox_option_failures: dict[str, int]
         _parameter_write_seeds: dict[str, dict[str, tuple[Any, int]]]
         _last_dst_sync: datetime | None
         _dst_sync_interval: timedelta
@@ -1017,6 +1021,13 @@ if TYPE_CHECKING:
             read_complete: bool,
             read_generation: int,
             observed_keys: Collection[str] | None = None,
+        ) -> dict[str, Any]: ...
+        async def _read_midbox_smart_port_options(
+            self,
+            transport: EndpointBusCapability,
+            serial: str,
+            *,
+            poll_functions: bool = True,
         ) -> dict[str, Any]: ...
         def _create_bus_capability(
             self, config: TransportConfig
@@ -4198,6 +4209,11 @@ class DeviceInfoMixin(_MixinBase):
             "manufacturer": MANUFACTURER,
             "model": model,
         }
+
+        if device_type == "gridboss":
+            # Persist the discovered role independently of firmware model text.
+            # Sensor startup uses this until delayed discovery returns (#664).
+            device_info["model_id"] = GRIDBOSS_MODEL_ID
 
         if device_type != "parallel_group":
             device_info["serial_number"] = serial
