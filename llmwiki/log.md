@@ -1411,3 +1411,11 @@ The cited source and lifecycle regression definitions exist at that pin; its
 production and test trees equal the independently reviewed combined candidate
 `84b39c4`. Only these sections receive the new pin and verification date; other
 scoped claims retain their pins. Prior log content is unchanged.
+
+## [2026-10-20] ingest | Portal-supported start discharge zero
+
+Issue #628 supplies reporter portal evidence that the LXP start-discharge
+threshold accepts 0 W; the 50 W default is not its minimum. Updated the H116
+keeper row with that scoped evidence and widened integration validation only
+for positively identified LXP inverters. No
+new register routing or hardware-semantic proof is claimed.

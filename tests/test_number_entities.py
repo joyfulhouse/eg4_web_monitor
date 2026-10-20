@@ -2032,7 +2032,7 @@ class TestStartDischargePowerNumber:
     """
 
     def test_entity_definition_w(self):
-        """Unit W, protocol bounds 50-10000, 1 W steps, enabled by default."""
+        """Unit W, default bounds 50-10000, 1 W steps, enabled by default."""
         coordinator = _mock_coordinator()
         entity = StartDischargePowerNumber(coordinator, "1234567890")
         assert entity.native_unit_of_measurement == "W"
@@ -2046,14 +2046,18 @@ class TestStartDischargePowerNumber:
         # Live-verified register (reporter's LXP-LB): enabled by default
         assert entity.entity_registry_enabled_default is True
 
-    def test_native_value_local_raw_w(self):
+    @pytest.mark.parametrize("value", [0, 100])
+    def test_native_value_local_raw_w(self, value):
         """LOCAL mode reads the raw watt value under pylxpweb's name-map key."""
         coordinator = _mock_coordinator(
             local_only=True,
-            parameters={"HOLD_PTOUSER_START_DISCHARGE": 100},
+            parameters={"HOLD_PTOUSER_START_DISCHARGE": value},
         )
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "LXP"
+        }
         entity = StartDischargePowerNumber(coordinator, "1234567890")
-        assert entity.native_value == 100
+        assert entity.native_value == value
 
     def test_native_value_hybrid_transport_raw_w(self):
         """HYBRID with an attached transport also holds raw watts."""
@@ -2064,13 +2068,17 @@ class TestStartDischargePowerNumber:
         entity = StartDischargePowerNumber(coordinator, "1234567890")
         assert entity.native_value == 150
 
-    def test_native_value_cloud_named_param(self):
+    @pytest.mark.parametrize("value", [0, 100])
+    def test_native_value_cloud_named_param(self, value):
         """CLOUD reads the live cloud key (watt string, e.g. '100')."""
         coordinator = _mock_coordinator(
-            inverter_attrs={"parameters": {"HOLD_P_TO_USER_START_DISCHG": "100"}},
+            inverter_attrs={"parameters": {"HOLD_P_TO_USER_START_DISCHG": str(value)}},
         )
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "LXP"
+        }
         entity = StartDischargePowerNumber(coordinator, "1234567890")
-        assert entity.native_value == 100
+        assert entity.native_value == value
 
     def test_native_value_cloud_params_dict_fallback(self):
         """Cloud value in the coordinator parameter cache also resolves."""
@@ -2082,7 +2090,7 @@ class TestStartDischargePowerNumber:
         assert entity.native_value == 250
 
     def test_native_value_rejects_out_of_range(self):
-        """Garbage above 10000 W (and below the 50 W floor) reads as None."""
+        """Garbage above 10000 W reads as None."""
         coordinator = _mock_coordinator(
             local_only=True,
             parameters={"HOLD_PTOUSER_START_DISCHARGE": 20000},
@@ -2091,25 +2099,27 @@ class TestStartDischargePowerNumber:
         assert entity.native_value is None
 
     @pytest.mark.asyncio
-    async def test_write_local_named_parameter_w(self):
+    @pytest.mark.parametrize("value", [0, 150])
+    async def test_write_local_named_parameter_w(self, value):
         """Local transport writes the watt value under the name-map key."""
         coordinator = _mock_coordinator(has_local=True)
         # Resolved non-off-grid family keeps the local route (#570 r5).
         coordinator.data["devices"]["1234567890"]["features"] = {
-            "inverter_family": "EG4_HYBRID"
+            "inverter_family": "LXP"
         }
         entity = StartDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
-        await entity.async_set_native_value(150)
+        await entity.async_set_native_value(value)
 
         coordinator.write_named_parameter.assert_called_once()
         call_args = coordinator.write_named_parameter.call_args
         assert call_args[0][0] == "HOLD_PTOUSER_START_DISCHARGE"
-        assert call_args[0][1] == 150
+        assert call_args[0][1] == value
 
     @pytest.mark.asyncio
-    async def test_write_cloud_named_parameter(self):
+    @pytest.mark.parametrize("value", [0, 150])
+    async def test_write_cloud_named_parameter(self, value):
         """Cloud mode issues the website's own remoteSet call:
         holdParam=HOLD_P_TO_USER_START_DISCHG with the watt value as text
         (reporter-verified in the GH #272 browser console)."""
@@ -2117,13 +2127,16 @@ class TestStartDischargePowerNumber:
         result = MagicMock()
         result.success = True
         coordinator.client.api.control.write_parameter = AsyncMock(return_value=result)
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "LXP"
+        }
         entity = StartDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
-        await entity.async_set_native_value(150)
+        await entity.async_set_native_value(value)
 
         coordinator.client.api.control.write_parameter.assert_called_once_with(
-            "1234567890", "HOLD_P_TO_USER_START_DISCHG", "150"
+            "1234567890", "HOLD_P_TO_USER_START_DISCHG", str(value)
         )
 
     @pytest.mark.asyncio
@@ -2141,17 +2154,39 @@ class TestStartDischargePowerNumber:
 
     @pytest.mark.asyncio
     async def test_write_validation(self):
-        """Values outside 50-10000 W (and non-integers) raise."""
+        """Values outside the default 50-10000 W range and non-integers raise."""
         coordinator = _mock_coordinator()
         entity = StartDischargePowerNumber(coordinator, "1234567890")
         _prep(entity)
 
         with pytest.raises(HomeAssistantError, match="must be between"):
-            await entity.async_set_native_value(49)
+            await entity.async_set_native_value(-1)
         with pytest.raises(HomeAssistantError, match="must be between"):
             await entity.async_set_native_value(10001)
         with pytest.raises(HomeAssistantError, match="integer"):
             await entity.async_set_native_value(100.5)
+
+    @pytest.mark.parametrize("family", ["EG4_HYBRID", "UNKNOWN", None])
+    async def test_zero_stays_blocked_without_lxp_evidence(self, family):
+        coordinator = _mock_coordinator(parameters={"HOLD_P_TO_USER_START_DISCHG": 0})
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": family
+        }
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 50
+        assert entity.native_value is None
+        with pytest.raises(HomeAssistantError, match="must be between"):
+            await entity.async_set_native_value(0)
+        coordinator.write_named_parameter.assert_not_called()
+
+    def test_lxp_minimum_updates_after_family_discovery(self):
+        coordinator = _mock_coordinator()
+        entity = StartDischargePowerNumber(coordinator, "1234567890")
+        assert entity.native_min_value == 50
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "LXP"
+        }
+        assert entity.native_min_value == 0
 
 
 class TestStartChargePowerNumber:

@@ -204,7 +204,9 @@ GRID_SELL_BACK_POWER_STEP = 0.1
 # for both, NOT the 100 W encoding of regs 66/74/82/103 (fleet scanner
 # reads: reg 116 raw 100 == cloud "100" == 100 W in the Luxpower UI).
 # Reg 116 (PtoUserStartdischg) defaults to 50 W and the Luxpower web UI
-# shows a "[50, ]" range hint; the 10000 W ceiling comes from pylxpweb's
+# historically showed a "[50, ]" hint, but the LXP portal accepts 0 W
+# (reporter evidence in #628; the entity scopes this exception to LXP).
+# Other families retain the existing 50 W floor. The 10000 W ceiling comes from pylxpweb's
 # holding-register table. Reg 117 (PtoUserStartchg) is SIGNED — protocol
 # default -50 W means "start charging once exporting more than 50 W" —
 # hence the symmetric range.

@@ -75,6 +75,7 @@ verified-against:
   # Inline ab87902 blob links on older rows remain valid historical URLs.
   eg4_web_monitor: 1d09823
   pylxpweb: f3ced1a
+# H116 portal zero-bound evidence refreshed 2026-10-20 against issue #628.
 last-verified: 2026-09-04
 ---
 
@@ -252,7 +253,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H105 | A portal-typed 95 is stored and read back (the 90 was the portal arrow-button hint, copied into pylxpweb and — beta.13, PR #600 round 2 — into the entity) | LXP-LB-US 10K (reporter unit, hybrid) | `portal-correlated` | current on the reported unit | 1 | [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter diagnostics (`HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`) + portal screenshot. Readback proves storage, not semantics. |
 | H105 | Exact write ceiling is 100 (101 rejected per the reporter; 96–100 never individually written) and the 10 floor is a portal hint only | LXP-LB-US 10K; other families unconfirmed | `inferred` | current | 1 | Bound adopted by [pylxpweb `c78ab7e`](https://github.com/joyfulhouse/pylxpweb/commit/c78ab7e) (PR #322, shipped 0.10.0b7) and the entity, and retained at the page-level pylxpweb pin. The firmware exception stays the authoritative reject path. **Both ends unproven** — a delta-test at 100 and at 9 would settle it. |
 | H110 | Shared system-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_110_PARAM_KEYS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L642-L659) and [`REGISTER_TO_PARAM_KEYS[110]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L777-L782) define the structure. Never inherit a bit’s grade to the whole word or another family. |
-| H116 | Import threshold to start discharge, W | grid-tied; CT required | `portal-correlated` | current | 1 | `DATA_MAPPING.md`; whole watts, not ×100 W. |
+| H116 | Import threshold to start discharge, W | grid-tied; CT required | `portal-correlated` | current | 1 | `DATA_MAPPING.md`; whole watts, not ×100 W. [#628](https://github.com/joyfulhouse/eg4_web_monitor/issues/628) reports the LXP portal accepting 0 W; integration lower bound includes zero only for positively identified LXP. |
 | H117 | Start-charge threshold, signed W | LOCAL/HYBRID | `asserted-unverified` | unresolved | 0 | [`DATA_MAPPING.md` H117 note](../../docs/DATA_MAPPING.md#power-control-registers); no cloud name or validated behavior. |
 | H120 | Compound charge/discharge-mode control word | supporting inverters | `lineage-inferred` | current | 1 | `DATA_MAPPING.md` compound-field audit assigns half-hour, AC-charge type, discharge type, on-grid EOD type, and generator-charge type subfields; do not decode it as consecutive booleans. |
 | H125 | EPS/off-grid discharge SOC cutoff | relevant devices | `lineage-inferred` | current | 1 | Canonical holding definition. |

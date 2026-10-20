@@ -3254,8 +3254,8 @@ class DeviceProcessingMixin(_MixinBase):
             "eps_apparent_power_l1": "eps_apparent_power_l1",
             "eps_apparent_power_l2": "eps_apparent_power_l2",
             # Smart load (GEN port) + grid-side load split — cloud-only
-            # smartLoadPower/gridLoadPower fields (#222), entities gated to
-            # EG4_OFFGRID via OFFGRID_ONLY_SENSORS.  The pylxpweb properties
+            # smartLoadPower/gridLoadPower fields (#222). Only grid_load_power
+            # is off-grid-gated; 18kPV also reports smartLoadPower (#625).  The pylxpweb properties
             # read the HTTP runtime even when a transport is attached, so
             # HYBRID gets them as cloud-supplemental data; pure LOCAL has no
             # source (no validated register) and never creates the keys.
