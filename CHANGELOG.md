@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Remember known GridBOSS topology before publishing inverter Consumption statistics after restart (#664), including delayed cloud discovery. The existing device registry retains this knowledge. To restore statistics after permanently removing a GridBOSS, delete its device using Home Assistant's guarded removal flow, then reload the entry; removing it from a LOCAL configuration also clears the topology during setup. Actual inverter-only entries retain their statistics.
+
 ### Added
 
 - Offer an in-place hybrid conversion when new cloud/local setup matches physical devices in an existing complementary entry, preserving entities and options and rejecting ambiguous or partial matches (#615).
@@ -19,7 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+
 - Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
+
+### Fixed
+
+- Report known cloud control-write failures as Home Assistant errors with the action and original cause, including after local fallback. Failed SOC writes clear optimistic state without seeding the rejected value (#668). The reported LXP firmware rejection and intended AC versus System charge control remain under investigation.
 
 ## [3.5.1-beta.19] - 2026-10-14
 

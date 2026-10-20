@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from pylxpweb.exceptions import LuxpowerAPIError
 
 from homeassistant.components.number import RestoreNumber
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
@@ -982,6 +983,45 @@ class TestHybridCloudFallback:
     """HYBRID number writes fall back to the cloud when the local write
     fails (switch parity — pylxpweb keeps the transport attached while the
     link is down, so attachment alone must not pin the local path)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("has_local", [False, True])
+    async def test_soc_cloud_rejection_is_actionable_and_rolls_back(self, has_local):
+        """#668: a rejected write must not escape HA or seed the requested SOC."""
+        coordinator = _mock_coordinator(
+            has_local=has_local,
+            has_http=True,
+            parameters={"HOLD_AC_CHARGE_SOC_LIMIT": 100},
+            inverter_attrs={"ac_charge_soc_limit": 100},
+        )
+        coordinator.data["devices"]["1234567890"]["features"] = {
+            "inverter_family": "LXP"
+        }
+        coordinator.write_named_parameter.side_effect = HomeAssistantError(
+            "Modbus write error at address 67: exception_code=3"
+        )
+        inverter = coordinator.get_inverter_object("1234567890")
+        rejection = LuxpowerAPIError("API error (HTTP 200): REMOTE_SET_ERROR")
+        inverter.set_ac_charge_soc_limit.side_effect = rejection
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+        published_values = []
+        entity.async_write_ha_state.side_effect = lambda: published_values.append(
+            entity.native_value
+        )
+
+        with pytest.raises(
+            HomeAssistantError, match="AC charge SOC limit to 4%.*REMOTE_SET_ERROR"
+        ) as caught:
+            await entity.async_set_native_value(4)
+
+        assert caught.value.__cause__ is rejection
+        assert coordinator.write_named_parameter.await_count == int(has_local)
+        inverter.set_ac_charge_soc_limit.assert_awaited_once_with(soc_percent=4)
+        coordinator.note_parameters_written.assert_not_called()
+        assert entity._optimistic_value is None
+        assert entity.native_value == 100
+        assert published_values == [4, 100]
 
     @pytest.mark.asyncio
     async def test_write_parameter_local_failure_falls_back_to_cloud(self):

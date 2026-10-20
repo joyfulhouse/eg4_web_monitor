@@ -12,9 +12,11 @@ sources:
   - memory/architecture-patterns.md
   - memory/feedback_eg4-data-model-and-sensor-noise.md
   - memory/consumption-energy-sources.md
-  - eg4_web_monitor issues #83, #233
+  - eg4_web_monitor issues #83, #233, #653
+  - tests/test_local_startup_snapshot.py
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+# LOCAL static-phase claims below rechecked at f352c23; other sections retain this pin.
+last-verified: 2026-10-20
 see-also:
   - ../00-orientation/repo-map.md
   - ../40-hardware/registers.md
@@ -93,6 +95,15 @@ Entry point: `_async_update_local_data` (`coordinator_local.py:1946-2221`). Evid
 | The phase is one-shot, gated by `_local_static_phase_done` | `verified-against-code` — `coordinator_local.py:1971` |
 | It schedules an immediate follow-up `async_request_refresh()` as a tracked background task; Phase 2 populates real data | `verified-against-code` — `coordinator_local.py:1978-1985` |
 | Features on this path come from `_features_from_family()` — without it, BOTH split-phase and three-phase sensors get created | `verified-against-code` — `coordinator_mappings.py:1935` |
+
+**Startup states (#653).** `verified-against-code` at `f352c23`:
+`_async_update_local_data` schedules `async_request_refresh`, but HA's first-refresh
+debouncer can defer the real read until after platform forwarding. Measurement
+entities therefore initially publish `unknown`. This is deliberate: setup stays
+independent of a stalled gateway. `tests/test_local_startup_snapshot.py` exercises
+HA's real first-refresh and sensor forwarding, including a never-completing read.
+HYBRID transport-only discovery is a separate delay described on #653; the LOCAL
+static-phase policy does not resolve that report.
 
 **Why the phase exists.**
 

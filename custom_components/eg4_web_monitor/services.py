@@ -376,7 +376,7 @@ async def _reconcile_energy_sensor(
         _LOGGER.debug("No statistics to import for %s", entity_id)
         return 0, len(gap_hours)
 
-    # Import statistics
+    # Entity statistics belong to recorder even when backfilled from cloud data.
     # Note: mean_type and unit_class are required by StatisticMetaData TypedDict
     # but are only used for display purposes. For energy sensors, we use:
     # - mean_type: None (not applicable for energy totals)
@@ -386,7 +386,7 @@ async def _reconcile_energy_sensor(
         "has_sum": True,
         "mean_type": None,  # type: ignore[typeddict-item]
         "name": None,
-        "source": DOMAIN,
+        "source": "recorder",
         "statistic_id": statistic_id,
         "unit_class": None,
         "unit_of_measurement": UnitOfEnergy.KILO_WATT_HOUR,

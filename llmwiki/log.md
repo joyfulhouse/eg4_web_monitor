@@ -1499,6 +1499,48 @@ the exponential backoff before its cap was applied. The retry calculation
 now stops doubling at the configured interval, retaining successful blocks
 when another block remains unsupported. Regression tests cover both findings.
 
+## [2026-10-20] ingest | Retain known GridBOSS startup topology (#664)
+
+Updated data-semantics section 4.3.1 against `d889f82feb88e75d4518fd09d5efc8224e8618ad`.
+Existing HA registry ownership now seeds the exclusion before first publication;
+partial cloud startup no longer prunes that evidence. Documented the explicit
+reset via guarded device deletion/reload or LOCAL configuration removal. The
+previous entity-lifetime-only explanation left the restart window unresolved.
+
+## [2026-10-20] lint | Correct stale SOC routing and peak-shaving provenance (#606, #609)
+
+Rechecked `number.py` at integration `98ae596` against the register keeper's
+H160/H161 family rows and the routing owner's fail-closed policy. Corrected
+`docs/DATA_MAPPING.md`: family floors and cloud-only off-grid/unresolved
+writes already shipped in PR #600; the old ungated-local-write warning was
+false. Firmware proof remains limited to decoded CEAA/CCAA images, and live
+cloud toggle evidence remains limited to the tested hybrid units.
+
+Rechecked pylxpweb `80e8221` H208/H219 holding definitions cited by
+[`40-hardware/registers.md`](40-hardware/registers.md). Corrected only the
+stale `const/limits.py` provenance comment: the library carries the same
+40.0-64.0 V maintainer guard since b8. Numeric limits, routing, keeper
+ownership and evidence grades are unchanged; no new hardware evidence exists.
+
+
+## [2026-10-20] ingest | Deliberate LOCAL startup measurement placeholders (#653)
+
+Rechecked the static first refresh and documented the observable initial `unknown`
+in the data-flow owner and troubleshooting guide. Entity setup must remain
+independent of a stalled read; the real-HA regression covers first refresh,
+platform forwarding, eventual measurements and a never-completing read. The
+separate HYBRID transport-only discovery delay remains explicitly unresolved.
+
+## [2026-10-20] ingest | Cloud write rejection normalization
+
+Updated [controls and writes](10-integration/controls-and-writes.md) from
+`ad79479` and the primary #668 traceback. The router previously allowed
+LuxpowerAPIError to escape into HA as an unexpected exception; known library
+cloud failures now retain their cause inside HomeAssistantError. Regression
+tests reproduce the original failure and assert rejected SOC writes publish
+4 then 100 without cache seeding. No register limits or hardware evidence
+grades change; #668 remains open for control intent and firmware evidence.
+
 ## [2026-10-20] ingest | Physical-device hybrid conversion
 
 Updated [config flow](10-integration/config-flow.md) from `9ea6c83`: onboarding
