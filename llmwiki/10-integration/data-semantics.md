@@ -43,6 +43,7 @@ sources:
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
+  # Section 4.2.2 verified at a9bab41 (scoped LOCAL day provenance).
   # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
   # on 2026-10-14; other sections retain their scoped pins below.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
@@ -58,7 +59,7 @@ verified-against:
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
-last-verified: 2026-10-14
+last-verified: 2026-10-20
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -468,6 +469,36 @@ separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/
 `base_entity.py` → `_EG4RestoredSensor.async_added_to_hass` and
 `_guard_total_increasing`; the same-day nonnumeric restore cases are in
 `test_nonnumeric_restore_with_numeric_payload`.
+
+### 4.2.2 LOCAL daily baselines follow accepted snapshot days (#666)
+
+At `a9bab41`, physical LOCAL inverter and GridBOSS daily sensor mappings carry
+`energy_sample_times` from the accepted transport snapshot. Naive library
+snapshot timestamps are interpreted in the host timezone and normalized to
+aware UTC; `EG4BaseSensor` compares their dates in HA's configured timezone.
+The first sample from a later HA local day clears the previous daily baseline,
+so missed low/reset samples cannot pin yesterday's high value. Same-day small
+dips remain guarded; lifetime counters and large-reset behavior are unchanged.
+A restored daily baseline without acquisition provenance cannot pin the first
+trusted LOCAL sample. Cached processing, availability transitions and restore
+serialization retain the original snapshot stamp and cannot expire the guard.
+
+Evidence: `verified-against-code` at `a9bab41` - `energy_provenance.py` ->
+`local_daily_sample_times`, `coordinator_local.py` -> `_build_local_device_data`
+and `_process_single_local_device`, `base_entity.py` -> `EG4BaseSensor`, and
+`tests/test_local_daily_sample_provenance.py`. The tests cover HA timezone
+boundaries, a real library failed-read cache, active MID mapping, restore and
+availability transitions. This is a policy based on accepted LOCAL snapshot
+acquisition day, not a hardware claim about an inverter's reset clock.
+
+**Remaining scope:** HTTP/HYBRID cloud values, group/independent-battery aggregates
+and chart-derived values do not receive invented provenance. Issue #666 remains
+open; [pylxpweb #383](https://github.com/joyfulhouse/pylxpweb/issues/383) requests
+source identity and per-field acquisition/sample-day metadata preserved through
+caches and aggregation. At library `0ee50a8`, `EnergyInfo` has no sample date,
+`_fetch_energy_http` can stamp a cached endpoint result, and
+`InverterEnergyData.from_http_response` stamps conversion. None proves the
+numeric cloud sample's day. Those paths keep the prior bounded guard contract.
 
 ### 4.3 Consumption and load are two distinct meters
 

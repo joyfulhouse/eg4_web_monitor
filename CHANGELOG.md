@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Physical LOCAL daily energy sensors clear yesterday's dip-guard baseline when a newly accepted transport snapshot belongs to a later Home Assistant local day (#666). Cached reads and availability changes cannot redate samples; lifetime behavior is unchanged. An undated restored daily baseline does not pin the first trusted LOCAL reading. Cloud, parallel-group and independent-battery provenance remain tracked in #666 / pylxpweb #383.
+
 ### Added
 
 - **GridBOSS smart port settings**: with a local connection to the GridBOSS, each smart port device now carries the port's settings from the EG4 portal:

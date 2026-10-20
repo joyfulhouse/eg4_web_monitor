@@ -1498,3 +1498,12 @@ The same review reproduced a long-running option-read failure overflowing
 the exponential backoff before its cap was applied. The retry calculation
 now stops doubling at the configured interval, retaining successful blocks
 when another block remains unsupported. Regression tests cover both findings.
+
+## [2026-10-20] ingest | Scoped LOCAL daily guard expiration (#666)
+
+Added data-semantics section 4.2.2 at `a9bab41`. Accepted LOCAL physical-counter
+snapshots now carry acquisition timestamps through mapping; daily baseline
+expiration follows sample-day changes instead of publication/access time.
+Documented the undated restore policy and kept cloud/aggregate/battery gaps
+explicit under issue #666 and library dependency #383. No hardware reset-clock
+semantics or cloud freshness claims are inferred from these software tests.
