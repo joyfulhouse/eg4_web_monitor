@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
@@ -12,6 +13,15 @@ from custom_components.eg4_web_monitor.const import (
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
+
+
+def _entry_device(registry, entry_id, identifier):
+    """Find our record using an API shared by both registry ownership models."""
+    return next(
+        device
+        for device in dr.async_entries_for_config_entry(registry, entry_id)
+        if (DOMAIN, identifier) in device.identifiers
+    )
 
 
 @pytest.mark.parametrize("mode", ["http", "hybrid", "local"])
@@ -285,7 +295,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
         )
         # Processing persists the choice even before consumption entities exist.
         assert (
-            registry.async_get_device(identifiers={(DOMAIN, group_id)}).model_id
+            _entry_device(registry, entry.entry_id, group_id).model_id
             == expected_marker
         )
         assert first.get_device_info(group_id)["model_id"] == expected_marker
@@ -297,7 +307,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
             # No GridBOSS entity was registered: the positive association alone
             # must survive the failure and the following restart.
             assert (
-                registry.async_get_device(identifiers={(DOMAIN, "GB001")}).model_id
+                _entry_device(registry, entry.entry_id, "GB001").model_id
                 == "eg4_web_monitor:gridboss"
             )
         elif history == "mixed_inverter":
@@ -315,7 +325,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
         )
 
     if history == "removed":
-        device = registry.async_get_device(identifiers={(DOMAIN, "GB001")})
+        device = _entry_device(registry, entry.entry_id, "GB001")
         first._removal_identifier_last_seen["GB001"] = (0.0, "device", None)
         first._removal_device_observed_since = 0.0
         first.data = {"devices": {}}
@@ -354,7 +364,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
         assert data["sensors"]["consumption"] == (None if expected_ct else 19.0)
         if not expected_ct:
             assert (
-                registry.async_get_device(identifiers={(DOMAIN, group_id)}).model_id
+                _entry_device(registry, entry.entry_id, group_id).model_id
                 == INVERTER_GROUP_MODEL_ID
             )
 
@@ -368,7 +378,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
         assert data["sensors"]["consumption"] == 20.0
         assert data["sensors"]["consumption_lifetime"] == 2000.0
         assert (
-            registry.async_get_device(identifiers={(DOMAIN, group_id)}).model_id
+            _entry_device(registry, entry.entry_id, group_id).model_id
             == GRIDBOSS_GROUP_MODEL_ID
         )
     await restarted.async_shutdown()
@@ -392,23 +402,23 @@ async def test_group_source_never_borrows_or_overwrites_foreign_role(
     entry = MockConfigEntry(domain=DOMAIN, data={CONF_CONNECTION_TYPE: "local"})
     entry.add_to_hass(hass)
     registry = dr.async_get(hass)
-    device = registry.async_get_or_create(
+    foreign_device = registry.async_get_or_create(
         config_entry_id=owner.entry_id,
         identifiers={(DOMAIN, "parallel_group_a")},
         model_id=GRIDBOSS_GROUP_MODEL_ID,
     )
     if shared:
-        device = registry.async_get_or_create(
-            config_entry_id=entry.entry_id, identifiers=device.identifiers
+        registry.async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers=foreign_device.identifiers
         )
-    ownership = device.config_entries
+    ownership = registry.async_get(foreign_device.id).config_entries
     with patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"):
         coordinator = EG4DataUpdateCoordinator(hass, entry)
     source = group_consumption_source(
         coordinator, "parallel_group_a", has_mid=has_mid, previous_source=None
     )
     assert source == ("gridboss" if has_mid else "inverter")
-    current = registry.async_get(device.id)
+    current = registry.async_get(foreign_device.id)
     assert current.config_entries == ownership
     assert current.model_id == GRIDBOSS_GROUP_MODEL_ID
     coordinator.data = {
@@ -416,7 +426,16 @@ async def test_group_source_never_borrows_or_overwrites_foreign_role(
             "parallel_group_a": {"type": "parallel_group", "consumption_source": source}
         }
     }
-    assert "model_id" not in coordinator.get_device_info("parallel_group_a")
+    info = coordinator.get_device_info("parallel_group_a")
+    if hasattr(registry, "async_get_device_by_identifier"):
+        own_device = _entry_device(registry, entry.entry_id, "parallel_group_a")
+        assert own_device.id != foreign_device.id
+        assert own_device.config_entries == {entry.entry_id}
+        expected_marker = f"eg4_web_monitor:{source}_group"
+        assert own_device.model_id == expected_marker
+        assert info["model_id"] == expected_marker
+    else:
+        assert "model_id" not in info
     await coordinator.async_shutdown()
 
 
@@ -433,7 +452,7 @@ async def test_cached_group_role_is_not_republished_after_ownership_changes(hass
     other = MockConfigEntry(domain=DOMAIN, data={CONF_CONNECTION_TYPE: "local"})
     other.add_to_hass(hass)
     registry = dr.async_get(hass)
-    registry.async_get_or_create(
+    own_device = registry.async_get_or_create(
         config_entry_id=entry.entry_id, identifiers={(DOMAIN, "parallel_group_a")}
     )
     with patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"):
@@ -450,8 +469,14 @@ async def test_cached_group_role_is_not_republished_after_ownership_changes(hass
         coordinator.get_device_info("parallel_group_a")["model_id"]
         == INVERTER_GROUP_MODEL_ID
     )
-    registry.async_get_or_create(
+    other_device = registry.async_get_or_create(
         config_entry_id=other.entry_id, identifiers={(DOMAIN, "parallel_group_a")}
     )
-    assert "model_id" not in coordinator.get_device_info("parallel_group_a")
+    info = coordinator.get_device_info("parallel_group_a")
+    if other_device.id == own_device.id:
+        assert "model_id" not in info
+    else:
+        assert info["model_id"] == INVERTER_GROUP_MODEL_ID
+        assert registry.async_get(other_device.id).model_id is None
+        assert registry.async_get(own_device.id).config_entries == {entry.entry_id}
     await coordinator.async_shutdown()
