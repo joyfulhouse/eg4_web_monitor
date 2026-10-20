@@ -42,7 +42,7 @@
 2. [Inverter Input Registers](#2-inverter-input-registers)
 3. [Inverter Holding Registers (Parameters)](#3-inverter-holding-registers-parameters)
 4. [GridBOSS Input Registers](#4-gridboss-input-registers)
-5. [GridBOSS Holding Register 20 (Smart Port Status)](#5-gridboss-holding-register-20-smart-port-status)
+5. [GridBOSS Holding Register 20 (Smart Port Status)](#5-gridboss-holding-register-20-smart-port-status) — includes the [smart port option registers](#smart-port-option-registers-229-317-2101)
 6. [Cloud API Field Mappings](#6-cloud-api-field-mappings)
 7. [Individual Battery Data](#7-individual-battery-data)
 8. [Parallel Group Data](#8-parallel-group-data)
@@ -807,53 +807,50 @@ per boundary). Cloud param names take the window suffix
 | 102 | `discharge_current` | number | A | 0-140 |
 | 105 | `ongrid_discharge_soc` | number | % | 10-100 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
-| 160 | `ac_charge_start_battery_soc` | number | % | 0-90 |
-| 161 | `ac_charge_end_battery_soc` | number | % | 0-100 |
+| 160 | `ac_charge_start_battery_soc` | number | % | 1-90 off-grid/unresolved; 0-90 positively resolved non-off-grid |
+| 161 | `ac_charge_end_battery_soc` | number | % | 20-100 off-grid/unresolved; 0-100 positively resolved non-off-grid |
 
 > **AC-charge SOC window (regs 160/161)**
-> ([#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331) /
-> [#488](https://github.com/joyfulhouse/eg4_web_monitor/issues/488)). On the
-> off-grid family reg 67 (`ac_charge_soc_limit`) is firmware-rejected and is
-> suppressed with a one-shot Repairs issue, and 160/161 are the registers the
-> integration drives instead. The register keeper grades both `portal-correlated`
-> — see `llmwiki/40-hardware/registers.md` — so treat the pairing as the
-> integration's current implementation choice, not a proven hardware semantic.
-> The two entities are **not** created symmetrically (`number.py:657-695`):
+> ([#570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570),
+> [PR #600](https://github.com/joyfulhouse/eg4_web_monitor/pull/600)).
+> Bounds and routes are family-scoped in `number.py`:
+> `ACChargeStartBatterySOCNumber`, `ACChargeEndBatterySOCNumber`, and
+> `EG4BaseNumberEntity._offgrid_cloud_only_reason`.
 >
-> - **Reg 160 (Start)** is created on `EG4_OFFGRID` *and* `EG4_HYBRID`. On a
->   FlexBOSS21 it starts AC charging whenever SOC is below it — in or out of the
->   AC-charge windows, regardless of the reg-120 `ACChargeType` selector — and the
->   portal exposes it as "Start AC Charge SOC(%)". The hybrid gate is
->   `is_hybrid_family()` and fails **closed**: LXP and unidentified hardware are
->   excluded until verified. Write range is capped at 90 %, per pylxpweb.
-> - **Reg 161 (End)** is created on `EG4_OFFGRID` only. pylxpweb models the
->   grid-tied stop as reg 67 (`set_ac_charge_soc_limits` pairs 160 with 67), and
->   the #332 note records reg 161 as inert on tested grid-tied firmware.
+> - **H160 (Start)** is created for `EG4_OFFGRID` and `EG4_HYBRID`.
+>   Off-grid or unresolved families use a 1% floor; positively resolved
+>   non-off-grid families retain 0%. The write ceiling is 90%; reads tolerate
+>   values through 100%. The hybrid creation gate fails closed for unknown
+>   families. On hybrids the AC-charge stop SOC is H67, not H161.
+> - **H161 (End)** is created for `EG4_OFFGRID`. The entity uses a 20% floor
+>   for off-grid or unresolved families and retains 0% for positively resolved
+>   non-off-grid families; the ceiling is 100%. Creation eligibility and the
+>   defensive write/read bounds are separate checks.
+> - **Routing for both registers:** off-grid, missing and UNKNOWN families
+>   take the cloud-only named-parameter route. A pure-LOCAL entry in those
+>   families receives an error instead of attempting a local write. Only a
+>   positively resolved non-off-grid family may use the local-first route.
+>   Local reads remain enabled.
 >
-> ⚠️ **Reg 161's meaning and writability on off-grid firmware are UNRESOLVED — and
-> the local write path is LIVE IN PRODUCTION.** There is no gate on it.
-> `ACChargeEndBatterySOCNumber` (`number.py:1436`, created for `EG4_OFFGRID` at
-> `:660`) passes `local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC` to
-> `_write_parameter` (`:1489`), which routes through
-> `async_write_with_cloud_fallback` (`utils.py:185`) — **local write first**, cloud
-> only as fallback. Documenting a safety gate that does not exist is worse than the
-> risk it conceals, because a reader stops looking.
+> **Evidence is scoped to the claim and family.** The
+> [register keeper](../llmwiki/40-hardware/registers.md) owns the grades and
+> primary artifacts. H160's raw 1-90 bounds and H161's raw 20-100 bounds,
+> H161 >= H160 check, and charge-state-machine use are `firmware-proven`
+> on the decoded CEAA/CCAA off-grid images. This does not prove a live
+> off-grid local write. H160's named cloud write/storage/restoration is
+> `hardware-toggle-proven` only on the tested FlexBOSS21 and 18kPV units
+> (component firmware unrecorded); other-family mapping remains
+> `portal-correlated`. H161's broader mapping is `portal-correlated`, with
+> inert write behavior on the tested grid-tied hybrids and live off-grid
+> local writability unresolved.
 >
-> The only mitigation in the path is a post-write readback, and **a readback proves
-> storage and transport only, never semantic**. A wrong-but-writable register is
-> firmware-ACKed and reads back exactly the value written, so it cannot distinguish
-> "the control worked" from "a different setting was silently changed".
->
-> This is an **un-discharged risk that ships today**, recorded so it is visible —
-> not a gate, not reviewed-and-approved, and not safe. Nothing here recommends or
-> blesses the local write. Discharging it requires all of: a family-specific named
-> vendor action or UI control, an independent observation of the resulting
-> behavior, a raw integer before/after register pair, and restoration of the
-> original value. Until that record exists, do not present reg 161 as a validated
-> off-grid control. Tracked as
-> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558); the
-> meaning question is contradiction **C7**, which stays **OPEN**. Changing the
-> write routing is a code decision and is deliberately not made here.
+> The [routing owner](../llmwiki/10-integration/controls-and-writes.md)
+> documents the gate shipped by PR #600. Readback proves storage and
+> transport, not semantics; it cannot detect a wrong-but-writable target.
+> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558) and the
+> keeper's C6/C7 links retain the unresolved hardware scope. These
+> documentation corrections neither promote evidence grades nor authorize
+> a local off-grid write.
 
 ### Extended Function Enable (Register 179)
 
@@ -1221,6 +1218,50 @@ for port in range(1, 5):
 
 **Cloud API**: Uses `bitParamControl` with `BIT_MIDBOX_SP_MODE_N` to read/write
 this register. The `getMidboxRuntime` endpoint returns `smartPort{N}Status` fields.
+
+### Smart Port Option Registers (229-317, 2101)
+
+The per-port settings behind the smart port option entities
+([CONFIGURATION.md](CONFIGURATION.md#smart-port-settings)). pylxpweb's
+MIDBOX name map doesn't carry them, so the integration reads them raw over
+the local transport and decodes them in `const/midbox.py`, which holds the
+per-field evidence. Parameter keys are the cloud's own names
+(`MIDBOX_HOLD_SL_START_SOC_1`, …); n = port 1-4.
+
+| Register | Field | Encoding |
+|---|---|---|
+| 229 | `FUNC_SMART_LOAD_EN_n` bit n-1, `FUNC_SMART_LOAD_GRID_ON_n` bit n+3, `FUNC_AC_COUPLE_EN_n` bit n+7, `FUNC_SHEDDING_MODE_EN_n` bit n+11 | flags |
+| 229+n | Smart Load start / end SOC | low byte start, high byte end (%) |
+| 232+2n, 233+2n | Smart Load start / end voltage | ÷10 V |
+| 241+n | AC Couple start / end SOC | low / high byte (%) |
+| 244+2n, 245+2n | AC Couple start / end voltage | ÷10 V |
+| 253+n | Shedding start PV power | ÷10 kW |
+| 257+n | Shedding start / end SOC | low / high byte (%) |
+| 260+2n, 261+2n | Shedding start / end voltage | ÷10 V |
+| 270+6(n-1) … +5 | Smart Load windows: start 1, end 1, start 2, end 2, start 3, end 3 | low byte hour, high byte minute |
+| 294+6(n-1) … +5 | AC Couple windows, same layout | low byte hour, high byte minute |
+| 2101 | `BIT_SMART_LOAD_BASE_ON_n` bit n | 1 = SOC/Volt, 0 = Time |
+
+- The cloud also names `BIT_MID_INSTALL_POSITION` and
+  `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` (the mobile app's "Time+SOC/Volt"
+  option) in 2101; their bit positions are not pinned. Writes change only the
+  one based-on bit and preserve the rest.
+- Register 229 is read on every GridBOSS refresh (HYBRID: every cycle that
+  refreshes the MID over the dongle), and the full set (blocks 229+40,
+  269+40, 309+9, 2101+1) on the parameter refresh interval. Each block gets
+  one retry, and a failed block carries its previous values forward; a full
+  read that lost a block is retried after 2, 4, 8 … minutes, capped at the
+  refresh interval.
+- Writes are a locked read-modify-write of one register against a fresh read,
+  then a verify read 1.5 s later (the firmware reverts a rejected function
+  bit within a second). The GridBOSS's transport is resolved from the LOCAL
+  MID cache or, in HYBRID, from the station's MID device.
+- The voltage scale (÷10) follows the cloud's values but was not
+  change-tested. Representative Smart Load settings were written from Home
+  Assistant on port 4 and read back over the dongle (2026-09-30); the exact
+  tested fields are recorded in `const/midbox.py`. The shedding bit (229 bit
+  15) was also confirmed in the portal. This does not establish a write test
+  for every field or the firmware's behavior at each threshold.
 
 ---
 
