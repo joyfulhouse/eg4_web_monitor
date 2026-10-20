@@ -28,6 +28,7 @@ class _Entry:
     def __init__(self, runtime_data):
         self.runtime_data = runtime_data
         self.entry_id = "test-entry"
+        self.data = {}
 
     def async_on_unload(self, _unload):
         pass

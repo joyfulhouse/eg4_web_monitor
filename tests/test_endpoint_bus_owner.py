@@ -1812,6 +1812,7 @@ def _audit_supported_source(
     source: str,
     *,
     owner_module: bool,
+    reserved_battery_io: frozenset[tuple[str, str, str]] = frozenset(),
 ) -> list[str]:
     """Audit statically supported escape shapes, not dynamic Python execution."""
     tree = ast.parse(source)
@@ -1981,7 +1982,22 @@ def _audit_supported_source(
             called_name = called.rsplit(".", 1)[-1] if called else ""
             if called_name in _RAW_CONSTRUCTORS:
                 violations.append(f"raw-constructor:{node.lineno}")
-            if called_name in _LOCAL_IO_METHODS and not is_capability_receiver(node):
+            scope = enclosing_function(node)
+            reserved_battery_call = (
+                isinstance(scope, ast.AsyncFunctionDef)
+                and isinstance(node.func, ast.Attribute)
+                and (
+                    scope.name,
+                    ast.unparse(node.func.value),
+                    called_name,
+                )
+                in reserved_battery_io
+            )
+            if (
+                called_name in _LOCAL_IO_METHODS
+                and not is_capability_receiver(node)
+                and not reserved_battery_call
+            ):
                 violations.append(f"direct-local-io:{node.lineno}")
             if (
                 called_name == "getattr"
@@ -2062,12 +2078,29 @@ def test_architecture_rejects_raw_transport_escape_and_private_monkeypatch() -> 
     root = Path(__file__).parents[1] / "custom_components" / "eg4_web_monitor"
     owner_path = root / "endpoint_bus.py"
     violations: list[str] = []
+    # The dedicated battery protocol owns a reservation rather than an inverter
+    # capability. Its lifecycle tests prove whole-poll drain before handoff.
+    # Permit only these explicit lifecycle calls, never a module-wide exemption.
+    battery_sites = {
+        "battery_bus.py": frozenset(
+            {
+                ("close_battery_bus", "bus", "disconnect"),
+                ("_read_batteries", "self.bus", "connect"),
+            }
+        ),
+        "_config_flow/battery.py": frozenset(
+            {
+                ("async_battery_bridge_step", "bus", "connect"),
+            }
+        ),
+    }
 
     for path in sorted(root.rglob("*.py")):
         relative = str(path.relative_to(root))
         findings = _audit_supported_source(
             path.read_text(),
             owner_module=path == owner_path,
+            reserved_battery_io=battery_sites.get(relative, frozenset()),
         )
         violations.extend(f"{relative}:{finding}" for finding in findings)
 
@@ -2120,3 +2153,26 @@ def test_capability_mutable_config_properties_round_trip() -> None:
     assert capability.inverter_family == "EG4_HYBRID"
     assert capability.split_phase is True
     assert capability.pv_string_count == 6
+
+
+def test_dedicated_battery_io_exception_does_not_allow_inverter_escape():
+    allowed = frozenset({("close_battery_bus", "bus", "disconnect")})
+    assert (
+        _audit_supported_source(
+            "async def close_battery_bus(bus):\n    await bus.disconnect()",
+            owner_module=False,
+            reserved_battery_io=allowed,
+        )
+        == []
+    )
+    for source in (
+        "async def other(bus):\n    await bus.disconnect()",
+        "async def close_battery_bus(raw):\n    await raw.disconnect()",
+        "async def close_battery_bus(bus):\n    await bus.read_parameters(0, 1)",
+    ):
+        assert any(
+            finding.startswith("direct-local-io")
+            for finding in _audit_supported_source(
+                source, owner_module=False, reserved_battery_io=allowed
+            )
+        )
