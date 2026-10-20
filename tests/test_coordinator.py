@@ -3060,7 +3060,9 @@ class TestGridBOSSOverlay:
             "grid_import_total": 17354.4,
             "grid_export_today": 12.3,
             "grid_export_total": 10621.9,
+            "ups_today": 0.0,
             "load_today": 43.1,
+            "ups_total": 0.0,
             "load_total": 10736.7,
         }
 
@@ -3095,7 +3097,7 @@ class TestGridBOSSOverlay:
         assert pg["load_power_l2"] == pytest.approx(900.0)
 
     def test_missing_gb_values_not_overridden(self):
-        """Values missing from GridBOSS sensors are left unchanged."""
+        """Missing CT consumption stays unknown; unrelated overlay fields keep policy."""
         pg = {
             "grid_import": 25.0,
             "grid_export": 10.0,
@@ -3108,21 +3110,23 @@ class TestGridBOSSOverlay:
 
         assert pg["grid_import"] == pytest.approx(30.5)  # overridden
         assert pg["grid_export"] == pytest.approx(10.0)  # unchanged
-        assert pg["consumption"] == pytest.approx(9.1)  # unchanged
+        assert pg["consumption"] is None
 
-    def test_empty_gb_sensors_noop(self):
-        """Empty GridBOSS sensor dict is a no-op."""
+    def test_empty_gb_sensors_blanks_consumption(self):
+        """Missing CTs never expose the inverter consumption fallback."""
         pg = {"consumption_lifetime": 3698.0, "grid_power": 500.0}
-        original = dict(pg)
-
         apply_gridboss_overlay(pg, {}, "A")
 
-        assert pg == original
+        assert pg == {
+            "consumption": None,
+            "consumption_lifetime": None,
+            "grid_power": 500.0,
+        }
 
     def test_new_keys_added(self):
         """GridBOSS keys not already in parallel group are added."""
         pg: dict = {}
-        gb = {"load_power": 1800.0, "load_total": 10736.7}
+        gb = {"load_power": 1800.0, "ups_total": 0.0, "load_total": 10736.7}
 
         apply_gridboss_overlay(pg, gb, "A")
 
@@ -3213,7 +3217,9 @@ class TestGridBOSSOverlay:
                     "grid_import_total": 17354.4,
                     "grid_export_today": 12.3,
                     "grid_export_total": 10621.9,
+                    "ups_today": 0.0,
                     "load_today": 43.1,
+                    "ups_total": 0.0,
                     "load_total": 10736.7,
                 },
             }
@@ -3318,7 +3324,9 @@ class TestGridBOSSOverlay:
                         "grid_import_total": 17354.4,
                         "grid_export_today": 12.3,
                         "grid_export_total": 10621.9,
+                        "ups_today": 0.0,
                         "load_today": 43.1,
+                        "ups_total": 0.0,
                         "load_total": 10736.7,
                     },
                 },

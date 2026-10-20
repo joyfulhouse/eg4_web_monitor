@@ -85,7 +85,11 @@ from .utils import (
     normalize_event_row,
 )
 
-from .gridboss_topology import GRIDBOSS_MODEL_ID
+from .gridboss_topology import (
+    GRIDBOSS_MODEL_ID,
+    GRIDBOSS_GROUP_MODEL_ID,
+    INVERTER_GROUP_MODEL_ID,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -707,8 +711,11 @@ def apply_gridboss_overlay(
     for period, pg_key in (("today", "consumption"), ("total", "consumption_lifetime")):
         ups = gb_sensors.get(f"ups_{period}")
         load = gb_sensors.get(f"load_{period}")
-        if ups is not None or load is not None:
-            total = float(ups or 0) + float(load or 0)
+        # Missing CTs are unknown, not zero. Never substitute the inverter
+        # balance (or a partial CT total) into this meter's statistics series.
+        pg_sensors[pg_key] = None
+        if ups is not None and load is not None:
+            total = float(ups) + float(load)
             pg_sensors[pg_key] = total
             _LOGGER.debug(
                 "Parallel group %s: consumption %s = ups(%s) + load(%s) = %s",
@@ -4183,7 +4190,24 @@ class DeviceInfoMixin(_MixinBase):
         """Get device information for a specific serial number."""
         cache = self._get_cache("_device_info_cache")
         if serial in cache:
-            return cache[serial]
+            cached = cache[serial]
+            if cached.get("model_id") in {
+                GRIDBOSS_GROUP_MODEL_ID,
+                INVERTER_GROUP_MODEL_ID,
+            }:
+                registered = dr.async_get(self.hass).async_get_device(
+                    identifiers={(DOMAIN, serial)}
+                )
+                if registered is not None and registered.config_entries != {
+                    self.entry.entry_id
+                }:
+                    # Another entry may have claimed this legacy group ID after
+                    # the cache was populated; do not republish its old marker.
+                    cache.pop(serial)
+                else:
+                    return cached
+            else:
+                return cached
 
         if not self.data or "devices" not in self.data:
             return None
@@ -4206,6 +4230,17 @@ class DeviceInfoMixin(_MixinBase):
             "manufacturer": MANUFACTURER,
             "model": model,
         }
+
+        if device_type == "parallel_group":
+            registered = dr.async_get(self.hass).async_get_device(
+                identifiers={(DOMAIN, serial)}
+            )
+            if registered is None or registered.config_entries == {self.entry.entry_id}:
+                source = device_data.get("consumption_source")
+                if source == "gridboss":
+                    device_info["model_id"] = GRIDBOSS_GROUP_MODEL_ID
+                elif source == "inverter":
+                    device_info["model_id"] = INVERTER_GROUP_MODEL_ID
 
         if device_type == "gridboss":
             # Persist the discovered role independently of firmware model text.

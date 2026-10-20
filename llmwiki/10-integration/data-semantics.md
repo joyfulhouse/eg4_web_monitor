@@ -45,8 +45,10 @@ sources:
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
+  # Section 4.3.2 re-verified at e4ca3f0f23254ee280669854eaafedef1c3e9f27.
   # Section 4.3.1 startup policy re-verified at d889f82feb88e75d4518fd09d5efc8224e8618ad.
   # Section 4.2.2 verified at a9bab41 (scoped LOCAL day provenance).
+
   # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
   # on 2026-10-14; other sections retain their scoped pins below.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
@@ -607,25 +609,56 @@ statistics contract, not the formula or the contested physical-source claims
 below. Existing incorrect statistics are not rewritten; the upgrade guidance is
 owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
 
-#### 4.3.2 Missing GridBOSS CT overlay can expose a different group source (#661)
+#### 4.3.2 GridBOSS group consumption keeps its CT source through gaps (#661)
 
-The group source above is conditional. At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`,
-`DeviceProcessingMixin._process_parallel_group_object` can compute a transport
-energy balance before the HTTP/HYBRID group workflow applies GridBOSS CTs.
-`apply_gridboss_overlay` leaves that balance unchanged when both CT consumption
-fields are absent; the HTTP MID-processing exception path logs the error without
-blanking the group's already-created balance (`verified-against-code` —
-`coordinator_mixins.py` → those two symbols; `coordinator_http.py` →
-`HTTPUpdateMixin._process_station_data`, group MID-processing block).
+At `e4ca3f0f23254ee280669854eaafedef1c3e9f27`, the shared
+`apply_gridboss_overlay` requires both UPS and non-backup Load CT components
+for each period independently. A missing component produces `None` for that
+consumption reading instead of a partial sum or inverter energy balance.
+Zero is a valid component. The HTTP/HYBRID workflow blanks consumption before
+MID processing so an exception cannot expose its already-computed inverter balance.
+Both coordinator paths retain `consumption_source: gridboss` on the group record
+through temporary MID discovery loss; complete CT data restores the same series.
+Other power/grid overlay fields keep their existing policy.
 
-Issue [#661](https://github.com/joyfulhouse/eg4_web_monitor/issues/661) records the
-helper/entity reproduction and the remaining coordinator failure-path work.
-The group remains `total_increasing` in this case; the #648 metadata fix applies
-only to inverter entities (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` →
-`EG4InverterSensor.state_class`). A switch from CT sums to an inverter balance
-can therefore change the meaning of a statistics series (`inferred` from those
-two source-selection paths). This limitation does not establish that the normal
-CT-backed group counter is non-monotonic.
+Evidence: `verified-against-code` at the commit above -
+`coordinator_mixins.py` -> `apply_gridboss_overlay`, `coordinator_http.py` ->
+`HTTPUpdateMixin._process_station_data`, `coordinator_local.py` ->
+`LocalTransportMixin._process_local_parallel_groups`, and
+`tests/test_gridboss_consumption_source.py` ->
+`test_ct_gap_and_recovery_preserve_consumption_source`.
+The regression exercises real coordinator processing in HTTP, HYBRID and LOCAL,
+including missing daily/lifetime components, missing MID discovery, processing
+failure and recovery. It is software evidence, not a captured hardware outage.
+The group remains `total_increasing`; missing readings are unknown, while LOCAL
+error-marked contributors retain the existing whole-group unavailability policy.
+The group source also persists in the HA device registry as a `model_id`
+(`eg4_web_monitor:gridboss_group` or `eg4_web_monitor:inverter_group`), before
+consumption entity registration. `gridboss_topology.group_consumption_source`
+uses that entry-owned marker and the #664 known-GridBOSS predicate on startup.
+A previously CT-backed group stays unknown if MID discovery is absent. A legacy
+unclassified group in a known-GridBOSS entry is conservatively unknown until its
+association is rediscovered. In HTTP/HYBRID, positive current associations of
+all known GridBOSS serials to other groups or standalone devices also permit
+inverter classification; a still-unresolved known serial prevents that promotion.
+LOCAL has no equivalent unrelated-group association and retains its existing
+entry-wide MID overlay policy. A confirmed inverter group in the same entry keeps
+its inverter source. An entry with no known GridBOSS permits inverter consumption.
+The first positive MID association registers its topology before data processing,
+so an initial MID exception cannot erase that evidence at the next restart.
+Guarded GridBOSS device removal followed by reload (or authoritative LOCAL config
+removal) permits source re-evaluation; the runtime CT latch lasts for the run.
+Registry source changes invalidate cached device information so entity metadata
+cannot restore an old role. Foreign/shared group registry records neither supply
+nor receive source markers; `get_device_info` applies the same guard even if a
+record became shared after its metadata was cached. The colliding-identifier
+regressions exercise both classification and actual device information.
+`test_restart_preserves_group_source` exercises new
+coordinators, legacy records, explicit removal, first CT samples with no numeric
+readings, first-read exceptions, repeated reload, and recovery across HTTP/HYBRID/LOCAL. These are
+`verified-against-code` policy claims at the same scoped pin, not claims that a
+partial discovery can prove physical topology.
+
 
 #### The lifetime-consumption source is CONTESTED — no binding rule here
 

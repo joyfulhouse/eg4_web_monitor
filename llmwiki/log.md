@@ -1507,6 +1507,23 @@ partial cloud startup no longer prunes that evidence. Documented the explicit
 reset via guarded device deletion/reload or LOCAL configuration removal. The
 previous entity-lifetime-only explanation left the restart window unresolved.
 
+## [2026-10-20] ingest | GridBOSS consumption source continuity (#661)
+
+Updated data-semantics section 4.3.2 against `ac4174d772c67004a8104ae62c42ffb7f430ac0d`.
+The shared overlay no longer substitutes zero for absent CT components or retains
+an inverter balance through a gap. HTTP failure and temporary MID discovery loss
+are covered alongside LOCAL; prior stale-source guidance described the old code.
+Evidence is coordinator regression coverage, not a hardware outage capture.
+
+## [2026-10-20] ingest | Persist group consumption authority across restart (#661)
+
+Rechecked section 4.3.2 at `b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a`.
+The earlier runtime-only marker did not protect the first poll after reload.
+Entry-owned registry group roles now retain CT authority while MID discovery is
+missing; legacy unclassified groups in known-GridBOSS entries remain unknown.
+Documented confirmed inverter groups, explicit removal/reset, and software
+regressions across three connection modes without asserting discovery freshness.
+
 ## [2026-10-20] lint | Correct stale SOC routing and peak-shaving provenance (#606, #609)
 
 Rechecked `number.py` at integration `98ae596` against the register keeper's
@@ -1598,3 +1615,11 @@ acceptance paths at pylxpweb `v0.10.0b12` (unchanged in those files at
 `0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`). Updated data-semantics section
 4.2.2 with the absence of per-field cached energy carry-forward into fresh
 snapshots, MID subblock failure behavior, and unchanged scope limits.
+## [2026-10-20] ingest | Resolve legacy mixed groups and first-read source gaps (#661)
+
+Section 4.3.2 now pins `e4ca3f0f23254ee280669854eaafedef1c3e9f27`.
+Positive associations of every known GridBOSS elsewhere can resolve legacy
+HTTP/HYBRID groups without treating absence as topology proof. Foreign/shared
+registry roles are ignored and never overwritten by the classifier or cached
+device information. First MID discovery now persists its role before processing
+can fail. Added repeated-reload, partial-association and ownership regressions.
