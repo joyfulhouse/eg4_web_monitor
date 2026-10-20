@@ -705,8 +705,11 @@ def apply_gridboss_overlay(
     for period, pg_key in (("today", "consumption"), ("total", "consumption_lifetime")):
         ups = gb_sensors.get(f"ups_{period}")
         load = gb_sensors.get(f"load_{period}")
-        if ups is not None or load is not None:
-            total = float(ups or 0) + float(load or 0)
+        # Missing CTs are unknown, not zero. Never substitute the inverter
+        # balance (or a partial CT total) into this meter's statistics series.
+        pg_sensors[pg_key] = None
+        if ups is not None and load is not None:
+            total = float(ups) + float(load)
             pg_sensors[pg_key] = total
             _LOGGER.debug(
                 "Parallel group %s: consumption %s = ups(%s) + load(%s) = %s",

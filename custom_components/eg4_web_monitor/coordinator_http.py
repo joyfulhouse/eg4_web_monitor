@@ -969,7 +969,22 @@ class HTTPUpdateMixin(_MixinBase):
                     # Compute parallel group charge/discharge C-rates (%/h)
                     compute_parallel_group_charge_rate(pg_sensors)
 
-                    if hasattr(group, "mid_device") and group.mid_device:
+                    previous_group = (
+                        (self.data or {})
+                        .get("devices", {})
+                        .get(f"parallel_group_{group.name.lower()}", {})
+                    )
+                    has_mid = bool(getattr(group, "mid_device", None))
+                    if (
+                        has_mid
+                        or previous_group.get("consumption_source") == "gridboss"
+                    ):
+                        # CT consumption owns this series through MID processing
+                        # failure or temporary loss of the group's MID discovery.
+                        group_data["consumption_source"] = "gridboss"
+                        pg_sensors["consumption"] = None
+                        pg_sensors["consumption_lifetime"] = None
+                    if has_mid:
                         try:
                             mid_data = await self._process_mid_device_object(
                                 group.mid_device

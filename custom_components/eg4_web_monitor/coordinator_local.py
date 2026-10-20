@@ -2476,6 +2476,15 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
             }
+            previous_group = (
+                (self.data or {}).get("devices", {}).get(group_device_id, {})
+            )
+            if has_mid_device or previous_group.get("consumption_source") == "gridboss":
+                pg_device_data["consumption_source"] = "gridboss"
+                if not has_mid_device:
+                    group_sensors["consumption"] = None
+                    group_sensors["consumption_lifetime"] = None
+
             if stale_members:
                 # Error key -> all PG sensor entities go unavailable
                 # (base_entity availability contract), exactly like the
