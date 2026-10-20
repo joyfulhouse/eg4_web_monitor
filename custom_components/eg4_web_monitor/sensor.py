@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, cast
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -26,9 +25,7 @@ from .base_entity import (
     device_present_and_healthy,
 )
 from .const import (
-    CONF_LOCAL_TRANSPORTS,
     DISCHARGE_RECOVERY_SENSORS,
-    DOMAIN,
     HYBRID_EXCLUDED_SENSORS,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
@@ -72,6 +69,7 @@ from .smart_port_devices import (
     set_deferred_port_sensors,
     spec_serves,
 )
+from .gridboss_topology import entry_has_known_gridboss
 from .utils import is_supported_control_model
 
 _LOGGER = logging.getLogger(__name__)
@@ -846,22 +844,9 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
             "consumption",
             "consumption_lifetime",
         }:
-            entry = self.coordinator.entry
-            configured = entry.data.get(CONF_LOCAL_TRANSPORTS, [])
-            registered = dr.async_entries_for_config_entry(
-                dr.async_get(self.hass), entry.entry_id
-            )
             self._consumption_statistics_disabled = (
                 self._consumption_statistics_disabled
-                or any(config.get("is_gridboss") for config in configured)
-                or any(
-                    (
-                        device.model_id == "eg4_web_monitor:gridboss"
-                        or device.model == "GridBOSS"
-                    )
-                    and any(domain == DOMAIN for domain, _ in device.identifiers)
-                    for device in registered
-                )
+                or entry_has_known_gridboss(self.hass, self.coordinator.entry)
             )
         await super().async_added_to_hass()
 

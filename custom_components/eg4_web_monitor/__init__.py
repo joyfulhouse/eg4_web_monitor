@@ -84,6 +84,8 @@ from .services import (
     async_reconcile_history,
 )
 
+from .gridboss_topology import is_registered_gridboss
+
 _LOGGER = logging.getLogger(__name__)
 
 # Type alias for typed ConfigEntry (Python 3.11 compatible)
@@ -341,8 +343,9 @@ def _async_cleanup_removed_registry_devices(
         # A partial cloud discovery is not permanent removal of known CT
         # topology. Keep that registry evidence until explicit device deletion.
         # LOCAL configuration removal remains an authoritative reset policy.
-        if coordinator.connection_type != CONNECTION_TYPE_LOCAL and (
-            device.model_id == "eg4_web_monitor:gridboss" or device.model == "GridBOSS"
+        if (
+            coordinator.connection_type != CONNECTION_TYPE_LOCAL
+            and is_registered_gridboss(device)
         ):
             continue
         if (is_station or is_physical_device) and identifiers.isdisjoint(

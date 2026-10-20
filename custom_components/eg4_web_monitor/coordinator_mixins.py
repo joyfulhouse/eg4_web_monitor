@@ -85,6 +85,8 @@ from .utils import (
     normalize_event_row,
 )
 
+from .gridboss_topology import GRIDBOSS_MODEL_ID
+
 _LOGGER = logging.getLogger(__name__)
 
 # Bound (seconds) on the offgrid cloud quick-charge status read (#296). The
@@ -4199,7 +4201,7 @@ class DeviceInfoMixin(_MixinBase):
         if device_type == "gridboss":
             # Persist the discovered role independently of firmware model text.
             # Sensor startup uses this until delayed discovery returns (#664).
-            device_info["model_id"] = "eg4_web_monitor:gridboss"
+            device_info["model_id"] = GRIDBOSS_MODEL_ID
 
         if device_type != "parallel_group":
             device_info["serial_number"] = serial

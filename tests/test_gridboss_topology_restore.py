@@ -9,7 +9,10 @@ from pytest_homeassistant_custom_component.common import (
     MockEntityPlatform,
 )
 
-from custom_components.eg4_web_monitor import _async_cleanup_removed_registry_devices
+from custom_components.eg4_web_monitor import (
+    _async_cleanup_removed_registry_devices,
+    async_remove_config_entry_device,
+)
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
@@ -91,6 +94,15 @@ async def test_explicit_registry_removal_and_reload_reset_exclusion(hass):
 
     # The integration's existing deletion hook independently guards whether a
     # device can be removed; this exercises the accepted registry mutation.
+    entry.runtime_data = coordinator
+    assert not await async_remove_config_entry_device(hass, entry, device)
+    coordinator._removal_identifier_last_seen["GB"] = (0.0, "device", None)
+    coordinator._removal_device_observed_since = 0.0
+    with patch(
+        "custom_components.eg4_web_monitor.device_removal.monotonic",
+        return_value=1000.0,
+    ):
+        assert await async_remove_config_entry_device(hass, entry, device)
     registry.async_remove_device(device.id)
     assert sensor.state_class is None  # Remains latched until deliberate reload.
     await platform.async_reset()
