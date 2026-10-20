@@ -12,8 +12,8 @@ sources:
   - scripts/check_ci_dependencies.py
   - tests/test_ci_summary_gates.py
 verified-against: 9f6d6e2
-# Python/HA CI matrix below re-verified at 7b0a237; other sections retain this pin.
-last-verified: 2026-09-29
+# Python/HA CI matrix below re-verified at 5e3752e; other sections retain this pin.
+last-verified: 2026-10-20
 ---
 
 # Quality gates
@@ -118,7 +118,7 @@ jobs `bronze-summary`, `silver-summary`, `gold-summary` and their dependents.
 
 ### Python and Home Assistant version matrix
 
-This subsection is `verified-against-code` at `7b0a237` —
+This subsection is `verified-against-code` at `5e3752e` —
 `quality-validation.yml` jobs `gold-test-coverage`, `platinum-strict-typing`,
 `platinum-comprehensive-tests` and `platinum-validation-script`, plus
 `tests/constraints-ha-{minimum,latest}.txt` and `tests/mypy.ini`.
@@ -126,9 +126,10 @@ This subsection is `verified-against-code` at `7b0a237` —
 | Jobs | Environment selection |
 |------|-----------------------|
 | Bronze ruff/syntax | Python 3.12 |
-| Gold full-suite coverage + Platinum strict mypy | Blocking minimum/latest matrix: Python 3.13 / 3.14 respectively |
+| Gold full-suite coverage + Platinum strict mypy | Blocking minimum/latest matrix: Python 3.14 for both |
 | Auxiliary Platinum tests + tier validator | Latest constraints on Python 3.14 |
 
+Home Assistant 2026.10.0 is the minimum for future releases.
 The paired HA/test-plugin pins are owned by the two constraints files; do not
 copy their version numbers here. The plugin pins HA itself, so a Python upgrade
 without explicit paired constraints can silently test an older HA. Both matrix

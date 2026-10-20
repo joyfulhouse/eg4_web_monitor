@@ -1646,3 +1646,12 @@ while minimumHA2026.1 retains global/shared records. Updated the data-semantics
 owner with the capability-selected topology lookup and matching DeviceInfo guard.
 Regressions preserve legacy foreign/shared protection and assert independent
 markers for newer per-entry identities. This is software ownership evidence.
+
+## [2026-10-20] ingest | Home Assistant support starts at 2026.10.0
+
+At `5e3752e`, HACS and test requirements now require HA 2026.10.0, with
+minimum/latest core and plugin pairs for 2026.10.0/2026.10.2 on Python 3.14.
+Updated the quality-gates matrix and release-process HACS row; historical
+validation records remain historical. Published integration beta.20 keeps
+its original requirements. The library follows the new HA compatibility
+matrix while retaining standalone Python 3.13 support.

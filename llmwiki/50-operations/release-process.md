@@ -13,7 +13,8 @@ sources:
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 068e59c
-last-verified: 2026-08-21
+# HACS support floor re-verified at eg4_web_monitor 5e3752e; other claims retain their pins.
+last-verified: 2026-10-20
 ---
 
 # Release process
@@ -143,13 +144,13 @@ trigger, so there is no manual path that attaches a zip — `verified-against-co
 
 ## How HACS consumes releases
 
-`verified-against-code` — `hacs.json`
+`verified-against-code` — `hacs.json` at `5e3752e`
 
 | Key | Value |
 |-----|-------|
 | `zip_release` | `true` |
 | `filename` | `eg4_web_monitor.zip` |
-| `homeassistant` | `>=2026.1.0` (minimum HA version) |
+| `homeassistant` | `>=2026.10.0` (minimum HA version for future releases) |
 | `content_in_root` | `false` |
 
 HACS installs from the GitHub Release asset produced by `release.yml`, not from raw tree contents.
