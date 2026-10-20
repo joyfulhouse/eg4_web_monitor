@@ -7,7 +7,7 @@ All entity classes should inherit from these bases to ensure consistent behavior
 import asyncio
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
-from datetime import time as dt_time
+from datetime import datetime, time as dt_time
 from decimal import Decimal
 import logging
 import math
@@ -473,6 +473,7 @@ class EG4BaseSensor(EG4DeviceEntity, _EG4RestoredSensor):
     """
 
     _attr_suggested_display_precision: int | None = None
+    _last_energy_sample_at: datetime | None = None
 
     def __init__(
         self,
@@ -534,12 +535,39 @@ class EG4BaseSensor(EG4DeviceEntity, _EG4RestoredSensor):
         threshold.
         """
         raw_value = self._get_raw_value()
+        sample_at = self._daily_sample_time(raw_value)
+        if sample_at is not None and (
+            self._last_energy_sample_at is None
+            or dt_util.as_local(sample_at).date()
+            > dt_util.as_local(self._last_energy_sample_at).date()
+        ):
+            # A restored baseline without acquisition provenance cannot pin a
+            # known LOCAL sample. Cached reads keep their original timestamp,
+            # so property access/availability changes cannot expire the guard.
+            self._last_reported_value = None
         value, self._last_reported_value = _guard_total_increasing(
             getattr(self, "state_class", getattr(self, "_attr_state_class", None)),
             raw_value,
             self._last_reported_value,
         )
+        if sample_at is not None and value == raw_value:
+            self._last_energy_sample_at = sample_at
         return value
+
+    def _daily_sample_time(self, raw_value: Any) -> datetime | None:
+        """Return trusted per-field LOCAL acquisition time, when available."""
+        config = cast("dict[str, Any]", SENSOR_TYPES.get(self._sensor_key, {}))
+        if config.get("reset_period") != "daily" or not isinstance(
+            raw_value, (int, float)
+        ):
+            return None
+        if isinstance(raw_value, bool) or not math.isfinite(raw_value):
+            return None
+        device = (self.coordinator.data or {}).get("devices", {}).get(self._serial, {})
+        acquired = device.get("energy_sample_times", {}).get(self._sensor_key)
+        if isinstance(acquired, datetime) and acquired.tzinfo is not None:
+            return acquired
+        return None
 
     @property
     def available(self) -> bool:

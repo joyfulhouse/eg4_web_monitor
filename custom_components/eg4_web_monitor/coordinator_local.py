@@ -60,6 +60,7 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
+from .energy_provenance import local_daily_sample_times
 from .endpoint_bus import EndpointBusCapability
 from .smart_port_devices import serials_awaiting_port_mode
 from .utils import (
@@ -755,7 +756,11 @@ class LocalTransportMixin(_MixinBase):
         }
 
         if energy_data := inverter.transport_energy:
-            device_data["sensors"].update(_build_energy_sensor_mapping(energy_data))
+            energy_sensors = _build_energy_sensor_mapping(energy_data)
+            device_data["sensors"].update(energy_sensors)
+            device_data["energy_sample_times"] = local_daily_sample_times(
+                energy_sensors, energy_data
+            )
 
         if battery_data := inverter.transport_battery:
             device_data["sensors"].update(
@@ -1221,6 +1226,9 @@ class LocalTransportMixin(_MixinBase):
                     "firmware_version": firmware_version,
                     "sensors": sensors,
                     "binary_sensors": {},
+                    "energy_sample_times": local_daily_sample_times(
+                        sensors, mid_device.transport_runtime
+                    ),
                 }
 
                 processed["devices"][serial] = device_data
@@ -1345,8 +1353,10 @@ class LocalTransportMixin(_MixinBase):
                 }
 
                 if energy_data:
-                    device_data["sensors"].update(
-                        _build_energy_sensor_mapping(energy_data)
+                    energy_sensors = _build_energy_sensor_mapping(energy_data)
+                    device_data["sensors"].update(energy_sensors)
+                    device_data["energy_sample_times"] = local_daily_sample_times(
+                        energy_sensors, energy_data
                     )
 
                 battery_data = inverter.transport_battery
