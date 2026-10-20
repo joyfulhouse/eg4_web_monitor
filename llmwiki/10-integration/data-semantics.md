@@ -43,6 +43,7 @@ sources:
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
 verified-against:
+  # Section 4.3.2 re-verified at ac4174d772c67004a8104ae62c42ffb7f430ac0d.
   # Sections 4.3.1-4.3.2 were re-verified at mainline 89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e
   # on 2026-10-14; other sections retain their scoped pins below.
   # Page verified at 9f6d6e2; the off-grid write-routing sections (H161,
@@ -58,7 +59,7 @@ verified-against:
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
-last-verified: 2026-10-14
+last-verified: 2026-10-20
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -548,25 +549,32 @@ statistics contract, not the formula or the contested physical-source claims
 below. Existing incorrect statistics are not rewritten; the upgrade guidance is
 owned by `CHANGELOG.md` → 3.5.1-beta.19 / #648.
 
-#### 4.3.2 Missing GridBOSS CT overlay can expose a different group source (#661)
+#### 4.3.2 GridBOSS group consumption keeps its CT source through gaps (#661)
 
-The group source above is conditional. At `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`,
-`DeviceProcessingMixin._process_parallel_group_object` can compute a transport
-energy balance before the HTTP/HYBRID group workflow applies GridBOSS CTs.
-`apply_gridboss_overlay` leaves that balance unchanged when both CT consumption
-fields are absent; the HTTP MID-processing exception path logs the error without
-blanking the group's already-created balance (`verified-against-code` —
-`coordinator_mixins.py` → those two symbols; `coordinator_http.py` →
-`HTTPUpdateMixin._process_station_data`, group MID-processing block).
+At `ac4174d772c67004a8104ae62c42ffb7f430ac0d`, the shared
+`apply_gridboss_overlay` requires both UPS and non-backup Load CT components
+for each period independently. A missing component produces `None` for that
+consumption reading instead of a partial sum or inverter energy balance.
+Zero is a valid component. The HTTP/HYBRID workflow blanks consumption before
+MID processing so an exception cannot expose its already-computed inverter balance.
+Both coordinator paths retain `consumption_source: gridboss` on the group record
+through temporary MID discovery loss; complete CT data restores the same series.
+Other power/grid overlay fields keep their existing policy.
 
-Issue [#661](https://github.com/joyfulhouse/eg4_web_monitor/issues/661) records the
-helper/entity reproduction and the remaining coordinator failure-path work.
-The group remains `total_increasing` in this case; the #648 metadata fix applies
-only to inverter entities (`verified-against-code` at `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e` — `sensor.py` →
-`EG4InverterSensor.state_class`). A switch from CT sums to an inverter balance
-can therefore change the meaning of a statistics series (`inferred` from those
-two source-selection paths). This limitation does not establish that the normal
-CT-backed group counter is non-monotonic.
+Evidence: `verified-against-code` at the commit above -
+`coordinator_mixins.py` -> `apply_gridboss_overlay`, `coordinator_http.py` ->
+`HTTPUpdateMixin._process_station_data`, `coordinator_local.py` ->
+`LocalTransportMixin._process_local_parallel_groups`, and
+`tests/test_gridboss_consumption_source.py` ->
+`test_ct_gap_and_recovery_preserve_consumption_source`.
+The regression exercises real coordinator processing in HTTP, HYBRID and LOCAL,
+including missing daily/lifetime components, missing MID discovery, processing
+failure and recovery. It is software evidence, not a captured hardware outage.
+The group remains `total_increasing`; missing readings are unknown, while LOCAL
+error-marked contributors retain the existing whole-group unavailability policy.
+The group-source marker is runtime data, not a durable topology store across
+restart; per-inverter topology retention is the separate #664 contract.
+
 
 #### The lifetime-consumption source is CONTESTED — no binding rule here
 

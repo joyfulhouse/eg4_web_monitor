@@ -1411,3 +1411,11 @@ The cited source and lifecycle regression definitions exist at that pin; its
 production and test trees equal the independently reviewed combined candidate
 `84b39c4`. Only these sections receive the new pin and verification date; other
 scoped claims retain their pins. Prior log content is unchanged.
+
+## [2026-10-20] ingest | GridBOSS consumption source continuity (#661)
+
+Updated data-semantics section 4.3.2 against `ac4174d772c67004a8104ae62c42ffb7f430ac0d`.
+The shared overlay no longer substitutes zero for absent CT components or retains
+an inverter balance through a gap. HTTP failure and temporary MID discovery loss
+are covered alongside LOCAL; prior stale-source guidance described the old code.
+Evidence is coordinator regression coverage, not a hardware outage capture.
