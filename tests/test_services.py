@@ -26,6 +26,7 @@ from custom_components.eg4_web_monitor.services import (
     _find_energy_entity,
     _find_gap_hours,
     _group_gaps_by_day,
+    _reconcile_energy_sensor,
     _transform_to_statistics,
 )
 
@@ -444,3 +445,45 @@ class TestEnergyTypeMapping:
             assert energy_type in ENERGY_TYPE_MAPPING, (
                 f"Missing energy type: {energy_type}"
             )
+
+
+@pytest.mark.parametrize("energy_type", ENERGY_TYPE_MAPPING)
+async def test_reconcile_import_accepted_by_real_recorder_api(
+    hass: HomeAssistant, mock_coordinator, energy_type
+):
+    """Entity history passes HA validation and reaches the recorder queue."""
+    start = datetime(2025, 1, 1, 0, tzinfo=dt_util.UTC)
+    end = datetime(2025, 1, 1, 1, tzinfo=dt_util.UTC)
+    recorder = MagicMock()
+    with (
+        patch(
+            "custom_components.eg4_web_monitor.services._get_existing_statistics",
+            return_value={},
+        ),
+        patch(
+            "custom_components.eg4_web_monitor.services._fetch_cloud_data",
+            return_value={start: 1250.0},
+        ),
+        patch(
+            "homeassistant.components.recorder.statistics.get_instance",
+            return_value=recorder,
+        ),
+    ):
+        assert await _reconcile_energy_sensor(
+            hass,
+            mock_coordinator,
+            "1234567890",
+            "sensor.test_energy",
+            energy_type,
+            "Test energy",
+            start,
+            end,
+        ) == (1, 1)
+
+    recorder.async_import_statistics.assert_called_once()
+    metadata, statistics, _ = recorder.async_import_statistics.call_args.args
+    assert metadata["source"] == "recorder"
+    assert metadata["statistic_id"] == "sensor.test_energy"
+    assert metadata["unit_of_measurement"] == "kWh"
+    assert statistics[0]["start"] == start
+    assert statistics[0]["sum"] == 1.25

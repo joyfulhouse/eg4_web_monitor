@@ -2,6 +2,22 @@
 
 Common problems with EG4 Web Monitor and how to resolve them.
 
+## Measurement sensors show unknown after a LOCAL restart
+
+LOCAL mode creates measurement sensors from configured device metadata before
+reading the gateway. Their first state can be `unknown`; the first successful
+Modbus snapshot supplies the measurements. This is intentional: a slow or
+unresponsive gateway must not prevent Home Assistant from creating the sensors.
+A restart does not restore an old measurement as if it were a fresh reading.
+
+If the state persists, inspect the integration's connection diagnostics and debug
+log for transport failures. Reloading repeatedly does not make a stalled gateway
+respond sooner. In HYBRID mode, cloud measurements and transport-only measurements
+can arrive at different times; existing transport-only registry entries may show
+`unavailable` until discovery after the first local snapshot. This separate startup
+delay is tracked in [#653](https://github.com/joyfulhouse/eg4_web_monitor/issues/653).
+
+
 ## Common Issues
 
 ### "Cannot connect to EG4 Web Monitor"
