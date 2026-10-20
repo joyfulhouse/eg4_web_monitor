@@ -679,6 +679,28 @@ class TestGroupResurrectionPaths:
         assert pg["sensors"]["pv_total_power"] == live.pv_total_power
         assert pg["sensors"]["parallel_battery_count"] == 2
 
+        from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
+
+        coordinator.async_set_updated_data(result)
+        sensor = EG4InverterSensor(
+            coordinator, "parallel_group_group1", "pv_total_power", "parallel_group"
+        )
+        assert sensor.extra_state_attributes == {
+            "member_count": 2,
+            "available_member_count": 1,
+            "has_lost_member": True,
+        }
+
+        lost._runtime = _cloud_runtime(lost=False)
+        recovered = await coordinator._process_station_data()
+        coordinator.async_set_updated_data(recovered)
+        assert sensor.extra_state_attributes == {
+            "member_count": 2,
+            "available_member_count": 2,
+            "has_lost_member": False,
+        }
+        assert sensor.native_value == lost.pv_total_power + live.pv_total_power
+
 
 class TestLostCloudBankKeepsKeys:
     """A lost cloud bank blanks values but keeps keys (#479 r3/#261).
