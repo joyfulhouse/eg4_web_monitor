@@ -1,18 +1,79 @@
 """Tests for utility functions in EG4 Web Monitor integration."""
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.util import dt as dt_util
+from pylxpweb.exceptions import (
+    LuxpowerAPIError,
+    LuxpowerAuthError,
+    LuxpowerConnectionError,
+    LuxpowerDeviceOfflineError,
+)
 
 from custom_components.eg4_web_monitor.utils import (
     _resolve_chart_day_timezone,
+    async_write_with_cloud_fallback,
     battery_row_is_absent,
     clean_battery_display_name,
     create_device_info,
     generate_unique_id,
     is_supported_control_model,
 )
+
+
+@pytest.mark.parametrize(
+    "error_type",
+    [
+        LuxpowerAPIError,
+        LuxpowerAuthError,
+        LuxpowerConnectionError,
+        LuxpowerDeviceOfflineError,
+    ],
+)
+@pytest.mark.asyncio
+async def test_cloud_write_errors_are_normalized(error_type):
+    """Known library failures cross the shared write boundary as HA errors."""
+    coordinator = MagicMock()
+    coordinator.has_local_transport.return_value = True
+    coordinator.has_http_api.return_value = True
+    coordinator.is_transport_link_down.return_value = True
+    local_write = AsyncMock()
+    error = error_type("cloud rejected request")
+    with pytest.raises(HomeAssistantError, match="SOC.*cloud rejected") as caught:
+        await async_write_with_cloud_fallback(
+            coordinator,
+            "INV1",
+            "SOC to 4%",
+            local_write=local_write,
+            cloud_write=AsyncMock(side_effect=error),
+            local_values={"HOLD_AC_CHARGE_SOC_LIMIT": 4},
+        )
+    assert caught.value.__cause__ is error
+    local_write.assert_not_awaited()
+    coordinator.note_parameters_written.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "error", [HomeAssistantError("already translated"), RuntimeError("bug")]
+)
+@pytest.mark.asyncio
+async def test_cloud_write_unrelated_errors_preserve_identity(error):
+    """Do not relabel already translated errors or hide programming failures."""
+    coordinator = MagicMock()
+    coordinator.has_local_transport.return_value = False
+    coordinator.has_http_api.return_value = True
+    with pytest.raises(type(error)) as caught:
+        await async_write_with_cloud_fallback(
+            coordinator,
+            "INV1",
+            "SOC",
+            local_write=AsyncMock(),
+            cloud_write=AsyncMock(side_effect=error),
+        )
+    assert caught.value is error
 
 
 class TestChartDayTimezoneResolution:
