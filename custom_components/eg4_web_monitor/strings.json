@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "e.g., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS), or esphome://host:6053 for an ESPHome serial proxy"
         }
+      },
+      "convert_hybrid": {
+        "title": "Add connection to existing installation?",
+        "description": "The discovered device already belongs to {entry_title}. Convert that installation to hybrid, keeping its existing entities and options. No duplicate installation will be created.",
+        "data": {
+          "confirm": "Convert existing installation to hybrid"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "Reauthentication successful! Your {brand_name} Web Monitor integration is now reconnected.",
       "reconfigure_successful": "Reconfiguration successful! Your {brand_name} Web Monitor settings have been updated.",
       "entry_not_found": "Configuration entry not found. The integration may have been removed. Please add it again from the Integrations page.",
-      "serial_already_configured": "Inverter {serial} is already configured in \"{entry_title}\". Remove that entry first, or use the Reconfigure flow to change connection types."
+      "serial_already_configured": "Inverter {serial} is already configured in \"{entry_title}\". Remove that entry first, or use the Reconfigure flow to change connection types.",
+      "hybrid_conversion_successful": "The existing installation now uses cloud and local connections.",
+      "hybrid_conversion_cancelled": "Conversion cancelled. The existing installation was not changed.",
+      "hybrid_merge_conflict": "These devices overlap existing installations that cannot be combined automatically. Reconfigure the existing installation, or resolve duplicate entries before trying again."
     }
   },
   "options": {

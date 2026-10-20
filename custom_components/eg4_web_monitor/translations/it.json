@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "es., /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "Aggiungere una connessione all’impianto esistente?",
+        "description": "Questo dispositivo appartiene già a {entry_title}. La conversione in modalità ibrida conserva le entità e le opzioni esistenti.",
+        "data": {
+          "confirm": "Convertire l’impianto esistente in modalità ibrida"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "Riautenticazione completata! La tua integrazione {brand_name} Web Monitor e ora riconnessa.",
       "reconfigure_successful": "Riconfigurazione completata! Le tue impostazioni {brand_name} Web Monitor sono state aggiornate.",
       "entry_not_found": "Voce di configurazione non trovata. L'integrazione potrebbe essere stata rimossa. Aggiungila di nuovo dalla pagina Integrazioni.",
-      "serial_already_configured": "L'inverter {serial} e gia configurato in \"{entry_title}\". Rimuovi prima quella voce, oppure usa il flusso Riconfigura per cambiare tipo di connessione."
+      "serial_already_configured": "L'inverter {serial} e gia configurato in \"{entry_title}\". Rimuovi prima quella voce, oppure usa il flusso Riconfigura per cambiare tipo di connessione.",
+      "hybrid_conversion_successful": "L’impianto esistente ora usa connessioni locali e cloud.",
+      "hybrid_conversion_cancelled": "Conversione annullata. L’impianto esistente non è stato modificato.",
+      "hybrid_merge_conflict": "Questi dispositivi appartengono a impianti che non possono essere uniti automaticamente. Riconfigurare l’impianto esistente o risolvere le voci duplicate."
     }
   },
   "options": {

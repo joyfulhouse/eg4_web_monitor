@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "例如 /dev/ttyUSB0 (Linux)、COM1 (Windows)、/dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "为现有系统添加连接？",
+        "description": "此设备已属于 {entry_title}。转换为混合模式后将保留现有实体和选项。",
+        "data": {
+          "confirm": "将现有系统转换为混合模式"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "重新验证成功！您的 {brand_name} Web Monitor 集成现已重新连接。",
       "reconfigure_successful": "重新配置成功！您的 {brand_name} Web Monitor 设置已更新。",
       "entry_not_found": "未找到配置条目。集成可能已被移除。请从集成页面重新添加。",
-      "serial_already_configured": "逆变器 {serial} 已在 \"{entry_title}\" 中配置。请先移除该条目，或使用重新配置流程更改连接类型。"
+      "serial_already_configured": "逆变器 {serial} 已在 \"{entry_title}\" 中配置。请先移除该条目，或使用重新配置流程更改连接类型。",
+      "hybrid_conversion_successful": "现有系统现在同时使用云端和本地连接。",
+      "hybrid_conversion_cancelled": "已取消转换。现有系统未更改。",
+      "hybrid_merge_conflict": "这些设备属于无法自动合并的现有系统。请重新配置现有系统，或解决重复条目后重试。"
     }
   },
   "options": {

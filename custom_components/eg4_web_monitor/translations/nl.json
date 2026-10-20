@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "bijv. /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "Verbinding toevoegen aan bestaande installatie?",
+        "description": "Dit apparaat hoort al bij {entry_title}. Omzetten naar hybride behoudt de bestaande entiteiten en opties.",
+        "data": {
+          "confirm": "Bestaande installatie omzetten naar hybride"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "Herauthenticatie geslaagd! Uw {brand_name} Web Monitor-integratie is nu opnieuw verbonden.",
       "reconfigure_successful": "Herconfiguratie geslaagd! Uw {brand_name} Web Monitor-instellingen zijn bijgewerkt.",
       "entry_not_found": "Configuratie-invoer niet gevonden. De integratie is mogelijk verwijderd. Voeg deze opnieuw toe via de Integraties-pagina.",
-      "serial_already_configured": "Omvormer {serial} is al geconfigureerd in \"{entry_title}\". Verwijder eerst die invoer, of gebruik de herconfiguratiestroom om verbindingstypen te wijzigen."
+      "serial_already_configured": "Omvormer {serial} is al geconfigureerd in \"{entry_title}\". Verwijder eerst die invoer, of gebruik de herconfiguratiestroom om verbindingstypen te wijzigen.",
+      "hybrid_conversion_successful": "De bestaande installatie gebruikt nu lokale en cloudverbindingen.",
+      "hybrid_conversion_cancelled": "Omzetten geannuleerd. De bestaande installatie is niet gewijzigd.",
+      "hybrid_merge_conflict": "Deze apparaten horen bij bestaande installaties die niet automatisch kunnen worden samengevoegd. Configureer de bestaande installatie opnieuw of los dubbele vermeldingen op."
     }
   },
   "options": {

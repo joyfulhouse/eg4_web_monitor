@@ -11,9 +11,11 @@ from zoneinfo import ZoneInfo
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_USERNAME
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 from ..const import (
     BRAND_NAME,
+    CONF_CLOUD_DEVICE_SERIALS,
     CONF_CONNECTION_TYPE,
     CONF_DONGLE_HOST,
     CONF_DONGLE_PORT,
@@ -144,6 +146,27 @@ def find_config_entry_identity_conflicts(
         ):
             conflicts.append(entry)
     return conflicts
+
+
+def config_entry_device_serials(hass: HomeAssistant, entry: ConfigEntry) -> set[str]:
+    """Recover device ownership even when an older cloud entry is not loaded."""
+    serials = {
+        serial
+        for serial in entry.data.get(CONF_CLOUD_DEVICE_SERIALS, [])
+        if isinstance(serial, str) and serial
+    }
+    serials.update(
+        transport["serial"]
+        for transport in entry.data.get(CONF_LOCAL_TRANSPORTS, [])
+        if transport.get("serial")
+    )
+    if serial := entry.data.get(CONF_INVERTER_SERIAL):
+        serials.add(serial)
+    for device in dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id):
+        serials.update(
+            identifier for domain, identifier in device.identifiers if domain == DOMAIN
+        )
+    return serials
 
 
 def find_serial_conflict(

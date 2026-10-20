@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "z.B. /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "Verbindung zur vorhandenen Anlage hinzufügen?",
+        "description": "Dieses Gerät gehört bereits zu {entry_title}. Die Umstellung auf Hybrid behält vorhandene Entitäten und Optionen bei.",
+        "data": {
+          "confirm": "Vorhandene Anlage auf Hybrid umstellen"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "Erneute Authentifizierung erfolgreich! Ihre {brand_name} Web Monitor Integration ist jetzt wieder verbunden.",
       "reconfigure_successful": "Neukonfiguration erfolgreich! Ihre {brand_name} Web Monitor Einstellungen wurden aktualisiert.",
       "entry_not_found": "Konfigurationseintrag nicht gefunden. Die Integration wurde möglicherweise entfernt. Bitte fügen Sie sie erneut über die Integrationsseite hinzu.",
-      "serial_already_configured": "Wechselrichter {serial} ist bereits in \"{entry_title}\" konfiguriert. Entfernen Sie zuerst diesen Eintrag oder verwenden Sie den Neukonfigurationsablauf, um den Verbindungstyp zu ändern."
+      "serial_already_configured": "Wechselrichter {serial} ist bereits in \"{entry_title}\" konfiguriert. Entfernen Sie zuerst diesen Eintrag oder verwenden Sie den Neukonfigurationsablauf, um den Verbindungstyp zu ändern.",
+      "hybrid_conversion_successful": "Die vorhandene Anlage nutzt jetzt Cloud- und lokale Verbindungen.",
+      "hybrid_conversion_cancelled": "Umstellung abgebrochen. Die vorhandene Anlage wurde nicht geändert.",
+      "hybrid_merge_conflict": "Diese Geräte gehören zu vorhandenen Anlagen, die nicht automatisch zusammengeführt werden können. Konfigurieren Sie die vorhandene Anlage neu oder beheben Sie doppelte Einträge."
     }
   },
   "options": {

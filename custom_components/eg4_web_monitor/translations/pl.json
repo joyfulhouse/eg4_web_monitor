@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "np. /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "Dodać połączenie do istniejącej instalacji?",
+        "description": "To urządzenie należy już do {entry_title}. Zmiana na tryb hybrydowy zachowa istniejące encje i opcje.",
+        "data": {
+          "confirm": "Zmień istniejącą instalację na hybrydową"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "Ponowne uwierzytelnienie powiodlo sie! Integracja {brand_name} Web Monitor jest teraz ponownie polaczona.",
       "reconfigure_successful": "Rekonfiguracja powiodla sie! Ustawienia {brand_name} Web Monitor zostaly zaktualizowane.",
       "entry_not_found": "Nie znaleziono wpisu konfiguracji. Integracja mogla zostac usunieta. Dodaj ja ponownie ze strony Integracje.",
-      "serial_already_configured": "Falownik {serial} jest juz skonfigurowany w \"{entry_title}\". Najpierw usun ten wpis lub uzyj przepływu Rekonfiguracji, aby zmienic typy polaczen."
+      "serial_already_configured": "Falownik {serial} jest juz skonfigurowany w \"{entry_title}\". Najpierw usun ten wpis lub uzyj przepływu Rekonfiguracji, aby zmienic typy polaczen.",
+      "hybrid_conversion_successful": "Istniejąca instalacja używa teraz połączenia lokalnego i chmurowego.",
+      "hybrid_conversion_cancelled": "Anulowano zmianę. Istniejąca instalacja nie została zmieniona.",
+      "hybrid_merge_conflict": "Te urządzenia należą do instalacji, których nie można połączyć automatycznie. Skonfiguruj ponownie istniejącą instalację lub usuń konflikt zduplikowanych wpisów."
     }
   },
   "options": {

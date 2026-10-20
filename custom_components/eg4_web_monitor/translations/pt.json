@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "ex.: /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "Adicionar ligação à instalação existente?",
+        "description": "Este dispositivo já pertence a {entry_title}. A conversão para híbrido mantém as entidades e opções existentes.",
+        "data": {
+          "confirm": "Converter a instalação existente para híbrida"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "Reautenticação bem-sucedida! Sua integração {brand_name} Web Monitor está reconectada.",
       "reconfigure_successful": "Reconfiguração bem-sucedida! Suas configurações do {brand_name} Web Monitor foram atualizadas.",
       "entry_not_found": "Entrada de configuração não encontrada. A integração pode ter sido removida. Por favor, adicione-a novamente pela página de Integrações.",
-      "serial_already_configured": "O inversor {serial} já está configurado em \"{entry_title}\". Remova essa entrada primeiro, ou use o fluxo de Reconfiguração para alterar os tipos de conexão."
+      "serial_already_configured": "O inversor {serial} já está configurado em \"{entry_title}\". Remova essa entrada primeiro, ou use o fluxo de Reconfiguração para alterar os tipos de conexão.",
+      "hybrid_conversion_successful": "A instalação existente utiliza agora ligações locais e à nuvem.",
+      "hybrid_conversion_cancelled": "Conversão cancelada. A instalação existente não foi alterada.",
+      "hybrid_merge_conflict": "Estes dispositivos pertencem a instalações que não podem ser combinadas automaticamente. Reconfigure a instalação existente ou resolva as entradas duplicadas."
     }
   },
   "options": {

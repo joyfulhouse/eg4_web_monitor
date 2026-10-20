@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "ex. : /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "Ajouter une connexion à l’installation existante ?",
+        "description": "Cet appareil appartient déjà à {entry_title}. La conversion en mode hybride conserve les entités et options existantes.",
+        "data": {
+          "confirm": "Convertir l’installation existante en mode hybride"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "Reauthentification reussie ! Votre integration {brand_name} Web Monitor est maintenant reconnectee.",
       "reconfigure_successful": "Reconfiguration reussie ! Les parametres de votre {brand_name} Web Monitor ont ete mis a jour.",
       "entry_not_found": "Entree de configuration introuvable. L'integration a peut-etre ete supprimee. Veuillez la rajouter depuis la page Integrations.",
-      "serial_already_configured": "L'onduleur {serial} est deja configure dans \"{entry_title}\". Supprimez d'abord cette entree, ou utilisez le flux Reconfigurer pour changer les types de connexion."
+      "serial_already_configured": "L'onduleur {serial} est deja configure dans \"{entry_title}\". Supprimez d'abord cette entree, ou utilisez le flux Reconfigurer pour changer les types de connexion.",
+      "hybrid_conversion_successful": "L’installation existante utilise désormais les connexions locale et cloud.",
+      "hybrid_conversion_cancelled": "Conversion annulée. L’installation existante reste inchangée.",
+      "hybrid_merge_conflict": "Ces appareils appartiennent à des installations qui ne peuvent pas être fusionnées automatiquement. Reconfigurez l’installation existante ou corrigez les entrées en double."
     }
   },
   "options": {

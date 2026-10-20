@@ -329,6 +329,13 @@
         "data_description": {
           "serial_port": "예: /dev/ttyUSB0 (Linux), COM1 (Windows), /dev/tty.usbserial-* (macOS)"
         }
+      },
+      "convert_hybrid": {
+        "title": "기존 설비에 연결을 추가하시겠습니까?",
+        "description": "이 장치는 이미 {entry_title}에 속합니다. 하이브리드로 전환해도 기존 엔티티와 옵션이 유지됩니다.",
+        "data": {
+          "confirm": "기존 설비를 하이브리드로 전환"
+        }
       }
     },
     "error": {
@@ -360,7 +367,10 @@
       "reauth_successful": "재인증 성공! {brand_name} 웹 모니터 통합이 다시 연결되었습니다.",
       "reconfigure_successful": "재구성 성공! {brand_name} 웹 모니터 설정이 업데이트되었습니다.",
       "entry_not_found": "구성 항목을 찾을 수 없습니다. 통합이 제거되었을 수 있습니다. 통합 페이지에서 다시 추가하세요.",
-      "serial_already_configured": "인버터 {serial}은(는) 이미 \"{entry_title}\"에 구성되어 있습니다. 해당 항목을 먼저 제거하거나 재구성 흐름을 사용하여 연결 유형을 변경하세요."
+      "serial_already_configured": "인버터 {serial}은(는) 이미 \"{entry_title}\"에 구성되어 있습니다. 해당 항목을 먼저 제거하거나 재구성 흐름을 사용하여 연결 유형을 변경하세요.",
+      "hybrid_conversion_successful": "기존 설비에서 이제 클라우드 및 로컬 연결을 사용합니다.",
+      "hybrid_conversion_cancelled": "전환이 취소되었습니다. 기존 설비는 변경되지 않았습니다.",
+      "hybrid_merge_conflict": "이 장치들은 자동으로 통합할 수 없는 기존 설비에 속합니다. 기존 설비를 재구성하거나 중복 항목을 해결하세요."
     }
   },
   "options": {
