@@ -13,8 +13,10 @@ verified-against:
   eg4_web_monitor: 9f6d6e2
   # Only the #629 guard/status/regression claims are re-verified at
   # 8289d6f4558e1aa8779a0a49e6c21816f337ee29; unrelated claims retain prior pins.
+  # The #638 per-port settings sentence is verified against the smart port
+  # options branch (#639), not yet a merged pin.
   pylxpweb: 204b95d
-last-verified: 2026-10-13
+last-verified: 2026-10-14
 see-also:
   - open-contradictions.md
   - superseded-claims.md
@@ -121,8 +123,15 @@ an existing disabled flag, prove local hardware behavior, or automatically
 energize a port. [The durable RCA](../../docs/audits/2026-10-13-gridboss-unused-mode-629.md)
 owns the source walk and operational rationale;
 [configuration guidance](../../docs/CONFIGURATION.md#gridboss-smart-port-devices)
-owns user recovery steps. Per-port settings are follow-up work in
-[issue #638](https://github.com/joyfulhouse/eg4_web_monitor/issues/638).
+owns user recovery steps. Per-port settings
+([issue #638](https://github.com/joyfulhouse/eg4_web_monitor/issues/638)) add a
+Smart Load Enable switch on each port device when the GridBOSS has a
+configured local transport, so the enable flag can be repaired from Home
+Assistant there. The Unused rejection then names that switch instead of the
+portal (`select.py` -> `EG4SmartPortModeSelect.async_select_option`;
+`test_select_entities.py` ->
+`TestSmartPortModeSelect.test_unused_rejection_names_the_enable_control`).
+The guard itself is unchanged.
 
 ## Cross-cutting patterns
 

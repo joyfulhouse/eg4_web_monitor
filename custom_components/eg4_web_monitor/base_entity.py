@@ -412,6 +412,27 @@ def _apply_sensor_config(
     return sensor_config
 
 
+class EG4RegistrySyncedEntity(CoordinatorEntity):
+    """Entity whose registry enablement a sync manages while HA adds it.
+
+    The smart port registry sync disables port sensors and option controls
+    that don't serve the port's mode, sometimes while HA is still adding them
+    (startup adds ~120 of them across four platforms). A coordinator-driven
+    write in that window makes HA log "incorrectly being triggered for
+    updates while it is disabled"; the entity is about to be removed, so
+    there is nothing to publish.
+
+    Mixed in ahead of the platform base class, so its update hook runs first.
+    """
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Skip the coordinator-driven write while registry-disabled."""
+        if self.registry_entry is not None and self.registry_entry.disabled_by:
+            return
+        super()._handle_coordinator_update()
+
+
 class _EG4RestoredSensor(RestoreSensor):
     """Restore only the native baseline used by the bounded energy dip guard."""
 

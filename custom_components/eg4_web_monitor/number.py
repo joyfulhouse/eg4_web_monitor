@@ -161,6 +161,7 @@ from .const import (
 )
 from .coordinator import EG4DataUpdateCoordinator
 from .control_discovery import setup_control_entity_discovery
+from .smart_port_options import create_port_option_entities
 from .utils import (
     async_write_with_cloud_fallback,
     flag_offgrid_control_suppression,
@@ -914,6 +915,9 @@ def _create_number_entities(
                     # P2 on PR #284).
                     if coordinator.has_local_register_path(serial):
                         entities.append(StartChargePowerNumber(coordinator, serial))
+
+    # Per-port smart port options (GridBOSS with a local transport only).
+    entities.extend(create_port_option_entities(coordinator, "number"))
 
     return entities
 

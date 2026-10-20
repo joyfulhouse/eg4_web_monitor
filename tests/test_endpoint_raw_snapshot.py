@@ -229,7 +229,12 @@ def _coordinator_refresh_owner(
         _calculate_gridboss_aggregates=lambda sensors: None,
         _prune_bus_capability_tracking=lambda: None,
         _snapshot_coverage_unresolved=lambda: False,
+        _read_midbox_smart_port_options=_no_smart_port_options,
     )
+
+
+async def _no_smart_port_options(transport: Any, serial: str) -> dict[str, Any]:
+    return {}
 
 
 async def _run_coordinator_refresh(

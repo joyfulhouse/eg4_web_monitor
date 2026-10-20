@@ -21,6 +21,7 @@ from .control_discovery import setup_control_entity_discovery
 from .coordinator import EG4DataUpdateCoordinator
 from .base_entity import EG4BaseSelect, _get_model_from_coordinator
 from .smart_port_devices import PORT_MODE_SELECT_NAME, note_port_mode_written
+from .smart_port_options import create_port_option_entities
 from .utils import (
     async_write_with_cloud_fallback,
     create_device_info,
@@ -142,6 +143,9 @@ def _create_select_entities(
                 serial,
                 device_type,
             )
+
+    # Per-port smart port options (GridBOSS with a local transport only).
+    entities.extend(create_port_option_entities(coordinator, "select"))
 
     return entities
 
@@ -486,12 +490,19 @@ class EG4SmartPortModeSelect(EG4BaseSelect):
         # Keep Unused readable, but reject its write before optimistic state or
         # routing: mode readback cannot detect the separate enable flag (#629).
         if option == "Unused":
+            # The Smart Load Enable switch exists only with a configured local
+            # transport (smart_port_options.create_port_option_entities).
+            enable_control = (
+                "the port device's Smart Load Enable switch"
+                if self.coordinator.has_configured_local_transport(self._serial)
+                else "the EG4 portal"
+            )
             raise HomeAssistantError(
                 f"Cannot set smart port {self._port} to Unused: this can clear "
                 "the port's separate Smart Load Enable flag, which changing "
                 "back to Smart Load does not restore. Use the EG4 portal for "
-                "Unused configuration and Smart Load Enable controls; the "
-                "mode select is not a load pause/resume control."
+                f"Unused configuration and {enable_control} to turn the load "
+                "on or off; the mode select is not a load pause/resume control."
             )
 
         int_value = SMART_PORT_MODE_TO_VALUE[option]
