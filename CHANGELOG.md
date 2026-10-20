@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
 
+### Fixed
+
+- Report known cloud control-write failures as Home Assistant errors with the action and original cause, including after local fallback. Failed SOC writes clear optimistic state without seeding the rejected value (#668). The reported LXP firmware rejection and intended AC versus System charge control remain under investigation.
+
 ## [3.5.1-beta.19] - 2026-10-14
 
 **Requires [pylxpweb==0.10.0b10](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b10)**
