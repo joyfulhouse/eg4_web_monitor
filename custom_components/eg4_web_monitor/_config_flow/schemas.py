@@ -2,7 +2,7 @@
 
 from typing import Any
 
-import voluptuous as vol
+import probatio
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 
 from homeassistant.helpers.selector import (
@@ -59,7 +59,7 @@ SERIAL_STOPBITS_OPTIONS: dict[int, str] = {
 SERIAL_BAUDRATE_OPTIONS: list[int] = [9600, 19200, 38400, 57600, 115200]
 
 
-def build_http_credentials_schema(dst_sync_default: bool = True) -> vol.Schema:
+def build_http_credentials_schema(dst_sync_default: bool = True) -> probatio.Schema:
     """Build the HTTP credentials schema with dynamic DST sync default.
 
     Args:
@@ -68,18 +68,18 @@ def build_http_credentials_schema(dst_sync_default: bool = True) -> vol.Schema:
     Returns:
         Voluptuous schema for HTTP credentials step.
     """
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(CONF_USERNAME): str,
-            vol.Required(CONF_PASSWORD): str,
-            vol.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
-            vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
-            vol.Optional(CONF_DST_SYNC, default=dst_sync_default): bool,
+            probatio.Required(CONF_USERNAME): str,
+            probatio.Required(CONF_PASSWORD): str,
+            probatio.Optional(CONF_BASE_URL, default=DEFAULT_BASE_URL): str,
+            probatio.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
+            probatio.Optional(CONF_DST_SYNC, default=dst_sync_default): bool,
         }
     )
 
 
-def build_modbus_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def build_modbus_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
     """Build schema for Modbus TCP configuration.
 
     Args:
@@ -89,16 +89,16 @@ def build_modbus_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
         Voluptuous schema for Modbus step.
     """
     defaults = defaults or {}
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_MODBUS_HOST, default=defaults.get(CONF_MODBUS_HOST, "")
             ): str,
-            vol.Optional(
+            probatio.Optional(
                 CONF_MODBUS_PORT,
                 default=defaults.get(CONF_MODBUS_PORT, DEFAULT_MODBUS_PORT),
             ): int,
-            vol.Optional(
+            probatio.Optional(
                 CONF_MODBUS_UNIT_ID,
                 default=defaults.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
             ): int,
@@ -106,7 +106,7 @@ def build_modbus_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
     )
 
 
-def build_dongle_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
+def build_dongle_schema(defaults: dict[str, Any] | None = None) -> probatio.Schema:
     """Build schema for WiFi Dongle TCP configuration.
 
     Args:
@@ -116,19 +116,19 @@ def build_dongle_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
         Voluptuous schema for dongle step.
     """
     defaults = defaults or {}
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_DONGLE_HOST, default=defaults.get(CONF_DONGLE_HOST, "")
             ): str,
-            vol.Optional(
+            probatio.Optional(
                 CONF_DONGLE_PORT,
                 default=defaults.get(CONF_DONGLE_PORT, DEFAULT_DONGLE_PORT),
             ): int,
-            vol.Required(
+            probatio.Required(
                 CONF_DONGLE_SERIAL, default=defaults.get(CONF_DONGLE_SERIAL, "")
             ): str,
-            vol.Required(
+            probatio.Required(
                 CONF_INVERTER_SERIAL, default=defaults.get(CONF_INVERTER_SERIAL, "")
             ): str,
         }
@@ -138,7 +138,7 @@ def build_dongle_schema(defaults: dict[str, Any] | None = None) -> vol.Schema:
 def build_plant_selection_schema(
     plants: list[dict[str, Any]],
     current: str | None = None,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build schema for plant/station selection.
 
     Args:
@@ -151,32 +151,32 @@ def build_plant_selection_schema(
     plant_options = {str(plant["plantId"]): plant["name"] for plant in plants}
 
     if current:
-        return vol.Schema(
+        return probatio.Schema(
             {
-                vol.Required(CONF_PLANT_ID, default=str(current)): vol.All(
-                    vol.Coerce(str), vol.In(plant_options)
+                probatio.Required(CONF_PLANT_ID, default=str(current)): probatio.All(
+                    probatio.Coerce(str), probatio.In(plant_options)
                 ),
             }
         )
 
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(CONF_PLANT_ID): vol.All(
-                vol.Coerce(str), vol.In(plant_options)
+            probatio.Required(CONF_PLANT_ID): probatio.All(
+                probatio.Coerce(str), probatio.In(plant_options)
             ),
         }
     )
 
 
-def build_reauth_schema() -> vol.Schema:
+def build_reauth_schema() -> probatio.Schema:
     """Build schema for reauthentication.
 
     Returns:
         Voluptuous schema for reauth confirmation step.
     """
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(CONF_PASSWORD): str,
+            probatio.Required(CONF_PASSWORD): str,
         }
     )
 
@@ -186,7 +186,7 @@ def build_http_reconfigure_schema(
     current_base_url: str = DEFAULT_BASE_URL,
     current_verify_ssl: bool = True,
     current_dst_sync: bool = True,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build schema for HTTP reconfiguration.
 
     Args:
@@ -198,20 +198,20 @@ def build_http_reconfigure_schema(
     Returns:
         Voluptuous schema for HTTP reconfigure step.
     """
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(CONF_USERNAME, default=current_username): str,
-            vol.Required(CONF_PASSWORD): str,
-            vol.Optional(CONF_BASE_URL, default=current_base_url): str,
-            vol.Optional(CONF_VERIFY_SSL, default=current_verify_ssl): bool,
-            vol.Optional(CONF_DST_SYNC, default=current_dst_sync): bool,
+            probatio.Required(CONF_USERNAME, default=current_username): str,
+            probatio.Required(CONF_PASSWORD): str,
+            probatio.Optional(CONF_BASE_URL, default=current_base_url): str,
+            probatio.Optional(CONF_VERIFY_SSL, default=current_verify_ssl): bool,
+            probatio.Optional(CONF_DST_SYNC, default=current_dst_sync): bool,
         }
     )
 
 
 def build_network_scan_schema(
     default_ip_range: str | None = None,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build schema for network scan configuration.
 
     Args:
@@ -220,14 +220,16 @@ def build_network_scan_schema(
     Returns:
         Voluptuous schema for scan config step.
     """
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required("ip_range", default=default_ip_range or "192.168.1.0/24"): str,
-            vol.Optional("scan_modbus", default=True): bool,
-            vol.Optional("scan_dongle", default=True): bool,
-            vol.Optional("timeout", default=0.5): vol.All(
-                vol.Coerce(float),
-                vol.Range(min=0.3, max=5.0),
+            probatio.Required(
+                "ip_range", default=default_ip_range or "192.168.1.0/24"
+            ): str,
+            probatio.Optional("scan_modbus", default=True): bool,
+            probatio.Optional("scan_dongle", default=True): bool,
+            probatio.Optional("timeout", default=0.5): probatio.All(
+                probatio.Coerce(float),
+                probatio.Range(min=0.3, max=5.0),
             ),
         }
     )
@@ -236,7 +238,7 @@ def build_network_scan_schema(
 def build_serial_schema(
     port_options: dict[str, str] | None = None,
     defaults: dict[str, Any] | None = None,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build schema for Modbus Serial (RS485) configuration.
 
     Args:
@@ -254,51 +256,55 @@ def build_serial_schema(
     # Port selector - dropdown if ports detected, text input otherwise
     if port_options:
         schema_fields[
-            vol.Required(CONF_SERIAL_PORT, default=defaults.get(CONF_SERIAL_PORT, ""))
-        ] = vol.In(port_options)
+            probatio.Required(
+                CONF_SERIAL_PORT, default=defaults.get(CONF_SERIAL_PORT, "")
+            )
+        ] = probatio.In(port_options)
     else:
         schema_fields[
-            vol.Required(CONF_SERIAL_PORT, default=defaults.get(CONF_SERIAL_PORT, ""))
+            probatio.Required(
+                CONF_SERIAL_PORT, default=defaults.get(CONF_SERIAL_PORT, "")
+            )
         ] = str
 
     # Baudrate selector
     schema_fields[
-        vol.Optional(
+        probatio.Optional(
             CONF_SERIAL_BAUDRATE,
             default=defaults.get(CONF_SERIAL_BAUDRATE, DEFAULT_SERIAL_BAUDRATE),
         )
-    ] = vol.All(vol.Coerce(int), vol.In(SERIAL_BAUDRATE_OPTIONS))
+    ] = probatio.All(probatio.Coerce(int), probatio.In(SERIAL_BAUDRATE_OPTIONS))
 
     # Parity selector
     schema_fields[
-        vol.Optional(
+        probatio.Optional(
             CONF_SERIAL_PARITY,
             default=defaults.get(CONF_SERIAL_PARITY, DEFAULT_SERIAL_PARITY),
         )
-    ] = vol.In(SERIAL_PARITY_OPTIONS)
+    ] = probatio.In(SERIAL_PARITY_OPTIONS)
 
     # Stopbits selector
     schema_fields[
-        vol.Optional(
+        probatio.Optional(
             CONF_SERIAL_STOPBITS,
             default=defaults.get(CONF_SERIAL_STOPBITS, DEFAULT_SERIAL_STOPBITS),
         )
-    ] = vol.All(vol.Coerce(int), vol.In(SERIAL_STOPBITS_OPTIONS))
+    ] = probatio.All(probatio.Coerce(int), probatio.In(SERIAL_STOPBITS_OPTIONS))
 
     # Unit ID
     schema_fields[
-        vol.Optional(
+        probatio.Optional(
             CONF_MODBUS_UNIT_ID,
             default=defaults.get(CONF_MODBUS_UNIT_ID, DEFAULT_MODBUS_UNIT_ID),
         )
     ] = int
 
-    return vol.Schema(schema_fields)
+    return probatio.Schema(schema_fields)
 
 
 def build_serial_manual_entry_schema(
     defaults: dict[str, Any] | None = None,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build schema for manual serial port entry.
 
     Args:
@@ -309,9 +315,9 @@ def build_serial_manual_entry_schema(
     """
     defaults = defaults or {}
 
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(
+            probatio.Required(
                 CONF_SERIAL_PORT,
                 default=defaults.get(CONF_SERIAL_PORT, "/dev/ttyUSB0"),
             ): str,
@@ -321,7 +327,7 @@ def build_serial_manual_entry_schema(
 
 def build_grid_type_schema(
     default_grid_type: str = GRID_TYPE_SPLIT_PHASE,
-) -> vol.Schema:
+) -> probatio.Schema:
     """Build schema for grid type selection during device confirmation.
 
     Uses a SelectSelector dropdown with three options: Split Phase (US),
@@ -333,9 +339,11 @@ def build_grid_type_schema(
     Returns:
         Voluptuous schema for grid type selection step.
     """
-    return vol.Schema(
+    return probatio.Schema(
         {
-            vol.Required(CONF_GRID_TYPE, default=default_grid_type): SelectSelector(
+            probatio.Required(
+                CONF_GRID_TYPE, default=default_grid_type
+            ): SelectSelector(
                 SelectSelectorConfig(
                     options=[
                         SelectOptionDict(

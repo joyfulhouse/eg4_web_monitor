@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import voluptuous as vol
+import probatio
 from homeassistant import config_entries
 from homeassistant.helpers.selector import (
     SelectOptionDict,
@@ -142,9 +142,9 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 return self.async_create_entry(title="", data=user_input)
             return self.async_show_form(
                 step_id="battery_bus",
-                data_schema=vol.Schema(
+                data_schema=probatio.Schema(
                     {
-                        vol.Required(
+                        probatio.Required(
                             CONF_BATTERY_INTERVAL,
                             default=self.config_entry.options.get(
                                 CONF_BATTERY_INTERVAL,
@@ -152,7 +152,9 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                                     CONF_BATTERY_INTERVAL, DEFAULT_BATTERY_INTERVAL
                                 ),
                             ),
-                        ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                        ): probatio.All(
+                            probatio.Coerce(int), probatio.Range(min=10, max=3600)
+                        ),
                     }
                 ),
             )
@@ -233,10 +235,10 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 fallback_key=CONF_SENSOR_UPDATE_INTERVAL,
             )
             schema_fields[
-                vol.Required(CONF_MODBUS_UPDATE_INTERVAL, default=current_modbus)
-            ] = vol.All(
-                vol.Coerce(int),
-                vol.Range(
+                probatio.Required(CONF_MODBUS_UPDATE_INTERVAL, default=current_modbus)
+            ] = probatio.All(
+                probatio.Coerce(int),
+                probatio.Range(
                     min=MIN_MODBUS_UPDATE_INTERVAL, max=MAX_MODBUS_UPDATE_INTERVAL
                 ),
             )
@@ -250,10 +252,10 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 fallback_key=CONF_SENSOR_UPDATE_INTERVAL,
             )
             schema_fields[
-                vol.Required(CONF_DONGLE_UPDATE_INTERVAL, default=current_dongle)
-            ] = vol.All(
-                vol.Coerce(int),
-                vol.Range(
+                probatio.Required(CONF_DONGLE_UPDATE_INTERVAL, default=current_dongle)
+            ] = probatio.All(
+                probatio.Coerce(int),
+                probatio.Range(
                     min=MIN_DONGLE_UPDATE_INTERVAL, max=MAX_DONGLE_UPDATE_INTERVAL
                 ),
             )
@@ -266,10 +268,12 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 DEFAULT_HTTP_POLLING_INTERVAL,
             )
             schema_fields[
-                vol.Required(CONF_HTTP_POLLING_INTERVAL, default=current_http)
-            ] = vol.All(
-                vol.Coerce(int),
-                vol.Range(min=MIN_HTTP_POLLING_INTERVAL, max=MAX_HTTP_POLLING_INTERVAL),
+                probatio.Required(CONF_HTTP_POLLING_INTERVAL, default=current_http)
+            ] = probatio.All(
+                probatio.Coerce(int),
+                probatio.Range(
+                    min=MIN_HTTP_POLLING_INTERVAL, max=MAX_HTTP_POLLING_INTERVAL
+                ),
             )
             placeholders["min_http_interval"] = str(MIN_HTTP_POLLING_INTERVAL)
             placeholders["max_http_interval"] = str(MAX_HTTP_POLLING_INTERVAL)
@@ -291,10 +295,10 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 CONF_SENSOR_UPDATE_INTERVAL, default_sensor
             )
             schema_fields[
-                vol.Required(CONF_SENSOR_UPDATE_INTERVAL, default=current_sensor)
-            ] = vol.All(
-                vol.Coerce(int),
-                vol.Range(
+                probatio.Required(CONF_SENSOR_UPDATE_INTERVAL, default=current_sensor)
+            ] = probatio.All(
+                probatio.Coerce(int),
+                probatio.Range(
                     min=MIN_SENSOR_UPDATE_INTERVAL,
                     max=MAX_SENSOR_UPDATE_INTERVAL,
                 ),
@@ -304,13 +308,13 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
 
         # Always show parameter refresh and library debug
         schema_fields[
-            vol.Required(
+            probatio.Required(
                 CONF_PARAMETER_REFRESH_INTERVAL,
                 default=current_param_interval,
             )
-        ] = vol.All(
-            vol.Coerce(int),
-            vol.Range(
+        ] = probatio.All(
+            probatio.Coerce(int),
+            probatio.Range(
                 min=MIN_PARAMETER_REFRESH_INTERVAL,
                 max=MAX_PARAMETER_REFRESH_INTERVAL,
             ),
@@ -319,7 +323,7 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         placeholders["max_param_interval"] = str(MAX_PARAMETER_REFRESH_INTERVAL)
 
         schema_fields[
-            vol.Optional(CONF_LIBRARY_DEBUG, default=current_library_debug)
+            probatio.Optional(CONF_LIBRARY_DEBUG, default=current_library_debug)
         ] = bool
 
         # Data validation toggle: only shown when local transports are configured
@@ -328,7 +332,7 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 CONF_DATA_VALIDATION, False
             )
             schema_fields[
-                vol.Optional(CONF_DATA_VALIDATION, default=current_data_validation)
+                probatio.Optional(CONF_DATA_VALIDATION, default=current_data_validation)
             ] = bool
 
             # Modbus read block size (#254): Conservative = the plain grouped
@@ -342,7 +346,7 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
                 CONF_MODBUS_BLOCK_SIZE, DEFAULT_MODBUS_BLOCK_SIZE
             )
             schema_fields[
-                vol.Required(CONF_MODBUS_BLOCK_SIZE, default=current_block_size)
+                probatio.Required(CONF_MODBUS_BLOCK_SIZE, default=current_block_size)
             ] = SelectSelector(
                 SelectSelectorConfig(
                     options=[BLOCK_SIZE_CONSERVATIVE, BLOCK_SIZE_FAST],
@@ -359,15 +363,15 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
         # intentional regime change apart from an untouched picker.
         self._control_mode_prefill = (charge_default, discharge_default)
         schema_fields[
-            vol.Required(CONF_CHARGE_CONTROL_MODE, default=charge_default)
+            probatio.Required(CONF_CHARGE_CONTROL_MODE, default=charge_default)
         ] = self._control_mode_selector()
         schema_fields[
-            vol.Required(CONF_DISCHARGE_CONTROL_MODE, default=discharge_default)
+            probatio.Required(CONF_DISCHARGE_CONTROL_MODE, default=discharge_default)
         ] = self._control_mode_selector()
 
         # TODO: Re-enable when AC-coupled PV feature is implemented
         # schema_fields[
-        #     vol.Optional(
+        #     probatio.Optional(
         #         CONF_INCLUDE_AC_COUPLE_PV,
         #         default=current_include_ac_couple,
         #     )
@@ -375,7 +379,7 @@ class EG4OptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(schema_fields),
+            data_schema=probatio.Schema(schema_fields),
             description_placeholders=placeholders,
             errors=errors,
         )

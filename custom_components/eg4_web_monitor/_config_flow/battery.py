@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-import voluptuous as vol
+import probatio
 from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.data_entry_flow import AbortFlow
 from pylxpweb.transports import BatteryModbusTransport
@@ -106,22 +106,22 @@ async def async_battery_bridge_step(
         unit_default = ",".join(str(unit) for unit in unit_default)
     return flow.async_show_form(
         step_id="battery_bridge",
-        data_schema=vol.Schema(
+        data_schema=probatio.Schema(
             {
-                vol.Required(
+                probatio.Required(
                     CONF_MODBUS_HOST, default=defaults.get(CONF_MODBUS_HOST, "")
                 ): str,
-                vol.Required(
+                probatio.Required(
                     CONF_MODBUS_PORT, default=defaults.get(CONF_MODBUS_PORT, 502)
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=65535)),
-                vol.Required(CONF_BATTERY_UNITS, default=unit_default): str,
-                vol.Required(
+                ): probatio.All(probatio.Coerce(int), probatio.Range(min=1, max=65535)),
+                probatio.Required(CONF_BATTERY_UNITS, default=unit_default): str,
+                probatio.Required(
                     CONF_BATTERY_INTERVAL,
                     default=defaults.get(
                         CONF_BATTERY_INTERVAL, DEFAULT_BATTERY_INTERVAL
                     ),
-                ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
-                vol.Required("dedicated_bus", default=False): bool,
+                ): probatio.All(probatio.Coerce(int), probatio.Range(min=10, max=3600)),
+                probatio.Required("dedicated_bus", default=False): bool,
             }
         ),
         errors=errors,

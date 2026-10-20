@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Home Assistant 2026.10.0 or newer is required for future releases.** Support for 2026.1.0 through 2026.9.4 ends with 3.5.1-beta.20. Upgrade Home Assistant before upgrading the integration beyond that beta. CI now tests 2026.10.0 and current stable 2026.10.2 on Python 3.14.
+- Migrate configuration forms and service schemas to Home Assistant's October `probatio` validation API, preserving field defaults, coercion and input bounds.
+- Use Home Assistant's single-owner device registry API for topology and cleanup, preserving other entries' devices when identifiers overlap.
 
 ## [3.5.1-beta.20] - 2026-10-20
 

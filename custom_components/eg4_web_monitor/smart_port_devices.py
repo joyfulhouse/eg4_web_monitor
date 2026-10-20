@@ -291,17 +291,12 @@ def port_sensor_keys(serial: str, currents: bool) -> set[tuple[str, int, str]]:
 def gridboss_device_registered(
     hass: HomeAssistant, entry: ConfigEntry, serial: str
 ) -> bool:
-    """Whether this entry's GridBOSS device exists for port devices to link to.
-
-    HA 2026.8 scoped device identifiers to a config entry and deprecated the
-    unscoped ``async_get_device`` lookup; older HA has only that one.
-    """
+    """Whether this entry's GridBOSS device exists for port devices to link to."""
     registry = dr.async_get(hass)
-    lookup = getattr(registry, "async_get_device_by_identifier", None)
-    if lookup is not None:
-        return lookup((DOMAIN, serial), entry.entry_id) is not None
-    device = registry.async_get_device(identifiers={(DOMAIN, serial)})
-    return device is not None and entry.entry_id in device.config_entries
+    return (
+        registry.async_get_device_by_identifier((DOMAIN, serial), entry.entry_id)
+        is not None
+    )
 
 
 def gridboss_sensors(data: dict[str, Any] | None) -> dict[str, dict[str, Any]]:

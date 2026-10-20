@@ -4201,9 +4201,10 @@ class DeviceInfoMixin(_MixinBase):
                 registered = get_topology_device(
                     dr.async_get(self.hass), self.entry.entry_id, serial
                 )
-                if registered is not None and registered.config_entries != {
-                    self.entry.entry_id
-                }:
+                if (
+                    registered is not None
+                    and registered.config_entry_id != self.entry.entry_id
+                ):
                     # Another entry may have claimed this legacy group ID after
                     # the cache was populated; do not republish its old marker.
                     cache.pop(serial)
@@ -4238,7 +4239,7 @@ class DeviceInfoMixin(_MixinBase):
             registered = get_topology_device(
                 dr.async_get(self.hass), self.entry.entry_id, serial
             )
-            if registered is None or registered.config_entries == {self.entry.entry_id}:
+            if registered is None or registered.config_entry_id == self.entry.entry_id:
                 source = device_data.get("consumption_source")
                 if source == "gridboss":
                     device_info["model_id"] = GRIDBOSS_GROUP_MODEL_ID

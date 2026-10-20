@@ -14,7 +14,7 @@ homeassistant>=2026.10.0
 aiohttp>=3.10.0
 # HA's aiodns pin selects pycares 4.x on older HA and 5.x on current HA.
 pycares>=4.9.0,<6
-voluptuous>=0.15.0
+# Schema validation is supplied by Home Assistant's probatio dependency.
 # Exact public prerelease required for the caller-owned transport factory seam (#581).
 pylxpweb==0.10.0b13  # keep in sync with manifest.json
 # Test-only: Home Assistant 2026.9+ ships these through its modbus integration

@@ -13,7 +13,7 @@ How to set up a development environment for EG4 Web Monitor.
 ```bash
 git clone https://github.com/joyfulhouse/eg4_web_monitor.git
 cd eg4_web_monitor
-uv venv --python 3.13
+uv venv --python 3.14
 source .venv/bin/activate
 uv pip install -r tests/requirements-test.txt
 ```

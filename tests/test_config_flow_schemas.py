@@ -1,7 +1,7 @@
 """Tests for config_flow schemas module."""
 
 import pytest
-import voluptuous as vol
+import probatio
 
 from custom_components.eg4_web_monitor._config_flow.schemas import (
     build_dongle_schema,
@@ -39,13 +39,13 @@ class TestBuildHttpCredentialsSchema:
     def test_returns_schema(self):
         """Test that function returns a valid schema."""
         schema = build_http_credentials_schema()
-        assert isinstance(schema, vol.Schema)
+        assert isinstance(schema, probatio.Schema)
 
     def test_requires_username_and_password(self):
         """Test that username and password are required."""
         schema = build_http_credentials_schema()
 
-        with pytest.raises(vol.MultipleInvalid):
+        with pytest.raises(probatio.MultipleInvalid):
             schema({})
 
     def test_accepts_all_fields(self):
@@ -85,7 +85,7 @@ class TestBuildModbusSchema:
     def test_returns_schema(self):
         """Test that function returns a valid schema."""
         schema = build_modbus_schema()
-        assert isinstance(schema, vol.Schema)
+        assert isinstance(schema, probatio.Schema)
 
     def test_host_is_required_field(self):
         """Test that host is a required field with empty default.
@@ -128,7 +128,7 @@ class TestBuildDongleSchema:
     def test_returns_schema(self):
         """Test that function returns a valid schema."""
         schema = build_dongle_schema()
-        assert isinstance(schema, vol.Schema)
+        assert isinstance(schema, probatio.Schema)
 
     def test_accepts_minimum_required_fields(self):
         """Test that schema accepts minimum fields with defaults.
@@ -164,14 +164,14 @@ class TestBuildPlantSelectionSchema:
         """Test that function returns a valid schema."""
         plants = [{"plantId": 123, "name": "Test Plant"}]
         schema = build_plant_selection_schema(plants)
-        assert isinstance(schema, vol.Schema)
+        assert isinstance(schema, probatio.Schema)
 
     def test_requires_plant_id(self):
         """Test that plant ID is required."""
         plants = [{"plantId": 123, "name": "Test Plant"}]
         schema = build_plant_selection_schema(plants)
 
-        with pytest.raises(vol.MultipleInvalid):
+        with pytest.raises(probatio.MultipleInvalid):
             schema({})
 
     def test_validates_plant_id(self):
@@ -179,7 +179,7 @@ class TestBuildPlantSelectionSchema:
         plants = [{"plantId": 123, "name": "Test Plant"}]
         schema = build_plant_selection_schema(plants)
 
-        with pytest.raises(vol.MultipleInvalid):
+        with pytest.raises(probatio.MultipleInvalid):
             schema({CONF_PLANT_ID: "999"})
 
     def test_string_submission_accepted_against_int_plant_ids(self):
@@ -220,13 +220,13 @@ class TestBuildReauthSchema:
     def test_returns_schema(self):
         """Test that function returns a valid schema."""
         schema = build_reauth_schema()
-        assert isinstance(schema, vol.Schema)
+        assert isinstance(schema, probatio.Schema)
 
     def test_requires_password(self):
         """Test that password is required."""
         schema = build_reauth_schema()
 
-        with pytest.raises(vol.MultipleInvalid):
+        with pytest.raises(probatio.MultipleInvalid):
             schema({})
 
     def test_accepts_password(self):
@@ -242,7 +242,7 @@ class TestBuildHttpReconfigureSchema:
     def test_returns_schema(self):
         """Test that function returns a valid schema."""
         schema = build_http_reconfigure_schema()
-        assert isinstance(schema, vol.Schema)
+        assert isinstance(schema, probatio.Schema)
 
     def test_uses_provided_defaults(self):
         """Test that provided defaults are used."""
@@ -287,5 +287,5 @@ class TestBuildSerialSchema:
     def test_invalid_baudrate_rejected(self):
         """Test that a baudrate not in the option list is rejected."""
         schema = build_serial_schema()
-        with pytest.raises(vol.MultipleInvalid):
+        with pytest.raises(probatio.MultipleInvalid):
             schema({CONF_SERIAL_BAUDRATE: "12345"})
