@@ -137,7 +137,17 @@ async def test_ct_gap_and_recovery_preserve_consumption_source(hass, mode, missi
 
 @pytest.mark.parametrize("mode", ["http", "hybrid", "local"])
 @pytest.mark.parametrize(
-    "history", ["ct", "ct_first_gap", "legacy", "inverter", "mixed_inverter", "removed"]
+    "history",
+    [
+        "ct",
+        "ct_first_gap",
+        "legacy",
+        "legacy_mixed",
+        "legacy_partial",
+        "inverter",
+        "mixed_inverter",
+        "removed",
+    ],
 )
 async def test_restart_preserves_group_source(hass, mode, history):
     """A new coordinator keeps registry source evidence before MID rediscovery."""
@@ -177,7 +187,9 @@ async def test_restart_preserves_group_source(hass, mode, history):
         entry.runtime_data = result
         return result
 
-    async def process(coordinator, *, mid_present, readings=None):
+    async def process(
+        coordinator, *, mid_present, readings=None, associate_elsewhere=False
+    ):
         inverter = {
             "type": "inverter",
             "serial": "INV001",
@@ -205,13 +217,19 @@ async def test_restart_preserves_group_source(hass, mode, history):
             station.all_mid_devices = []
             station.standalone_mid_devices = []
             station.parallel_groups = [group]
+            if associate_elsewhere:
+                other_group = MagicMock()
+                other_group.name = "B"
+                other_group.inverters = []
+                other_group.mid_device = MagicMock(serial_number="GB001")
+                station.parallel_groups.append(other_group)
             coordinator.station = station
             with (
                 patch.object(
                     coordinator,
                     "_process_parallel_group_object",
                     new=AsyncMock(
-                        return_value={
+                        side_effect=lambda _: {
                             "type": "parallel_group",
                             "sensors": dict(inverter["sensors"]),
                         }
@@ -229,7 +247,7 @@ async def test_restart_preserves_group_source(hass, mode, history):
         return result["devices"][group_id]
 
     first = new_coordinator()
-    if history == "legacy":
+    if history in {"legacy", "legacy_mixed", "legacy_partial"}:
         registry.async_get_or_create(
             config_entry_id=entry.entry_id,
             identifiers={(DOMAIN, group_id)},
@@ -267,6 +285,13 @@ async def test_restart_preserves_group_source(hass, mode, history):
                 model="GridBOSS",
             )
 
+    if history == "legacy_partial":
+        registry.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, "GB002")},
+            model="GridBOSS",
+        )
+
     if history == "removed":
         device = registry.async_get_device(identifiers={(DOMAIN, "GB001")})
         first._removal_identifier_last_seen["GB001"] = (0.0, "device", None)
@@ -282,7 +307,13 @@ async def test_restart_preserves_group_source(hass, mode, history):
     # Cloud setup cleanup must not erase evidence after partial discovery.
     if mode != "local":
         _async_cleanup_removed_registry_devices(hass, entry, restarted)
-    expected_ct = history in {"ct", "ct_first_gap", "legacy"}
+    expected_ct = history in {
+        "ct",
+        "ct_first_gap",
+        "legacy",
+        "legacy_mixed",
+        "legacy_partial",
+    }
     assert data["sensors"]["consumption"] == (None if expected_ct else 19.0)
     assert data["sensors"]["consumption_lifetime"] == (None if expected_ct else 1900.0)
     daily = EG4InverterSensor(restarted, group_id, "consumption", "parallel_group")
@@ -291,6 +322,18 @@ async def test_restart_preserves_group_source(hass, mode, history):
     )
     assert daily.native_value == (None if expected_ct else 19.0)
     assert lifetime.native_value == (None if expected_ct else 1900.0)
+
+    if history in {"legacy_mixed", "legacy_partial"} and mode != "local":
+        data = await process(restarted, mid_present=False, associate_elsewhere=True)
+        # An unrelated GB association is positive evidence; one still-unresolved
+        # known GB prevents classifying the group from an incomplete snapshot.
+        expected_ct = history == "legacy_partial"
+        assert data["sensors"]["consumption"] == (None if expected_ct else 19.0)
+        if not expected_ct:
+            assert (
+                registry.async_get_device(identifiers={(DOMAIN, group_id)}).model_id
+                == INVERTER_GROUP_MODEL_ID
+            )
 
     # Repeating the absent discovery after another reload remains safe.
     await restarted.async_shutdown()
@@ -306,3 +349,49 @@ async def test_restart_preserves_group_source(hass, mode, history):
             == GRIDBOSS_GROUP_MODEL_ID
         )
     await restarted.async_shutdown()
+
+
+@pytest.mark.parametrize("has_mid", [False, True])
+@pytest.mark.parametrize("shared", [False, True])
+async def test_group_source_never_borrows_or_overwrites_foreign_role(
+    hass, has_mid, shared
+):
+    """A colliding group identifier cannot mutate another entry's source marker."""
+    from homeassistant.helpers import device_registry as dr
+
+    from custom_components.eg4_web_monitor.gridboss_topology import (
+        GRIDBOSS_GROUP_MODEL_ID,
+        group_consumption_source,
+    )
+
+    owner = MockConfigEntry(domain=DOMAIN, data={CONF_CONNECTION_TYPE: "local"})
+    owner.add_to_hass(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data={CONF_CONNECTION_TYPE: "local"})
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    device = registry.async_get_or_create(
+        config_entry_id=owner.entry_id,
+        identifiers={(DOMAIN, "parallel_group_a")},
+        model_id=GRIDBOSS_GROUP_MODEL_ID,
+    )
+    if shared:
+        device = registry.async_get_or_create(
+            config_entry_id=entry.entry_id, identifiers=device.identifiers
+        )
+    ownership = device.config_entries
+    with patch("custom_components.eg4_web_monitor.coordinator.LuxpowerClient"):
+        coordinator = EG4DataUpdateCoordinator(hass, entry)
+    source = group_consumption_source(
+        coordinator, "parallel_group_a", has_mid=has_mid, previous_source=None
+    )
+    assert source == ("gridboss" if has_mid else "inverter")
+    current = registry.async_get(device.id)
+    assert current.config_entries == ownership
+    assert current.model_id == GRIDBOSS_GROUP_MODEL_ID
+    coordinator.data = {
+        "devices": {
+            "parallel_group_a": {"type": "parallel_group", "consumption_source": source}
+        }
+    }
+    assert "model_id" not in coordinator.get_device_info("parallel_group_a")
+    await coordinator.async_shutdown()

@@ -4215,11 +4215,15 @@ class DeviceInfoMixin(_MixinBase):
         }
 
         if device_type == "parallel_group":
-            source = device_data.get("consumption_source")
-            if source == "gridboss":
-                device_info["model_id"] = GRIDBOSS_GROUP_MODEL_ID
-            elif source == "inverter":
-                device_info["model_id"] = INVERTER_GROUP_MODEL_ID
+            registered = dr.async_get(self.hass).async_get_device(
+                identifiers={(DOMAIN, serial)}
+            )
+            if registered is None or registered.config_entries == {self.entry.entry_id}:
+                source = device_data.get("consumption_source")
+                if source == "gridboss":
+                    device_info["model_id"] = GRIDBOSS_GROUP_MODEL_ID
+                elif source == "inverter":
+                    device_info["model_id"] = INVERTER_GROUP_MODEL_ID
 
         if device_type == "gridboss":
             # Persist the discovered role independently of firmware model text.
