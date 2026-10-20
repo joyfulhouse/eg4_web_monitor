@@ -1499,6 +1499,13 @@ the exponential backoff before its cap was applied. The retry calculation
 now stops doubling at the configured interval, retaining successful blocks
 when another block remains unsupported. Regression tests cover both findings.
 
+## [2026-10-20] ingest | Retain known GridBOSS startup topology (#664)
+
+Updated data-semantics section 4.3.1 against `d889f82feb88e75d4518fd09d5efc8224e8618ad`.
+Existing HA registry ownership now seeds the exclusion before first publication;
+partial cloud startup no longer prunes that evidence. Documented the explicit
+reset via guarded device deletion/reload or LOCAL configuration removal. The
+previous entity-lifetime-only explanation left the restart window unresolved.
 
 ## [2026-10-20] lint | Correct stale SOC routing and peak-shaving provenance (#606, #609)
 
