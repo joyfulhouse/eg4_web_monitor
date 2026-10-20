@@ -670,3 +670,21 @@ async def test_hybrid_function_poll_follows_dongle_gate():
     mock_self._read_midbox_smart_port_options.assert_awaited_once_with(
         mid.transport, GRIDBOSS_SERIAL, poll_functions=False
     )
+
+
+async def test_persistent_failure_backoff_cannot_overflow(coordinator):
+    """A long-lived unsupported block must not break the entire refresh."""
+    coordinator._parameter_refresh_interval = timedelta(minutes=60)
+    coordinator._midbox_option_failures[GRIDBOSS_SERIAL] = 1024
+    transport = FakeTransport(LIVE_REGISTERS)
+    boom = TimeoutError("unsupported block")
+    transport.fail_reads = [None, None, None, boom, boom]
+    with patch(
+        "custom_components.eg4_web_monitor.coordinator_local.time.monotonic",
+        return_value=1000.0,
+    ):
+        params = await coordinator._read_midbox_smart_port_options(
+            transport, GRIDBOSS_SERIAL
+        )
+    assert params["FUNC_SMART_LOAD_EN_1"] is True
+    assert coordinator._midbox_option_next_read[GRIDBOSS_SERIAL] == 4600.0

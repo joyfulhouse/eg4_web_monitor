@@ -265,8 +265,8 @@ def encode_midbox_field(field: MidboxField, raw: int, value: Any) -> int:
 #   - GATE_SOC / GATE_VOLT: SOC / voltage thresholds. Not availability gates:
 #     the configured Battery Charge / Discharge Control option decides which
 #     set is enabled (option_matches_control_modes, via the registry sync),
-#     and the inverters' live regime is reported as entity attributes. Which
-#     regime the GridBOSS applies is unproven: the portal greyed a port's
+#     as a display preference. Which regime the GridBOSS applies is
+#     unproven: the portal greyed a port's
 #     voltage fields while the inverter reported voltage control.
 PORT_MODE_SMART_LOAD = "smart_load"
 PORT_MODE_AC_COUPLE = "ac_couple"

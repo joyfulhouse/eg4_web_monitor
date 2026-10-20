@@ -34,7 +34,6 @@ from custom_components.eg4_web_monitor.smart_port_options import (
     EG4SmartPortOptionNumber,
     EG4SmartPortOptionSwitch,
     EG4SmartPortWindowTime,
-    battery_regime_is_voltage,
     create_port_option_entities,
 )
 
@@ -218,19 +217,6 @@ def test_live_regime_never_makes_thresholds_unavailable():
         assert _gated(coordinator, 1, GATE_VOLT) is True
 
 
-def test_battery_regime_reads_charge_and_discharge_bits():
-    """Discharge bit for Smart Load, charge bit for AC Couple."""
-    coordinator = _coordinator(inverter_regimes=(False,))
-    params = next(
-        value
-        for serial, value in coordinator.data["parameters"].items()
-        if serial != GB
-    )
-    params["FUNC_BAT_CHARGE_CONTROL"] = True
-    assert battery_regime_is_voltage(coordinator, discharge=True) is False
-    assert battery_regime_is_voltage(coordinator, discharge=False) is True
-
-
 # ── State and writes ─────────────────────────────────────────────────
 
 
@@ -395,67 +381,6 @@ def test_number_gating():
     assert _number(coordinator, 3, "shedding_start_soc").available is False
     assert _number(coordinator, 1, "smart_load_start_voltage").available is True
     assert _number(coordinator, 1, "smart_load_start_soc").available is True
-
-
-@pytest.mark.parametrize(
-    ("id_suffix", "inverter_regimes", "expected"),
-    [
-        (
-            "smart_load_start_soc",
-            (True,),
-            {
-                "control_regime": "soc",
-                "active_control_mode": "voltage",
-                "is_effective": False,
-            },
-        ),
-        (
-            "smart_load_start_voltage",
-            (True,),
-            {
-                "control_regime": "voltage",
-                "active_control_mode": "voltage",
-                "is_effective": True,
-            },
-        ),
-        (
-            "shedding_end_soc",
-            (False,),
-            {
-                "control_regime": "soc",
-                "active_control_mode": "soc",
-                "is_effective": True,
-            },
-        ),
-        (
-            "smart_load_start_soc",
-            (),
-            {
-                "control_regime": "soc",
-                "active_control_mode": None,
-                "is_effective": None,
-            },
-        ),
-        ("shedding_start_pv_power", (True,), None),
-    ],
-)
-def test_number_effectiveness_attributes(id_suffix, inverter_regimes, expected):
-    """Live regime is reported like the inverter's own limit controls."""
-    coordinator = _coordinator(inverter_regimes=inverter_regimes)
-    assert _number(coordinator, 1, id_suffix).extra_state_attributes == expected
-
-
-def test_ac_couple_effectiveness_uses_charge_side():
-    """AC Couple thresholds read the charge-side regime."""
-    coordinator = _coordinator(inverter_regimes=(False,))
-    inverter = next(s for s in coordinator.data["parameters"] if s != GB)
-    coordinator.data["parameters"][inverter]["FUNC_BAT_CHARGE_CONTROL"] = True
-    attrs = _number(coordinator, 4, "ac_couple_start_soc").extra_state_attributes
-    assert attrs == {
-        "control_regime": "soc",
-        "active_control_mode": "voltage",
-        "is_effective": False,
-    }
 
 
 async def test_number_writes():
@@ -664,3 +589,15 @@ def test_no_write_while_registry_disabled():
     entity.registry_entry = MagicMock(disabled_by=None)
     entity._handle_coordinator_update()
     entity.async_write_ha_state.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "id_suffix", ["smart_load_start_soc", "ac_couple_start_voltage"]
+)
+@pytest.mark.parametrize("inverter_regimes", [(), (False,), (True,), (False, True)])
+def test_gridboss_threshold_does_not_infer_effectiveness(id_suffix, inverter_regimes):
+    """Inverter H179 does not establish the GridBOSS threshold regime."""
+    entity = _number(_coordinator(inverter_regimes=inverter_regimes), 1, id_suffix)
+    attrs = entity.extra_state_attributes or {}
+    assert "is_effective" not in attrs
+    assert "active_control_mode" not in attrs

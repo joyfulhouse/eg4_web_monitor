@@ -824,9 +824,13 @@ class LocalTransportMixin(_MixinBase):
                 # block the firmware keeps rejecting doesn't poll forever.
                 failures = self._midbox_option_failures.get(serial, 0) + 1
                 self._midbox_option_failures[serial] = failures
-                delay = min(
-                    _MIDBOX_OPTION_RETRY_SECONDS * 2 ** (failures - 1), interval
-                )
+                delay = min(_MIDBOX_OPTION_RETRY_SECONDS, interval)
+                # Stop doubling at the cap: an unbounded exponent eventually
+                # overflows even though min() would select the interval.
+                for _ in range(failures - 1):
+                    if delay >= interval:
+                        break
+                    delay = min(delay * 2, interval)
                 if failures == _MIDBOX_OPTION_WARN_FAILURES:
                     _LOGGER.warning(
                         "GridBOSS %s smart port settings could not be fully read "

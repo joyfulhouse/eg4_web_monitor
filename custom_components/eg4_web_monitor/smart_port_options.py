@@ -21,9 +21,9 @@ Availability mirrors the portal:
   unless power shedding is on.
 - **SOC vs voltage.** The SOC or voltage thresholds follow the configured
   Battery Charge / Discharge Control option: the registry sync disables the
-  unselected set. The inverters' live regime is reported as attributes
-  (``active_control_mode``, ``is_effective``), not as unavailability, as the
-  inverter's own limit controls do.
+  unselected set. This is a display preference, not evidence of which
+  threshold the GridBOSS firmware applies. Inverter register 179 does not
+  establish the GridBOSS's active regime.
 - **Local link.** A down local link, or a value never read, shows
   unavailable rather than a stale or fake value.
 """
@@ -59,11 +59,7 @@ from .base_entity import (
     EG4RegistrySyncedEntity,
 )
 from .const import (
-    CONTROL_MODE_SOC,
-    CONTROL_MODE_VOLTAGE,
     DEVICE_TYPE_GRIDBOSS,
-    PARAM_FUNC_BAT_CHARGE_CONTROL,
-    PARAM_FUNC_BAT_DISCHARGE_CONTROL,
     SMART_LOAD_PV_POWER_MAX,
     SMART_LOAD_PV_POWER_MIN,
     SMART_LOAD_PV_POWER_STEP,
@@ -76,15 +72,12 @@ from .const import (
 )
 from .const.midbox import (
     GATE_SHEDDING,
-    GATE_SOC,
     GATE_TIME_BASED,
-    GATE_VOLT,
     SMART_LOAD_BASE_ON_SOC_VOLT,
     SMART_LOAD_BASE_ON_TIME,
     SMART_PORT_NUMBERS,
     PortOptionSpec,
     port_option_specs,
-    regime_side,
 )
 from .smart_port_devices import port_sensor_unique_id, resolve_port_mode
 
@@ -102,30 +95,6 @@ _BASED_ON_OPTIONS: dict[int, str] = {
 _BASED_ON_VALUES: dict[str, int] = {
     label: value for value, label in _BASED_ON_OPTIONS.items()
 }
-
-
-def battery_regime_is_voltage(
-    coordinator: EG4DataUpdateCoordinator, *, discharge: bool
-) -> bool | None:
-    """Whether the inverters' battery control regime is voltage.
-
-    Reads register 179 (bit 10 discharge / bit 9 charge) from every
-    inverter's parameters. None when no inverter has reported it or the
-    inverters disagree: the portal's greying can't be mirrored then, so no
-    threshold is gated.
-    """
-    key = (
-        PARAM_FUNC_BAT_DISCHARGE_CONTROL if discharge else PARAM_FUNC_BAT_CHARGE_CONTROL
-    )
-    data = coordinator.data or {}
-    parameters = data.get("parameters", {})
-    regimes = {
-        bool(value)
-        for serial, device in data.get("devices", {}).items()
-        if device.get("type") == "inverter"
-        and (value := parameters.get(serial, {}).get(key)) is not None
-    }
-    return regimes.pop() if len(regimes) == 1 else None
 
 
 def create_port_option_entities(
@@ -219,9 +188,8 @@ class PortOptionEntity(EG4RegistrySyncedEntity, EG4OptimisticEntity):
                     return False
             # GATE_SOC / GATE_VOLT are not availability gates: the configured
             # Battery Charge / Discharge Control option decides which set is
-            # enabled (registry sync), and the live regime is reported as
-            # attributes (EG4SmartPortOptionNumber.extra_state_attributes),
-            # as the inverter's own limit controls do.
+            # enabled (registry sync). The GridBOSS's active regime cannot
+            # be established from the inverters' battery control registers.
         return True
 
     async def _write_options(self, values: dict[str, Any]) -> None:
@@ -390,33 +358,6 @@ class EG4SmartPortOptionNumber(PortOptionEntity, EG4BaseNumber, NumberEntity):
     def available(self) -> bool:
         """Portal-equivalent availability."""
         return self._option_available()
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Whether the inverters' live regime uses this SOC / voltage threshold.
-
-        Same attributes as the inverter's regime-gated limits.
-        ``active_control_mode`` and ``is_effective`` are None while no
-        inverter has reported its regime, or the inverters disagree.
-        """
-        if GATE_SOC in self._spec.gates:
-            regime = CONTROL_MODE_SOC
-        elif GATE_VOLT in self._spec.gates:
-            regime = CONTROL_MODE_VOLTAGE
-        else:
-            return None
-        voltage = battery_regime_is_voltage(
-            self._coordinator, discharge=regime_side(self._spec) == "discharge"
-        )
-        if voltage is None:
-            active = None
-        else:
-            active = CONTROL_MODE_VOLTAGE if voltage else CONTROL_MODE_SOC
-        return {
-            "control_regime": regime,
-            "active_control_mode": active,
-            "is_effective": None if active is None else active == regime,
-        }
 
     @property
     def native_value(self) -> float | None:

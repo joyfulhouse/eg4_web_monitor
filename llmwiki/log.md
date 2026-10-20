@@ -1479,3 +1479,22 @@ are verified against the #639 branch, not a merged commit. The user-facing
 recovery steps (`docs/CONFIGURATION.md`) and the Unused error text in
 `select.py` now name the switch when it exists and the portal otherwise.
 
+
+
+## [2026-10-20] ingest | GridBOSS threshold effectiveness remains unproven
+
+Review of PR #639 removed `is_effective` and `active_control_mode` from the
+port threshold entities: inverter H179 does not establish the GridBOSS's
+active regime, and the reported portal behavior disagreed with that inference.
+[Issue #670](https://github.com/joyfulhouse/eg4_web_monitor/issues/670) tracks
+the required hardware evidence. The configured control options remain display preferences. The evidence
+needed to resolve this now belongs to
+[open hardware questions](40-hardware/open-questions.md). No hardware grade
+was promoted. The 2026-09-30 entry's "every kind" wording describes the
+representative Smart Load tests listed in `const/midbox.py`; it does not
+establish a write test for every AC Couple or voltage field.
+
+The same review reproduced a long-running option-read failure overflowing
+the exponential backoff before its cap was applied. The retry calculation
+now stops doubling at the configured interval, retaining successful blocks
+when another block remains unsupported. Regression tests cover both findings.

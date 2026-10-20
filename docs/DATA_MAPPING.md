@@ -1260,9 +1260,11 @@ per-field evidence. Parameter keys are the cloud's own names
   bit within a second). The GridBOSS's transport is resolved from the LOCAL
   MID cache or, in HYBRID, from the station's MID device.
 - The voltage scale (÷10) follows the cloud's values but was not
-  change-tested. Every other field was written from Home Assistant on port 4
-  and read back over the dongle (2026-09-30); the shedding bit (229 bit 15)
-  was also confirmed in the portal.
+  change-tested. Representative Smart Load settings were written from Home
+  Assistant on port 4 and read back over the dongle (2026-09-30); the exact
+  tested fields are recorded in `const/midbox.py`. The shedding bit (229 bit
+  15) was also confirmed in the portal. This does not establish a write test
+  for every field or the firmware's behavior at each threshold.
 
 ---
 

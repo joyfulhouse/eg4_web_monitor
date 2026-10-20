@@ -7,8 +7,11 @@ sources:
   - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
   - docs/DATA_MAPPING.md
   - docs/audits/2026-08-02-register-race-performance-audit.md
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/670
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+# GridBOSS threshold-regime row reviewed against PR #639 on 2026-10-20;
+# unrelated rows retain the pin above.
+last-verified: 2026-10-20
 ---
 
 # Open hardware and firmware questions
@@ -29,6 +32,7 @@ This page owns only unanswered questions and the evidence needed to close them. 
 | What do individual off-grid I124-I126 bits mean? | Word structure and known-written positions do not establish user-facing meanings. [`OFFGRID_GENERATOR_REGISTERS.md`](../../docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md). | `asserted-unverified` | Correlate one device-state transition at a time with raw words, then trace the controlling condition for each writer in a validated image. Do not name bits from position alone. |
 | What unit does I210 use on each supporting firmware? | The present seconds annotation conflicts with other source material. [`register audit`](../../docs/audits/2026-08-02-register-race-performance-audit.md). | `lineage-inferred` | Start a known-duration quick-charge session; sample raw I210 and wall clock at fixed cadence through zero on the same firmware; repeat after idle/reboot. |
 | Is I153 signed for reverse AC-couple flow? | The role is traced; reverse-flow signedness is not. [`OFFGRID_GENERATOR_REGISTERS.md`](../../docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md) and [register audit](../../docs/audits/2026-08-02-register-race-performance-audit.md). | `asserted-unverified` | Observe safe bidirectional AC-couple flow and compare raw U16/decoded values with an independent signed reference, including the sign boundary if safely reachable. |
+| Which SOC or voltage thresholds does GridBOSS firmware apply? | [Issue #670](https://github.com/joyfulhouse/eg4_web_monitor/issues/670) tracks the evidence gap. PR #639 records the portal greying Smart Load voltage fields while the attached FlexBOSS21 reported voltage control. `const/midbox.py` records the tested GridBOSS IAAB-1300 evidence. The integration configuration selects displayed controls; inverter H179 cannot establish GridBOSS effectiveness. | `asserted-unverified` | On an authorized test installation, correlate vendor control mode, GridBOSS register snapshots, inverter charge/discharge regimes, and independently observed port switching across SOC/voltage thresholds; restore the original configuration. |
 | Where does dormant GridBOSS UART4 route externally? | Firmware establishes dormancy, not PCB routing. [gridboss.md](gridboss.md#what-firmware-cannot-answer). | `asserted-unverified` | Trace continuity from MCU pins through any transceiver to connector/test pads, obtain a schematic, or—only with separate authorization—scope purpose-built diagnostic firmware. |
 
 ## Secondary questions
