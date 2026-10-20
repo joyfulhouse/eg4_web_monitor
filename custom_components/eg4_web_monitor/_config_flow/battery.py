@@ -39,6 +39,8 @@ async def async_battery_bridge_step(
 ) -> ConfigFlowResult:
     entry = flow.hass.config_entries.async_get_entry(flow.context.get("entry_id", ""))
     defaults = dict(entry.data) if entry is not None else {}
+    if entry is not None and CONF_BATTERY_INTERVAL in entry.options:
+        defaults[CONF_BATTERY_INTERVAL] = entry.options[CONF_BATTERY_INTERVAL]
     errors: dict[str, str] = {}
     if user_input is not None:
         defaults.update(user_input)
@@ -63,25 +65,33 @@ async def async_battery_bridge_step(
                 for other in flow.hass.config_entries.async_entries(DOMAIN)
             ):
                 return flow.async_abort(reason="already_configured")
-            if entry is not None:
-                flow.hass.config_entries.async_update_entry(entry, unique_id=identity)
-                return flow.async_update_reload_and_abort(entry, data_updates=data)
-            await flow.async_set_unique_id(identity)
-            flow._abort_if_unique_id_configured()
-            bus = BatteryModbusTransport(
-                host=host, port=data[CONF_MODBUS_PORT], unit_ids=units
-            )
-            release = get_endpoint_bus_registry(flow.hass).reserve_external_endpoint(
-                battery_endpoint(data)
-            )
-            try:
-                await bus.connect()
-                batteries = await bus.read_all()
-                if not batteries:
-                    errors["base"] = "battery_no_response"
-            finally:
-                await close_battery_bus(bus, release)
+            if entry is None:
+                await flow.async_set_unique_id(identity)
+                flow._abort_if_unique_id_configured()
+            # The current endpoint already belongs to this entry. A changed
+            # endpoint must pass the same ownership and response checks as setup
+            # before unloading the working bus or updating stored settings.
+            if entry is None or identity != entry.unique_id:
+                bus = BatteryModbusTransport(
+                    host=host, port=data[CONF_MODBUS_PORT], unit_ids=units
+                )
+                release = get_endpoint_bus_registry(
+                    flow.hass
+                ).reserve_external_endpoint(battery_endpoint(data))
+                try:
+                    await bus.connect()
+                    batteries = await bus.read_all()
+                    if not batteries:
+                        errors["base"] = "battery_no_response"
+                finally:
+                    await close_battery_bus(bus, release)
             if not errors:
+                if entry is not None:
+                    options = dict(entry.options)
+                    options[CONF_BATTERY_INTERVAL] = data[CONF_BATTERY_INTERVAL]
+                    return flow.async_update_reload_and_abort(
+                        entry, unique_id=identity, data_updates=data, options=options
+                    )
                 return flow.async_create_entry(title="EG4 battery bridge", data=data)
         except AbortFlow:
             raise

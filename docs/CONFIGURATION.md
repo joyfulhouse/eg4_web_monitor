@@ -50,9 +50,9 @@ continue updating. Device identity follows the integration entry and unit ID:
 changing a physical pack's address changes its identity.
 
 The master protocol reports bank current and bank-wide maximum temperature and
-cycle count, so those master per-pack sensors remain unknown. Its reconstructed
-state of charge and remaining capacity are withheld if any configured unit is
-missing. Configure the entire bank for those reconstructed values to be valid.
+cycle count, so those master per-pack sensors remain unknown. Master state of charge and remaining capacity also remain unknown: the
+released library can choose an incorrect capacity overflow multiple, even with
+a complete bank. Slave state of charge and capacity are unaffected.
 Cell-balance status is not exposed by the pinned library. No battery writes are
 available.
 

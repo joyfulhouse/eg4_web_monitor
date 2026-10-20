@@ -82,17 +82,17 @@ def test_explicit_units_preserve_address_identity():
 
 def test_master_aggregate_fields_are_never_per_pack():
     data = battery(1, current=-30, temperature=35, current_capacity=167, cycle_count=99)
-    complete = project_battery(data, "eg4_master", complete=True)
-    assert complete["soc"] == 57
-    assert complete["remaining_capacity"] == 167
+    complete = project_battery(data, "eg4_master")
+    assert complete["soc"] is None
+    assert complete["remaining_capacity"] is None
     assert complete["current"] is None
     assert complete["temperature"] is None
     assert complete["cycle_count"] is None
-    partial = project_battery(data, "eg4_master", complete=False)
+    partial = project_battery(data, "eg4_master")
     assert partial["soc"] is None
     assert partial["remaining_capacity"] is None
     assert partial["voltage"] == 52.56
-    assert "soc" not in project_battery(data, "unknown", complete=True)
+    assert "soc" not in project_battery(data, "unknown")
 
 
 def test_slave_zero_current_and_missing_cells_are_distinct():
@@ -103,7 +103,7 @@ def test_slave_zero_current_and_missing_cells_are_distinct():
         cell_voltages=[3.28, 0],
         cell_temperatures=[0, 25],
     )
-    result = project_battery(data, "eg4_slave", complete=False)
+    result = project_battery(data, "eg4_slave")
     assert result["current"] == 0
     assert result["soc"] == 57
     assert result["remaining_capacity"] is None
@@ -118,7 +118,7 @@ def test_complete_bus_does_not_publish_unreconstructed_master_bank_soc():
     data = EG4MasterProtocol().decode_with_slaves({21: 59, 33: 5600}, [])
     assert data.soc == 59
     assert data.current_capacity is None
-    result = project_battery(data, "eg4_master", complete=True)
+    result = project_battery(data, "eg4_master")
     assert result["soc"] is None
     assert result["remaining_capacity"] is None
 
@@ -152,7 +152,7 @@ async def test_partial_bus_keeps_slave_and_withholds_master_soc(hass):
         coordinator = BatteryBusCoordinator(hass, config_entry)
     try:
         await coordinator.async_refresh()
-        assert coordinator.data[1]["soc"] == 57
+        assert coordinator.data[1]["soc"] is None
         bus.read_all.return_value = [battery(1), battery(2)]
         await coordinator.async_refresh()
         assert 3 not in coordinator.data
@@ -355,3 +355,172 @@ async def test_diagnostics_redacts_host_and_preserves_unit_measurements(hass):
         assert result["coordinator"]["data"]["2"]["soc"] == 57
     finally:
         await coordinator.async_shutdown()
+
+
+def test_low_soc_master_capacity_unwrap_is_not_published():
+    from pylxpweb.battery_protocols.eg4_master import EG4MasterProtocol
+
+    slaves = [
+        BatteryData(
+            battery_index=unit - 1, soc=10, current_capacity=28, max_capacity=280
+        )
+        for unit in (2, 3)
+    ]
+    data = EG4MasterProtocol().decode_with_slaves(
+        {21: 10, 26: 8400, 27: 18464, 33: 5600}, slaves
+    )
+    # This released decoder can choose the wrong uint16 overflow multiple.
+    # Regardless of library behavior, do not expose reconstructed master values.
+    result = project_battery(data, "eg4_master")
+    assert result["soc"] is None
+    assert result["remaining_capacity"] is None
+
+
+async def test_reconfigure_updates_effective_interval_without_reprobing_own_bus(hass):
+    config_entry = entry(hass)
+    hass.config_entries.async_update_entry(
+        config_entry, options={CONF_BATTERY_INTERVAL: 60}
+    )
+    release = get_endpoint_bus_registry(hass).reserve_external_endpoint(
+        battery_endpoint(DATA)
+    )
+    try:
+        with (
+            patch.object(hass.config_entries, "async_schedule_reload") as reload_entry,
+            patch(
+                "custom_components.eg4_web_monitor._config_flow.battery.BatteryModbusTransport"
+            ) as transport,
+        ):
+            result = await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": "reconfigure", "entry_id": config_entry.entry_id},
+            )
+            assert result["step_id"] == "battery_bridge"
+            interval_key = next(
+                key
+                for key in result["data_schema"].schema
+                if key.schema == CONF_BATTERY_INTERVAL
+            )
+            assert interval_key.default() == 60
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    **{
+                        key: value
+                        for key, value in DATA.items()
+                        if key != "connection_type"
+                    },
+                    CONF_BATTERY_UNITS: "1,2,3",
+                    CONF_BATTERY_INTERVAL: 120,
+                    "dedicated_bus": True,
+                },
+            )
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "reconfigure_successful"
+        assert config_entry.options[CONF_BATTERY_INTERVAL] == 120
+        assert config_entry.data[CONF_BATTERY_INTERVAL] == 120
+        reload_entry.assert_called_once_with(config_entry.entry_id)
+        transport.assert_not_called()
+    finally:
+        release()
+
+
+async def test_reconfigure_owned_new_endpoint_preserves_existing_entry(hass):
+    config_entry = entry(hass)
+    changed = {**DATA, "modbus_host": "192.0.2.4"}
+    release = get_endpoint_bus_registry(hass).reserve_external_endpoint(
+        battery_endpoint(changed)
+    )
+    try:
+        with patch.object(hass.config_entries, "async_schedule_reload") as reload_entry:
+            result = await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": "reconfigure", "entry_id": config_entry.entry_id},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    **{
+                        key: value
+                        for key, value in changed.items()
+                        if key != "connection_type"
+                    },
+                    CONF_BATTERY_UNITS: "1,2,3",
+                    "dedicated_bus": True,
+                },
+            )
+        assert result["errors"] == {"base": "endpoint_in_use"}
+        assert config_entry.data == DATA
+        assert config_entry.unique_id == "battery_bus_192.0.2.3_502"
+        reload_entry.assert_not_called()
+    finally:
+        release()
+
+
+async def test_device_removal_requires_unit_removed_from_configuration(hass):
+    from homeassistant.helpers import device_registry as dr
+    from custom_components.eg4_web_monitor import async_remove_config_entry_device
+
+    config_entry = entry(hass)
+    with patch(
+        "custom_components.eg4_web_monitor.battery_bus.BatteryModbusTransport",
+        return_value=mock_bus(),
+    ):
+        coordinator = BatteryBusCoordinator(hass, config_entry)
+    config_entry.runtime_data = coordinator
+    registry = dr.async_get(hass)
+    device = registry.async_get_or_create(
+        config_entry_id=config_entry.entry_id,
+        identifiers={(DOMAIN, f"battery_bus_{config_entry.entry_id}_unit_2")},
+    )
+    try:
+        await coordinator.async_refresh()
+        assert not await async_remove_config_entry_device(hass, config_entry, device)
+        coordinator.data.pop(2)
+        assert not await async_remove_config_entry_device(hass, config_entry, device)
+        coordinator.unit_ids.remove(2)
+        assert await async_remove_config_entry_device(hass, config_entry, device)
+    finally:
+        await coordinator.async_shutdown()
+
+
+async def test_shutdown_drains_entire_poll_before_endpoint_handoff(hass):
+    config_entry = entry(hass)
+    bus = mock_bus()
+    in_poll = asyncio.Event()
+    finish_poll = asyncio.Event()
+
+    async def read_all():
+        in_poll.set()
+        await finish_poll.wait()
+        return [battery(2)]
+
+    bus.read_all.side_effect = read_all
+    with patch(
+        "custom_components.eg4_web_monitor.battery_bus.BatteryModbusTransport",
+        return_value=bus,
+    ):
+        coordinator = BatteryBusCoordinator(hass, config_entry)
+    poll = asyncio.create_task(coordinator._async_update_data())
+    await in_poll.wait()
+    shutdown = asyncio.create_task(coordinator.async_shutdown())
+    await asyncio.sleep(0)
+    bus.disconnect.assert_not_awaited()
+    registry = get_endpoint_bus_registry(hass)
+    with pytest.raises(EndpointOwnerInUseError):
+        registry.reserve_external_endpoint(battery_endpoint(DATA))
+    shutdown.cancel()
+    await asyncio.sleep(0)
+    bus.disconnect.assert_not_awaited()
+    finish_poll.set()
+    await poll
+    with pytest.raises(asyncio.CancelledError):
+        await shutdown
+    bus.disconnect.assert_awaited_once()
+    release = registry.reserve_external_endpoint(battery_endpoint(DATA))
+    try:
+        with pytest.raises(UpdateFailed, match="shutting down"):
+            await coordinator._async_update_data()
+        bus.read_all.assert_awaited_once()
+    finally:
+        release()

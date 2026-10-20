@@ -70,12 +70,9 @@ def battery_endpoint(data: Mapping[str, Any]) -> TransportConfig:
     )
 
 
-def project_battery(
-    data: BatteryData, protocol: str, *, complete: bool
-) -> dict[str, Any]:
+def project_battery(data: BatteryData, protocol: str) -> dict[str, Any]:
     """Keep aggregate master measurements out of per-pack sensors."""
     master = protocol == "eg4_master"
-    master_reconstructed = complete and data.current_capacity is not None
     known = protocol in {"eg4_master", "eg4_slave"}
     result: dict[str, Any] = {"protocol": protocol, "firmware": data.firmware_version}
     if not known:
@@ -83,13 +80,13 @@ def project_battery(
     result.update(
         voltage=data.voltage if data.voltage > 0 else None,
         current=None if master else data.current,
-        soc=data.soc if not master or master_reconstructed else None,
+        # Released master capacity unwrapping can add 655.36 Ah at low SOC.
+        # Even a complete bank cannot establish an accurate per-pack value.
+        soc=None if master else data.soc,
         soh=data.soh,
         temperature=None if master else data.temperature,
         capacity=data.max_capacity if data.max_capacity > 0 else None,
-        remaining_capacity=(
-            data.current_capacity if not master or master_reconstructed else None
-        ),
+        remaining_capacity=None if master else data.current_capacity,
         cycle_count=None if master else data.cycle_count,
         min_cell_voltage=data.min_cell_voltage if data.min_cell_voltage > 0 else None,
         max_cell_voltage=data.max_cell_voltage if data.max_cell_voltage > 0 else None,
@@ -106,6 +103,8 @@ class BatteryBusCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.entry = entry
+        self._poll_lock = asyncio.Lock()
+        self._closing = False
         self.unit_ids: list[int] = list(entry.data[CONF_BATTERY_UNITS])
         self.bus = BatteryModbusTransport(
             host=entry.data[CONF_MODBUS_HOST],
@@ -129,6 +128,12 @@ class BatteryBusCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         )
 
     async def _async_update_data(self) -> dict[int, dict[str, Any]]:
+        async with self._poll_lock:
+            if self._closing:
+                raise UpdateFailed("Battery bridge is shutting down")
+            return await self._read_batteries()
+
+    async def _read_batteries(self) -> dict[int, dict[str, Any]]:
         try:
             if not self.bus.is_connected:
                 await self.bus.connect()
@@ -137,8 +142,6 @@ class BatteryBusCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             raise UpdateFailed(f"Battery bridge read failed: {err}") from err
         if not batteries:
             raise UpdateFailed("No configured battery units responded")
-        responding = {battery.battery_index + 1 for battery in batteries}
-        complete = set(self.unit_ids).issubset(responding)
         # The pinned library exposes detected protocol objects only in this
         # cache. Fail closed if that seam changes; unit ID alone is not a map.
         protocols = getattr(self.bus, "_detected_protocols", {})
@@ -148,16 +151,28 @@ class BatteryBusCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
                 str(
                     getattr(protocols.get(battery.battery_index + 1), "name", "unknown")
                 ),
-                complete=complete,
             )
             for battery in batteries
             if battery.battery_index + 1 in self.unit_ids
         }
 
     async def async_shutdown(self) -> None:
+        self._closing = True
         try:
             await super().async_shutdown()
         finally:
+            close = asyncio.create_task(self._close_after_poll())
+            try:
+                await asyncio.shield(close)
+            except asyncio.CancelledError:
+                await close
+                raise
+
+    async def _close_after_poll(self) -> None:
+        # HA stops scheduled refreshes but does not drain an in-flight update.
+        # The library locks each unit read, so fence the entire multi-unit poll
+        # before disconnecting and allowing another owner onto this endpoint.
+        async with self._poll_lock:
             await close_battery_bus(self.bus, self._release_endpoint)
 
 
