@@ -1623,3 +1623,18 @@ HTTP/HYBRID groups without treating absence as topology proof. Foreign/shared
 registry roles are ignored and never overwritten by the classifier or cached
 device information. First MID discovery now persists its role before processing
 can fail. Added repeated-reload, partial-association and ownership regressions.
+## [2026-10-20] ingest | Partial parallel-group runtime availability
+
+Updated `10-integration/data-semantics.md` from commit `e5fa860` and its real
+ParallelGroup regression tests. A cloud-lost member no longer blanks live
+siblings' runtime measurements. Energy keeps fixed membership and remains
+unknown during a partial outage; #619 remains open for that continuity work.
+
+## [2026-10-20] ingest | Partial-group observability and independent CT authority
+
+The group sensor state now exposes total and available member counts plus the
+lost-member flag. Real station-pipeline regressions cover outage and recovery
+with and without complete independent GridBOSS CT energy: paired CT totals
+remain authoritative at20kWh today/2000kWh lifetime while inverter-derived
+counters stay unknown during the outage. This does not solve missing-member
+cumulative-energy continuity for groups without complete independent CT data.

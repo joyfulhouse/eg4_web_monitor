@@ -5513,7 +5513,9 @@ class TestParallelGroupConsumptionEnergyBalance:
         # Real inverter so the injected ``InverterEnergyData()`` is what the
         # public ``.transport_energy`` accessor returns (a bare MagicMock would
         # return a truthy auto-child mock regardless of what we inject).
-        mock_group.inverters = [make_real_inverter("INV001", "FlexBOSS21")]
+        mock_group.inverters = [
+            make_real_inverter("INV001", "FlexBOSS21", runtime=InverterRuntimeData())
+        ]
         mock_group.mid_device = None
 
         # Simulate _has_local_energy() = True  →  wrong consumption from pylxpweb
@@ -5575,7 +5577,9 @@ class TestParallelGroupConsumptionEnergyBalance:
         # Real inverter so the public ``.transport_energy`` accessor honestly
         # returns None (a bare MagicMock's ``.transport_energy`` would be a
         # truthy auto-child mock, falsely triggering the energy-balance override).
-        mock_group.inverters = [make_real_inverter("INV001", "FlexBOSS21")]
+        mock_group.inverters = [
+            make_real_inverter("INV001", "FlexBOSS21", runtime=InverterRuntimeData())
+        ]
         mock_group.mid_device = None
 
         # Cloud API provides correct consumption

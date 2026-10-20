@@ -15,6 +15,7 @@ import logging
 import time
 import weakref
 from collections.abc import Awaitable, Callable, Collection, Coroutine
+from copy import copy
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
@@ -3606,26 +3607,27 @@ class DeviceProcessingMixin(_MixinBase):
                 sensors.get("grid_export_lifetime"),
             )
 
-        # A cloud-lost member's frozen register mirror is baked into every
-        # aggregate above — the pylxpweb group properties sum raw member
-        # values, bypassing the per-inverter blanking (#479).  With a lost
-        # member the sums are unknowable (not merely incomplete), so blank
-        # them rather than publish a plausible-looking wrong total.  Members
-        # with live transport data read is_lost=False and keep the group
-        # aggregates alive in HYBRID.  The flag is published so downstream
-        # post-processing (the member battery count/current override) can
-        # skip its own partial-sum writes; the GridBOSS CT overlay still
-        # applies — those measurements come from an independent device and
-        # stay authoritative during a sibling inverter's cloud outage.
-        processed["has_lost_member"] = any(
-            getattr(inv, "is_lost", False) and getattr(inv, "has_runtime_data", False)
-            for inv in getattr(group, "inverters", [])
-        )
+        # Runtime measurements can describe the online subset, but cumulative
+        # counters must keep fixed membership to avoid outage/recovery jumps.
+        # Use a copy so discovery, energy reads and controls retain the full group.
+        members = getattr(group, "inverters", [])
+        live_members = [inv for inv in members if not getattr(inv, "is_lost", False)]
+        processed["has_lost_member"] = len(live_members) != len(members)
+        processed["available_member_count"] = len(live_members)
         if processed["has_lost_member"]:
             sensors = processed["sensors"]
             for key in sensors:
                 if key != "parallel_group_last_polled":
                     sensors[key] = None
+            if live_members:
+                live_group = copy(group)
+                live_group.inverters = live_members
+                runtime_map = {
+                    prop: key
+                    for prop, key in property_map.items()
+                    if not prop.startswith(("today_", "total_"))
+                }
+                sensors.update(_map_device_properties(live_group, runtime_map))
 
         return processed
 

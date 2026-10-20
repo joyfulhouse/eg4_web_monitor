@@ -890,6 +890,19 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
         await super().async_added_to_hass()
 
     @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Identify runtime readings that describe only responding group members."""
+        if self._device_type != "parallel_group":
+            return super().extra_state_attributes
+        group = (self.coordinator.data or {}).get("devices", {}).get(self._serial, {})
+        attributes = {
+            key: group[key]
+            for key in ("member_count", "available_member_count", "has_lost_member")
+            if key in group
+        }
+        return attributes or None
+
+    @property
     def state_class(self) -> SensorStateClass | None:
         """Exclude GridBOSS inverter energy balances from energy statistics."""
         if self._device_type == "inverter" and self._sensor_key in {
