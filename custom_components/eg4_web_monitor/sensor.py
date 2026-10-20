@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -27,6 +28,7 @@ from .base_entity import (
 )
 from .const import (
     DISCHARGE_RECOVERY_SENSORS,
+    DOMAIN,
     HYBRID_EXCLUDED_SENSORS,
     INVERTER_FAMILY_EG4_HYBRID,
     INVERTER_FAMILY_EG4_OFFGRID,
@@ -218,6 +220,34 @@ def _device_sensor_class(sensor_key: str) -> "type[EG4InverterSensor]":
 MAX_PARALLEL_UPDATES = 5
 
 
+def _seed_registered_hybrid_sensor_keys(
+    hass: HomeAssistant, entry: EG4ConfigEntry, coordinator: EG4DataUpdateCoordinator
+) -> None:
+    """Publish unknown for previously registered local measurements during startup."""
+    if not coordinator.has_http_api() or not coordinator.data:
+        return
+    registered = {
+        entity.unique_id
+        for entity in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
+        if entity.domain == "sensor" and entity.platform == DOMAIN
+    }
+    for serial, device in coordinator.data.get("devices", {}).items():
+        if device.get(
+            "type"
+        ) != "inverter" or not coordinator.has_configured_local_transport(serial):
+            continue
+        sensors = device.setdefault("sensors", {})
+        for key in SENSOR_TYPES:
+            bank = key.startswith("battery_bank_")
+            unique_id = f"{serial}_battery_bank_{key}" if bank else f"{serial}_{key}"
+            if unique_id in registered and (
+                bank or _should_create_sensor(key, device.get("features"))
+            ):
+                sensors.setdefault(key, None)
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: EG4ConfigEntry,
@@ -279,6 +309,8 @@ async def async_setup_entry(
         coordinator,
         async_migrate_to_port_sensors(hass, entry, coordinator.data),
     )
+
+    _seed_registered_hybrid_sensor_keys(hass, entry, coordinator)
 
     # Create sensor entities for each device
     for serial, device_data in coordinator.data["devices"].items():
