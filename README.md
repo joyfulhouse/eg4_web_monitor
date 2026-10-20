@@ -65,7 +65,7 @@ required — if you can use the EG4 Monitor app, you can use this integration.
   - **Serial Modbus (USB/RS485):** a USB-to-RS485 adapter on your Home Assistant
     host.
   - **WiFi dongle:** direct network access to your inverter's WiFi dongle.
-- **Home Assistant** 2026.1.0 or newer.
+- **Home Assistant** 2026.10.0 or newer. Earlier versions are unsupported for future releases; 3.5.1-beta.20 is the last release supporting HA 2026.1.0 through 2026.9.4.
 - **HACS** (recommended) for easy installation and updates.
 
 ## Installation

@@ -53,9 +53,9 @@ Gold Tier (5 jobs)
 - Manifest completeness
 
 **Home Assistant compatibility:** Gold's full test/coverage gate and Platinum's
-strict mypy gate each run a blocking minimum/latest matrix. The minimum uses
-Python 3.13 and `tests/constraints-ha-minimum.txt`; the latest uses Python 3.14
-and `tests/constraints-ha-latest.txt`. Both constraints files pin Home Assistant
+strict mypy gate each run a blocking minimum/latest matrix. Both use Python 3.14: the minimum uses
+`tests/constraints-ha-minimum.txt` and the latest uses
+`tests/constraints-ha-latest.txt`. Home Assistant 2026.10.0 is the support floor. Both constraints files pin Home Assistant
 and its matching test plugin because the plugin itself pins HA. Update the two
 latest pins together when adopting a new stable release. Matrix fail-fast is
 disabled so both environments report their results.

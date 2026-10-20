@@ -1,3 +1,3 @@
-# Keep minimum-version coverage even when newer HA requires newer Python.
-homeassistant==2026.1.0
-pytest-homeassistant-custom-component==0.13.305
+# Minimum supported HA for future releases; keep core/plugin pins paired.
+homeassistant==2026.10.0
+pytest-homeassistant-custom-component==0.13.371

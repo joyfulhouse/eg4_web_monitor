@@ -20,7 +20,7 @@ def test_ha_gates_cover_minimum_and_latest(job_name: str) -> None:
     assert job["strategy"]["matrix"]["include"] == [
         {
             "ha": "minimum",
-            "python": "3.13",
+            "python": "3.14",
             "constraints": "tests/constraints-ha-minimum.txt",
         },
         {

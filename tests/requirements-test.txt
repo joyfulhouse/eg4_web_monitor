@@ -1,14 +1,14 @@
 # Testing dependencies for Bronze tier compliance
 # CI selects explicit HA/plugin versions with constraints-ha-{minimum,latest}.txt.
-# Latest HA requires Python 3.14; minimum-version coverage uses Python 3.13.
+# Both supported HA environments require Python 3.14.2 or newer.
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
-pytest-homeassistant-custom-component>=0.13.206
+pytest-homeassistant-custom-component>=0.13.371
 dpkt>=1.9.8  # offline-only PCAP sanitizer tests (#576)
 
 # Home Assistant core for testing
-homeassistant>=2025.6.0
+homeassistant>=2026.10.0
 
 # Integration dependencies
 aiohttp>=3.10.0
