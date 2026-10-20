@@ -1411,3 +1411,12 @@ The cited source and lifecycle regression definitions exist at that pin; its
 production and test trees equal the independently reviewed combined candidate
 `84b39c4`. Only these sections receive the new pin and verification date; other
 scoped claims retain their pins. Prior log content is unchanged.
+
+## [2026-10-20] ingest | Dedicated direct battery bridge
+
+Recorded the direct battery implementation at `6e5115c` in config-flow,
+data-semantics and entities-identity-availability. Updated obsolete discovery
+guidance. Identity is explicit entry/unit address; bank aggregate master
+fields and incomplete/unreconstructed master SOC remain unknown. Later #574
+reporter evidence resolves its earlier passive-capture gate only for the
+observed Z02T11 dedicated bus. Broader #176 acceptance remains open.

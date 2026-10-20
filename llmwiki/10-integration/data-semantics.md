@@ -9,6 +9,8 @@ canonical-for:
   - parameter cache seeding after writes
   - the time.monotonic() fresh-boot throttle trap
 sources:
+  - custom_components/eg4_web_monitor/battery_bus.py
+  - tests/test_battery_bus.py
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/sensor.py
   - custom_components/eg4_web_monitor/const/device_types.py
@@ -58,6 +60,7 @@ verified-against:
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
+# Direct battery sections verified against 6e5115c on 2026-10-20.
 last-verified: 2026-10-14
 see-also:
   - ../40-hardware/registers.md
@@ -811,3 +814,24 @@ Before shipping a change in this area, confirm each line:
 | 10 | New staleness rules checked against what the existing three already assume |
 | 11 | The **sibling mode path** grepped and fixed too (HTTP vs LOCAL vs the HYBRID delegate) |
 | 12 | Any new register claim is recorded in `40-hardware/registers.md` with a grade from README's legend, and no local write ships on a bit mapping weaker than toggle-proven without a gate |
+
+## Direct battery projection
+
+At `6e5115c`, `battery_bus.py` -> `project_battery` accepts only the library's
+`eg4_master` and `eg4_slave` detected protocols. Unknown protocols publish no
+measurements. Master current, temperature and cycle count stay unknown because
+the decoded fields have bank aggregate/maximum semantics. Master SOC and
+remaining capacity require both complete configured-unit response and a
+non-null reconstructed remaining capacity; complete topology alone does not
+prove that reconstruction succeeded. Missing units are removed from each
+coordinator snapshot without carrying forward old measurements. A zero cell
+voltage is missing, while zero current and zero Celsius remain real values.
+Grade: `verified-against-code` (`battery_bus.py`, `tests/test_battery_bus.py`,
+including a real master-decoder early-return regression).
+
+The direct path does not overlay inverter/cloud battery measurements or
+publish a duplicate bank-current sum. Its detected-protocol cache access is
+a pinned private library seam and fails closed if absent. Cell-balance bits
+are not present in the pinned `BatteryData` contract and are not synthesized.
+These are implementation boundaries; #176 remains open for its broader
+acceptance criteria.

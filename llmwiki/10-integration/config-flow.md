@@ -6,6 +6,8 @@ canonical-for:
   - Modbus discovery error classification
   - unique-id construction, conflict detection, entry migration
 sources:
+  - custom_components/eg4_web_monitor/battery_bus.py
+  - tests/test_battery_bus.py
   - custom_components/eg4_web_monitor/_config_flow/__init__.py
   - custom_components/eg4_web_monitor/_config_flow/helpers.py
   - custom_components/eg4_web_monitor/_config_flow/options.py
@@ -17,6 +19,7 @@ sources:
   - eg4_web_monitor issue #275
   - eg4_web_monitor issue #574
 verified-against: c411499
+# Direct battery sections verified against 6e5115c on 2026-10-20.
 last-verified: 2026-09-04
 see-also:
   - architecture.md
@@ -150,7 +153,7 @@ otherwise non-battery response re-raises the original discovery error unchanged.
 On a match, discovery raises `StandaloneBatteryDetectedError`; both
 `async_step_local_modbus` and `async_step_reconfigure_add_modbus` map it to
 `standalone_battery_not_supported`. Every shipped locale explains that the target is a
-battery and points to issue #176 instead of presenting the generic Modbus timeout.
+battery and, as of `6e5115c`, points to the dedicated Direct battery bridge flow instead of presenting the generic Modbus timeout.
 
 `verified-against-code` — `_config_flow/discovery.py` →
 `_detect_standalone_battery_protocol`, `discover_modbus_device`;
@@ -310,3 +313,21 @@ All rows: `verified-against-code`.
 | **Station IDs are ints in production** | The frontend submits station selections as **strings**. Comparing without normalizing broke multi-station cloud onboarding (#275). `create_mock_station`'s docstring records this | `verified-against-code` — `tests/conftest.py:347-380` |
 | Legacy `hybrid_`-prefixed unique IDs exist in the wild | `find_config_entry_identity_conflicts` matches derived cloud identity precisely to catch them | `verified-against-code` — `_config_flow/helpers.py:124-146` |
 | `local` mode unique IDs are derived from the **station name** | Two local installs with the same station name collide. This is why `_update_entry` preserves an established local unique_id rather than recomputing it | `verified-against-code` — `helpers.py:104-108`, `__init__.py:1513-1577` |
+
+## Dedicated direct battery bridge
+
+At `6e5115c`, `async_step_battery_bridge` delegates to `_config_flow/battery.py`.
+It requires explicit unit IDs and confirmation of a dedicated bus, probes only
+`BatteryModbusTransport`, and reserves the physical endpoint against inverter
+discovery/polling. The entry uses `connection_type=battery_bus`; reconfigure
+updates its host/port/units, and options expose only the battery polling interval.
+Setup forwards only the sensor platform. Probe and coordinator teardown release
+endpoint ownership only after disconnect completes, including cancellation.
+Grade: `verified-against-code` (`_config_flow/battery.py`, `battery_bus.py`,
+`endpoint_bus.py`, `tests/test_battery_bus.py`).
+
+The later #574 reporter comments supply DIP-address stability through power
+cycles and a passive idle-bus observation for Indoor Wall Mount Z02T11. These
+are `asserted-unverified` reporter observations, scoped to that hardware. They
+resolve the previously stated missing-capture gate for this dedicated-bus
+implementation, not compatibility across all battery families.

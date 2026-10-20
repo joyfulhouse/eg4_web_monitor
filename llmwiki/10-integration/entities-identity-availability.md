@@ -5,6 +5,8 @@ canonical-for:
   - unique_id formats as implemented
   - entity_id derivation, and why _attr_entity_id is inert
 sources:
+  - custom_components/eg4_web_monitor/battery_bus.py
+  - tests/test_battery_bus.py
   - custom_components/eg4_web_monitor/base_entity.py
   - tests/test_energy_guard_restore.py
   - custom_components/eg4_web_monitor/sensor.py
@@ -28,7 +30,8 @@ verified-against:
 # PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
 # Scope: section 6 bounded initial-parameter wait claims, re-verified 2026-10-13.
 # This immutable inline pin licenses only those claims; unrelated claims retain
-# their existing verification pins; prior last-verified: 2026-08-12.
+# their existing verification pins; prior # Direct battery sections verified against 6e5115c on 2026-10-20.
+last-verified: 2026-08-12.
 # The refreshed date applies only to the scope above (no wholesale reverification).
 last-verified: 2026-10-13
 see-also:
@@ -458,3 +461,15 @@ All rows: `verified-against-code`.
 | Statistics carry over **only** if `unique_id` is unchanged | Changing a `unique_id` orphans the recorded history | `asserted-unverified` — Home Assistant recorder behaviour as relied on in `memory/queue-cleanup-2026-07-26.md`; not re-verified against HA source here |
 | A semantic level-shift on an **unchanged** `unique_id` must be documented as breaking | Nothing breaks mechanically, but the recorded series changes meaning mid-stream, and no consumer can detect that from the data | `inferred` — follows from the row above plus the fact that HA stores statistics against `unique_id` with no versioning |
 | Renaming an entity's display name affects **new** registrations only | Because `entity_id` is frozen at first registration — see §4.2, which owns that fact and its evidence | `inferred` — from the freeze behaviour in §4.2 |
+
+## Direct battery devices
+
+At `6e5115c`, `BatteryBusSensor` derives directly from `CoordinatorEntity` and
+`SensorEntity`. Its unique ID is
+`battery_bus_{entry.entry_id}_unit_{unit}_{key}`; device identity uses the same
+entry/unit prefix. This is an explicit address identity, not a claimed BMS
+serial or automatic join to existing inverter battery entities. Unit removal
+from a poll makes that unit's sensors unavailable; a responding unit whose
+field is absent remains available with an unknown value. Individual cell and
+temperature-channel entities are disabled by default. Grade:
+`verified-against-code` (`battery_bus.py`, `tests/test_battery_bus.py`).
