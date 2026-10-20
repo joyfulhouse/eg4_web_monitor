@@ -224,6 +224,11 @@ async def test_active_gridboss_path_preserves_snapshot_stamp(hass, freezer):
     )
     mid = make_real_mid(serial_number="GB001", runtime=runtime)
     mid._transport = make_transport_spec(is_connected=True)
+    # The active path also reads smart-port parameters; complete that unrelated
+    # read so frozen time does not strand its incomplete-response retry delay.
+    mid._transport.read_parameters = AsyncMock(
+        side_effect=lambda start, count: dict.fromkeys(range(start, start + count), 0)
+    )
     mid.refresh = AsyncMock()  # A skipped/failed refresh leaves the accepted snapshot.
     config = {
         "serial": "GB001",
