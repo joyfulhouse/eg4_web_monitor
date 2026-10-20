@@ -807,53 +807,50 @@ per boundary). Cloud param names take the window suffix
 | 102 | `discharge_current` | number | A | 0-140 |
 | 105 | `ongrid_discharge_soc` | number | % | 10-100 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
-| 160 | `ac_charge_start_battery_soc` | number | % | 0-90 |
-| 161 | `ac_charge_end_battery_soc` | number | % | 0-100 |
+| 160 | `ac_charge_start_battery_soc` | number | % | 1-90 off-grid/unresolved; 0-90 positively resolved non-off-grid |
+| 161 | `ac_charge_end_battery_soc` | number | % | 20-100 off-grid/unresolved; 0-100 positively resolved non-off-grid |
 
 > **AC-charge SOC window (regs 160/161)**
-> ([#331](https://github.com/joyfulhouse/eg4_web_monitor/issues/331) /
-> [#488](https://github.com/joyfulhouse/eg4_web_monitor/issues/488)). On the
-> off-grid family reg 67 (`ac_charge_soc_limit`) is firmware-rejected and is
-> suppressed with a one-shot Repairs issue, and 160/161 are the registers the
-> integration drives instead. The register keeper grades both `portal-correlated`
-> — see `llmwiki/40-hardware/registers.md` — so treat the pairing as the
-> integration's current implementation choice, not a proven hardware semantic.
-> The two entities are **not** created symmetrically (`number.py:657-695`):
+> ([#570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570),
+> [PR #600](https://github.com/joyfulhouse/eg4_web_monitor/pull/600)).
+> Bounds and routes are family-scoped in `number.py`:
+> `ACChargeStartBatterySOCNumber`, `ACChargeEndBatterySOCNumber`, and
+> `EG4BaseNumberEntity._offgrid_cloud_only_reason`.
 >
-> - **Reg 160 (Start)** is created on `EG4_OFFGRID` *and* `EG4_HYBRID`. On a
->   FlexBOSS21 it starts AC charging whenever SOC is below it — in or out of the
->   AC-charge windows, regardless of the reg-120 `ACChargeType` selector — and the
->   portal exposes it as "Start AC Charge SOC(%)". The hybrid gate is
->   `is_hybrid_family()` and fails **closed**: LXP and unidentified hardware are
->   excluded until verified. Write range is capped at 90 %, per pylxpweb.
-> - **Reg 161 (End)** is created on `EG4_OFFGRID` only. pylxpweb models the
->   grid-tied stop as reg 67 (`set_ac_charge_soc_limits` pairs 160 with 67), and
->   the #332 note records reg 161 as inert on tested grid-tied firmware.
+> - **H160 (Start)** is created for `EG4_OFFGRID` and `EG4_HYBRID`.
+>   Off-grid or unresolved families use a 1% floor; positively resolved
+>   non-off-grid families retain 0%. The write ceiling is 90%; reads tolerate
+>   values through 100%. The hybrid creation gate fails closed for unknown
+>   families. On hybrids the AC-charge stop SOC is H67, not H161.
+> - **H161 (End)** is created for `EG4_OFFGRID`. The entity uses a 20% floor
+>   for off-grid or unresolved families and retains 0% for positively resolved
+>   non-off-grid families; the ceiling is 100%. Creation eligibility and the
+>   defensive write/read bounds are separate checks.
+> - **Routing for both registers:** off-grid, missing and UNKNOWN families
+>   take the cloud-only named-parameter route. A pure-LOCAL entry in those
+>   families receives an error instead of attempting a local write. Only a
+>   positively resolved non-off-grid family may use the local-first route.
+>   Local reads remain enabled.
 >
-> ⚠️ **Reg 161's meaning and writability on off-grid firmware are UNRESOLVED — and
-> the local write path is LIVE IN PRODUCTION.** There is no gate on it.
-> `ACChargeEndBatterySOCNumber` (`number.py:1436`, created for `EG4_OFFGRID` at
-> `:660`) passes `local_param=PARAM_HOLD_AC_CHARGE_END_BATTERY_SOC` to
-> `_write_parameter` (`:1489`), which routes through
-> `async_write_with_cloud_fallback` (`utils.py:185`) — **local write first**, cloud
-> only as fallback. Documenting a safety gate that does not exist is worse than the
-> risk it conceals, because a reader stops looking.
+> **Evidence is scoped to the claim and family.** The
+> [register keeper](../llmwiki/40-hardware/registers.md) owns the grades and
+> primary artifacts. H160's raw 1-90 bounds and H161's raw 20-100 bounds,
+> H161 >= H160 check, and charge-state-machine use are `firmware-proven`
+> on the decoded CEAA/CCAA off-grid images. This does not prove a live
+> off-grid local write. H160's named cloud write/storage/restoration is
+> `hardware-toggle-proven` only on the tested FlexBOSS21 and 18kPV units
+> (component firmware unrecorded); other-family mapping remains
+> `portal-correlated`. H161's broader mapping is `portal-correlated`, with
+> inert write behavior on the tested grid-tied hybrids and live off-grid
+> local writability unresolved.
 >
-> The only mitigation in the path is a post-write readback, and **a readback proves
-> storage and transport only, never semantic**. A wrong-but-writable register is
-> firmware-ACKed and reads back exactly the value written, so it cannot distinguish
-> "the control worked" from "a different setting was silently changed".
->
-> This is an **un-discharged risk that ships today**, recorded so it is visible —
-> not a gate, not reviewed-and-approved, and not safe. Nothing here recommends or
-> blesses the local write. Discharging it requires all of: a family-specific named
-> vendor action or UI control, an independent observation of the resulting
-> behavior, a raw integer before/after register pair, and restoration of the
-> original value. Until that record exists, do not present reg 161 as a validated
-> off-grid control. Tracked as
-> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558); the
-> meaning question is contradiction **C7**, which stays **OPEN**. Changing the
-> write routing is a code decision and is deliberately not made here.
+> The [routing owner](../llmwiki/10-integration/controls-and-writes.md)
+> documents the gate shipped by PR #600. Readback proves storage and
+> transport, not semantics; it cannot detect a wrong-but-writable target.
+> [#558](https://github.com/joyfulhouse/eg4_web_monitor/issues/558) and the
+> keeper's C6/C7 links retain the unresolved hardware scope. These
+> documentation corrections neither promote evidence grades nor authorize
+> a local off-grid write.
 
 ### Extended Function Enable (Register 179)
 

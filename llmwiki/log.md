@@ -1411,3 +1411,28 @@ The cited source and lifecycle regression definitions exist at that pin; its
 production and test trees equal the independently reviewed combined candidate
 `84b39c4`. Only these sections receive the new pin and verification date; other
 scoped claims retain their pins. Prior log content is unchanged.
+
+
+## [2026-10-20] lint | Correct stale SOC routing and peak-shaving provenance (#606, #609)
+
+Rechecked `number.py` at integration `98ae596` against the register keeper's
+H160/H161 family rows and the routing owner's fail-closed policy. Corrected
+`docs/DATA_MAPPING.md`: family floors and cloud-only off-grid/unresolved
+writes already shipped in PR #600; the old ungated-local-write warning was
+false. Firmware proof remains limited to decoded CEAA/CCAA images, and live
+cloud toggle evidence remains limited to the tested hybrid units.
+
+Rechecked pylxpweb `80e8221` H208/H219 holding definitions cited by
+[`40-hardware/registers.md`](40-hardware/registers.md). Corrected only the
+stale `const/limits.py` provenance comment: the library carries the same
+40.0-64.0 V maintainer guard since b8. Numeric limits, routing, keeper
+ownership and evidence grades are unchanged; no new hardware evidence exists.
+
+
+## [2026-10-20] ingest | Deliberate LOCAL startup measurement placeholders (#653)
+
+Rechecked the static first refresh and documented the observable initial `unknown`
+in the data-flow owner and troubleshooting guide. Entity setup must remain
+independent of a stalled read; the real-HA regression covers first refresh,
+platform forwarding, eventual measurements and a never-completing read. The
+separate HYBRID transport-only discovery delay remains explicitly unresolved.
