@@ -350,7 +350,7 @@ class TestBlankLostBatteryMeasurements:
 
 
 class TestParallelGroupLostMember:
-    """Group aggregates blank when any member is cloud-lost (#479 r2)."""
+    """Frozen members cannot contaminate live group measurements (#479/#619)."""
 
     async def test_lost_member_blanks_group_aggregates(
         self, hass, mock_config_entry
@@ -396,6 +396,71 @@ class TestParallelGroupLostMember:
 
         result = await coordinator._process_parallel_group_object(group)
         assert result["sensors"]["pv_total_power"] == 2700
+
+    async def test_partial_outage_preserves_live_power_not_partial_counters(
+        self, hass, mock_config_entry
+    ) -> None:
+        from unittest.mock import MagicMock
+        from pylxpweb.devices import ParallelGroup
+        from pylxpweb.models import EnergyInfo
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+        live = _make_cloud_inverter(lost=False)
+        lost = _make_cloud_inverter(lost=True)
+        group = ParallelGroup(MagicMock(), MagicMock(), "A", live.serial_number)
+        group.inverters = [live, lost]
+        group._energy = EnergyInfo(
+            success=True,
+            todayYielding=123,
+            totalYielding=4567,
+            **{
+                period + field: 0
+                for period in ("today", "total")
+                for field in ("Charging", "Discharging", "Import", "Export", "Usage")
+            },
+        )
+
+        result = await coordinator._process_parallel_group_object(group)
+
+        assert result["sensors"]["pv_total_power"] == live.pv_total_power
+        assert (
+            result["sensors"]["grid_power"] == live.power_to_user - live.power_to_grid
+        )
+        assert result["sensors"]["yield"] is None
+        assert result["sensors"]["yield_lifetime"] is None
+        assert result["sensors"]["consumption_lifetime"] is None
+        assert result["member_count"] == 2
+        assert result["available_member_count"] == 1
+        assert result["has_lost_member"] is True
+        assert group.inverters == [live, lost]
+
+        lost._runtime = _cloud_runtime(lost=False)
+        recovered = await coordinator._process_parallel_group_object(group)
+        assert recovered["available_member_count"] == 2
+        assert recovered["has_lost_member"] is False
+        assert recovered["sensors"]["pv_total_power"] == 2 * live.pv_total_power
+        assert recovered["sensors"]["yield"] == 12.3
+        assert recovered["sensors"]["yield_lifetime"] == 456.7
+
+    async def test_member_without_initial_runtime_does_not_blank_live_power(
+        self, hass, mock_config_entry
+    ) -> None:
+        from unittest.mock import MagicMock
+        from pylxpweb.devices import ParallelGroup
+
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+        live = _make_cloud_inverter(lost=False)
+        missing = _make_cloud_inverter(lost=True)
+        missing._runtime = None
+        group = ParallelGroup(MagicMock(), MagicMock(), "A", live.serial_number)
+        group.inverters = [live, missing]
+
+        result = await coordinator._process_parallel_group_object(group)
+        assert result["sensors"]["pv_total_power"] == live.pv_total_power
+        assert result["available_member_count"] == 1
+        assert result["sensors"]["consumption_lifetime"] is None
 
 
 class TestHybridCloudSupplementalLost:
@@ -568,6 +633,7 @@ class TestGroupResurrectionPaths:
         aggregation override must not write parallel_battery_current back
         over the blanked group sensors."""
         from unittest.mock import AsyncMock, MagicMock
+        from pylxpweb.devices import ParallelGroup
 
         mock_config_entry.add_to_hass(hass)
         coordinator = _make_coordinator(hass, mock_config_entry)
@@ -587,12 +653,9 @@ class TestGroupResurrectionPaths:
             battery_count=2, current=10.0, batteries=[]
         )
 
-        group = MagicMock()
-        group.name = "Group1"
-        group.first_device_serial = "5555555555"
+        group = ParallelGroup(MagicMock(), MagicMock(), "Group1", "5555555555")
         group.inverters = [lost, live]
         group.mid_device = None
-        group.transport_energy = None
         group._fetch_energy_data = AsyncMock()
 
         station = MagicMock()
@@ -613,8 +676,8 @@ class TestGroupResurrectionPaths:
         assert pg["has_lost_member"] is True
         # No partial sum resurrected over the blanked aggregates.
         assert pg["sensors"].get("parallel_battery_current") is None
-        assert pg["sensors"].get("pv_total_power") is None
-        assert pg["sensors"].get("parallel_battery_count") is None
+        assert pg["sensors"]["pv_total_power"] == live.pv_total_power
+        assert pg["sensors"]["parallel_battery_count"] == 2
 
 
 class TestLostCloudBankKeepsKeys:
