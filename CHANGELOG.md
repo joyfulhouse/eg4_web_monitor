@@ -7,15 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- GridBOSS parallel-group Consumption stays on its CT source when either daily or lifetime CT data is incomplete, MID processing fails, or MID discovery temporarily disappears (#661). The affected reading becomes unknown until both CT components return; inverter balances and partial CT sums are no longer substituted. The group source persists across restart; an unclassified legacy group in a known GridBOSS entry stays unknown until association returns. Confirmed inverter-only groups retain their source, and deliberate GridBOSS removal/reload permits re-evaluation. Existing LOCAL device-error availability is unchanged.
-
-- Remember known GridBOSS topology before publishing inverter Consumption statistics after restart (#664), including delayed cloud discovery. The existing device registry retains this knowledge. To restore statistics after permanently removing a GridBOSS, delete its device using Home Assistant's guarded removal flow, then reload the entry; removing it from a LOCAL configuration also clears the topology during setup. Actual inverter-only entries retain their statistics.
-- Create previously registered HYBRID inverter and battery-bank measurement sensors during setup while their local readings are pending (#653). Current ownership, transport configuration and feature filters remain authoritative; no gateway read is added to setup.
-- Physical LOCAL daily energy sensors clear yesterday's dip-guard baseline when a newly accepted transport snapshot belongs to a later Home Assistant local day (#666). Cached reads and availability changes cannot redate samples; lifetime behavior is unchanged. An undated restored daily baseline does not pin the first trusted LOCAL reading. Cloud, parallel-group and independent-battery provenance remain tracked in #666 / pylxpweb #383.
-
 ### Added
+
+- Add optional read-only direct battery bridge entries with explicit unit IDs, independent device identities, cell measurements, and endpoint ownership protection (#176, #574). Master aggregate/reconstructed fields without a reliable per-pack interpretation remain unknown; automatic inverter-battery joining and unsupported protocol fields remain open.
 
 - Offer an in-place hybrid conversion when new cloud/local setup matches physical devices in an existing complementary entry, preserving entities and options and rejecting ambiguous or partial matches (#615).
 
@@ -27,13 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-
 - Pinned pylxpweb to 0.10.0b12, which logs a handled dongle response timeout at DEBUG instead of ERROR.
-
 
 ### Fixed
 
+- GridBOSS parallel-group Consumption stays on its CT source when either daily or lifetime CT data is incomplete, MID processing fails, or MID discovery temporarily disappears (#661). The affected reading becomes unknown until both CT components return; inverter balances and partial CT sums are no longer substituted. The group source persists across restart; an unclassified legacy group in a known GridBOSS entry stays unknown until association returns. Confirmed inverter-only groups retain their source, and deliberate GridBOSS removal/reload permits re-evaluation. Existing LOCAL device-error availability is unchanged.
+
+- Remember known GridBOSS topology before publishing inverter Consumption statistics after restart (#664), including delayed cloud discovery. The existing device registry retains this knowledge. To restore statistics after permanently removing a GridBOSS, delete its device using Home Assistant's guarded removal flow, then reload the entry; removing it from a LOCAL configuration also clears the topology during setup. Actual inverter-only entries retain their statistics.
+- Create previously registered HYBRID inverter and battery-bank measurement sensors during setup while their local readings are pending (#653). Current ownership, transport configuration and feature filters remain authoritative; no gateway read is added to setup.
+- Physical LOCAL daily energy sensors clear yesterday's dip-guard baseline when a newly accepted transport snapshot belongs to a later Home Assistant local day (#666). Cached reads and availability changes cannot redate samples; lifetime behavior is unchanged. An undated restored daily baseline does not pin the first trusted LOCAL reading. Cloud, parallel-group and independent-battery provenance remain tracked in #666 / pylxpweb #383.
+
 - Report known cloud control-write failures as Home Assistant errors with the action and original cause, including after local fallback. Failed SOC writes clear optimistic state without seeding the rejected value (#668). The reported LXP firmware rejection and intended AC versus System charge control remain under investigation.
+
+- Expose supported 18kPV cloud Smart Load Power (#625) and allow the portal-supported zero-watt start-discharge threshold on positively identified LXP models (#628).
+
+- Keep live parallel-group runtime measurements during a member outage and expose current/total membership attributes (#619). Cumulative energy remains unknown for incomplete membership unless complete independent GridBOSS CT readings supply consumption.
 
 ## [3.5.1-beta.19] - 2026-10-14
 
