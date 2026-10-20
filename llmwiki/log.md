@@ -1420,3 +1420,14 @@ guidance. Identity is explicit entry/unit address; bank aggregate master
 fields and incomplete/unreconstructed master SOC remain unknown. Later #574
 reporter evidence resolves its earlier passive-capture gate only for the
 observed Z02T11 dedicated bus. Broader #176 acceptance remains open.
+
+## [2026-10-20] ingest | Direct battery independent-review corrections
+
+Commit `7bbb0b2` supersedes the initial master reconstruction gate: all master
+SOC/remaining capacity is withheld because the real released decoder can add
+655.36 Ah at low SOC, even with complete topology. Upstream issue
+https://github.com/joyfulhouse/pylxpweb/issues/384 records the reproducer.
+Config-flow and identity owners also record complete-poll shutdown draining,
+atomic effective polling options, changed-endpoint validation, and explicit
+address-removal policy. Regression tests and independent review cover these
+software paths; no new hardware validation is claimed.

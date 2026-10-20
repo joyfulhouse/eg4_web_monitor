@@ -30,7 +30,7 @@ verified-against:
 # PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.
 # Scope: section 6 bounded initial-parameter wait claims, re-verified 2026-10-13.
 # This immutable inline pin licenses only those claims; unrelated claims retain
-# their existing verification pins; prior # Direct battery sections verified against 6e5115c on 2026-10-20.
+# their existing verification pins; prior # Direct battery sections verified against 7bbb0b2 on 2026-10-20.
 last-verified: 2026-08-12.
 # The refreshed date applies only to the scope above (no wholesale reverification).
 last-verified: 2026-10-13
@@ -464,7 +464,7 @@ All rows: `verified-against-code`.
 
 ## Direct battery devices
 
-At `6e5115c`, `BatteryBusSensor` derives directly from `CoordinatorEntity` and
+At `7bbb0b2`, `BatteryBusSensor` derives directly from `CoordinatorEntity` and
 `SensorEntity`. Its unique ID is
 `battery_bus_{entry.entry_id}_unit_{unit}_{key}`; device identity uses the same
 entry/unit prefix. This is an explicit address identity, not a claimed BMS
@@ -473,3 +473,8 @@ from a poll makes that unit's sensors unavailable; a responding unit whose
 field is absent remains available with an unknown value. Individual cell and
 temperature-channel entities are disabled by default. Grade:
 `verified-against-code` (`battery_bus.py`, `tests/test_battery_bus.py`).
+
+At `7bbb0b2`, the device-removal hook refuses removal of a configured unit
+even when it is missing from a poll. Explicit removal from the configured unit
+list allows cleanup of that former address. Grade: `verified-against-code`
+(`device_removal.py`, `tests/test_battery_bus.py`).

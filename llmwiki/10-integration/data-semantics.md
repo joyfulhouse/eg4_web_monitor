@@ -60,7 +60,7 @@ verified-against:
   eg4_web_monitor: d8e2027
   pylxpweb: 204b95d
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
-# Direct battery sections verified against 6e5115c on 2026-10-20.
+# Direct battery sections verified against 7bbb0b2 on 2026-10-20.
 last-verified: 2026-10-14
 see-also:
   - ../40-hardware/registers.md
@@ -817,7 +817,7 @@ Before shipping a change in this area, confirm each line:
 
 ## Direct battery projection
 
-At `6e5115c`, `battery_bus.py` -> `project_battery` accepts only the library's
+At `7bbb0b2`, `battery_bus.py` -> `project_battery` accepts only the library's
 `eg4_master` and `eg4_slave` detected protocols. Unknown protocols publish no
 measurements. Master current, temperature and cycle count stay unknown because
 the decoded fields have bank aggregate/maximum semantics. Master SOC and remaining capacity are also withheld: independent review

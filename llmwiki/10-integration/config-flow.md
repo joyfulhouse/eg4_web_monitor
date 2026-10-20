@@ -19,7 +19,7 @@ sources:
   - eg4_web_monitor issue #275
   - eg4_web_monitor issue #574
 verified-against: c411499
-# Direct battery sections verified against 6e5115c on 2026-10-20.
+# Direct battery sections verified against 7bbb0b2 on 2026-10-20.
 last-verified: 2026-09-04
 see-also:
   - architecture.md
@@ -316,13 +316,16 @@ All rows: `verified-against-code`.
 
 ## Dedicated direct battery bridge
 
-At `6e5115c`, `async_step_battery_bridge` delegates to `_config_flow/battery.py`.
+At `7bbb0b2`, `async_step_battery_bridge` delegates to `_config_flow/battery.py`.
 It requires explicit unit IDs and confirmation of a dedicated bus, probes only
 `BatteryModbusTransport`, and reserves the physical endpoint against inverter
 discovery/polling. The entry uses `connection_type=battery_bus`; reconfigure
 updates its host/port/units, and options expose only the battery polling interval.
 Setup forwards only the sensor platform. Probe and coordinator teardown release
-endpoint ownership only after disconnect completes, including cancellation.
+endpoint ownership only after the complete active multi-unit poll and disconnect
+finish, including cancellation. Reconfigure probes a changed endpoint before
+mutating the entry, skips probing its currently owned endpoint, and updates
+both stored and effective polling options atomically.
 Grade: `verified-against-code` (`_config_flow/battery.py`, `battery_bus.py`,
 `endpoint_bus.py`, `tests/test_battery_bus.py`).
 
