@@ -2,7 +2,7 @@
 
 import logging
 import re
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
@@ -890,7 +890,7 @@ class EG4InverterSensor(EG4BaseSensor, SensorEntity):
         await super().async_added_to_hass()
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
+    def extra_state_attributes(self) -> Mapping[str, Any] | None:
         """Identify runtime readings that describe only responding group members."""
         if self._device_type != "parallel_group":
             return super().extra_state_attributes
