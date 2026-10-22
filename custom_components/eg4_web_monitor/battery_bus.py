@@ -261,6 +261,7 @@ def _descriptions() -> list[SensorEntityDescription]:
             native_unit_of_measurement=unit,
             device_class=device_class,
             state_class=SensorStateClass.MEASUREMENT,
+            suggested_display_precision=3 if key.endswith("_voltage") else None,
             entity_registry_enabled_default=not key.startswith(
                 ("cell_", "temperature_")
             ),
