@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.components.sensor import async_rounded_state
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.exceptions import ConfigEntryNotReady
@@ -196,6 +197,104 @@ async def test_sensor_identity_survives_missing_serial_and_unit_outage(hass):
         )
     finally:
         await coordinator.async_shutdown()
+
+
+@pytest.mark.parametrize("protocol", ["eg4_master", "eg4_slave"])
+async def test_cell_voltage_precision_preserves_native_measurements(hass, protocol):
+    config_entry = entry(hass)
+    bus = mock_bus()
+    bus._detected_protocols[2] = SimpleNamespace(name=protocol)
+    bus.read_all.return_value = [
+        battery(
+            2,
+            cell_voltages=[3.286] * 16,
+            min_cell_voltage=3.281,
+            max_cell_voltage=3.289,
+        )
+    ]
+    with patch(
+        "custom_components.eg4_web_monitor.battery_bus.BatteryModbusTransport",
+        return_value=bus,
+    ):
+        coordinator = BatteryBusCoordinator(hass, config_entry)
+    try:
+        await coordinator.async_refresh()
+        for description in _descriptions():
+            sensor = BatteryBusSensor(coordinator, 2, description)
+            if description.key.startswith("cell_"):
+                assert sensor.suggested_display_precision == 3
+                assert sensor.native_value == 3.286
+                assert not description.entity_registry_enabled_default
+            elif description.key in ("min_cell_voltage", "max_cell_voltage"):
+                assert sensor.suggested_display_precision == 3
+                assert sensor.native_value == (
+                    3.281 if description.key == "min_cell_voltage" else 3.289
+                )
+            else:
+                assert sensor.suggested_display_precision is None
+        assert coordinator.data[2]["voltage"] == 52.56
+    finally:
+        await coordinator.async_shutdown()
+
+
+async def test_cell_precision_reaches_ha_registry(hass, entity_registry):
+    config_entry = entry(hass)
+    existing = entity_registry.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"battery_bus_{config_entry.entry_id}_unit_2_cell_1_voltage",
+        config_entry=config_entry,
+        disabled_by=None,
+    )
+    entity_registry.async_update_entity_options(
+        existing.entity_id, "sensor", {"suggested_display_precision": 0}
+    )
+    bus = mock_bus()
+    bus.read_all.return_value = [
+        battery(
+            2,
+            cell_voltages=[3.286] * 16,
+            min_cell_voltage=3.281,
+            max_cell_voltage=3.289,
+        )
+    ]
+    with patch(
+        "custom_components.eg4_web_monitor.battery_bus.BatteryModbusTransport",
+        return_value=bus,
+    ):
+        assert await hass.config_entries.async_setup(config_entry.entry_id)
+        await hass.async_block_till_done()
+        for key, value in (
+            ("cell_1_voltage", "3.286"),
+            ("min_cell_voltage", "3.281"),
+            ("max_cell_voltage", "3.289"),
+        ):
+            entity_id = entity_registry.async_get_entity_id(
+                "sensor", DOMAIN, f"battery_bus_{config_entry.entry_id}_unit_2_{key}"
+            )
+            assert hass.states.get(entity_id).state == value
+            assert (
+                async_rounded_state(hass, entity_id, hass.states.get(entity_id))
+                == value
+            )
+            registered = entity_registry.async_get(entity_id)
+            assert registered.options["sensor"]["suggested_display_precision"] == 3
+            entity_registry.async_update_entity_options(
+                entity_id,
+                "sensor",
+                {**registered.options["sensor"], "display_precision": 1},
+            )
+            await hass.async_block_till_done()
+            assert entity_registry.async_get(entity_id).options["sensor"] == {
+                "suggested_display_precision": 3,
+                "display_precision": 1,
+            }
+            assert hass.states.get(entity_id).state == value
+            assert (
+                async_rounded_state(hass, entity_id, hass.states.get(entity_id))
+                == "3.3"
+            )
+        assert await hass.config_entries.async_unload(config_entry.entry_id)
 
 
 async def test_onboarding_uses_battery_protocol_and_closes_probe(hass):
