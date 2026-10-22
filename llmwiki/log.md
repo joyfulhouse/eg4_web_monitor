@@ -1700,3 +1700,24 @@ Moved release versions, upstream state and acceptance tracking to
 [the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
 backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
 catalog entry. This corrects the location described in the earlier ingest entry.
+
+## [2026-10-22] ingest | Battery cell precision and remaining #574/#176/#384 acceptance
+
+Read the issue bodies, comments and original attachments, including the October 21
+#574 clarification that the battery card retained cell decimals. Updated
+[the direct battery semantics owner](10-integration/data-semantics.md#direct-battery-projection)
+with the HA presentation fix and regression evidence; native voltage scaling stays
+unchanged. The tests exercise existing registry precision, all cell channels,
+minimum/maximum values and a user display override. These are software checks,
+not new hardware validation. Recorded the balance-field contract gap and the
+separate serial/CAN join requirement without promoting attachment table labels
+into proven semantics or requesting another dedicated-bus capture.
+
+As of this entry, published [pylxpweb b13](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b13)
+and [integration beta.20](https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.5.1-beta.20)
+meet #384's publication/dependency-update prerequisites. The integration still withholds
+master SOC/remaining capacity pending deliberate complete-physical-inventory
+opt-in and consumer validation; responding configured units do not prove that
+inventory. Other master aggregate fields need separate per-pack evidence.
+#574/#176/#384 remain open for unresolved acceptance. No release or hardware
+write was performed in this maintenance change.

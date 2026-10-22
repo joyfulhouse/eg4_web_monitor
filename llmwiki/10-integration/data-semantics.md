@@ -1,6 +1,7 @@
 ---
 canonical-for:
   - staleness, carry-forward and eviction rules
+  - direct battery projection, cell-voltage presentation and consumer acceptance boundaries
   - capability gating by inverter_family (never by model-name substring)
   - INVERTER_FAMILY_UNKNOWN as a truthy string
   - energy monotonicity, consumption vs load, the total_increasing clamp ban
@@ -11,6 +12,13 @@ canonical-for:
 sources:
   - custom_components/eg4_web_monitor/battery_bus.py
   - tests/test_battery_bus.py
+  - pylxpweb src/pylxpweb/transports/battery_modbus.py
+  - pylxpweb src/pylxpweb/battery_protocols/eg4_master.py
+  - pylxpweb src/pylxpweb/battery_protocols/eg4_slave.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/574
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/176
+  - https://github.com/joyfulhouse/pylxpweb/issues/384
+  - https://github.com/joyfulhouse/pylxpweb/pull/386
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/sensor.py
   - custom_components/eg4_web_monitor/const/device_types.py
@@ -59,14 +67,17 @@ verified-against:
   # and QuickChargeDuration family gates) are licensed PER CLAIM by their
   # inline PR #600 / issue #570 citations — the pin itself stays
   # commit-only per _conventions.md. Re-pinned at the 2026-08-30 release
-  # cut (#559 precedent): PR #600 merged as d8e2027; the whole page now
-  # verifies at the mainline pin below.
-  eg4_web_monitor: d8e2027
-  pylxpweb: 204b95d
+  # cut (#559 precedent): PR #600 merged as d8e2027; that historical
+  # whole-page pin remains the baseline for sections not re-verified below.
+  # Direct battery projection only is re-verified at these pins. Other sections
+  # retain previous page pins (eg4_web_monitor d8e2027, pylxpweb 204b95d)
+  # and their explicitly scoped inline pins.
+  eg4_web_monitor: 7d697a4d4c66ef151588faa12c999a25be50c22e
+  pylxpweb: bce390936f2068000b7a53e2e981e9399139753f
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
-# Direct battery sections verified against 7bbb0b2 on 2026-10-20.
+# Direct battery projection re-verified against 7d697a4d4c66ef151588faa12c999a25be50c22e on 2026-10-22.
 # Partial-group runtime behavior re-verified at e5fa860 on 2026-10-20.
-last-verified: 2026-10-20
+last-verified: 2026-10-22
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -926,23 +937,75 @@ Before shipping a change in this area, confirm each line:
 
 ## Direct battery projection
 
-At `7bbb0b2`, `battery_bus.py` -> `project_battery` accepts only the library's
-`eg4_master` and `eg4_slave` detected protocols. Unknown protocols publish no
-measurements. Master current, temperature and cycle count stay unknown because
-the decoded fields have bank aggregate/maximum semantics. Master SOC and remaining capacity are also withheld: independent review
-reproduced an incorrect uint16 capacity overflow choice at low SOC in the
-released decoder even with complete configured-unit response. The real decoder
-regression uses three 280 Ah packs at 10%, master registers 21=10, 26=8400,
-27=18464, 33=5600 and slave remaining capacities of 28 Ah each. No integration
-heuristic claims to repair that ambiguity. Missing units are removed from each
-coordinator snapshot without carrying forward old measurements. A zero cell
-voltage is missing, while zero current and zero Celsius remain real values.
-Grade: `verified-against-code` (`battery_bus.py`, `tests/test_battery_bus.py`,
-including a real master-decoder early-return regression).
+At `7d697a4d4c66ef151588faa12c999a25be50c22e`, with the released pylxpweb `v0.10.0b13`
+(`bce390936f2068000b7a53e2e981e9399139753f`), `battery_bus.py` ->
+`project_battery` accepts only `eg4_master` and `eg4_slave` detected protocols.
+Unknown protocols publish no measurements. Missing units leave each coordinator
+snapshot without carrying forward old measurements. Zero cell voltage is missing;
+zero current and zero Celsius remain real values. Grade: `verified-against-code`
+(`battery_bus.py` -> `project_battery`, `tests/test_battery_bus.py`).
 
-The direct path does not overlay inverter/cloud battery measurements or
-publish a duplicate bank-current sum. Its detected-protocol cache access is
-a pinned private library seam and fails closed if absent. Cell-balance bits
-are not present in the pinned `BatteryData` contract and are not synthesized.
-These are implementation boundaries; #176 remains open for its broader
-acceptance criteria.
+### Cell-voltage presentation
+
+`BatteryBusSensor` descriptions suggest three decimal places for the 16 cell
+voltages and minimum/maximum cell voltage. This is HA presentation metadata: the
+native numeric values and state strings retain their existing voltage scaling.
+The HA registry/rendering regression exercises `3.286 V`, the extremum sensors,
+and an explicit one-decimal user override without changing the state value.
+Optional cell channels remain disabled by default. Grade: `verified-against-code`
+(`battery_bus.py` -> `_descriptions`, `tests/test_battery_bus.py` ->
+`test_cell_voltage_precision_preserves_native_measurements`,
+`test_cell_precision_reaches_ha_registry`).
+
+The #574 screenshot showed whole-volt cell values, then the reporter confirmed
+on October 21 that the battery card showed the full decimals. This supports a
+presentation diagnosis, not decoder rescaling. Grade: `asserted-unverified`
+([screenshot report](https://github.com/joyfulhouse/eg4_web_monitor/issues/574#issuecomment-6318602302),
+[reporter clarification](https://github.com/joyfulhouse/eg4_web_monitor/issues/574#issuecomment-6329045542)).
+Automated HA tests verify metadata and state behavior, not a new hardware capture
+or a confirmation that the reporter has installed this presentation change.
+
+### Master values and remaining acceptance
+
+`project_battery` keeps master current, temperature and cycle count unknown
+rather than relabeling the decoder's bank sum/maximum fields as per-pack readings.
+It also deliberately
+withholds master per-pack SOC and remaining capacity. The original low-SOC
+uint16-unwrapping failure (#384) is corrected in the released b13 dependency by
+#386, but `BatteryBusCoordinator` does not attest `topology_complete=True`.
+The library default remains false; even all configured/remembered units replying
+cannot establish that the configured list covers the physical bank. Grade:
+`verified-against-code` (`battery_bus.py` -> `BatteryBusCoordinator`,
+`project_battery`; pylxpweb `transports/battery_modbus.py` ->
+`BatteryModbusTransport.__init__`, `read_all`; `battery_protocols/eg4_master.py`
+-> `EG4MasterProtocol.decode_with_slaves`).
+
+Consumer re-enablement requires deliberate complete-physical-inventory opt-in
+and validation of complete, partial, missing-unit and ambiguous reconstruction
+behavior. Current/temperature/cycle fields require their own per-pack evidence;
+SOC reconstruction does not establish those measurements. These acceptance
+requirements are recorded in [#384](https://github.com/joyfulhouse/pylxpweb/issues/384)
+and [#176](https://github.com/joyfulhouse/eg4_web_monitor/issues/176).
+
+The direct path neither overlays inverter/cloud battery measurements nor
+publishes a duplicate bank-current sum. Address-based identity is owned by
+[entities-identity-availability.md](entities-identity-availability.md#direct-battery-devices);
+a trustworthy serial/CAN/cloud join and automatic source replacement/fallback
+remain unresolved under #176. A firmware string is not serial identity. The
+#574 dedicated-bus passive-listen and stable-address reports already exist;
+this presentation finding does not require another capture of that bus.
+Grade: `asserted-unverified` for the scoped reporter observations
+([bus and address evidence](https://github.com/joyfulhouse/eg4_web_monitor/issues/574#issuecomment-5293341188));
+`verified-against-code` for the separate direct projection (`battery_bus.py`).
+
+Cell-balance status is not in the pinned `BatteryData` contract and is not
+synthesized. The slave protocol declares `balance_bitmap` register metadata,
+but its `decode` does not project it into a public field. The #176 LL-S register
+map attachment names a balance field; that table alone does not establish a
+validated public decoder contract or cross-family bit semantics. Grade:
+`verified-against-code` for the contract limitation (pylxpweb
+`transports/data.py` -> `BatteryData`, `battery_protocols/eg4_slave.py` ->
+`EG4SlaveProtocol.decode`); `asserted-unverified` for the table's semantics
+([LL-S attachments](https://github.com/joyfulhouse/eg4_web_monitor/issues/176#issuecomment-5300630760)).
+The detected-protocol cache remains a pinned private library seam and fails
+closed if absent.
