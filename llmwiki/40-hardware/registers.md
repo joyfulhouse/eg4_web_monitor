@@ -1,6 +1,7 @@
 ---
 canonical-for: inverter-and-gridboss-register-ground-truth
 sources:
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/668
   - docs/DATA_MAPPING.md
   - "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
   - "pylxpweb PR #322 / c78ab7e (0.10.0b7): H105 canonical ceiling 100"
@@ -76,7 +77,8 @@ verified-against:
   eg4_web_monitor: 1d09823
   pylxpweb: f3ced1a
 # H116 portal zero-bound evidence refreshed 2026-10-20 against issue #628.
-last-verified: 2026-09-04
+# Issue #668 subsection rechecked at cb7b6c8 on 2026-10-22; other claims retain their pins.
+last-verified: 2026-10-22
 ---
 
 # Register ground truth
@@ -460,3 +462,33 @@ These historic claims are excluded from the 348-current-claim denominator. `refu
 The canonical vocabulary and ladder live in the [llmwiki README](../README.md#evidence-grade-legend). For this ledger, implementation tables and `DATA_MAPPING.md` cannot by themselves establish a hardware semantic. Passing tests establish software consistency only; they never promote a register mapping to `hardware-toggle-proven`.
 
 Detailed derivations remain in [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md), [`OFFGRID_GENERATOR_REGISTERS.md`](../../docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md), [`OFFGRID_EPS_REGISTERS.md`](../../docs/reference/firmware/OFFGRID_EPS_REGISTERS.md), and [`HYBRID_EPS_REGISTERS.md`](../../docs/reference/firmware/HYBRID_EPS_REGISTERS.md), subject to this page’s precedence and grades.
+
+## LXP-LB-EU 12K AC charge evidence (#668)
+
+Scope: the [original report](https://github.com/joyfulhouse/eg4_web_monitor/issues/668),
+including its October 14 log and diagnostics, October 20 screenshots, and
+[October 21 reporter clarification](https://github.com/joyfulhouse/eg4_web_monitor/issues/668#issuecomment-6314749036).
+The attachments were inspected directly; no live writes were performed.
+
+| Observation or claim | Evidence and grade |
+|---|---|
+| Reported hardware is LXP-LB-EU 12K, firmware `FAAB-2525` / `fAAB-2525` | Issue diagnostics `devices` model/firmware fields; `asserted-unverified` for the physical hardware identity. The local configuration also spells the model `LXP-EU-12K`. |
+| H67=4 is rejected, rather than successfully stored and later changed by firmware | Original log at 16:37:29 and 16:37:39: FC06 exception 03, then cloud `REMOTE_SET_ERROR`; HA screenshots show optimistic 4 returning to 100. `asserted-unverified` for hardware rejection (no controlled raw before/after pair). |
+| Start SOC is 5; stop SOC is 100 in the diagnostic snapshot | Named parameters `HOLD_AC_CHARGE_START_BATTERY_SOC=5`, `HOLD_AC_CHARGE_SOC_LIMIT=100`; the October 21 app screenshot independently shows Start AC Charge SOC=5. `portal-correlated` for the displayed start value and named read, not a write proof. |
+| Stop must exceed start on the reporter's setup | October 21 reporter statement, after reporting rejection of values at or below 5. `asserted-unverified` for the firmware inequality. App screenshot shows AC Battery Charge Level=6 and separate AC Charge End Battery SOC=0; portal screenshot shows Stop AC Charge SOC=8. These are different captures, not a controlled write/restore sequence. |
+| H161 is not a second name for this H67 stop setting | Diagnostics carry `HOLD_AC_CHARGE_END_BATTERY_SOC=0` separately; the app displays a separate end-battery field. `portal-correlated` for the distinction; writable semantics on this LXP firmware remain unestablished. |
+| AC-couple and system SOC controls are separate | October 21 AC-coupling screenshot displays start=100, end=255 while its HA end entity is blank; diagnostics carry System Charge SOC Limit=101. `portal-correlated` for the displayed distinctions. Do not turn 255 into a writable percentage or discard the distinct 101 sentinel. |
+| Discharge-cutoff hints do not establish strict universal inequalities | October 20 screenshots say off-grid cutoff should be **less than or equal to** on-grid, and on-grid **greater than or equal to** off-grid. `portal-correlated` for the UI text, not firmware proof; reporter prose also contradicts itself across comments. |
+
+The software boundary is `verified-against-code` at integration `cb7b6c8`:
+`number.py` -> `async_setup_entry` creates `ACChargeStartBatterySOCNumber` (H160,
+`HOLD_AC_CHARGE_START_BATTERY_SOC`, stable suffix `ac_charge_start_battery_soc`)
+for EG4_OFFGRID and EG4_HYBRID, excluding LXP. It creates the H161 end entity only
+for off-grid. The H67 stop control already exists for LXP. Thus the missing LXP
+start control is an exposure/evidence gap, not a missing library parameter, and
+adding another end entity would not substitute for H67.
+
+The rejection's start/stop explanation remains reporter-scoped. Tests of routing,
+rollback or bounds cannot prove it. Evidence required before expanding control
+exposure or enforcing model-specific inequalities is owned by
+[open-questions.md](open-questions.md#lxp-ac-charge-acceptance-668).

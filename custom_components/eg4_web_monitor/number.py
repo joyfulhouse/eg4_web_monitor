@@ -11,6 +11,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from pylxpweb.exceptions import LuxpowerAPIError
 
 if TYPE_CHECKING:
     from homeassistant.components.number import (
@@ -1906,21 +1907,32 @@ class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
             label="AC charge SOC limit",
             require_integer=True,
         )
-        await self._write_parameter(
-            value,
-            local_param=PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
-            cloud_method="set_ac_charge_soc_limit",
-            cloud_kwargs={"soc_percent": int_value},
-            label=f"AC charge SOC limit to {int_value}%",
-            # #570 r5: this entity is fail-open CREATED on unresolved
-            # families (a first-run 12000XP reaches it before family
-            # resolution, and reg 67 is family-rejected there, #331) — the
-            # WRITE fails closed so that window cannot produce an
-            # unverified local write.
-            local_write_blocked_reason=self._offgrid_cloud_only_reason(
-                67, "AC charge SOC limit"
-            ),
-        )
+        try:
+            await self._write_parameter(
+                value,
+                local_param=PARAM_HOLD_AC_CHARGE_SOC_LIMIT,
+                cloud_method="set_ac_charge_soc_limit",
+                cloud_kwargs={"soc_percent": int_value},
+                label=f"AC charge SOC limit to {int_value}%",
+                # #570 r5: this entity is fail-open CREATED on unresolved
+                # families (a first-run 12000XP reaches it before family
+                # resolution, and reg 67 is family-rejected there, #331) — the
+                # WRITE fails closed so that window cannot produce an
+                # unverified local write.
+                local_write_blocked_reason=self._offgrid_cloud_only_reason(
+                    67, "AC charge SOC limit"
+                ),
+            )
+        except HomeAssistantError as err:
+            cause = err.__cause__
+            if isinstance(cause, LuxpowerAPIError) and "REMOTE_SET_ERROR" in str(cause):
+                raise HomeAssistantError(
+                    f"{err}. Check the AC charge start SOC and stop SOC settings "
+                    "in the vendor app for this model and firmware. AC Charge SOC "
+                    "Limit is the stop setting; AC Couple SOC and System Charge "
+                    "SOC Limit are separate controls."
+                ) from cause
+            raise
 
 
 class ACChargeStartBatterySOCNumber(EG4BaseNumberEntity):

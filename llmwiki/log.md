@@ -1700,3 +1700,14 @@ Moved release versions, upstream state and acceptance tracking to
 [the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
 backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
 catalog entry. This corrects the location described in the earlier ingest entry.
+
+## [2026-10-22] ingest | #668 LXP AC-charge start/stop evidence
+
+Read the original log, diagnostics, all comments and screenshots, including the
+October 21 clarification. Updated the register keeper with the exact model and
+firmware, rejected H67=4 with start SOC=5, distinct H161/AC-couple/H227 values,
+and the difference between reporter testimony and write proof. Recorded the
+missing LXP H160 exposure and remaining acceptance evidence in open-questions.
+Added rejection-specific vendor-app guidance to the control error owner; #673
+already owns error normalization/rollback. No hardware grade promotion, register
+rerouting, new writable control, sentinel coercion or universal inequality.
