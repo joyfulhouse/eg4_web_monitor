@@ -1691,3 +1691,12 @@ compared the three production connection/pacing/adapter modules in the 4.12.5
 and 4.12.6 wheels; byte equality is source evidence, not runtime validation.
 The upstream shim/lifecycle release triggers and host/shared-consumer acceptance
 remain open. No transport behavior or dependency pin changes.
+
+## [2026-10-22] lint | Transport audit ownership and claim scope
+
+Independent Astra review separated the constructor/API fact from unsupported
+integration-release testimony and corrected the inherited connect citation.
+Moved release versions, upstream state and acceptance tracking to
+[the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
+backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
+catalog entry. This corrects the location described in the earlier ingest entry.

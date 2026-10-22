@@ -19,7 +19,7 @@ last-verified: 2026-10-22
 
 Evidence grades follow the [canonical llmwiki legend](../README.md). Do not generalize one transport's wire behavior to another.
 
-## Current ownership and upstream maintenance snapshot
+## Backend and ownership contract at cc503f8
 
 This section was checked on 2026-10-22 against pylxpweb
 `cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b`. The historical transport
@@ -27,28 +27,12 @@ details below retain their original `204b95d` pin.
 
 | Boundary | Evidence | Grade |
 |---|---|---|
-| Modbus supports pymodbus and the optional modbus-connection backend. `auto` retains pymodbus except serialx-only URL schemes; an injected host unit selects modbus-connection and conflicts with explicit pymodbus. | `transports/_modbus_client.py` -> `resolve_backend`, `select_backend`; `transports/modbus.py` -> `ModbusTransport.__init__`, `connect` | `verified-against-code` |
+| Modbus supports pymodbus and the optional modbus-connection backend. `auto` retains pymodbus except serialx-only URL schemes; an injected host unit selects modbus-connection and conflicts with explicit pymodbus. | `transports/_modbus_client.py` -> `resolve_backend`, `select_backend`; `transports/modbus.py` -> `ModbusTransport.__init__` | `verified-against-code` |
 | Shared units on one connection serialize requests; separate connections to the same endpoint have independent schedules. This does not make a multi-request operation atomic across consumers. | `tests/unit/transports/test_modbus_connection_scheduling.py` -> `test_request_serialization_scope`; [#350](https://github.com/joyfulhouse/pylxpweb/issues/350#issuecomment-6294453560) records the tested dependency versions | `verified-against-code` |
-| Owned battery transport is available, but host-owned battery-unit injection remains proposed. The released read-only bridge does not itself establish a shared consumer. | `transports/battery_modbus.py` -> `BatteryModbusTransport.__init__`; [#363](https://github.com/joyfulhouse/pylxpweb/issues/363) | `verified-against-code` |
+| `BatteryModbusTransport.__init__` exposes an owned transport API and has no `unit_factory` argument. | `transports/battery_modbus.py` -> `BatteryModbusTransport.__init__`; [#363](https://github.com/joyfulhouse/pylxpweb/issues/363) | `verified-against-code` |
 
-The upstream audit found no released trigger for removing the aioresponses shim
-or the owned-link close-completion workaround. PyPI still reports aioresponses
-0.7.9 and tmodbus 0.6.2. The former's response builder omits `stream_writer`;
-the latter's released close paths initiate underlying close without awaiting
-completion. [aioresponses PR #288](https://github.com/pnuckowski/aioresponses/pull/288)
-and [tmodbus #153](https://github.com/wlcrs/tmodbus/issues/153) remain open.
-Grade: `asserted-unverified` for this dated external-source snapshot; the
-existing reproductions remain linked from library #189 and #345. No new runtime
-compatibility result is claimed.
-
-modbus-connection 4.12.6 is newly published since the previous audit. Extracted
-PyPI wheels for 4.12.5 and 4.12.6 have byte-identical `_client.py`, `_pacing.py`
-and `tmodbus/__init__.py`. The upstream change forwards mock-unit timing
-requirements ([commit 2d29ba2](https://github.com/home-assistant-libs/modbus-connection/commit/2d29ba2500f4edd8b7f89ee5d396a2b5ed7d6f25)).
-Grade: `asserted-unverified` for the dated wheel comparison, not a claim that
-4.12.6 passed this project's runtime suite. Keep #344 open for a future tmodbus
-0.7 compatibility check, #345 for a released completion contract, #350 for host
-coordination across independent connections, and #363 for a shared consumer.
+The dated upstream audit and issue acceptance snapshot is owned by
+[the October 22 maintenance record](../60-history/maintenance-2026-10-22.md).
 
 ## Historical transport comparison at 204b95d
 
