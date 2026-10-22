@@ -1700,3 +1700,17 @@ Moved release versions, upstream state and acceptance tracking to
 [the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
 backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
 catalog entry. This corrects the location described in the earlier ingest entry.
+
+## [2026-10-22] ingest | #666 released provenance consumer adoption
+
+Rechecked the full issue/comments against integration cb7b6c8 and released
+pylxpweb v0.10.0b13; comments describing b12 are historical. Updated only the
+[daily-energy subsection](10-integration/data-semantics.md#422-daily-baselines-follow-conservative-per-field-local-provenance-666)
+for the per-field adapter and its conservative acceptance boundary. Entirely
+LOCAL, same-HA-day lineage supplies its earliest acquisition; receipt-only,
+unknown, missing and mixed-day evidence cannot expire a guard. Numeric and
+lifetime handling remain unchanged. Real-library and HA lifecycle regressions
+provide software evidence; device reset timezone and cloud/battery/chart
+counter-day uncertainty remain on #666.
+
+Implementation verified at `c3c444392de0fb57baef1fa1be1762d6a97c06b7` on base `b95119b`; full-suite coverage, strict typing and tier gates passed.
