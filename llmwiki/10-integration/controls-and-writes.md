@@ -48,7 +48,7 @@ verified-against:
 # their existing verification pins; prior last-verified: 2026-09-02.
 # The refreshed date applies only to the scope above (no wholesale reverification).
 # Cloud error normalization below reverified at ad79479; other claims retain their pins.
-last-verified: 2026-10-20
+last-verified: 2026-10-22
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -645,3 +645,17 @@ Platform route signatures: `number.py` → `_number_route_signature`,
 | 8 | A seed may only be superseded when a read **observes a concrete value for that field** (`seed.at <= now AND observed[field] is not None`) — not merely because a read started. Otherwise a partial range-read returning `None` clears the seed and reverts a just-written state | `verified-against-code` — seed supersede logic, `coordinator.py:1273-1347` |
 | 9 | Only a **delta test** (write → readback → restore) demonstrates that a write path carries values at all. A no-op write proves format acceptance, not targeting. pylxpweb's cloud `write_parameters({reg: raw})` form-encoded a dict that aiohttp serialised as `data=<key>&data=<key>`, dropping every value while looking successful | Split by what the pin can actually show. The **fix is present**: the named cloud write applies the canonical `ScaleFactor` — `verified-against-code` at pylxpweb `204b95d`, `endpoints/control.py` → `write_parameters` (`:282`, scaling at `:420-431`). The **historical form-encoding defect is not verifiable from a tree in which it is fixed** — `asserted-unverified` (`memory/cloud-raw-register-write-broken.md`), as is "broken since inception". The delta test is `verified-against-code` for the **code path** only; what the write did **physically** stays `asserted-unverified`, because a readback confirms storage and transport |
 | 10 | **A DIV_10-scaled pylxpweb name must be written in engineering units on BOTH paths.** For `_12K_HOLD_GRID_PEAK_SHAVING_{POWER_2,VOLT,VOLT_2}` the transport's named read divides the raw register by 10 and its named write multiplies back (`LOCAL_PARAM_SCALE_DIV10`), so an entity that pre-scales (decivolts via `_write_voltage_register`, or `int(value)` from `_write_parameter`'s default) lands raw ×100 (52.0 V → 5200) or truncates (4.5 kW → 4). The cloud readback for these rows must compare as floats within half a step — the int-truncating comparison reads 4 for a 4.5 write and fails a write that landed | `verified-against-code` — pylxpweb `c78ab7e` `transports/protocol.py` read scaling and `write_named_parameters`; eg4 `PeakShavingNumber` + `_write_cloud_named_parameter` (`_FLOAT_READBACK_TOLERANCE`), [#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592) change set; tests `TestPeakShavingLocalWrites` / `TestPeakShavingCloudWrites` |
+
+### AC charge rejection guidance (#668)
+
+`number.py` -> `ACChargeSOCLimitNumber.async_set_native_value` adds a vendor-app
+start/stop-setting hint only when the router's `HomeAssistantError` has a
+`LuxpowerAPIError` cause containing `REMOTE_SET_ERROR`. It preserves that direct
+cause and the router's message, and runs after optimistic rollback. Connection
+failures retain their existing error. The tests in
+`tests/test_number_entities.py` -> `TestHybridCloudFallback` lock this software
+contract (`verified-against-code`, this change set; base `cb7b6c8`). This extends
+#673's error normalization without reimplementing it. No setting is automatically
+changed, and neither a start/stop inequality nor a new write route is introduced.
+Hardware interpretation and the missing LXP start exposure are owned by the
+[register keeper](../40-hardware/registers.md#lxp-lb-eu-12k-ac-charge-evidence-668).

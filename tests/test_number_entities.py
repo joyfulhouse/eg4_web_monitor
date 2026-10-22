@@ -1015,6 +1015,8 @@ class TestHybridCloudFallback:
         ) as caught:
             await entity.async_set_native_value(4)
 
+        assert "Check the AC charge start SOC and stop SOC" in str(caught.value)
+        assert "AC Charge SOC Limit is the stop setting" in str(caught.value)
         assert caught.value.__cause__ is rejection
         assert coordinator.write_named_parameter.await_count == int(has_local)
         inverter.set_ac_charge_soc_limit.assert_awaited_once_with(soc_percent=4)
@@ -1022,6 +1024,43 @@ class TestHybridCloudFallback:
         assert entity._optimistic_value is None
         assert entity.native_value == 100
         assert published_values == [4, 100]
+
+    @pytest.mark.asyncio
+    async def test_soc_connection_error_does_not_suggest_setting_rejection(self):
+        """Only an explicit vendor rejection gets the setting-specific hint."""
+        from pylxpweb.exceptions import LuxpowerConnectionError
+
+        coordinator = _mock_coordinator(has_local=False, has_http=True)
+        inverter = coordinator.get_inverter_object("1234567890")
+        failure = LuxpowerConnectionError("connection timed out")
+        inverter.set_ac_charge_soc_limit.side_effect = failure
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        with pytest.raises(HomeAssistantError) as caught:
+            await entity.async_set_native_value(4)
+
+        assert caught.value.__cause__ is failure
+        assert "Check the AC charge" not in str(caught.value)
+        coordinator.note_parameters_written.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("value", [4, 5, 101])
+    async def test_soc_start_snapshot_does_not_impose_unproven_bounds(self, value):
+        """Reporter evidence is not a universal inequality or sentinel rule."""
+        coordinator = _mock_coordinator(
+            has_local=False,
+            has_http=True,
+            parameters={"HOLD_AC_CHARGE_START_BATTERY_SOC": 5},
+        )
+        entity = ACChargeSOCLimitNumber(coordinator, "1234567890")
+        _prep(entity)
+
+        await entity.async_set_native_value(value)
+
+        coordinator.get_inverter_object(
+            "1234567890"
+        ).set_ac_charge_soc_limit.assert_awaited_once_with(soc_percent=value)
 
     @pytest.mark.asyncio
     async def test_write_parameter_local_failure_falls_back_to_cloud(self):
