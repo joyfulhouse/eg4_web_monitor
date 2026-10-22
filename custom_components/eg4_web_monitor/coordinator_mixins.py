@@ -57,6 +57,7 @@ from .cloud_requests import (
     release_shared_firmware_status,
 )
 from .endpoint_bus import EndpointBusCapability
+from .energy_provenance import mapped_daily_sample_times, same_day_sample_time
 from .coordinator_mappings import (
     CLOUD_SUPPLEMENTAL_LOST_KEYS,
     SMART_PORT_READ_KEY,
@@ -834,6 +835,8 @@ def apply_gridboss_to_parallel_group(
     *,
     include_ac_couple: bool,
     recompute_consumption: bool,
+    pg_sample_times: dict[str, datetime] | None = None,
+    gb_sample_times: dict[str, datetime] | None = None,
 ) -> None:
     """Apply the full GridBOSS workflow to a parallel group's sensors.
 
@@ -853,8 +856,24 @@ def apply_gridboss_to_parallel_group(
         include_ac_couple: Whether AC-couple PV inclusion is enabled.
         recompute_consumption: Whether to recompute consumption_power from the
             energy balance (LOCAL path); the HTTP path keeps the cloud value.
+        pg_sample_times: Qualified daily field times, replaced with the overlay.
+        gb_sample_times: Qualified GridBOSS times; absent evidence clears dates.
     """
     apply_gridboss_overlay(pg_sensors, gb_sensors, group_name)
+    if pg_sample_times is not None:
+        gb_sample_times = gb_sample_times or {}
+        for gb_key, pg_key in _GRIDBOSS_PG_OVERLAY.items():
+            if gb_sensors.get(gb_key) is not None:
+                pg_sample_times.pop(pg_key, None)
+                if gb_key in gb_sample_times:
+                    pg_sample_times[pg_key] = gb_sample_times[gb_key]
+        pg_sample_times.pop("consumption", None)
+        stamp = same_day_sample_time(
+            gb_sample_times.get(key) if gb_sensors.get(key) is not None else None
+            for key in ("ups_today", "load_today")
+        )
+        if stamp is not None:
+            pg_sample_times["consumption"] = stamp
     if recompute_consumption:
         _recompute_consumption_from_balance(pg_sensors, group_name)
     apply_ac_couple_pv_adjustment(
@@ -1043,6 +1062,8 @@ if TYPE_CHECKING:
         ) -> TransportConfig | None: ...
 
         # ── DeviceProcessingMixin methods ──
+        @staticmethod
+        def _get_mid_device_property_map() -> dict[str, str]: ...
         def _get_device_grid_type(self, serial: str) -> str | None: ...
         async def _fetch_quick_charge_status(
             self, inverter: BaseInverter, target: dict[str, Any]
@@ -2988,6 +3009,12 @@ class DeviceProcessingMixin(_MixinBase):
                 if code_key not in processed["sensors"] and code_key in prev_sensors:
                     processed["sensors"][code_key] = prev_sensors[code_key]
 
+        processed["energy_sample_times"] = mapped_daily_sample_times(
+            processed["sensors"],
+            inverter.energy_provenance,
+            {**property_map, "energy_today_usage": "load_energy"},
+            balance=inverter.transport is not None,
+        )
         transport_energy = inverter.transport_energy
 
         # Fetch any PV1-3 tier not already supplied by local transport. The
@@ -3022,6 +3049,13 @@ class DeviceProcessingMixin(_MixinBase):
                 value = getattr(transport_energy, energy_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
+                    processed["energy_sample_times"].update(
+                        mapped_daily_sample_times(
+                            {sensor_key: value},
+                            transport_energy.provenance,
+                            {energy_attr: sensor_key},
+                        )
+                    )
 
         # Drop per-inverter grid per-leg voltage when it reads 0/None.  In
         # HYBRID it is only ever set by the transport overlay above (the cloud
@@ -3582,6 +3616,15 @@ class DeviceProcessingMixin(_MixinBase):
         property_map = self._get_parallel_group_property_map()
         processed["sensors"] = _map_device_properties(group, property_map)
         processed["sensors"]["parallel_group_last_polled"] = dt_util.utcnow()
+        processed["energy_sample_times"] = mapped_daily_sample_times(
+            processed["sensors"],
+            group.energy_provenance,
+            property_map,
+            balance=any(
+                inv.transport_energy is not None
+                for inv in getattr(group, "inverters", [])
+            ),
+        )
 
         # Override consumption with energy balance when inverters have local
         # transport.  pylxpweb's _compute_energy_from_inverters() historically
@@ -3733,6 +3776,11 @@ class DeviceProcessingMixin(_MixinBase):
 
             self._filter_unused_smart_port_sensors(processed["sensors"], mid_device)
             self._calculate_gridboss_aggregates(processed["sensors"])
+            processed["energy_sample_times"] = mapped_daily_sample_times(
+                processed["sensors"],
+                mid_device.energy_provenance,
+                property_map,
+            )
             processed["sensors"]["midbox_last_polled"] = dt_util.utcnow()
         else:
             _LOGGER.warning("MID device %s has no data", mid_device.serial_number)

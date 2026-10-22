@@ -7335,6 +7335,11 @@ class TestPV456DataPath:
             def transport_battery(self) -> Any:
                 return self._transport_battery
 
+            @property
+            def energy_provenance(self) -> dict[str, Any]:
+                # This runtime-only stand-in has no accepted energy snapshot.
+                return {}
+
             async def refresh(self) -> None:
                 return None
 

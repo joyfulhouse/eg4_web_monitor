@@ -1050,6 +1050,8 @@ class HTTPUpdateMixin(_MixinBase):
                                 group.name,
                                 include_ac_couple=include_ac_couple,
                                 recompute_consumption=False,
+                                pg_sample_times=group_data.get("energy_sample_times"),
+                                gb_sample_times=mid_data.get("energy_sample_times", {}),
                             )
 
                         except Exception as e:
