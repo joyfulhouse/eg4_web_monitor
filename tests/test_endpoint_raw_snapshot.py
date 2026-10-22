@@ -212,6 +212,7 @@ class _CoordinatorMidDevice:
     def __init__(self, capability: Any, refresh: Any) -> None:
         self.transport = capability
         self.transport_runtime = MidboxRuntimeData()
+        self.energy_provenance = {}  # No energy fields in this snapshot fixture.
         self.has_data = True
         self.refresh = refresh
 
@@ -229,6 +230,7 @@ def _coordinator_refresh_owner(
         _endpoint_bus_registry=registry,
         _filter_unused_smart_port_sensors=lambda sensors, device: None,
         _calculate_gridboss_aggregates=lambda sensors: None,
+        _get_mid_device_property_map=EG4DataUpdateCoordinator._get_mid_device_property_map,
         _prune_bus_capability_tracking=lambda: None,
         _snapshot_coverage_unresolved=lambda: False,
         _read_midbox_smart_port_options=_no_smart_port_options,

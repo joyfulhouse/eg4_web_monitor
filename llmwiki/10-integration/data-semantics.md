@@ -1,6 +1,7 @@
 ---
 canonical-for:
   - staleness, carry-forward and eviction rules
+  - direct battery projection, cell-voltage presentation and consumer acceptance boundaries
   - capability gating by inverter_family (never by model-name substring)
   - INVERTER_FAMILY_UNKNOWN as a truthy string
   - energy monotonicity, consumption vs load, the total_increasing clamp ban
@@ -11,6 +12,13 @@ canonical-for:
 sources:
   - custom_components/eg4_web_monitor/battery_bus.py
   - tests/test_battery_bus.py
+  - pylxpweb src/pylxpweb/transports/battery_modbus.py
+  - pylxpweb src/pylxpweb/battery_protocols/eg4_master.py
+  - pylxpweb src/pylxpweb/battery_protocols/eg4_slave.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/574
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/176
+  - https://github.com/joyfulhouse/pylxpweb/issues/384
+  - https://github.com/joyfulhouse/pylxpweb/pull/386
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/sensor.py
   - custom_components/eg4_web_monitor/const/device_types.py
@@ -44,7 +52,15 @@ sources:
   - tests/test_base_entity.py
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
+  - tests/test_released_family_discovery.py
+  - https://github.com/joyfulhouse/pylxpweb/pull/382
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/612
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/659
 verified-against:
+  # Section 2.1.1 regression verified at e24fc95; consumer code at cb7b6c8;
+  # library source at
+  # bce390936f2068000b7a53e2e981e9399139753f (released b13). Other sections
+  # retain their existing scoped pins.
   # Section 4.3.2 re-verified at e4ca3f0f23254ee280669854eaafedef1c3e9f27.
   # Section 4.3.1 startup policy re-verified at d889f82feb88e75d4518fd09d5efc8224e8618ad.
   # Section 4.2.2 verified at a9bab41 (scoped LOCAL day provenance).
@@ -59,14 +75,17 @@ verified-against:
   # and QuickChargeDuration family gates) are licensed PER CLAIM by their
   # inline PR #600 / issue #570 citations — the pin itself stays
   # commit-only per _conventions.md. Re-pinned at the 2026-08-30 release
-  # cut (#559 precedent): PR #600 merged as d8e2027; the whole page now
-  # verifies at the mainline pin below.
-  eg4_web_monitor: d8e2027
-  pylxpweb: 204b95d
+  # cut (#559 precedent): PR #600 merged as d8e2027; that historical
+  # whole-page pin remains the baseline for sections not re-verified below.
+  # Direct battery projection only is re-verified at these pins. Other sections
+  # retain previous page pins (eg4_web_monitor d8e2027, pylxpweb 204b95d)
+  # and their explicitly scoped inline pins.
+  eg4_web_monitor: 7d697a4d4c66ef151588faa12c999a25be50c22e
+  pylxpweb: bce390936f2068000b7a53e2e981e9399139753f
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
-# Direct battery sections verified against 7bbb0b2 on 2026-10-20.
+# Direct battery projection re-verified against 7d697a4d4c66ef151588faa12c999a25be50c22e on 2026-10-22.
 # Partial-group runtime behavior re-verified at e5fa860 on 2026-10-20.
-last-verified: 2026-10-20
+last-verified: 2026-10-22
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -162,6 +181,39 @@ Gating on `model.lower()` substrings produced **zero** control entities for an `
 Evidence: `verified-against-code` — `is_supported_control_model` docstring and body,
 `utils.py:273-296`. The fix is a family **backstop**: substring match **OR**
 `features["inverter_family"] in CONTROL_CAPABLE_FAMILIES`.
+
+### 2.1.1 Released recognition acceptance (#612; recognition only for #659)
+
+`verified-against-code` — at integration `cb7b6c8`, the manifest and test
+requirements pin the published dependency containing pylxpweb PR #382. Earlier
+issue comments saying the integration still pins b12 describe an older state.
+The current dependency pin remains owned by `manifest.json`.
+
+The released library's feature detection (`InverterFeatures.from_device_type_code`)
+and local discovery (`discover_device_info` via `get_model_family_name`)
+recognize exact raw code **20** as `LXP` and **2102** (`0x0836`) as
+`EG4_OFFGRID`, preserving the raw code. They do not mask arbitrary high bytes.
+Grade: `verified-against-code` — pylxpweb
+[`_features.py`](https://github.com/joyfulhouse/pylxpweb/blob/bce390936f2068000b7a53e2e981e9399139753f/src/pylxpweb/devices/inverters/_features.py)
+and
+[`discovery.py`](https://github.com/joyfulhouse/pylxpweb/blob/bce390936f2068000b7a53e2e981e9399139753f/src/pylxpweb/transports/discovery.py).
+
+At integration `e24fc95`, `tests/test_released_family_discovery.py` supplies raw identification inputs to
+the installed library's real `HybridInverter.detect_features` and
+`discover_device_info`, passes the detected features through
+`DeviceProcessingMixin._extract_inverter_features`, and invokes number, switch,
+and select platform setup. It covers initial and late discovery, duplicate
+prevention, code-20 `GEN-LB-EU 3.6K` controls, code-2102 off-grid exclusions, and
+an unknown high-byte variant. The consumer gates remain those in
+`is_supported_control_model`, `_create_number_entities`, and
+`_create_switch_entities` at `cb7b6c8`; discovery does not establish physical
+control semantics. Grade: `verified-against-code`.
+
+Software acceptance is separate from reporter confirmation on the affected
+units. Identification and platform setup establish neither new register-write
+evidence nor resolution of #659's consumption discrepancy. The reported models
+and raw codes are `asserted-unverified` hardware observations from the reporters
+in #612 and #659; this regression checks software behavior for those inputs.
 
 ### 2.2 The gate inventory
 
@@ -492,50 +544,54 @@ separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/
 `_guard_total_increasing`; the same-day nonnumeric restore cases are in
 `test_nonnumeric_restore_with_numeric_payload`.
 
-### 4.2.2 LOCAL daily baselines follow accepted snapshot days (#666)
+### 4.2.2 Daily baselines follow conservative per-field LOCAL provenance (#666)
 
-At `a9bab41`, physical LOCAL inverter and GridBOSS daily sensor mappings carry
-`energy_sample_times` from the accepted transport snapshot. Naive library
-snapshot timestamps are interpreted in the host timezone and normalized to
-aware UTC; `EG4BaseSensor` compares their dates in HA's configured timezone.
-The first sample from a later HA local day clears the previous daily baseline,
-so missed low/reset samples cannot pin yesterday's high value. Same-day small
-dips remain guarded; lifetime counters and large-reset behavior are unchanged.
-A restored daily baseline without acquisition provenance cannot pin the first
-trusted LOCAL sample. Cached processing, availability transitions and restore
-serialization retain the original snapshot stamp and cannot expire the guard.
+The physical LOCAL guard shipped in #678. The conservative consumer adoption
+at integration `c3c444392de0fb57baef1fa1be1762d6a97c06b7` uses released pylxpweb `v0.10.0b13`
+(`bce390936f2068000b7a53e2e981e9399139753f`, including library #385).
+Verification scope/date: this subsection only, 2026-10-22.
 
-Evidence: `verified-against-code` at `a9bab41` - `energy_provenance.py` ->
-`local_daily_sample_times`, `coordinator_local.py` -> `_build_local_device_data`
-and `_process_single_local_device`, `base_entity.py` -> `EG4BaseSensor`, and
-`tests/test_local_daily_sample_provenance.py`. The tests cover HA timezone
-boundaries, a real library failed-read cache, active MID mapping, restore and
-availability transitions. This is a policy based on accepted LOCAL snapshot
-acquisition day, not a hardware claim about an inverter's reset clock.
+`energy_provenance.py` -> `daily_sample_times` accepts a field only when its
+nonempty lineage consists entirely of LOCAL leaves with aware acquisition
+stamps on one HA-local calendar day. It preserves the earliest stamp. Unknown,
+HTTP receipt, missing contributors, empty derived records and mixed local days
+provide no expiration timestamp. Legacy `snapshot.timestamp`, property access,
+processing time, numeric changes and HA publication time cannot create evidence.
+This is an acquisition-day policy, not proof of a device's counter day, reset
+timezone or atomic register sampling.
 
-The snapshot assumption was rechecked against pinned pylxpweb `v0.10.0b12`
-(the inspected files are unchanged at `0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`).
-`transports/_register_data.py` -> `read_energy`, `read_all_input_data`, and
-`read_midbox_runtime` build fresh register maps; a MID input-subblock read
-exception rejects the whole snapshot. `InverterEnergyData.from_modbus_registers`
-and `MidboxRuntimeData.from_modbus_registers` decode absent fields as `None`,
-without copying prior individual energy fields into a new timestamp.
-`BaseInverter._fetch_energy` / `_fetch_combined_input_data` and
-`MIDDevice.refresh` / `_validate_runtime_energy` reject invalid new data before
-replacing the accepted snapshot. Thus failed/rejected reads retain the old
-object and acquisition stamp; no accepted LOCAL energy field carry-forward with
-a renewed timestamp occurs in these paths (`verified-against-code` at that
-library pin). Battery accumulator carry-forward is separate and outside this
-policy's scope.
+`local_daily_sample_times` follows inverter transport fields. Public
+`energy_provenance` properties follow the library's selected inverter,
+parallel-group and GridBOSS sources; the coordinator maps them alongside the
+numeric properties. Per-string local overlays qualify only the fields they
+actually replace. The integration's existing consumption balance requires all
+five operands; its LOCAL group sums require every member. A GridBOSS overlay
+replaces the corresponding provenance too, and CT consumption requires both
+UPS and load lineage (including every phase). Missing evidence never borrows
+an inverter/group stamp. These adapters do not change the numeric calculations.
 
-**Remaining scope:** HTTP/HYBRID cloud values, group/independent-battery aggregates
-and chart-derived values do not receive invented provenance. Issue #666 remains
-open; [pylxpweb #383](https://github.com/joyfulhouse/pylxpweb/issues/383) requests
-source identity and per-field acquisition/sample-day metadata preserved through
-caches and aggregation. At library `0ee50a8`, `EnergyInfo` has no sample date,
-`_fetch_energy_http` can stamp a cached endpoint result, and
-`InverterEnergyData.from_http_response` stamps conversion. None proves the
-numeric cloud sample's day. Those paths keep the prior bounded guard contract.
+`EG4BaseSensor` retains #678's behavior: the first sample from a later HA-local
+day clears the daily baseline, including after missed low/reset samples. Same-day
+small dips stay guarded; lifetime counters and large-reset behavior are unchanged.
+Undated restored baselines cannot pin the first trusted LOCAL sample. Cache hits,
+failed/rejected reads, availability changes and restore serialization cannot
+redate accepted values.
+
+Evidence: `verified-against-code` for `energy_provenance.py`, the coordinator
+call sites and `tests/test_energy_provenance_adoption.py` /
+`tests/test_local_daily_sample_provenance.py`. Regression evidence uses the
+released library's real aggregate/conversion/property implementations and HA
+entity lifecycle in UTC, Los Angeles and Kolkata. The library's
+`docs/ENERGY_CONSUMER_HARNESS.md` and `scripts/check_energy_consumer.py` define
+and exercise the same conservative policy; they are software contract evidence,
+not hardware evidence.
+
+**Residual acceptance:** #666 remains open. Cloud response acquisition is now
+preserved by the library, but does not establish the device counter day.
+Battery accumulation and chart-derived values still lack usable day evidence.
+Unknown/mixed-day aggregates keep the bounded guard until qualifying evidence
+arrives; no day, timezone, missing component or lifetime source is fabricated.
+Reliable device counter-day/reset evidence for those paths remains outstanding.
 
 ### 4.3 Consumption and load are two distinct meters
 
@@ -926,23 +982,75 @@ Before shipping a change in this area, confirm each line:
 
 ## Direct battery projection
 
-At `7bbb0b2`, `battery_bus.py` -> `project_battery` accepts only the library's
-`eg4_master` and `eg4_slave` detected protocols. Unknown protocols publish no
-measurements. Master current, temperature and cycle count stay unknown because
-the decoded fields have bank aggregate/maximum semantics. Master SOC and remaining capacity are also withheld: independent review
-reproduced an incorrect uint16 capacity overflow choice at low SOC in the
-released decoder even with complete configured-unit response. The real decoder
-regression uses three 280 Ah packs at 10%, master registers 21=10, 26=8400,
-27=18464, 33=5600 and slave remaining capacities of 28 Ah each. No integration
-heuristic claims to repair that ambiguity. Missing units are removed from each
-coordinator snapshot without carrying forward old measurements. A zero cell
-voltage is missing, while zero current and zero Celsius remain real values.
-Grade: `verified-against-code` (`battery_bus.py`, `tests/test_battery_bus.py`,
-including a real master-decoder early-return regression).
+At `7d697a4d4c66ef151588faa12c999a25be50c22e`, with the released pylxpweb `v0.10.0b13`
+(`bce390936f2068000b7a53e2e981e9399139753f`), `battery_bus.py` ->
+`project_battery` accepts only `eg4_master` and `eg4_slave` detected protocols.
+Unknown protocols publish no measurements. Missing units leave each coordinator
+snapshot without carrying forward old measurements. Zero cell voltage is missing;
+zero current and zero Celsius remain real values. Grade: `verified-against-code`
+(`battery_bus.py` -> `project_battery`, `tests/test_battery_bus.py`).
 
-The direct path does not overlay inverter/cloud battery measurements or
-publish a duplicate bank-current sum. Its detected-protocol cache access is
-a pinned private library seam and fails closed if absent. Cell-balance bits
-are not present in the pinned `BatteryData` contract and are not synthesized.
-These are implementation boundaries; #176 remains open for its broader
-acceptance criteria.
+### Cell-voltage presentation
+
+`BatteryBusSensor` descriptions suggest three decimal places for the 16 cell
+voltages and minimum/maximum cell voltage. This is HA presentation metadata: the
+native numeric values and state strings retain their existing voltage scaling.
+The HA registry/rendering regression exercises `3.286 V`, the extremum sensors,
+and an explicit one-decimal user override without changing the state value.
+Optional cell channels remain disabled by default. Grade: `verified-against-code`
+(`battery_bus.py` -> `_descriptions`, `tests/test_battery_bus.py` ->
+`test_cell_voltage_precision_preserves_native_measurements`,
+`test_cell_precision_reaches_ha_registry`).
+
+The #574 screenshot showed whole-volt cell values, then the reporter confirmed
+on October 21 that the battery card showed the full decimals. This supports a
+presentation diagnosis, not decoder rescaling. Grade: `asserted-unverified`
+([screenshot report](https://github.com/joyfulhouse/eg4_web_monitor/issues/574#issuecomment-6318602302),
+[reporter clarification](https://github.com/joyfulhouse/eg4_web_monitor/issues/574#issuecomment-6329045542)).
+Automated HA tests verify metadata and state behavior, not a new hardware capture
+or a confirmation that the reporter has installed this presentation change.
+
+### Master values and remaining acceptance
+
+`project_battery` keeps master current, temperature and cycle count unknown
+rather than relabeling the decoder's bank sum/maximum fields as per-pack readings.
+It also deliberately
+withholds master per-pack SOC and remaining capacity. The original low-SOC
+uint16-unwrapping failure (#384) is corrected in the released b13 dependency by
+#386, but `BatteryBusCoordinator` does not attest `topology_complete=True`.
+The library default remains false; even all configured/remembered units replying
+cannot establish that the configured list covers the physical bank. Grade:
+`verified-against-code` (`battery_bus.py` -> `BatteryBusCoordinator`,
+`project_battery`; pylxpweb `transports/battery_modbus.py` ->
+`BatteryModbusTransport.__init__`, `read_all`; `battery_protocols/eg4_master.py`
+-> `EG4MasterProtocol.decode_with_slaves`).
+
+Consumer re-enablement requires deliberate complete-physical-inventory opt-in
+and validation of complete, partial, missing-unit and ambiguous reconstruction
+behavior. Current/temperature/cycle fields require their own per-pack evidence;
+SOC reconstruction does not establish those measurements. These acceptance
+requirements are recorded in [#384](https://github.com/joyfulhouse/pylxpweb/issues/384)
+and [#176](https://github.com/joyfulhouse/eg4_web_monitor/issues/176).
+
+The direct path neither overlays inverter/cloud battery measurements nor
+publishes a duplicate bank-current sum. Address-based identity is owned by
+[entities-identity-availability.md](entities-identity-availability.md#direct-battery-devices);
+a trustworthy serial/CAN/cloud join and automatic source replacement/fallback
+remain unresolved under #176. A firmware string is not serial identity. The
+#574 dedicated-bus passive-listen and stable-address reports already exist;
+this presentation finding does not require another capture of that bus.
+Grade: `asserted-unverified` for the scoped reporter observations
+([bus and address evidence](https://github.com/joyfulhouse/eg4_web_monitor/issues/574#issuecomment-5293341188));
+`verified-against-code` for the separate direct projection (`battery_bus.py`).
+
+Cell-balance status is not in the pinned `BatteryData` contract and is not
+synthesized. The slave protocol declares `balance_bitmap` register metadata,
+but its `decode` does not project it into a public field. The #176 LL-S register
+map attachment names a balance field; that table alone does not establish a
+validated public decoder contract or cross-family bit semantics. Grade:
+`verified-against-code` for the contract limitation (pylxpweb
+`transports/data.py` -> `BatteryData`, `battery_protocols/eg4_slave.py` ->
+`EG4SlaveProtocol.decode`); `asserted-unverified` for the table's semantics
+([LL-S attachments](https://github.com/joyfulhouse/eg4_web_monitor/issues/176#issuecomment-5300630760)).
+The detected-protocol cache remains a pinned private library seam and fails
+closed if absent.

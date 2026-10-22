@@ -1700,3 +1700,63 @@ Moved release versions, upstream state and acceptance tracking to
 [the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
 backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
 catalog entry. This corrects the location described in the earlier ingest entry.
+
+## [2026-10-22] ingest | #668 LXP AC-charge start/stop evidence
+
+Read the original log, diagnostics, all comments and screenshots, including the
+October 21 clarification. Updated the register keeper with the exact model and
+firmware, rejected H67=4 with start SOC=5, distinct H161/AC-couple/H227 values,
+and the difference between reporter testimony and write proof. Recorded the
+missing LXP H160 exposure and remaining acceptance evidence in open-questions.
+Added rejection-specific vendor-app guidance to the control error owner; #673
+already owns error normalization/rollback. No hardware grade promotion, register
+rerouting, new writable control, sentinel coercion or universal inequality.
+
+## [2026-10-22] ingest | Battery cell precision and remaining #574/#176/#384 acceptance
+
+Read the issue bodies, comments and original attachments, including the October 21
+#574 clarification that the battery card retained cell decimals. Updated
+[the direct battery semantics owner](10-integration/data-semantics.md#direct-battery-projection)
+with the HA presentation fix and regression evidence; native voltage scaling stays
+unchanged. The tests exercise existing registry precision, all cell channels,
+minimum/maximum values and a user display override. These are software checks,
+not new hardware validation. Recorded the balance-field contract gap and the
+separate serial/CAN join requirement without promoting attachment table labels
+into proven semantics or requesting another dedicated-bus capture.
+
+As of this entry, published [pylxpweb b13](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b13)
+and [integration beta.20](https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.5.1-beta.20)
+meet #384's publication/dependency-update prerequisites. The integration still withholds
+master SOC/remaining capacity pending deliberate complete-physical-inventory
+opt-in and consumer validation; responding configured units do not prove that
+inventory. Other master aggregate fields need separate per-pack evidence.
+#574/#176/#384 remain open for unresolved acceptance. No release or hardware
+write was performed in this maintenance change.
+
+## [2026-10-22] ingest | #612 and #659 released family recognition acceptance
+
+Updated only the family-recognition section of
+[data semantics](10-integration/data-semantics.md#211-released-recognition-acceptance-612-recognition-only-for-659)
+after reading both full issues/comments and pylxpweb PR #382's released sources.
+The installed public dependency now contains the exact code-20 LXP and code-2102
+EG4_OFFGRID recognition; earlier b12 blocker comments describe an older pin.
+Consumer regressions at `e24fc95` use real installed library detection and local discovery,
+the integration feature mapper, and number/switch/select setup, including late
+discovery and existing off-grid exclusions. This establishes software discovery
+behavior, not hardware control semantics or reporter confirmation. No mapping,
+write route, battery/energy implementation, historical statistic, or #659
+consumption claim changes.
+
+## [2026-10-22] ingest | #666 released provenance consumer adoption
+
+Rechecked the full issue/comments against integration cb7b6c8 and released
+pylxpweb v0.10.0b13; comments describing b12 are historical. Updated only the
+[daily-energy subsection](10-integration/data-semantics.md#422-daily-baselines-follow-conservative-per-field-local-provenance-666)
+for the per-field adapter and its conservative acceptance boundary. Entirely
+LOCAL, same-HA-day lineage supplies its earliest acquisition; receipt-only,
+unknown, missing and mixed-day evidence cannot expire a guard. Numeric and
+lifetime handling remain unchanged. Real-library and HA lifecycle regressions
+provide software evidence; device reset timezone and cloud/battery/chart
+counter-day uncertainty remain on #666.
+
+Implementation verified at `c3c444392de0fb57baef1fa1be1762d6a97c06b7` on base `b95119b`; full-suite coverage, strict typing and tier gates passed.

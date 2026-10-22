@@ -60,7 +60,11 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
-from .energy_provenance import local_daily_sample_times
+from .energy_provenance import (
+    local_daily_sample_times,
+    mapped_daily_sample_times,
+    aggregate_daily_sample_times,
+)
 from .const.midbox import (
     MIDBOX_OPTION_READ_BLOCKS,
     MIDBOX_REG_SMART_PORT_FUNCTIONS,
@@ -1368,8 +1372,10 @@ class LocalTransportMixin(_MixinBase):
                     "firmware_version": firmware_version,
                     "sensors": sensors,
                     "binary_sensors": {},
-                    "energy_sample_times": local_daily_sample_times(
-                        sensors, mid_device.transport_runtime
+                    "energy_sample_times": mapped_daily_sample_times(
+                        sensors,
+                        mid_device.energy_provenance,
+                        self._get_mid_device_property_map(),
                     ),
                 }
 
@@ -2552,6 +2558,10 @@ class LocalTransportMixin(_MixinBase):
             # Compute parallel group charge/discharge C-rates (%/h)
             compute_parallel_group_charge_rate(group_sensors)
 
+            group_sample_times = aggregate_daily_sample_times(
+                group_sensors, (data for _, data in group_devices)
+            )
+
             # Override grid/load power, energy, and voltage with MID device
             # (GridBOSS) data if available.  The MID device has grid CTs and is
             # the authoritative source for grid interaction — inverters don't
@@ -2588,6 +2598,8 @@ class LocalTransportMixin(_MixinBase):
                     group_name,
                     include_ac_couple=include_ac_couple,
                     recompute_consumption=True,
+                    pg_sample_times=group_sample_times,
+                    gb_sample_times=device_data.get("energy_sample_times", {}),
                 )
 
                 break  # Only one MID device per system
@@ -2634,6 +2646,7 @@ class LocalTransportMixin(_MixinBase):
                 "member_count": device_count,
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
+                "energy_sample_times": group_sample_times,
             }
             previous_group = (
                 (self.data or {}).get("devices", {}).get(group_device_id, {})

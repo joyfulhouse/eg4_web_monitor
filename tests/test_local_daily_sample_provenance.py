@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from homeassistant.util import dt as dt_util
+from pylxpweb.provenance import EnergyProvenance
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
     MockEntityPlatform,
@@ -16,6 +17,27 @@ from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.energy_provenance import local_daily_sample_times
 from custom_components.eg4_web_monitor.sensor import EG4InverterSensor
+
+
+def provenance(at, *fields):
+    return {
+        field: EnergyProvenance(source="local", source_id="test:local", acquired_at=at)
+        for field in fields
+    }
+
+
+def balance_snapshot(at):
+    return SimpleNamespace(
+        timestamp=at,
+        provenance=provenance(
+            at,
+            "pv_energy_today",
+            "discharge_energy_today",
+            "grid_import_today",
+            "charge_energy_today",
+            "grid_export_today",
+        ),
+    )
 
 
 @pytest.mark.parametrize("device_type", ["inverter", "gridboss"])
@@ -38,7 +60,7 @@ async def test_daily_expiration_requires_a_new_local_day_sample(
     def sample(at, daily, lifetime=14.2):
         values.update(consumption=daily, consumption_lifetime=lifetime)
         device["energy_sample_times"] = local_daily_sample_times(
-            values, SimpleNamespace(timestamp=at)
+            values, balance_snapshot(at)
         )
         coordinator.async_set_updated_data({"devices": {"serial": device}})
 
@@ -104,7 +126,7 @@ async def test_missing_or_untrusted_entity_timestamp_never_expires(
 
 
 def test_snapshot_timestamp_survives_reprocessing(freezer):
-    snapshot = SimpleNamespace(timestamp=datetime(2026, 10, 13, 23, tzinfo=UTC))
+    snapshot = balance_snapshot(datetime(2026, 10, 13, 23, tzinfo=UTC))
     values = {
         "consumption": 14.3,
         "consumption_lifetime": 100.0,
@@ -117,25 +139,14 @@ def test_snapshot_timestamp_survives_reprocessing(freezer):
     assert local_daily_sample_times(values, SimpleNamespace()) == {}
 
 
-def test_naive_transport_stamp_uses_host_timezone(monkeypatch):
-    import os
-    import time
-
-    previous = os.environ.get("TZ")
-    try:
-        monkeypatch.setenv("TZ", "America/New_York")
-        time.tzset()
-        times = local_daily_sample_times(
+def test_legacy_transport_stamp_is_not_provenance():
+    assert (
+        local_daily_sample_times(
             {"consumption": 1.0},
             SimpleNamespace(timestamp=datetime(2026, 10, 14, 0, 30)),
         )
-        assert times["consumption"] == datetime(2026, 10, 14, 4, 30, tzinfo=UTC)
-    finally:
-        if previous is None:
-            monkeypatch.delenv("TZ")
-        else:
-            monkeypatch.setenv("TZ", previous)
-        time.tzset()
+        == {}
+    )
 
 
 async def test_local_mapper_keeps_cached_snapshot_acquisition(hass, freezer):
@@ -146,7 +157,11 @@ async def test_local_mapper_keeps_cached_snapshot_acquisition(hass, freezer):
     from tests.conftest import make_real_inverter, make_transport_spec
 
     acquired = datetime(2026, 10, 13, 23, 50, tzinfo=UTC)
-    energy = InverterEnergyData(timestamp=acquired, pv_energy_today=14.3)
+    energy = InverterEnergyData(
+        timestamp=acquired,
+        pv_energy_today=14.3,
+        provenance=provenance(acquired, "pv_energy_today"),
+    )
     inverter = make_real_inverter(runtime=InverterRuntimeData(), energy=energy)
     inverter._transport = make_transport_spec()
     inverter._transport.read_energy = AsyncMock(side_effect=RuntimeError("read failed"))
@@ -220,7 +235,10 @@ async def test_active_gridboss_path_preserves_snapshot_stamp(hass, freezer):
 
     acquired = datetime(2026, 10, 13, 23, 50, tzinfo=UTC)
     runtime = MidboxRuntimeData(
-        timestamp=acquired, load_energy_today_l1=10.0, load_energy_today_l2=4.3
+        timestamp=acquired,
+        load_energy_today_l1=10.0,
+        load_energy_today_l2=4.3,
+        provenance=provenance(acquired, "load_energy_today_l1", "load_energy_today_l2"),
     )
     mid = make_real_mid(serial_number="GB001", runtime=runtime)
     mid._transport = make_transport_spec(is_connected=True)

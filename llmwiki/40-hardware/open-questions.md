@@ -1,6 +1,7 @@
 ---
 canonical-for: evidence-needed-to-resolve-open-hardware-and-firmware-questions
 sources:
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/668
   - docs/reference/firmware/FIRMWARE_ACQUISITION.md
   - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
   - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
@@ -46,3 +47,22 @@ This page owns only unanswered questions and the evidence needed to close them. 
 | When does I69-I70 reset? | Seconds are `portal-correlated`; reset semantics are absent from the durable evidence. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md). | `asserted-unverified` | Record the U32 series across separately authorized ARM reboot, inverter reboot, replacement, and power-cycle cases. |
 
 Closing an item requires updating [registers.md](registers.md) with the tested family, raw evidence, restore result where writable, and the weakest defensible grade. Record component firmware as scope metadata when available; if it is unrecorded, limit the conclusion to the tested unit. A unit fixture cannot close a hardware question.
+
+## LXP AC charge acceptance (#668)
+
+The [register keeper](registers.md#lxp-lb-eu-12k-ac-charge-evidence-668) owns the
+observations and grades. The exact LXP-LB-EU 12K / FAAB-2525 H160 write contract
+and strict H67/H160 ordering remain `asserted-unverified` from
+[the reporter](https://github.com/joyfulhouse/eg4_web_monitor/issues/668#issuecomment-6314749036).
+Before exposing a writable start control on this model, obtain an official-client
+write binding or an authorized named-control capture with raw H160/H67/H161/H227
+before/after values and restoration, meeting the README write-access rules.
+Before adding validation, establish accepted/rejected boundaries (including equality),
+mode dependence and sentinel behavior on this exact firmware. A readback alone
+proves storage, not charge behavior. Preserve unknown values and independent
+AC-couple controls. No universal discharge-cutoff rule follows from this report.
+
+Acceptance also needs the intended PredBat entity/unique ID and confirmation that
+the requested automation requires AC-charge stop rather than System Charge SOC
+Limit. Keep #668 open; the exception normalization and optimistic rollback were
+already fixed by #673. No new live test is authorized by this evidence checklist.

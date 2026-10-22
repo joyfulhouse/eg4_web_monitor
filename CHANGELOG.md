@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- When the vendor rejects an AC Charge SOC Limit write, point to AC charge start/stop settings in the vendor app and distinguish AC-couple and System Charge SOC controls (#668). Existing limits and write routing are unchanged.
+- Suggest three decimal places for direct battery cell voltages and minimum/maximum cell voltage, preserving native measurements and user-selected display precision (#574).
+- Extend daily energy dip-guard dating to field-level LOCAL provenance for inverter, group and GridBOSS readings, including CT overlays. Missing, cloud, unknown or mixed-day contributors cannot expire a baseline; lifetime handling is unchanged (#666).
 - **Home Assistant 2026.10.0 or newer is required for future releases.** Support for 2026.1.0 through 2026.9.4 ends with 3.5.1-beta.20. Upgrade Home Assistant before upgrading the integration beyond that beta. CI now tests 2026.10.0 and current stable 2026.10.2 on Python 3.14.
 - Migrate configuration forms and service schemas to Home Assistant's October `probatio` validation API, preserving field defaults, coercion and input bounds.
 - Use Home Assistant's single-owner device registry API for topology and cleanup, preserving other entries' devices when identifiers overlap.
