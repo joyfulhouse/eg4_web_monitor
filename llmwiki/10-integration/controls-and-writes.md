@@ -48,6 +48,7 @@ verified-against:
 # their existing verification pins; prior last-verified: 2026-09-02.
 # The refreshed date applies only to the scope above (no wholesale reverification).
 # Cloud error normalization below reverified at ad79479; other claims retain their pins.
+# AC charge rejection guidance verified at 57788e681b2050a70c6ecdbc43232137aac7ea5f.
 last-verified: 2026-10-22
 see-also:
   - ../40-hardware/registers.md
@@ -654,7 +655,7 @@ start/stop-setting hint only when the router's `HomeAssistantError` has a
 cause and the router's message, and runs after optimistic rollback. Connection
 failures retain their existing error. The tests in
 `tests/test_number_entities.py` -> `TestHybridCloudFallback` lock this software
-contract (`verified-against-code`, this change set; base `cb7b6c8`). This extends
+contract (`verified-against-code` at `57788e681b2050a70c6ecdbc43232137aac7ea5f`). This extends
 #673's error normalization without reimplementing it. No setting is automatically
 changed, and neither a start/stop inequality nor a new write route is introduced.
 Hardware interpretation and the missing LXP start exposure are owned by the
