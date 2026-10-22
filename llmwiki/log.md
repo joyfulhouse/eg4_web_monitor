@@ -1760,3 +1760,12 @@ provide software evidence; device reset timezone and cloud/battery/chart
 counter-day uncertainty remain on #666.
 
 Implementation verified at `c3c444392de0fb57baef1fa1be1762d6a97c06b7` on base `b95119b`; full-suite coverage, strict typing and tier gates passed.
+
+## [2026-10-22] ingest | #658 unused-generator follow-up
+
+Read the new reporter comment posted during maintenance: the generator has not
+been used yet, which the reporter offers as the likely explanation for the zero
+values. Added the cited operating-history testimony to the existing
+[schema evidence owner](30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658).
+It supplies no nonzero measurement and changes no scaling, leg-aggregation or
+lifetime acceptance boundary. No runtime change or hardware operation.
