@@ -1700,3 +1700,17 @@ Moved release versions, upstream state and acceptance tracking to
 [the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
 backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
 catalog entry. This corrects the location described in the earlier ingest entry.
+
+## [2026-10-22] ingest | #612 and #659 released family recognition acceptance
+
+Updated only the family-recognition section of
+[data semantics](10-integration/data-semantics.md#211-released-recognition-acceptance-612-recognition-only-for-659)
+after reading both full issues/comments and pylxpweb PR #382's released sources.
+The installed public dependency now contains the exact code-20 LXP and code-2102
+EG4_OFFGRID recognition; earlier b12 blocker comments describe an older pin.
+Consumer regressions at `e24fc95` use real installed library detection and local discovery,
+the integration feature mapper, and number/switch/select setup, including late
+discovery and existing off-grid exclusions. This establishes software discovery
+behavior, not hardware control semantics or reporter confirmation. No mapping,
+write route, battery/energy implementation, historical statistic, or #659
+consumption claim changes.
