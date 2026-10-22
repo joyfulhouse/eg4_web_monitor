@@ -52,7 +52,15 @@ sources:
   - tests/test_base_entity.py
   - tests/test_gridboss_listener_lifecycle.py
   - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
+  - tests/test_released_family_discovery.py
+  - https://github.com/joyfulhouse/pylxpweb/pull/382
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/612
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/659
 verified-against:
+  # Section 2.1.1 regression verified at e24fc95; consumer code at cb7b6c8;
+  # library source at
+  # bce390936f2068000b7a53e2e981e9399139753f (released b13). Other sections
+  # retain their existing scoped pins.
   # Section 4.3.2 re-verified at e4ca3f0f23254ee280669854eaafedef1c3e9f27.
   # Section 4.3.1 startup policy re-verified at d889f82feb88e75d4518fd09d5efc8224e8618ad.
   # Section 4.2.2 verified at a9bab41 (scoped LOCAL day provenance).
@@ -173,6 +181,39 @@ Gating on `model.lower()` substrings produced **zero** control entities for an `
 Evidence: `verified-against-code` — `is_supported_control_model` docstring and body,
 `utils.py:273-296`. The fix is a family **backstop**: substring match **OR**
 `features["inverter_family"] in CONTROL_CAPABLE_FAMILIES`.
+
+### 2.1.1 Released recognition acceptance (#612; recognition only for #659)
+
+`verified-against-code` — at integration `cb7b6c8`, the manifest and test
+requirements pin the published dependency containing pylxpweb PR #382. Earlier
+issue comments saying the integration still pins b12 describe an older state.
+The current dependency pin remains owned by `manifest.json`.
+
+The released library's feature detection (`InverterFeatures.from_device_type_code`)
+and local discovery (`discover_device_info` via `get_model_family_name`)
+recognize exact raw code **20** as `LXP` and **2102** (`0x0836`) as
+`EG4_OFFGRID`, preserving the raw code. They do not mask arbitrary high bytes.
+Grade: `verified-against-code` — pylxpweb
+[`_features.py`](https://github.com/joyfulhouse/pylxpweb/blob/bce390936f2068000b7a53e2e981e9399139753f/src/pylxpweb/devices/inverters/_features.py)
+and
+[`discovery.py`](https://github.com/joyfulhouse/pylxpweb/blob/bce390936f2068000b7a53e2e981e9399139753f/src/pylxpweb/transports/discovery.py).
+
+At integration `e24fc95`, `tests/test_released_family_discovery.py` supplies raw identification inputs to
+the installed library's real `HybridInverter.detect_features` and
+`discover_device_info`, passes the detected features through
+`DeviceProcessingMixin._extract_inverter_features`, and invokes number, switch,
+and select platform setup. It covers initial and late discovery, duplicate
+prevention, code-20 `GEN-LB-EU 3.6K` controls, code-2102 off-grid exclusions, and
+an unknown high-byte variant. The consumer gates remain those in
+`is_supported_control_model`, `_create_number_entities`, and
+`_create_switch_entities` at `cb7b6c8`; discovery does not establish physical
+control semantics. Grade: `verified-against-code`.
+
+Software acceptance is separate from reporter confirmation on the affected
+units. Identification and platform setup establish neither new register-write
+evidence nor resolution of #659's consumption discrepancy. The reported models
+and raw codes are `asserted-unverified` hardware observations from the reporters
+in #612 and #659; this regression checks software behavior for those inputs.
 
 ### 2.2 The gate inventory
 
