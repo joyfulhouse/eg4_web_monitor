@@ -1680,3 +1680,23 @@ energy-scaling table to modeled fields so it does not silently license a divisor
 for the new candidates. Linked the existing hardware question and catalog;
 recorded precise capture requirements. No runtime change or evidence-grade
 promotion; #658 remains open for acceptance evidence.
+
+## [2026-10-22] ingest | Library transport maintenance triggers
+
+Read all current comments on library #189, #344, #345, #350 and #363 and the
+upstream release/source evidence. Added a scoped current snapshot to
+[transports](20-pylxpweb/transports.md), separating the historical pymodbus-only
+description from the released backend and shared-unit seams. Independently
+compared the three production connection/pacing/adapter modules in the 4.12.5
+and 4.12.6 wheels; byte equality is source evidence, not runtime validation.
+The upstream shim/lifecycle release triggers and host/shared-consumer acceptance
+remain open. No transport behavior or dependency pin changes.
+
+## [2026-10-22] lint | Transport audit ownership and claim scope
+
+Independent Astra review separated the constructor/API fact from unsupported
+integration-release testimony and corrected the inherited connect citation.
+Moved release versions, upstream state and acceptance tracking to
+[the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
+backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
+catalog entry. This corrects the location described in the earlier ingest entry.

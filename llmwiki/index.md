@@ -106,6 +106,7 @@ Read this before trusting a confident claim found elsewhere in the repo.
 | [`superseded-claims.md`](60-history/superseded-claims.md) | Claims documented with confidence, acted upon, and false — and the mechanism by which each became load-bearing | Superseded claims and their mechanisms |
 | [`open-contradictions.md`](60-history/open-contradictions.md) | C1-C12: places project sources or policies differ and **no adjudication has been made**. Do not resolve one by writing a page that picks a side | Unresolved contradictions between project sources |
 | [`bug-postmortems.md`](60-history/bug-postmortems.md) | Symptom, true root cause, fix, and the generalizable lesson for each shipped bug | Postmortem catalogue |
+| [`maintenance-2026-10-22.md`](60-history/maintenance-2026-10-22.md) | Dated upstream transport audit | October 22 2026 release/source evidence and unresolved issue acceptance snapshot |
 
 ## Where to start, by task
 

@@ -4,16 +4,37 @@ sources:
   - pylxpweb@204b95d:src/pylxpweb/transports/
   - pylxpweb@204b95d:src/pylxpweb/registers/battery.py
   - pylxpweb@204b95d:tests/unit/transports/
+  - https://github.com/joyfulhouse/pylxpweb/issues/344
+  - https://github.com/joyfulhouse/pylxpweb/issues/345
+  - https://github.com/joyfulhouse/pylxpweb/issues/350
+  - https://github.com/joyfulhouse/pylxpweb/issues/363
+  - https://github.com/joyfulhouse/pylxpweb/issues/189
 verified-against:
   pylxpweb: 204b95d
-last-verified: 2026-08-08
+# The maintenance snapshot below is separately scoped to cc503f8.
+last-verified: 2026-10-22
 ---
 
 # Local transports
 
 Evidence grades follow the [canonical llmwiki legend](../README.md). Do not generalize one transport's wire behavior to another.
 
-## Transport comparison
+## Backend and ownership contract at cc503f8
+
+This section was checked on 2026-10-22 against pylxpweb
+`cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b`. The historical transport
+details below retain their original `204b95d` pin.
+
+| Boundary | Evidence | Grade |
+|---|---|---|
+| Modbus supports pymodbus and the optional modbus-connection backend. `auto` retains pymodbus except serialx-only URL schemes; an injected host unit selects modbus-connection and conflicts with explicit pymodbus. | `transports/_modbus_client.py` -> `resolve_backend`, `select_backend`; `transports/modbus.py` -> `ModbusTransport.__init__` | `verified-against-code` |
+| Shared units on one connection serialize requests; separate connections to the same endpoint have independent schedules. This does not make a multi-request operation atomic across consumers. | `tests/unit/transports/test_modbus_connection_scheduling.py` -> `test_request_serialization_scope`; [#350](https://github.com/joyfulhouse/pylxpweb/issues/350#issuecomment-6294453560) records the tested dependency versions | `verified-against-code` |
+| `BatteryModbusTransport.__init__` exposes an owned transport API and has no `unit_factory` argument. | `transports/battery_modbus.py` -> `BatteryModbusTransport.__init__`; [#363](https://github.com/joyfulhouse/pylxpweb/issues/363) | `verified-against-code` |
+
+The dated upstream audit and issue acceptance snapshot is owned by
+[the October 22 maintenance record](../60-history/maintenance-2026-10-22.md).
+
+## Historical transport comparison at 204b95d
 
 | Property | Modbus TCP | WiFi dongle | Evidence |
 |---|---|---|---|
