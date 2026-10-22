@@ -43,4 +43,3 @@ Grade: `asserted-unverified` for the dated wheel comparison, not a claim that
 4.12.6 passed this project's runtime suite. Keep #344 open for a future tmodbus
 0.7 compatibility check, #345 for a released completion contract, #350 for host
 coordination across independent connections, and #363 for a shared consumer.
-
