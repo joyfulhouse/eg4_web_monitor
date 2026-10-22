@@ -1769,3 +1769,14 @@ values. Added the cited operating-history testimony to the existing
 [schema evidence owner](30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658).
 It supplies no nonzero measurement and changes no scaling, leg-aggregation or
 lifetime acceptance boundary. No runtime change or hardware operation.
+
+## [2026-10-22] ingest | #176 master-field offer and beta.21 release preparation
+
+Read the new Wall Mount master-data offer on #176 and rechecked the released b13
+master decoder and integration projection. Recorded the testimony in the direct
+battery semantics owner without claiming universal firmware absence. Known bank
+aggregates are distinct from per-pack readings; SOC/capacity withholding is a
+separate conservative consumer policy. No duplicate hardware capture is required.
+Prepared integration beta.21 metadata and moved the Unreleased changelog, with
+HA 2026.10.0 minimum explicit and the published b13 pin unchanged. Publication
+will follow exact-head independent review, required checks, and merge.

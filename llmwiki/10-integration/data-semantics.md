@@ -1012,6 +1012,15 @@ or a confirmation that the reporter has installed this presentation change.
 
 ### Master values and remaining acceptance
 
+The [October 22 #176 offer](https://github.com/joyfulhouse/eg4_web_monitor/issues/176#issuecomment-6348900896)
+reports master cell voltages and some other readings but missing fields present on
+slaves, and offers another Wall Mount master capture. This is `asserted-unverified`
+reporter testimony, not new register data. It is consistent with the known
+protocol distinction below; it does not prove that every firmware lacks the
+missing fields. Another duplicate capture is not required to establish already
+known bank-aggregate versus per-pack behavior. New model/firmware or populated
+register evidence could change that boundary.
+
 `project_battery` keeps master current, temperature and cycle count unknown
 rather than relabeling the decoder's bank sum/maximum fields as per-pack readings.
 It also deliberately

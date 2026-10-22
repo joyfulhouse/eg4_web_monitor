@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.21] - 2026-10-22
+
+**Requires Home Assistant 2026.10.0 or newer.** Beta.20 is the last release supporting the older HA range.
+
+**Requires [pylxpweb==0.10.0b13](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b13)**
+
 ### Changed
 
 - When the vendor rejects an AC Charge SOC Limit write, point to AC charge start/stop settings in the vendor app and distinguish AC-couple and System Charge SOC controls (#668). Existing limits and write routing are unchanged.
