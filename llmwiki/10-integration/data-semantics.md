@@ -544,50 +544,54 @@ separate runtime limitation is tracked by [#666](https://github.com/joyfulhouse/
 `_guard_total_increasing`; the same-day nonnumeric restore cases are in
 `test_nonnumeric_restore_with_numeric_payload`.
 
-### 4.2.2 LOCAL daily baselines follow accepted snapshot days (#666)
+### 4.2.2 Daily baselines follow conservative per-field LOCAL provenance (#666)
 
-At `a9bab41`, physical LOCAL inverter and GridBOSS daily sensor mappings carry
-`energy_sample_times` from the accepted transport snapshot. Naive library
-snapshot timestamps are interpreted in the host timezone and normalized to
-aware UTC; `EG4BaseSensor` compares their dates in HA's configured timezone.
-The first sample from a later HA local day clears the previous daily baseline,
-so missed low/reset samples cannot pin yesterday's high value. Same-day small
-dips remain guarded; lifetime counters and large-reset behavior are unchanged.
-A restored daily baseline without acquisition provenance cannot pin the first
-trusted LOCAL sample. Cached processing, availability transitions and restore
-serialization retain the original snapshot stamp and cannot expire the guard.
+The physical LOCAL guard shipped in #678. The conservative consumer adoption
+at integration `c3c444392de0fb57baef1fa1be1762d6a97c06b7` uses released pylxpweb `v0.10.0b13`
+(`bce390936f2068000b7a53e2e981e9399139753f`, including library #385).
+Verification scope/date: this subsection only, 2026-10-22.
 
-Evidence: `verified-against-code` at `a9bab41` - `energy_provenance.py` ->
-`local_daily_sample_times`, `coordinator_local.py` -> `_build_local_device_data`
-and `_process_single_local_device`, `base_entity.py` -> `EG4BaseSensor`, and
-`tests/test_local_daily_sample_provenance.py`. The tests cover HA timezone
-boundaries, a real library failed-read cache, active MID mapping, restore and
-availability transitions. This is a policy based on accepted LOCAL snapshot
-acquisition day, not a hardware claim about an inverter's reset clock.
+`energy_provenance.py` -> `daily_sample_times` accepts a field only when its
+nonempty lineage consists entirely of LOCAL leaves with aware acquisition
+stamps on one HA-local calendar day. It preserves the earliest stamp. Unknown,
+HTTP receipt, missing contributors, empty derived records and mixed local days
+provide no expiration timestamp. Legacy `snapshot.timestamp`, property access,
+processing time, numeric changes and HA publication time cannot create evidence.
+This is an acquisition-day policy, not proof of a device's counter day, reset
+timezone or atomic register sampling.
 
-The snapshot assumption was rechecked against pinned pylxpweb `v0.10.0b12`
-(the inspected files are unchanged at `0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`).
-`transports/_register_data.py` -> `read_energy`, `read_all_input_data`, and
-`read_midbox_runtime` build fresh register maps; a MID input-subblock read
-exception rejects the whole snapshot. `InverterEnergyData.from_modbus_registers`
-and `MidboxRuntimeData.from_modbus_registers` decode absent fields as `None`,
-without copying prior individual energy fields into a new timestamp.
-`BaseInverter._fetch_energy` / `_fetch_combined_input_data` and
-`MIDDevice.refresh` / `_validate_runtime_energy` reject invalid new data before
-replacing the accepted snapshot. Thus failed/rejected reads retain the old
-object and acquisition stamp; no accepted LOCAL energy field carry-forward with
-a renewed timestamp occurs in these paths (`verified-against-code` at that
-library pin). Battery accumulator carry-forward is separate and outside this
-policy's scope.
+`local_daily_sample_times` follows inverter transport fields. Public
+`energy_provenance` properties follow the library's selected inverter,
+parallel-group and GridBOSS sources; the coordinator maps them alongside the
+numeric properties. Per-string local overlays qualify only the fields they
+actually replace. The integration's existing consumption balance requires all
+five operands; its LOCAL group sums require every member. A GridBOSS overlay
+replaces the corresponding provenance too, and CT consumption requires both
+UPS and load lineage (including every phase). Missing evidence never borrows
+an inverter/group stamp. These adapters do not change the numeric calculations.
 
-**Remaining scope:** HTTP/HYBRID cloud values, group/independent-battery aggregates
-and chart-derived values do not receive invented provenance. Issue #666 remains
-open; [pylxpweb #383](https://github.com/joyfulhouse/pylxpweb/issues/383) requests
-source identity and per-field acquisition/sample-day metadata preserved through
-caches and aggregation. At library `0ee50a8`, `EnergyInfo` has no sample date,
-`_fetch_energy_http` can stamp a cached endpoint result, and
-`InverterEnergyData.from_http_response` stamps conversion. None proves the
-numeric cloud sample's day. Those paths keep the prior bounded guard contract.
+`EG4BaseSensor` retains #678's behavior: the first sample from a later HA-local
+day clears the daily baseline, including after missed low/reset samples. Same-day
+small dips stay guarded; lifetime counters and large-reset behavior are unchanged.
+Undated restored baselines cannot pin the first trusted LOCAL sample. Cache hits,
+failed/rejected reads, availability changes and restore serialization cannot
+redate accepted values.
+
+Evidence: `verified-against-code` for `energy_provenance.py`, the coordinator
+call sites and `tests/test_energy_provenance_adoption.py` /
+`tests/test_local_daily_sample_provenance.py`. Regression evidence uses the
+released library's real aggregate/conversion/property implementations and HA
+entity lifecycle in UTC, Los Angeles and Kolkata. The library's
+`docs/ENERGY_CONSUMER_HARNESS.md` and `scripts/check_energy_consumer.py` define
+and exercise the same conservative policy; they are software contract evidence,
+not hardware evidence.
+
+**Residual acceptance:** #666 remains open. Cloud response acquisition is now
+preserved by the library, but does not establish the device counter day.
+Battery accumulation and chart-derived values still lack usable day evidence.
+Unknown/mixed-day aggregates keep the bounded guard until qualifying evidence
+arrives; no day, timezone, missing component or lifetime source is fabricated.
+Reliable device counter-day/reset evidence for those paths remains outstanding.
 
 ### 4.3 Consumption and load are two distinct meters
 
