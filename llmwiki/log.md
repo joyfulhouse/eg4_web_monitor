@@ -1666,3 +1666,14 @@ Updated [config flow](10-integration/config-flow.md) and
 cleanup descriptions no longer describe the supported minimum. Invalid-input
 regressions and cross-entry cleanup/topology tests verify software behavior;
 no hardware claim is made.
+
+## [2026-10-22] ingest | Library transport maintenance triggers
+
+Read all current comments on library #189, #344, #345, #350 and #363 and the
+upstream release/source evidence. Added a scoped current snapshot to
+[transports](20-pylxpweb/transports.md), separating the historical pymodbus-only
+description from the released backend and shared-unit seams. Independently
+compared the three production connection/pacing/adapter modules in the 4.12.5
+and 4.12.6 wheels; byte equality is source evidence, not runtime validation.
+The upstream shim/lifecycle release triggers and host/shared-consumer acceptance
+remain open. No transport behavior or dependency pin changes.
