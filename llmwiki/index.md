@@ -6,7 +6,8 @@ sources:
 verified-against: 8ccc734
 # The GridBOSS ownership/catalog row was rechecked at
 # 8289d6f4558e1aa8779a0a49e6c21816f337ee29; other rows retain their prior scope.
-last-verified: 2026-10-13
+# The generator-energy schema ownership row was updated for #658 on 2026-10-22.
+last-verified: 2026-10-22
 see-also:
   - README.md
   - log.md
@@ -73,7 +74,7 @@ defect.
 |---|---|---|
 | [`auth-and-session.md`](30-portal-api/auth-and-session.md) | Login, session lifetime, reauthentication | Authentication; `JSESSIONID` lifecycle; reauthentication and request encoding |
 | [`endpoints.md`](30-portal-api/endpoints.md) | The endpoint inventory and identifier model | Endpoint inventory; object and identifier model; OpenAPI coverage boundaries |
-| [`schemas-and-scaling.md`](30-portal-api/schemas-and-scaling.md) | Response shapes, value scaling, and where sources disagree | Response shapes; cloud value scaling; parameter read/write representation; schema divergences |
+| [`schemas-and-scaling.md`](30-portal-api/schemas-and-scaling.md) | Response shapes, value scaling, and where sources disagree | Response shapes; cloud value scaling; parameter read/write representation; schema divergences; GridBOSS generator-energy portal evidence (#658) |
 | [`errors.md`](30-portal-api/errors.md) | Error envelopes, retries, throttling | Error envelopes; retry and backoff; throttling and cache policy |
 
 ## 40-hardware — registers and firmware

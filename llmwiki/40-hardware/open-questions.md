@@ -11,7 +11,7 @@ sources:
 verified-against: 9f6d6e2
 # GridBOSS threshold-regime row reviewed against PR #639 on 2026-10-20;
 # unrelated rows retain the pin above.
-last-verified: 2026-10-20
+last-verified: 2026-10-22
 ---
 
 # Open hardware and firmware questions
@@ -41,7 +41,7 @@ This page owns only unanswered questions and the evidence needed to close them. 
 |---|---|---|---|
 | What is the complete GridBOSS ARM load base/section map, and is there a separately addressed DSP partner? | The portal lists POWER_HUB but the full mapping is not validated. [`FIRMWARE_ACQUISITION.md`](../../docs/reference/firmware/FIRMWARE_ACQUISITION.md). | `asserted-unverified` | Back-solve the base from vectors/self-loop, validate code/RAM-pointer density and literals, then enumerate portal components for a paired DSP image. |
 | What are the physical meanings of hybrid I21/I22 and I131? | Decoded structures exist, but physical labels remain unresolved. [`HYBRID_EPS_REGISTERS.md`](../../docs/reference/firmware/HYBRID_EPS_REGISTERS.md). | `asserted-unverified` | Capture simultaneous DSP/raw words, per-leg voltage/current/power, event transitions, and independent meter/GridBOSS peers. |
-| Do GB-I50-I51 and GB-I84-I87 accumulate generator energy? | Current decoder labels are unestablished. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md). | `asserted-unverified` | Run a connected generator long enough to increment daily/lifetime energy; compare raw words, portal runtime/export, and an independent meter. |
+| Do GB-I50-I51 and GB-I84-I87 accumulate generator energy? | Current decoder labels are unestablished. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md). The [#658 portal evidence owner](../30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658) records candidate field names without assigning registers or leg semantics. | `asserted-unverified` | Run a connected generator long enough to increment daily/lifetime energy; compare raw words, portal runtime/export, and an independent meter. |
 | Are inherited I60-I63 fault/warning bit names correct? | Word locations are mapped; individual names lack controlled injection. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md). | `lineage-inferred` | Observe naturally occurring safe events or use a factory simulator; never deliberately create hazardous production faults. |
 | When does I69-I70 reset? | Seconds are `portal-correlated`; reset semantics are absent from the durable evidence. [`DATA_MAPPING.md`](../../docs/DATA_MAPPING.md). | `asserted-unverified` | Record the U32 series across separately authorized ARM reboot, inverter reboot, replacement, and power-cycle cases. |
 

@@ -4,6 +4,7 @@ canonical-for:
   - EG4 cloud value scaling
   - EG4 parameter read and write representation
   - spec, documentation, sample, and pylxpweb schema divergences
+  - GridBOSS generator-energy portal evidence and unresolved field contract (#658)
 sources:
   - CHANGELOG.md
   - docs/api/openapi.yaml
@@ -18,10 +19,13 @@ sources:
   - joyfulhouse/pylxpweb/src/pylxpweb/constants/scaling.py
   - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/control.py
   - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/devices.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/658
 verified-against:
-  eg4_web_monitor: 9f6d6e2
-  pylxpweb: 204b95d
-last-verified: 2026-08-08
+  eg4_web_monitor: cb7b6c83535b7c186c7a0082b83ea00b441e8154
+  pylxpweb: bce390936f2068000b7a53e2e981e9399139753f
+# Only the #658 section was rechecked at these pins (manifest-pinned v0.10.0b13).
+# Older sections retain their original scope: eg4_web_monitor 9f6d6e2, pylxpweb 204b95d.
+last-verified: 2026-10-22
 ---
 
 # Schemas and scaling
@@ -56,7 +60,7 @@ The read and write paths are intentionally asymmetric. Applying a read divisor a
 | Active-power fields beginning with `p` | multiply by 1; values are watts | `verified-against-code` `pylxpweb/src/pylxpweb/constants/scaling.py:100-114` |
 | `tinner`, `tradiator*`, valid `tBat` | multiply by 1; values are degrees Celsius | `verified-against-code` `pylxpweb/src/pylxpweb/constants/scaling.py` → `INVERTER_RUNTIME_SCALING` |
 | `soc`, `seps`, `capacityPercent` | multiply by 1; values are percentage points | `verified-against-code` `pylxpweb/src/pylxpweb/constants/scaling.py` → runtime/battery scaling maps; Pydantic model types |
-| **All energy totals** in `EnergyInfo`, `MidboxData`, and history | divide by **10**; raw unit is 0.1 kWh | `verified-against-code` `pylxpweb/src/pylxpweb/constants/scaling.py:121-166`; OpenAPI energy schemas |
+| **Modeled energy totals** in `EnergyInfo`, `MidboxData`, and history | divide by **10**; raw unit is 0.1 kWh | `verified-against-code` `pylxpweb/src/pylxpweb/constants/scaling.py:121-166`; OpenAPI energy schemas |
 
 ### Captured proof for energy
 
@@ -161,3 +165,54 @@ This table records source conflicts and durable traps so an agent does not trust
 | LOW | Hour-boundary timing ambiguity | Treat the response cache as cleared before the hour boundary. | The first request **after** the local hour changes clears the response cache. | `verified-against-code` `pylxpweb/src/pylxpweb/client.py:580-591` |
 
 When scaling sources disagree, prefer canonical constants, Pydantic field names, OpenAPI `x-scaling`, locked tests, and captured raw/display pairs over endpoint docstrings. `inferred` priority derived from the HIGH divergences and their adjudicating evidence
+
+## GridBOSS generator energy (#658)
+
+This section owns the portal evidence and unresolved source contract. Its code
+citations are scoped to integration `cb7b6c83535b7c186c7a0082b83ea00b441e8154`
+and manifest-pinned pylxpweb `bce390936f2068000b7a53e2e981e9399139753f`.
+Do not extend the modeled-energy scaling table to these unmodeled fields.
+
+| Observation | Evidence and boundary | Grade |
+|---|---|---|
+| The reporter says the GridBOSS `E_gen(kWh)` chart uses `energyType=eGenTodayL1`, including Total view. | [October 21 chart comment](https://github.com/joyfulhouse/eg4_web_monitor/issues/658#issuecomment-6307920021). No chart request/response or renderer source is attached to that comment. | `asserted-unverified` |
+| The attached image contains `eGenTodayL1: "0"`, `eGenTodayL2: "0"`, `eGenTotalL1: "0"`, and `eGenTotalL2: "0"`. | [October 21 screenshot comment](https://github.com/joyfulhouse/eg4_web_monitor/issues/658#issuecomment-6308174905), [original PNG](https://github.com/user-attachments/assets/27750229-9c86-4b07-9c03-31536873d17b). These are literal visible names and values; their physical meaning is uncorroborated. The crop shows no endpoint URL, response envelope, timestamp, unit, device identity, chart, or Total selector. | `asserted-unverified` |
+| GridBOSS generator-energy sensors lack a software source mapping. | pylxpweb `models.py` -> `MidboxData` has no four `eGen*L*` fields; `devices/_mid_runtime_properties.py` -> `MIDRuntimePropertiesMixin` has generator electrical properties but no generator-energy properties. Integration `coordinator_mappings.py` -> `_build_gridboss_sensor_mapping` maps generator power/voltage/current/frequency, not energy. The issue's earlier `MidboxRuntimeData` name is not the cloud model name. | `verified-against-code` |
+| A Total chart request can still use a daily-series selector. | pylxpweb `endpoints/analytics.py` -> `AnalyticsEndpoints.get_energy_total_breakdown` passes `energyType` unchanged to `/WManage/api/analyze/energy/totalColumn`. This is the library request contract; it does not establish how the GridBOSS portal renderer aggregates legs or what the server returns for `eGenTodayL1`. | `verified-against-code` |
+| Zero samples cannot distinguish a per-leg field from a combined field or establish a divisor. | Inference from the four zero values: either interpretation and every proposed scaling produce zero. The `L1`/`L2` suffixes alone do not adjudicate physical meaning. | `inferred` |
+
+The original PNG's SHA-256 is
+`3660c6f706b9fe4989454c69c9f31df524071575a42960a43596dc5522014375`
+(computed from the linked attachment). On 2026-10-22, an unauthenticated GET of
+`/WManage/web/analyze/energy` returned the login page. An attempted public asset
+`https://resource.solarcloudsystem.com/WManage/web/js/analyze/energy.js`
+returned HTTP 404. These attempts did not recover the renderer and do not prove
+that authenticated source is unavailable. Investigation record: `asserted-unverified`.
+
+**Implementation boundary:** no supported combined daily or lifetime contract has
+been established by these sources (`asserted-unverified`, #658). The screenshot
+supplies candidate lifetime-like names, not proof of persistence/reset behavior.
+Do not silently sum L1/L2, promote the chart's Total label into a device lifetime
+counter, or import inverter register mappings into GridBOSS. Local register
+candidates remain owned by [registers.md](../40-hardware/registers.md#gridboss-register-ledger).
+
+Acceptance requires read-only captures during naturally occurring generator use:
+
+1. Preserve the full sanitized runtime request URL, form/query parameters and JSON
+   response, device family/firmware if available, and timestamp. Capture nonzero
+   values for all four candidate fields alongside the portal's displayed values
+   and units; zero or missing fields must remain distinguishable.
+2. Preserve Day and Total `E_gen` chart requests/responses with their date range,
+   `energyType`, `parallel` value, series labels and rendered values, plus the
+   fetched renderer JavaScript and exact URL/hash. Trace selection, scaling and
+   any L1/L2 addition; a Total time-range view is not proof of an electrical sum.
+3. Resolve one-leg versus combined using unequal nonzero leg deltas and an
+   independent per-leg/combined energy reference, or authoritative producer code
+   establishing that contract. A fixture encoding an assumed sum cannot do this.
+4. Establish a lifetime source separately: nonzero before/after counter values
+   across a day boundary with daily reset, displayed lifetime correlation and
+   documented reset/persistence scope. Do not substitute a sum of retained chart
+   history without an explicitly supported history-derived sensor contract.
+
+These are evidence requirements, not authorization to operate a generator or
+write hardware. #658 remains the acceptance tracker.

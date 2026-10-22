@@ -1666,3 +1666,17 @@ Updated [config flow](10-integration/config-flow.md) and
 cleanup descriptions no longer describe the supported minimum. Invalid-input
 regressions and cross-entry cleanup/topology tests verify software behavior;
 no hardware claim is made.
+
+## [2026-10-22] ingest | #658 GridBOSS generator-energy evidence boundary
+
+Read the issue body, all three comments, and the October 21 PNG. Recorded the
+four zero-valued candidate fields and the reported Day/Total selector in
+[the portal schema owner](30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658).
+The earlier audit lacked these field names; the new screenshot still cannot
+establish electrical-leg aggregation, scaling, or lifetime semantics. Checked
+`MidboxData`, `MIDRuntimePropertiesMixin`, the analytics Total request and the
+integration GridBOSS mapping at the section's exact pins. Narrowed the older
+energy-scaling table to modeled fields so it does not silently license a divisor
+for the new candidates. Linked the existing hardware question and catalog;
+recorded precise capture requirements. No runtime change or evidence-grade
+promotion; #658 remains open for acceptance evidence.
