@@ -1,6 +1,8 @@
 ---
 canonical-for: pylxpweb local Modbus TCP and WiFi dongle transport behavior
 sources:
+  - custom_components/eg4_web_monitor/ha_modbus.py
+  - tests/test_ha_modbus.py
   - pylxpweb@204b95d:src/pylxpweb/transports/
   - pylxpweb@204b95d:src/pylxpweb/registers/battery.py
   - pylxpweb@204b95d:tests/unit/transports/
@@ -10,9 +12,10 @@ sources:
   - https://github.com/joyfulhouse/pylxpweb/issues/363
   - https://github.com/joyfulhouse/pylxpweb/issues/189
 verified-against:
+  eg4_web_monitor: af613d779035a19412c84a1bcf300b210f2adf32
   pylxpweb: 204b95d
 # The maintenance snapshot below is separately scoped to cc503f8.
-last-verified: 2026-10-22
+last-verified: 2026-10-23
 ---
 
 # Local transports
@@ -33,6 +36,28 @@ details below retain their original `204b95d` pin.
 
 The dated upstream audit and issue acceptance snapshot is owned by
 [the October 22 maintenance record](../60-history/maintenance-2026-10-22.md).
+
+### Home Assistant shared-link conflict boundary
+
+The integration's `ha_modbus.py` -> `build_shared_unit_factory` is the host
+adapter for borrowed inverter units. At integration
+`af613d779035a19412c84a1bcf300b210f2adf32`,
+a `HomeAssistantError` from shared-unit acquisition becomes a
+`TransportConnectionError` with the original cause. The factory does not create
+an owned transport on that error and does not memoize a failed acquisition.
+Retry after the conflict clears can acquire one shared unit normally. Explicit
+owned-backend selection and unavailable-sharing-seam fallbacks retain their
+separate behavior. These claims are `verified-against-code` in the named factory
+and `tests/test_ha_modbus.py` (factory, real HA ownership, and coordinator retry
+regressions); other transport claims retain their historical pins.
+
+This host refusal fixes a particular conflict path. Separate connections,
+hostname aliases, different processes and multi-request atomicity still need
+host ownership/scheduling policy; #350 remains open. The distinction is
+`verified-against-code` in library
+`tests/unit/transports/test_modbus_connection_scheduling.py` at `cc503f8` and
+`inferred` for the external-host requirement described in
+`pylxpweb/docs/MODBUS_HOST_OWNERSHIP.md` at that same pin.
 
 ## Historical transport comparison at 204b95d
 

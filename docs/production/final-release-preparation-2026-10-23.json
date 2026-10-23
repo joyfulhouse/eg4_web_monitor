@@ -1,0 +1,117 @@
+{
+  "captured_utc": "2026-10-23T19:06:00.211080+00:00",
+  "scope": "Offline final-release preparation; no new authenticated production observations",
+  "initial_upstream": {
+    "eg4_web_monitor": "bf8bfe6ef02570288cae809445773e1e29fb074a",
+    "pylxpweb": "cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b"
+  },
+  "tested_source": {
+    "eg4_web_monitor": "af613d779035a19412c84a1bcf300b210f2adf32",
+    "pylxpweb": "cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b"
+  },
+  "runtime_change_scope_since_beta21": [
+    "diagnostics.py",
+    "ha_modbus.py",
+    "sensor.py"
+  ],
+  "dependency_pin": "pylxpweb==0.10.0b13",
+  "python": "3.14.8",
+  "regression_checks": {
+    "countdown_original_implementation": {
+      "failed": 14,
+      "scope": "initial/late sensor key, both hybrid models, HTTP/local, late device/model/transport eligibility"
+    },
+    "countdown_fixed_focused": {
+      "passed": 79,
+      "includes": "real HA registry identity/state/duplicate-warning checks"
+    },
+    "shared_modbus_original_factory": {
+      "failed": 4,
+      "scope": "TCP/ESPHome conflicts, real HA ownership, coordinator retry"
+    },
+    "shared_modbus_fixed_focused": {
+      "passed": 41
+    }
+  },
+  "library_compatibility": {
+    "tests": [
+      "tests/unit/transports/test_modbus_client_seam.py",
+      "tests/unit/transports/test_modbus_connection_scheduling.py"
+    ],
+    "passed": 176,
+    "warnings": 1,
+    "warning": "Existing pytest timeout option without pytest-timeout plugin in standalone audit environment",
+    "dependencies": {
+      "aiohttp": "3.14.5",
+      "modbus-connection": "4.12.6",
+      "tmodbus": "0.6.2",
+      "aioresponses": "0.7.9"
+    },
+    "environment": "Standalone library dev environment; no HA plugin; local fake-server tests",
+    "invalid_initial_attempt": "Integration HA test plugin blocked loopback fixtures; replaced with standalone library environment, no production-code change or HA guard relaxation"
+  },
+  "production_access": {
+    "authenticated": false,
+    "unauthenticated_api_http_status": 401,
+    "credentials_available": false,
+    "current_state_verified": false
+  },
+  "actions": {
+    "deployments": 0,
+    "restarts": 0,
+    "test_hardware_writes": 0,
+    "induced_outages": 0,
+    "clock_changes": 0,
+    "generator_tests": 0,
+    "master_reconstruction_enabled": false,
+    "release_publications": 0
+  },
+  "independent_review": {
+    "model": "gpt-6-astra",
+    "reasoning_effort": "medium",
+    "session_id": "684f3b020df549c0be279072466c6830",
+    "model_verified_by": "Omnigent sys_session_get_info",
+    "combined_static_findings": "No actionable correctness findings; operational plan findings addressed"
+  },
+  "validation_resource_policy": {
+    "memory_limit_bytes": 8589934592,
+    "heavy_validation_serialized": true,
+    "memory_events": [
+      "low 0",
+      "high 0",
+      "max 0",
+      "oom 0",
+      "oom_kill 0",
+      "oom_group_kill 0"
+    ]
+  },
+  "ha_matrix": {
+    "minimum": {
+      "homeassistant": "2026.10.0",
+      "test_plugin": "0.13.371",
+      "passed": 4190,
+      "skipped": 9,
+      "warnings": 36,
+      "coverage_percent": 93.47,
+      "strict_mypy": "passed (56 source files)",
+      "tests_command": "pytest tests/ -q --tb=short --cov=custom_components/eg4_web_monitor --cov-report=term --cov-report=json"
+    },
+    "latest": {
+      "homeassistant": "2026.10.2",
+      "test_plugin": "0.13.373",
+      "passed": 4190,
+      "skipped": 9,
+      "warnings": 36,
+      "coverage_percent": 93.47,
+      "strict_mypy": "passed (56 source files)",
+      "tests_command": "pytest tests/ -q --tb=short --cov=custom_components/eg4_web_monitor --cov-report=term --cov-report=json"
+    }
+  },
+  "other_gates": {
+    "ruff_lint": "passed",
+    "ruff_format": "passed",
+    "silver_validator": "passed",
+    "gold_validator": "passed",
+    "platinum_validator": "passed"
+  }
+}
