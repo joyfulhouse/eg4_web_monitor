@@ -14,7 +14,7 @@ sources:
   - https://github.com/home-assistant-libs/modbus-connection/commit/2d29ba2500f4edd8b7f89ee5d396a2b5ed7d6f25
 verified-against:
   pylxpweb: cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b
-last-verified: 2026-10-22
+last-verified: 2026-10-23
 see-also:
   - ../20-pylxpweb/transports.md
 ---
@@ -43,3 +43,29 @@ Grade: `asserted-unverified` for the dated wheel comparison, not a claim that
 4.12.6 passed this project's runtime suite. Keep #344 open for a future tmodbus
 0.7 compatibility check, #345 for a released completion contract, #350 for host
 coordination across independent connections, and #363 for a shared consumer.
+
+## October 23 follow-up
+
+PyPI release/source inspection again found aioresponses 0.7.9, tmodbus 0.6.2
+and modbus-connection 4.12.6. Published aioresponses still omits `stream_writer`;
+tmodbus still initiates underlying close without awaiting completion. No released
+trigger for removing either workaround was found (`asserted-unverified`, the
+PyPI sources above and the upstream issues linked in the October 22 record).
+
+On pylxpweb `cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b`, the
+`tests/unit/transports/test_modbus_client_seam.py` and
+`tests/unit/transports/test_modbus_connection_scheduling.py` regression suites
+passed together: 176 passed on Python 3.14.8, aiohttp 3.14.5,
+modbus-connection 4.12.6, tmodbus 0.6.2 and aioresponses 0.7.9. This scoped
+software result is `asserted-unverified` as a dated run observation; the test
+contracts themselves are `verified-against-code` at the pinned commit. It does
+not prove hardware timing, independent-connection coordination, or compatibility
+with future releases. One existing pytest configuration warning reported an
+unavailable timeout plugin in the standalone audit environment.
+
+The initial attempt incorrectly reused the integration's test environment,
+whose automatically loaded HA plugin blocks the library's loopback fake-server
+fixtures. That run was invalid for standalone-library acceptance. The passing
+run used a separate library environment with its normal dev dependencies and
+the explicit dependency versions above; HA integration socket restrictions were
+not weakened.

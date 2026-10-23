@@ -7,7 +7,8 @@ verified-against: 8ccc734
 # The GridBOSS ownership/catalog row was rechecked at
 # 8289d6f4558e1aa8779a0a49e6c21816f337ee29; other rows retain their prior scope.
 # The generator-energy schema ownership row was updated for #658 on 2026-10-22.
-last-verified: 2026-10-22
+# Final-release readiness catalog row added on 2026-10-23; other rows retain their scopes.
+last-verified: 2026-10-23
 see-also:
   - README.md
   - log.md
@@ -108,6 +109,7 @@ Read this before trusting a confident claim found elsewhere in the repo.
 | [`bug-postmortems.md`](60-history/bug-postmortems.md) | Symptom, true root cause, fix, and the generalizable lesson for each shipped bug | Postmortem catalogue |
 | [`maintenance-2026-10-22.md`](60-history/maintenance-2026-10-22.md) | Dated upstream transport audit | October 22 2026 release/source evidence and unresolved issue acceptance snapshot |
 | [`production-beta21-2026-10-23.md`](60-history/production-beta21-2026-10-23.md) | Authorized production smoke test | October 23 beta.21 installation, baseline comparison, diagnostics warning, and acceptance limits |
+| [`final-release-readiness-2026-10-23.md`](60-history/final-release-readiness-2026-10-23.md) | Final-release preparation and issue classification | October 23 follow-up validation, release blockers, accepted limitations, future work and production acceptance gaps |
 
 ## Where to start, by task
 

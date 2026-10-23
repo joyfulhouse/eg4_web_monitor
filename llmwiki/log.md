@@ -1801,3 +1801,24 @@ await. Metadata lookup now precedes coordinator capture and alias collection;
 a refresh-during-lookup regression protects newly appearing device and battery
 identifiers. Removed household security/presence detail from the dated public
 evidence; the record retains only that operational preconditions were checked.
+
+
+## [2026-10-23] ingest | Final-release defects and acceptance boundaries
+
+Reproduced #692's generic/specialized countdown duplication at startup and late
+discovery. The [entity owner](10-integration/entities-identity-availability.md)
+records one status-backed producer with stable identity. Also replaced the
+shared-Modbus conflict fallback with a transport error preserving HA ownership;
+the [transport owner](20-pylxpweb/transports.md) retains #350's independent-connection
+scheduling boundary. Both fixes have before/after regressions and real HA
+lifecycle/ownership coverage.
+
+Updated the [diagnostics owner](10-integration/diagnostics-repairs.md) to identify
+#690 as merged source, and appended the released-dependency compatibility result
+to the [maintenance record](60-history/maintenance-2026-10-22.md). The
+[readiness report](60-history/final-release-readiness-2026-10-23.md) owns validation
+and issue classifications; the linked deployment plan remains unexecuted.
+Independent review tightened observation thresholds and disabled/eligible entity
+acceptance. Production authentication was unavailable, so no historical smoke-test
+count was promoted to current live health, and no deployment, restart, hardware
+write or release publication occurred.

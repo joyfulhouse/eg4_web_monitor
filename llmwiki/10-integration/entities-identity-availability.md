@@ -9,6 +9,7 @@ sources:
   - tests/test_battery_bus.py
   - custom_components/eg4_web_monitor/base_entity.py
   - tests/test_energy_guard_restore.py
+  - tests/test_sensor_entities.py
   - custom_components/eg4_web_monitor/sensor.py
   - custom_components/eg4_web_monitor/binary_sensor.py
   - custom_components/eg4_web_monitor/update.py
@@ -31,9 +32,11 @@ verified-against:
 # Scope: section 6 bounded initial-parameter wait claims, re-verified 2026-10-13.
 # This immutable inline pin licenses only those claims; unrelated claims retain
 # their existing verification pins; prior # Direct battery sections verified against 7bbb0b2 on 2026-10-20.
-last-verified: 2026-08-12.
+# Historical verification date: 2026-08-12.
 # The refreshed date applies only to the scope above (no wholesale reverification).
-last-verified: 2026-10-13
+# Countdown discovery subsection verified at af613d779035a19412c84a1bcf300b210f2adf32 on 2026-10-23.
+# Other sections retain the scoped pins above.
+last-verified: 2026-10-23
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -49,6 +52,7 @@ Two facts on this page are load-bearing and routinely mis-assumed. Read §2 and 
 reasoning about any entity-state bug.
 
 ## 1. Inheritance graph
+
 
 ```
 CoordinatorEntity
@@ -91,6 +95,27 @@ rules are owned by [data-semantics.md §4.2.1](data-semantics.md#421-restart-bas
 Note the split: **measurement** entities descend from `EG4DeviceEntity` / `EG4BatteryEntity` /
 `EG4StationEntity`; **control** entities descend from `EG4OptimisticEntity`. The two branches have
 deliberately different availability contracts (§2).
+
+### Quick-charge countdown discovery (#692)
+
+At `af613d779035a19412c84a1bcf300b210f2adf32` (2026-10-23),
+`sensor.py` -> `_create_quick_charge_remaining_sensor` is the sole inverter
+countdown constructor used by initial and late discovery. Both generic discovery
+loops exclude `quick_charge_remaining`; late discovery tracks serials for which
+the specialized entity was actually submitted. The model/family and
+HTTP-or-configured-local eligibility gate is shared by both paths. These claims
+are `verified-against-code` (`sensor.py` -> `_create_inverter_sensors`,
+`async_setup_entry`, `_create_quick_charge_remaining_sensor`).
+
+The unique ID remains `{serial}_quick_charge_remaining`, and
+`EG4QuickChargeRemainingSensor._get_raw_value` reads `quick_charge_status` rather
+than a similarly named generic sensor value. With a present device, absent/idle
+status returns zero; a missing device returns `None`, and availability follows
+the device health contract. `TestQuickChargeDiscovery` in
+`tests/test_sensor_entities.py` covers initial/late keys, late eligibility,
+repeated discovery, conflicting generic data, and reuse of an existing renamed
+HA registry entry without duplicate-ID warnings. This is software evidence
+(`verified-against-code`), not a live quick-charge activation test.
 
 ## 2. Availability semantics DIFFER per base class
 

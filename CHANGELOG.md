@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Run diagnostics package-version filesystem reads in Home Assistant's executor and collect redaction aliases after that wait (#691).
+- Create one specialized Quick Charge Remaining sensor per inverter during startup and late discovery, preserving existing entity IDs and the countdown status source (#692).
+- Reject conflicting Home Assistant shared Modbus settings instead of opening a competing owned connection. Preserve the original conflict and allow normal retry after it clears (related to pylxpweb #350).
+
 ## [3.5.1-beta.21] - 2026-10-22
 
 **Requires Home Assistant 2026.10.0 or newer.** Beta.20 is the last release supporting the older HA range.

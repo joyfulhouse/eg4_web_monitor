@@ -16,7 +16,9 @@ sources:
   - docs/production/beta21-2026-10-23.json
   - tests/test_diagnostics.py
 verified-against: 9f6d6e2
-last-verified: 2026-08-08
+# Metadata executor/redaction-order subsection re-verified at bf8bfe6 on 2026-10-23.
+# Other sections retain their original pin and date scope.
+last-verified: 2026-10-23
 see-also:
   - ../50-operations/issue-pipeline.md
 ---
@@ -57,7 +59,8 @@ recorded in [the sanitized evidence](../../docs/production/beta21-2026-10-23.jso
 it does not establish a newly introduced beta.21 regression. This page's older
 pin does not cover the following fix.
 
-The fix runs `importlib.metadata.version` through `hass.async_add_executor_job`
+At `bf8bfe6ef02570288cae809445773e1e29fb074a`, the merged fix runs
+`importlib.metadata.version` through `hass.async_add_executor_job`
 and keeps the `PackageNotFoundError` fallback. Metadata lookup completes before
 coordinator capture and alias collection; no await separates alias collection
 from serialization. `test_inventory_changed_during_metadata_lookup_is_redacted`
@@ -65,8 +68,12 @@ checks new device and battery identifiers introduced during the wait. The regres
 `test_package_metadata_lookup_runs_outside_event_loop` checks actual thread
 identity for successful and missing-package lookups. Both cases fail against
 the original synchronous implementation and pass with the executor call.
-These are local validation results; the proposed fix was not installed on
+The executor and ordering claims are `verified-against-code` at that scoped pin
+(`diagnostics.py` -> `async_get_config_entry_diagnostics` and the named tests).
+These are software validation results; the fix was not installed on
 production during the [smoke test](../60-history/production-beta21-2026-10-23.md).
+Issue #691's separate production acceptance remains tracked in the
+[final-release readiness report](../60-history/final-release-readiness-2026-10-23.md).
 
 > The diagnostics platform **did not exist until 2026-08-02** (issue #515). Triage comments
 > predating that asked reporters to download diagnostics that were not implemented.
