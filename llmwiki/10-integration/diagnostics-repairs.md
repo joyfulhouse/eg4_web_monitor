@@ -58,7 +58,10 @@ it does not establish a newly introduced beta.21 regression. This page's older
 pin does not cover the following fix.
 
 The fix runs `importlib.metadata.version` through `hass.async_add_executor_job`
-and keeps the `PackageNotFoundError` fallback. The regression test
+and keeps the `PackageNotFoundError` fallback. Metadata lookup completes before
+coordinator capture and alias collection; no await separates alias collection
+from serialization. `test_inventory_changed_during_metadata_lookup_is_redacted`
+checks new device and battery identifiers introduced during the wait. The regression test
 `test_package_metadata_lookup_runs_outside_event_loop` checks actual thread
 identity for successful and missing-package lookups. Both cases fail against
 the original synchronous implementation and pass with the executor call.

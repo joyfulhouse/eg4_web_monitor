@@ -129,15 +129,14 @@
   ],
   "actions": {
     "explicit_user_authorization": true,
-    "alarm_panels_disarmed": 5,
-    "occupied": true,
     "integration_upgrade": "beta.20 -> beta.21",
     "core_restarts": 1,
     "test_initiated_hardware_writes": 0,
     "forced_disconnects": 0,
     "clock_changes": 0,
     "rollback": "preserved private integration/config/registry archive on HA and local observer; not exercised",
-    "normal_automations": "left active"
+    "normal_automations": "left active",
+    "operational_preconditions_checked": true
   },
   "limitations": [
     "short observation window",

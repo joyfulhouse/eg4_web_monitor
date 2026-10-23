@@ -24,8 +24,7 @@ was not a named-control/raw-register before/after/restore experiment.
 
 The user explicitly authorized installation and a Home Assistant restart after
 read-only inspection. Access was authenticated REST/WebSocket and the existing
-Terminal & SSH add-on. All five alarm panels were disarmed and presence reported
-an occupant before proceeding. No test-initiated inverter writes, forced outages,
+Terminal & SSH add-on. Operational preconditions were checked before proceeding. No test-initiated inverter writes, forced outages,
 clock changes, or generator operation occurred; normal automation was left active.
 
 Production ran HA 2026.10.2 in America/Los_Angeles. The starting integration was

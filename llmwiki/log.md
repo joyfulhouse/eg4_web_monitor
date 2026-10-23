@@ -1793,3 +1793,11 @@ exposed synchronous package-metadata I/O; updated
 and a thread-identity regression test. The diagnostics source was identical
 on beta.20, so this finding is not a newly established beta.21 regression.
 No test hardware writes, PR merge, patch deployment, or release publication.
+
+## [2026-10-23] ingest | Diagnostics review corrections
+
+Independent review of #690 found an alias-map race across the new executor
+await. Metadata lookup now precedes coordinator capture and alias collection;
+a refresh-during-lookup regression protects newly appearing device and battery
+identifiers. Removed household security/presence detail from the dated public
+evidence; the record retains only that operational preconditions were checked.
