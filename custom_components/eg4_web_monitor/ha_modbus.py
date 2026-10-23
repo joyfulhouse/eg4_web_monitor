@@ -15,6 +15,8 @@ swap the wire library under existing installs and drop pylxpweb's gateway
 transaction-ID workaround. Older Home Assistant (no ``async_get_unit``), a
 pylxpweb without the ``unit=`` seam, or a missing ``modbus_connection``
 package all fall back to the default factory, where pylxpweb owns the link.
+Conflicting shared-link settings fail acquisition rather than opening an
+independent connection to the same device.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from pylxpweb.transports.config import TransportConfig, TransportType
+from pylxpweb.transports.exceptions import TransportConnectionError
 
 from .coordinator_mappings import SERIALX_ONLY_SCHEMES
 from .endpoint_bus import RawTransportFactory, _RawLocalTransport
@@ -199,8 +202,9 @@ def build_shared_unit_factory(
     """Return a raw-transport factory that injects Home Assistant's units.
 
     Returns ``fallback`` itself when Home Assistant, pylxpweb or the
-    ``modbus_connection`` package cannot provide a shared unit, so callers
-    can pass the result unconditionally.
+    ``modbus_connection`` package lacks the sharing seam. A shared-link
+    conflict raises ``TransportConnectionError`` for the caller's normal
+    failure/retry handling; it never falls back to an independent link.
 
     Each ``async_get_unit`` call adds one hold on the shared connection that
     is released only when ``entry`` unloads, so units are memoised per link
@@ -226,17 +230,12 @@ def build_shared_unit_factory(
             try:
                 unit = get_unit(hass, entry, params, config.unit_id)
             except HomeAssistantError as err:
-                # Another integration holds this device with different link
-                # settings (baud rate, parity...). Both cannot be honoured on
-                # one connection; keep this transport working on its own link.
-                _LOGGER.warning(
-                    "Modbus device %s is shared with different link settings "
-                    "(%s); %s keeps its own connection",
-                    params.endpoint,
-                    err,
-                    config.serial,
-                )
-                return fallback(config)
+                # Keep the shared owner's exclusion intact. Failed acquisition
+                # takes no hold and must remain retryable after settings change.
+                raise TransportConnectionError(
+                    f"Cannot acquire shared Modbus device {params.endpoint} "
+                    f"for {config.serial}: {err}"
+                ) from err
             units[key] = unit
             _require_timeout(unit, config.timeout)
             _LOGGER.debug(

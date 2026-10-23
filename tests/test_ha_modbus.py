@@ -9,8 +9,8 @@ These tests pin the eg4 side of that seam:
   so ``auto`` on TCP / local serial keeps the owned pymodbus path;
 - one ``async_get_unit`` hold per link and unit ID, however often the
   capability is recreated;
-- older Home Assistant (no ``async_get_unit``) and a link-settings clash
-  fall back to the owned factory.
+- older Home Assistant (no ``async_get_unit``) keeps the owned fallback;
+- a link-settings clash refuses an independent link and permits later retry.
 """
 
 from __future__ import annotations
@@ -21,9 +21,11 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from pylxpweb.transports import ModbusSerialTransport, ModbusTransport
 from pylxpweb.transports.config import TransportConfig
+from pylxpweb.transports.exceptions import TransportConnectionError
 import pytest
 
 from custom_components.eg4_web_monitor import ha_modbus
@@ -265,14 +267,36 @@ class TestSharedUnitFactory:
 
         assert factory(_config(_ESPHOME))._external_unit is unit
 
-    def test_link_settings_clash_falls_back_to_owned_link(
-        self, entry: Any, fallback: MagicMock, caplog: pytest.LogCaptureFixture
+    @pytest.mark.parametrize(
+        "item", [_ESPHOME, {**_TCP, "backend": "modbus_connection"}]
+    )
+    def test_link_settings_clash_refuses_owned_link_and_allows_retry(
+        self, item: dict[str, Any], entry: Any, fallback: MagicMock
     ) -> None:
-        get_unit = MagicMock(side_effect=HomeAssistantError("different settings"))
+        conflict = HomeAssistantError("different settings")
+        unit = _TimeoutRecordingUnit()
+        get_unit = MagicMock(side_effect=[conflict, unit])
         factory = _factory(get_unit, entry, fallback)
+        config = _config(item)
 
-        assert factory(_config(_ESPHOME)) is fallback.return_value
-        assert "different link settings" in caplog.text
+        with patch.object(
+            ha_modbus, "_build_transport", wraps=ha_modbus._build_transport
+        ) as build:
+            with pytest.raises(
+                TransportConnectionError, match="different settings"
+            ) as raised:
+                factory(config)
+            assert raised.value.__cause__ is conflict
+            fallback.assert_not_called()
+            build.assert_not_called()
+
+            first = factory(config)
+            second = factory(config)
+
+        assert first._external_unit is second._external_unit is unit
+        assert get_unit.call_count == 2
+        assert unit.required == [config.timeout]
+        fallback.assert_not_called()
 
 
 _RESOLUTION_CASES = [
@@ -384,6 +408,125 @@ async def test_real_async_get_unit_holds_until_entry_unloads(hass: Any) -> None:
     assert endpoint not in hass.data[DATA_MODBUS_CONNECTIONS]
     assert shared.consumers == 0
     assert shared.connection._closed
+
+
+async def test_real_shared_link_conflict_does_not_create_another_connection(
+    hass: Any,
+) -> None:
+    """Core rejects incompatible framing before any second connection or dial."""
+    modbus = pytest.importorskip("homeassistant.components.modbus")
+    if not hasattr(modbus, "async_get_unit"):
+        pytest.skip("Home Assistant core predates async_get_unit (2026.9)")
+    from homeassistant.components.modbus import connection as core_connection
+    from modbus_connection import ModbusSerialParams
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    owner = MockConfigEntry(domain="modbus")
+    entry = MockConfigEntry(domain="eg4_web_monitor")
+    owner.add_to_hass(hass)
+    entry.add_to_hass(hass)
+    config = _config(_ESPHOME)
+    params = ha_modbus._unit_params(config)
+    fallback = MagicMock(name="owned_factory")
+    factory = ha_modbus.build_shared_unit_factory(hass, entry, fallback)
+    modbus.async_get_unit(
+        hass, owner, dataclasses.replace(params, baudrate=9600), config.unit_id
+    )
+    connections = hass.data[core_connection.DATA_MODBUS_CONNECTIONS]
+    original = connections[params.endpoint]
+    assert isinstance(original.params, ModbusSerialParams)
+
+    try:
+        with (
+            patch.object(core_connection, "ModbusConnection") as create_connection,
+            patch.object(ha_modbus, "_build_transport") as build,
+        ):
+            with pytest.raises(TransportConnectionError) as raised:
+                factory(config)
+            assert isinstance(raised.value.__cause__, HomeAssistantError)
+            assert "different link settings" in str(raised.value.__cause__)
+            create_connection.assert_not_called()
+            build.assert_not_called()
+            fallback.assert_not_called()
+        assert connections == {params.endpoint: original}
+        assert original.consumers == 1
+        assert entry.entry_id not in original.units
+        assert not entry._on_unload
+
+        # Release the conflicting owner, then retry the very same factory.
+        for unload in owner._on_unload or []:
+            await unload()
+        assert original.connection._closed
+        assert not connections
+
+        first = factory(config)
+        second = factory(config)
+        replacement = connections[params.endpoint]
+        assert replacement is not original
+        assert replacement.params == params
+        assert replacement.consumers == 1
+        assert first._external_unit is second._external_unit
+        fallback.assert_not_called()
+    finally:
+        for unload in entry._on_unload or []:
+            await unload()
+        if not original.connection._closed:
+            for unload in owner._on_unload or []:
+                await unload()
+
+
+async def test_coordinator_conflict_uses_transport_failure_and_setup_retry(
+    hass: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Real caller handling leaves no capability behind after failed acquisition."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.eg4_web_monitor.const import (
+        CONF_CONNECTION_TYPE,
+        CONF_LOCAL_TRANSPORTS,
+        CONNECTION_TYPE_LOCAL,
+        DOMAIN,
+    )
+    from custom_components.eg4_web_monitor.coordinator import (
+        EG4DataUpdateCoordinator,
+    )
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_CONNECTION_TYPE: CONNECTION_TYPE_LOCAL,
+            CONF_LOCAL_TRANSPORTS: [dict(_ESPHOME)],
+        },
+    )
+    entry.add_to_hass(hass)
+    entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
+    conflict = HomeAssistantError("different settings")
+    get_unit = MagicMock(side_effect=conflict)
+    fallback = MagicMock(name="owned_factory")
+    coordinator = EG4DataUpdateCoordinator(hass, entry)
+    coordinator._raw_transport_factory = _factory(get_unit, entry, fallback)
+    # Exercise real reads on the initial refresh rather than the static phase.
+    coordinator._local_static_phase_done = True
+    try:
+        with pytest.raises(ConfigEntryNotReady) as raised:
+            await coordinator.async_config_entry_first_refresh()
+        assert "local transports failed" in str(raised.value.__cause__)
+        fallback.assert_not_called()
+        assert not coordinator._bus_capabilities
+        assert not coordinator._bus_capability_configs
+        assert not coordinator._endpoint_bus_registry._owners
+        assert "Failed to update" in caplog.text
+        assert "Unexpected error updating" not in caplog.text
+
+        # The failed owner and unit acquisition cannot poison the next poll.
+        get_unit.side_effect = None
+        get_unit.return_value = _FakeUnit()
+        capability = coordinator._create_bus_capability(_config(_ESPHOME))
+        assert capability in coordinator._bus_capabilities
+        assert get_unit.call_count == 2
+        fallback.assert_not_called()
+    finally:
+        await coordinator.async_shutdown()
 
 
 async def test_coordinator_capability_carries_shared_unit(hass: Any) -> None:

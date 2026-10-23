@@ -510,6 +510,11 @@ async def async_setup_entry(
     # cycle had no bank data.  Entities created during async_setup_entry()
     # only cover keys present in the first update.  This listener registers
     # new device sensor entities that appear in subsequent updates.
+    known_quick_charge_serials = {
+        entity._serial
+        for entity in phase2_entities
+        if isinstance(entity, EG4QuickChargeRemainingSensor)
+    }
     known_device_sensor_keys: dict[str, set[str]] = {}
     for serial, device_data in coordinator.data.get("devices", {}).items():
         dtype = device_data.get("type", "unknown")
@@ -527,6 +532,7 @@ async def async_setup_entry(
                 for k in device_data.get("sensors", {})
                 if k in SENSOR_TYPES
                 and not k.startswith("battery_bank_")
+                and k != "quick_charge_remaining"
                 and _should_create_sensor(k, features)
             }
         elif dtype in ("gridboss", "parallel_group"):
@@ -546,8 +552,18 @@ async def async_setup_entry(
                 continue
             features = device_data.get("features")
             known = known_device_sensor_keys.setdefault(serial, set())
+            if dtype == "inverter" and serial not in known_quick_charge_serials:
+                countdown = _create_quick_charge_remaining_sensor(
+                    coordinator, serial, device_data
+                )
+                if countdown is not None:
+                    known_quick_charge_serials.add(serial)
+                    new_entities.append(countdown)
             for sensor_key in device_data.get("sensors", {}):
                 if sensor_key not in SENSOR_TYPES or sensor_key in known:
+                    continue
+                # The countdown has its own status source and eligibility gate.
+                if dtype == "inverter" and sensor_key == "quick_charge_remaining":
                     continue
                 # Skip battery_bank sensors (handled by their own entity class)
                 if sensor_key.startswith("battery_bank_"):
@@ -707,6 +723,22 @@ async def async_setup_entry(
     entry.async_on_unload(coordinator.async_add_listener(_async_sync_port_sensors))
 
 
+def _create_quick_charge_remaining_sensor(
+    coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
+) -> "EG4QuickChargeRemainingSensor | None":
+    """Create the status-backed countdown when its control model is supported."""
+    if is_supported_control_model(device_data) and (
+        coordinator.has_http_api() or coordinator.has_configured_local_transport(serial)
+    ):
+        return EG4QuickChargeRemainingSensor(
+            coordinator=coordinator,
+            serial=serial,
+            sensor_key="quick_charge_remaining",
+            device_type="inverter",
+        )
+    return None
+
+
 def _create_inverter_sensors(
     coordinator: EG4DataUpdateCoordinator, serial: str, device_data: dict[str, Any]
 ) -> tuple[list[SensorEntity], list[SensorEntity]]:
@@ -730,6 +762,8 @@ def _create_inverter_sensors(
 
     # Create main inverter sensors (excluding battery_bank sensors)
     for sensor_key in device_data.get("sensors", {}):
+        if sensor_key == "quick_charge_remaining":
+            continue
         if sensor_key in SENSOR_TYPES:
             # Skip battery_bank sensors - they'll be created separately
             if not sensor_key.startswith("battery_bank_"):
@@ -754,21 +788,9 @@ def _create_inverter_sensors(
             skipped_sensors,
         )
 
-    # Quick Charge Remaining (minutes) — custom sensor sourced from
-    # quick_charge_status (cloud getStatusInfo or local registers 233/234),
-    # gated exactly like the Quick Charge switch/duration entities (matches by
-    # model-name substring or detected inverter family, #259).
-    if is_supported_control_model(device_data) and (
-        coordinator.has_http_api() or coordinator.has_configured_local_transport(serial)
-    ):
-        inverter_entities.append(
-            EG4QuickChargeRemainingSensor(
-                coordinator=coordinator,
-                serial=serial,
-                sensor_key="quick_charge_remaining",
-                device_type="inverter",
-            )
-        )
+    countdown = _create_quick_charge_remaining_sensor(coordinator, serial, device_data)
+    if countdown is not None:
+        inverter_entities.append(countdown)
 
     # Create battery bank sensors (separate device, phase 2)
     # Battery bank is a parent device for individual batteries

@@ -4,8 +4,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    MockEntityPlatform,
+)
 
 from custom_components.eg4_web_monitor.const import (
+    DOMAIN,
     DISCHARGE_RECOVERY_SENSORS,
     HYBRID_EXCLUDED_SENSORS,
     NON_THREE_PHASE_SENSORS,
@@ -459,6 +465,125 @@ class TestCreateInverterSensors:
 
 
 # ── _create_simple_device_sensors ────────────────────────────────────
+
+
+class TestQuickChargeDiscovery:
+    """One countdown producer retains its identity across coordinator updates."""
+
+    @pytest.mark.parametrize("key_present", [False, True])
+    async def test_existing_registry_identity_and_no_duplicate_warnings(
+        self, hass, caplog, key_present
+    ):
+        device = _inverter_device(
+            sensors={"quick_charge_remaining": 999} if key_present else {},
+        )
+        coordinator = _mock_coordinator(devices={"INV001": device})
+        coordinator.hass = hass
+        coordinator.has_http_api.return_value = True
+        entry = MockConfigEntry(domain=DOMAIN)
+        entry.runtime_data = coordinator
+        entry.add_to_hass(hass)
+        registry = er.async_get(hass)
+        original = registry.async_get_or_create(
+            "sensor",
+            DOMAIN,
+            "INV001_quick_charge_remaining",
+            config_entry=entry,
+            suggested_object_id="my_countdown",
+        )
+        platform = MockEntityPlatform(hass, domain="sensor", platform_name=DOMAIN)
+        platform.config_entry = entry
+
+        def add_entities(entities):
+            hass.async_create_task(platform.async_add_entities(entities))
+
+        await async_setup_entry(hass, entry, add_entities)
+        await hass.async_block_till_done()
+        assert hass.states.get(original.entity_id).state == "0"
+        device["sensors"]["quick_charge_remaining"] = 999
+        device["quick_charge_status"] = {"remainTimeBeforeQuickChargeStop": 598}
+        for call in coordinator.async_add_listener.call_args_list:
+            if call.args[0].__name__ == "_async_discover_device_sensors":
+                call.args[0]()
+        await hass.async_block_till_done()
+        entities = list(platform.entities.values())
+        assert len(entities) == 1
+        entities[0].async_write_ha_state()
+        assert hass.states.get(original.entity_id).state == "598"
+        assert registry.async_get(original.entity_id).id == original.id
+        assert len(er.async_entries_for_config_entry(registry, entry.entry_id)) == 1
+        assert "does not generate unique IDs" not in caplog.text
+        await platform.async_reset()
+
+    @pytest.mark.parametrize("model", ["18kPV", "FlexBOSS21"])
+    @pytest.mark.parametrize("key_present", [False, True])
+    @pytest.mark.parametrize("transport", ["http", "local"])
+    async def test_initial_and_late_key_keep_specialized_sensor(
+        self, hass, model, key_present, transport
+    ):
+        device = _inverter_device(
+            model=model,
+            sensors={"quick_charge_remaining": 999} if key_present else {},
+        )
+        coordinator = _mock_coordinator(devices={"INV001": device})
+        coordinator.has_http_api.return_value = transport == "http"
+        coordinator.has_configured_local_transport.return_value = transport == "local"
+        entry = MagicMock(data={}, entry_id="test_entry", runtime_data=coordinator)
+        added = []
+        await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
+
+        assert len(added) == 1
+        sensor = added[0]
+        assert isinstance(sensor, EG4QuickChargeRemainingSensor)
+        assert sensor.unique_id == "INV001_quick_charge_remaining"
+        assert sensor.native_value == 0
+
+        # The generic value must never replace the countdown status source.
+        for remaining in (598, 597, 0):
+            device["sensors"]["quick_charge_remaining"] = 999
+            device["quick_charge_status"] = {
+                "hasUnclosedQuickChargeTask": remaining > 0,
+                "remainTimeBeforeQuickChargeStop": remaining,
+            }
+            for call in coordinator.async_add_listener.call_args_list:
+                if call.args[0].__name__ == "_async_discover_device_sensors":
+                    call.args[0]()
+            assert added == [sensor]
+            assert sensor.native_value == remaining
+
+    @pytest.mark.parametrize("late_change", ["device", "model", "transport"])
+    @pytest.mark.parametrize("key_present", [False, True])
+    async def test_late_eligibility_creates_one_countdown(
+        self, hass, late_change, key_present
+    ):
+        device = _inverter_device(
+            model="Unknown" if late_change == "model" else "FlexBOSS21",
+            sensors={"quick_charge_remaining": 999} if key_present else {},
+        )
+        coordinator = _mock_coordinator(
+            devices={} if late_change == "device" else {"INV001": device}
+        )
+        coordinator.has_http_api.return_value = late_change != "transport"
+        entry = MagicMock(data={}, entry_id="test_entry", runtime_data=coordinator)
+        added = []
+        await async_setup_entry(hass, entry, lambda entities: added.extend(entities))
+        assert added == []
+
+        coordinator.data["devices"]["INV001"] = device
+        device["model"] = "FlexBOSS21"
+        coordinator.has_http_api.return_value = True
+        device["quick_charge_status"] = {"remainTimeBeforeQuickChargeStop": 598}
+        callback = next(
+            call.args[0]
+            for call in coordinator.async_add_listener.call_args_list
+            if call.args[0].__name__ == "_async_discover_device_sensors"
+        )
+        for _ in range(3):
+            callback()
+        assert len(added) == 1
+        assert isinstance(added[0], EG4QuickChargeRemainingSensor)
+        assert added[0].unique_id == "INV001_quick_charge_remaining"
+        assert added[0].native_value == 598
 
 
 class TestCreateSimpleDeviceSensors:
