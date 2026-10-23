@@ -1780,3 +1780,24 @@ separate conservative consumer policy. No duplicate hardware capture is required
 Prepared integration beta.21 metadata and moved the Unreleased changelog, with
 HA 2026.10.0 minimum explicit and the published b13 pin unchanged. Publication
 will follow exact-head independent review, required checks, and merge.
+
+## [2026-10-23] ingest | Authorized beta.21 production smoke test and diagnostics blocking I/O
+
+Recorded the authorized beta.20-to-beta.21 upgrade, unchanged registry/config
+identity and settled availability, recurring baseline warnings, and untested
+acceptance in [the dated report](60-history/production-beta21-2026-10-23.md).
+Added sanitized evidence under `docs/production/`; credentials, raw diagnostics,
+serials, and private endpoints remain outside Git. The diagnostics download
+exposed synchronous package-metadata I/O; updated
+[the owning page](10-integration/diagnostics-repairs.md) with the executor fix
+and a thread-identity regression test. The diagnostics source was identical
+on beta.20, so this finding is not a newly established beta.21 regression.
+No test hardware writes, PR merge, patch deployment, or release publication.
+
+## [2026-10-23] ingest | Diagnostics review corrections
+
+Independent review of #690 found an alias-map race across the new executor
+await. Metadata lookup now precedes coordinator capture and alias collection;
+a refresh-during-lookup regression protects newly appearing device and battery
+identifiers. Removed household security/presence detail from the dated public
+evidence; the record retains only that operational preconditions were checked.

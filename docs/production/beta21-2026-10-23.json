@@ -1,0 +1,167 @@
+{
+  "scope": "Authorized production smoke test; observations, not hardware control semantics proof",
+  "tag": "v3.5.1-beta.21",
+  "commit": "ca2f63580091bc5a771253a7dbc5fa09fdb70f2a",
+  "zip_sha256": "94682f3397d381b702739ea211e9b83de48764d4e42c545827ee3d74001164eb",
+  "zip_files_matching_tag_and_installed_files": 81,
+  "ha_version": "2026.10.2",
+  "installed_integration": "3.5.1-beta.21",
+  "runtime_pylxpweb": "0.10.0b13",
+  "timezone": "America/Los_Angeles",
+  "mode": "hybrid",
+  "hardware": [
+    {
+      "model": "Station",
+      "firmware": null,
+      "count": 1
+    },
+    {
+      "model": "Parallel Group",
+      "firmware": null,
+      "count": 1
+    },
+    {
+      "model": "18KPV",
+      "firmware": "fAAB-2727",
+      "count": 1
+    },
+    {
+      "model": "18KPV Battery Bank",
+      "firmware": null,
+      "count": 1
+    },
+    {
+      "model": "FlexBOSS21",
+      "firmware": "FAAB-2727",
+      "count": 1
+    },
+    {
+      "model": "FlexBOSS21 Battery Bank",
+      "firmware": null,
+      "count": 1
+    },
+    {
+      "model": "Grid Boss",
+      "firmware": "IAAB-1600",
+      "count": 1
+    },
+    {
+      "model": "WP-16/280-1AWLL",
+      "firmware": "2.17",
+      "count": 6
+    },
+    {
+      "model": "Grid Boss Smart Port",
+      "firmware": null,
+      "count": 4
+    }
+  ],
+  "direct_battery_bridge_configured": false,
+  "before": {
+    "timestamp_utc": "2026-10-23T01:52:38.219937+00:00",
+    "entry_states": [
+      "loaded"
+    ],
+    "registered_entities": 934,
+    "disabled_entities": 283,
+    "registered_devices": 17,
+    "active_states": 651,
+    "availability": {
+      "known": 612,
+      "unknown": 24,
+      "unavailable": 15
+    }
+  },
+  "after": {
+    "timestamp_utc": "2026-10-23T02:16:43.031806+00:00",
+    "entry_states": [
+      "loaded"
+    ],
+    "registered_entities": 934,
+    "disabled_entities": 283,
+    "registered_devices": 17,
+    "active_states": 651,
+    "availability": {
+      "known": 612,
+      "unknown": 24,
+      "unavailable": 15
+    }
+  },
+  "preservation": {
+    "entity_record_ids": true,
+    "entity_identity_settings": true,
+    "device_record_ids": true,
+    "device_identity_ownership": true,
+    "eg4_config_entry_and_options": true,
+    "active_entity_ids": true,
+    "known_states_degraded": 0
+  },
+  "forms": {
+    "initial_config_menu": "rendered; aborted without submission",
+    "initial_options_form": "rendered without errors; aborted without submission"
+  },
+  "services_registered": [
+    "refresh_data",
+    "reconcile_history",
+    "import_historical_data",
+    "fetch_events"
+  ],
+  "warnings": [
+    {
+      "finding": "duplicate quick_charge_remaining unique IDs on both inverters",
+      "baseline_present": true,
+      "after_present": true
+    },
+    {
+      "finding": "diagnostics package metadata lookup triggers blocking listdir/read_text/open",
+      "source": "diagnostics.py:233",
+      "trigger": "diagnostics download",
+      "after_present": true,
+      "beta21_regression_established": false,
+      "diagnostics_source_unchanged_from_beta20": true
+    },
+    {
+      "finding": "dongle connection warning recurred during observation",
+      "baseline_present": true,
+      "after_present": true,
+      "connectivity_resolved": false
+    }
+  ],
+  "actions": {
+    "explicit_user_authorization": true,
+    "integration_upgrade": "beta.20 -> beta.21",
+    "core_restarts": 1,
+    "test_initiated_hardware_writes": 0,
+    "forced_disconnects": 0,
+    "clock_changes": 0,
+    "rollback": "preserved private integration/config/registry archive on HA and local observer; not exercised",
+    "normal_automations": "left active",
+    "operational_preconditions_checked": true
+  },
+  "limitations": [
+    "short observation window",
+    "no natural midnight rollover observed",
+    "no direct battery bridge configured",
+    "no UI display precision or override validation",
+    "no SOC write rejection provoked",
+    "no generator use observed",
+    "no code-20 or code-2102 device represented",
+    "no same-time portal/local consumption comparison",
+    "full config flow branches not submitted",
+    "rollback restore not exercised"
+  ],
+  "fix_validation": {
+    "ha": "2026.10.2",
+    "python": "3.14.7",
+    "pytest_passed": 4170,
+    "pytest_skipped": 9,
+    "pytest_warnings": 36,
+    "coverage": "not remeasured",
+    "ruff": "passed",
+    "format": "passed",
+    "strict_mypy": "passed; 56 source files",
+    "silver_gold_platinum_validators": "passed",
+    "regression_test_unfixed": "both cases fail",
+    "production_patch_installed": false
+  }
+}

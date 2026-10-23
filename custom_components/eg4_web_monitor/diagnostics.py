@@ -208,6 +208,11 @@ async def async_get_config_entry_diagnostics(
     fails is exactly the reporter who needs to attach evidence — so the dump
     degrades to a config-only snapshot instead of raising.
     """
+    try:
+        pylxpweb_version = await hass.async_add_executor_job(version, "pylxpweb")
+    except PackageNotFoundError:
+        pylxpweb_version = "unknown"
+
     coordinator_candidate = getattr(entry, "runtime_data", None)
     coordinator: EG4DataUpdateCoordinator | None = (
         coordinator_candidate
@@ -228,11 +233,6 @@ async def async_get_config_entry_diagnostics(
         return _alias_serials(
             async_redact_data(_jsonable(obj), TO_REDACT), aliases, pattern
         )
-
-    try:
-        pylxpweb_version = version("pylxpweb")
-    except PackageNotFoundError:
-        pylxpweb_version = "unknown"
 
     base_url = entry.data.get("base_url")
     entry_data = dict(entry.data)
