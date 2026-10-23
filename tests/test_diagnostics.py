@@ -12,6 +12,10 @@ instead of raising.
 """
 
 import json
+import threading
+from unittest.mock import patch
+
+from importlib.metadata import PackageNotFoundError
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -164,6 +168,28 @@ async def test_structure_and_versions(hass, entry):
     assert result["coordinator"]["device_count"] == 1
     assert result["versions"]["pylxpweb"] not in ("", None)
     assert result["entry"]["options"] == {"sensor_update_interval": 20}
+
+
+@pytest.mark.parametrize("missing_package", [False, True])
+async def test_package_metadata_lookup_runs_outside_event_loop(
+    hass, entry, missing_package
+):
+    """Metadata disk reads must not block HA, including missing-package lookup."""
+    loop_thread = threading.get_ident()
+
+    def lookup(package):
+        assert threading.get_ident() != loop_thread
+        assert package == "pylxpweb"
+        if missing_package:
+            raise PackageNotFoundError(package)
+        return "0.10.0b13"
+
+    with patch("custom_components.eg4_web_monitor.diagnostics.version", new=lookup):
+        result = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert result["versions"]["pylxpweb"] == (
+        "unknown" if missing_package else "0.10.0b13"
+    )
 
 
 async def test_unknown_objects_become_type_placeholders(hass, entry):

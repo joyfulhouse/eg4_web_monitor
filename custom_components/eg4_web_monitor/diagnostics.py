@@ -230,7 +230,7 @@ async def async_get_config_entry_diagnostics(
         )
 
     try:
-        pylxpweb_version = version("pylxpweb")
+        pylxpweb_version = await hass.async_add_executor_job(version, "pylxpweb")
     except PackageNotFoundError:
         pylxpweb_version = "unknown"
 
