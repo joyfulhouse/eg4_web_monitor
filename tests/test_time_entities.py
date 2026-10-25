@@ -33,6 +33,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from homeassistant.exceptions import HomeAssistantError
 
+from custom_components.eg4_web_monitor import repair_registry
 from custom_components.eg4_web_monitor.const import (
     AC_CHARGE_SCHEDULE_BASE_REGISTER,
     LOCAL_AC_CHARGE_TIME_PARAM_KEYS,
@@ -142,6 +143,7 @@ async def _setup_keys(hass, coordinator) -> set[str]:
     entry = MagicMock()
     entry.runtime_data = coordinator
     entities = []
+    await repair_registry.async_initialize(hass)
     await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
     return {e._attr_translation_key for e in entities}
 
@@ -379,7 +381,10 @@ class TestTimePlatformSetup:
         await _setup_keys(hass, coordinator)
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_forced_charge_times_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_forced_charge_times_removed_{serial}"
+            ),
         )
         assert issue is not None
 
@@ -400,7 +405,10 @@ class TestTimePlatformSetup:
         await _setup_keys(hass, coordinator)
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_forced_charge_times_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_forced_charge_times_removed_{serial}"
+            ),
         )
         assert issue is None
 
@@ -469,6 +477,7 @@ class TestTimePlatformSetup:
         entry = MagicMock()
         entry.runtime_data = coordinator
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = {type(e).__name__ for e in entities}
@@ -488,6 +497,7 @@ class TestTimePlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert entities  # sanity: the hybrid device produced schedule entities

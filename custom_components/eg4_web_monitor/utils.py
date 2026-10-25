@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 from pylxpweb.exceptions import LuxpowerError
+
+from . import repair_registry as ir
 
 if TYPE_CHECKING:
     from .coordinator import EG4DataUpdateCoordinator

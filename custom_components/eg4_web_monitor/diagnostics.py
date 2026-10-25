@@ -31,6 +31,7 @@ from .const import (
     CONF_PLANT_NAME,
 )
 from .coordinator import EG4DataUpdateCoordinator
+from .battery_bus import BatteryBusCoordinator
 
 TO_REDACT = {
     "username",
@@ -38,6 +39,9 @@ TO_REDACT = {
     CONF_PLANT_NAME,
     CONF_MODBUS_HOST,
     CONF_DONGLE_HOST,
+    "host",
+    "transport_host",
+    "serial_port",
     # Station/location fields (HA treats location and personal data as
     # sensitive diagnostics content); nested occurrences are covered because
     # async_redact_data walks the whole tree.
@@ -84,10 +88,12 @@ def _walk_serials(obj: Any, serials: set[str]) -> None:
                 lowered = key.lower()
                 if lowered == "batteries" and isinstance(value, dict):
                     serials.update(str(k) for k in value)
-                if ("serial" in lowered or lowered == "battery_sn") and isinstance(
-                    value, str
+                if (
+                    ("serial" in lowered or lowered == "battery_sn")
+                    and isinstance(value, (str, int))
+                    and not isinstance(value, bool)
                 ):
-                    serials.add(value)
+                    serials.add(str(value))
             _walk_serials(value, serials)
     elif isinstance(obj, (list, tuple)):
         for item in obj:
@@ -95,7 +101,8 @@ def _walk_serials(obj: Any, serials: set[str]) -> None:
 
 
 def _collect_serials(
-    coordinator: EG4DataUpdateCoordinator | None, entry: ConfigEntry
+    coordinator: EG4DataUpdateCoordinator | BatteryBusCoordinator | None,
+    entry: ConfigEntry,
 ) -> list[str]:
     """Collect every device serial the dump could contain, deterministically.
 
@@ -106,12 +113,14 @@ def _collect_serials(
     a given inventory.
     """
     serials: set[str] = set()
+    if isinstance(coordinator, EG4DataUpdateCoordinator):
+        serials.update(str(key) for key in (coordinator.data or {}).get("devices", {}))
     if coordinator is not None:
-        data = coordinator.data or {}
-        serials.update(str(key) for key in data.get("devices", {}))
-        _walk_serials(data, serials)
+        _walk_serials(coordinator.data or {}, serials)
 
     entry_data = entry.data
+    _walk_serials(dict(entry_data), serials)
+    _walk_serials(dict(entry.options), serials)
     for key in _SERIAL_ENTRY_KEYS:
         value = entry_data.get(key)
         if value:
@@ -214,9 +223,11 @@ async def async_get_config_entry_diagnostics(
         pylxpweb_version = "unknown"
 
     coordinator_candidate = getattr(entry, "runtime_data", None)
-    coordinator: EG4DataUpdateCoordinator | None = (
+    coordinator: EG4DataUpdateCoordinator | BatteryBusCoordinator | None = (
         coordinator_candidate
-        if isinstance(coordinator_candidate, EG4DataUpdateCoordinator)
+        if isinstance(
+            coordinator_candidate, (EG4DataUpdateCoordinator, BatteryBusCoordinator)
+        )
         else None
     )
 
@@ -249,14 +260,12 @@ async def async_get_config_entry_diagnostics(
         },
     }
 
-    from .battery_bus import BatteryBusCoordinator
-
-    if isinstance(coordinator_candidate, BatteryBusCoordinator):
+    if isinstance(coordinator, BatteryBusCoordinator):
         result["coordinator"] = {
             "connection_type": "battery_bus",
-            "last_update_success": coordinator_candidate.last_update_success,
-            "update_interval": str(coordinator_candidate.update_interval),
-            "data": _clean(coordinator_candidate.data or {}),
+            "last_update_success": coordinator.last_update_success,
+            "update_interval": str(coordinator.update_interval),
+            "data": _clean(coordinator.data or {}),
         }
         return result
 

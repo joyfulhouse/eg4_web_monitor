@@ -142,6 +142,14 @@ def _mock_station(
 # ── HTTPUpdateMixin._async_update_http_data ──────────────────────────
 
 
+@pytest.fixture(autouse=True)
+async def initialize_repairs(hass):
+    """Direct coordinator calls run after component Repairs initialization."""
+    from custom_components.eg4_web_monitor import repair_registry
+
+    await repair_registry.async_initialize(hass)
+
+
 class TestAsyncUpdateHttpData:
     """Test the main HTTP data update flow."""
 

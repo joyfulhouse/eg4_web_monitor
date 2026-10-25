@@ -10,7 +10,6 @@ from typing import Any, TypeAlias
 import homeassistant.helpers.config_validation as cv
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
-import homeassistant.helpers.issue_registry as ir
 import probatio
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
@@ -24,6 +23,8 @@ from homeassistant.core import (
 )
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.storage import Store
+
+from . import repair_registry as ir
 
 from ._config_flow.helpers import (
     cloud_unique_id_from_data,
@@ -374,6 +375,7 @@ def _async_cleanup_removed_registry_devices(
 
 async def async_setup(hass: HomeAssistant, config: dict[str, Any]) -> bool:
     """Set up the EG4 Web Monitor component."""
+    await ir.async_initialize(hass)
 
     async def handle_refresh_data(call: ServiceCall) -> None:
         """Handle refresh data service call with validation."""
@@ -502,6 +504,7 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
     are staged and committed together so an identity conflict leaves the entry
     entirely untouched.
     """
+    await ir.async_initialize(hass)
     if config_entry.version > 3:
         # Can't downgrade from future version
         _LOGGER.error(
@@ -561,7 +564,6 @@ async def async_migrate_entry(hass: HomeAssistant, config_entry: ConfigEntry) ->
                 DOMAIN,
                 f"duplicate_cloud_entry_{config_entry.entry_id}",
                 is_fixable=False,
-                is_persistent=True,
                 severity=ir.IssueSeverity.ERROR,
                 translation_key="duplicate_cloud_entry",
                 translation_placeholders={
@@ -1237,6 +1239,7 @@ async def _async_cleanup_failed_entry_setup(
 
 async def async_setup_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> bool:
     """Set up an entry and unwind every acquired resource on failure."""
+    await ir.async_initialize(hass)
     if entry.data.get(CONF_CONNECTION_TYPE) == "battery_bus":
         from .battery_bus import async_setup_battery_entry
 
@@ -1582,6 +1585,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: EG4ConfigEntry) -> None
     Entity/device registry records owned only by this entry are deleted. Shared
     devices survive with their remaining config-entry ownership intact.
     """
+    await ir.async_initialize(hass)
     _LOGGER.info("Removing EG4 Web Monitor entry: %s", entry.entry_id)
 
     # Get entity registry

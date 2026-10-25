@@ -18,10 +18,16 @@ from unittest.mock import patch
 from importlib.metadata import PackageNotFoundError
 
 import pytest
+from homeassistant.components import diagnostics as ha_diagnostics
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import DOMAIN
+from custom_components.eg4_web_monitor import async_setup
+from custom_components.eg4_web_monitor import diagnostics as eg4_diagnostics
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
+from custom_components.eg4_web_monitor.battery_bus import BatteryBusCoordinator
 from custom_components.eg4_web_monitor.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -235,3 +241,114 @@ async def test_inventory_changed_during_metadata_lookup_is_redacted(hass, entry)
     assert result["coordinator"]["device_count"] == 1
     device_key = next(iter(result["coordinator"]["data"]["devices"]))
     assert device_key.startswith("SN_")
+
+
+@pytest.mark.parametrize("loaded", [False, True])
+async def test_nested_transport_identity_redacted_without_inventory(
+    hass, entry, loaded
+):
+    """Failed setup must not expose configured hosts or generic serial fields."""
+    hass.config_entries.async_update_entry(
+        entry,
+        data={
+            **entry.data,
+            "local_transports": [
+                {"host": "192.0.2.101", "serial": "CONFIG001A", "port": 502},
+                {"host": "private.example", "serial": "CONFIG002B", "port": 8000},
+            ],
+        },
+        options={"nested": {"host": "192.0.2.103", "serial": "OPTIONS003"}},
+    )
+    if loaded:
+        entry.runtime_data = _make_coordinator(hass, entry)
+        entry.runtime_data.data["devices"][SERIAL]["sensors"]["transport_host"] = (
+            "192.0.2.104"
+        )
+    result = await async_get_config_entry_diagnostics(hass, entry)
+    dump = json.dumps(result)
+    for private in (
+        "192.0.2.101",
+        "private.example",
+        "192.0.2.103",
+        "192.0.2.104",
+        "CONFIG001A",
+        "CONFIG002B",
+        "OPTIONS003",
+    ):
+        assert private not in dump
+    assert result["entry"]["data"]["local_transports"][0]["port"] == 502
+
+
+async def test_full_download_does_not_expose_legacy_repairs(hass, entry, hass_client):
+    """HA snapshots all domain Repairs before invoking our diagnostics handler."""
+    registry = ir.async_get(hass)
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        "transport_link_down_LEGACY0001",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="transport_link_down",
+        translation_placeholders={"serial": "LEGACY0001", "host": "192.0.2.151"},
+    )
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        "duplicate_cloud_entry_another_entry",
+        is_fixable=False,
+        is_persistent=True,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="duplicate_cloud_entry",
+        translation_placeholders={
+            "entry_title": "Private Example Station",
+            "owner_title": "Private Other Station",
+            "unique_id": "private@example.test_12345",
+        },
+    )
+    registry.async_ignore(DOMAIN, "transport_link_down_LEGACY0001", True)
+    assert await async_setup(hass, {})
+    assert await async_setup_component(hass, "diagnostics", {})
+    ha_diagnostics._register_diagnostics_platform(hass, DOMAIN, eg4_diagnostics)
+    client = await hass_client()
+    response = await client.get(f"/api/diagnostics/config_entry/{entry.entry_id}")
+    assert response.status == 200
+    result = await response.json()
+    dump = json.dumps(result)
+    for private in (
+        "LEGACY0001",
+        "192.0.2.151",
+        "Private Example Station",
+        "Private Other Station",
+        "private@example.test_12345",
+    ):
+        assert private not in dump
+    assert len(result["issues"]) == 2
+    assert result["data"]["versions"]["pylxpweb"] != "unknown"
+
+
+async def test_battery_coordinator_serials_and_transport_are_private(hass):
+    """Integer unit keys and numeric serial values survive the real bus shape."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            "connection_type": "battery_bus",
+            "modbus_host": "192.0.2.175",
+            "battery_unit_ids": [1, 2],
+        },
+    )
+    entry.add_to_hass(hass)
+    coordinator = BatteryBusCoordinator(hass, entry)
+    entry.runtime_data = coordinator
+    coordinator.data = {
+        1: {"serial_number": "BATTERY001", "voltage": 52.56},
+        2: {"serial_number": 9876543210, "voltage": 52.57},
+    }
+    try:
+        result = await async_get_config_entry_diagnostics(hass, entry)
+        dump = json.dumps(result)
+        for private in ("192.0.2.175", "BATTERY001", "9876543210"):
+            assert private not in dump
+        assert result["coordinator"]["connection_type"] == "battery_bus"
+        assert result["coordinator"]["data"]["2"]["voltage"] == 52.57
+    finally:
+        coordinator._release_endpoint()
