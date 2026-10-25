@@ -36,16 +36,16 @@ release judgment (`inferred` from the linked issue acceptance criteria), not a
 claim that every open feature blocks shipping. No release publication is
 authorized by this report.
 
-## October 25 continuation
+## October 25 preflight
 
 The [read-only preflight record](../../docs/production/release-preflight-2026-10-25.json)
-owns the fresh observations and validation results. Upstream integration main is
+owns the observations and validation results. At preflight, integration main was
 `77e6c8652d46042e2a919c8e461ddd2c10724c3a` after #695; library main remains
 `cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b`. No PRs were open when checked.
 Unlike the October 23 preparation session below, authenticated API and existing
-SSH access worked. Production reports HA 2026.10.3 and released b13. All 81
-installed component files match published beta.21, so neither #690 nor #695 is
-deployed. These are dated observations, `asserted-unverified` under the wiki
+SSH access worked. Production reported HA 2026.10.3 and released b13. All 81
+installed component files matched published beta.21, so neither #690 nor #695 was
+deployed at that checkpoint. These are dated observations, `asserted-unverified` under the wiki
 legend, not hardware-toggle evidence.
 
 Fresh offline validation covers minimum HA 2026.10.0, latest published HA
@@ -77,13 +77,14 @@ errors. Recorder history spanning a natural local midnight shows numeric daily
 resets. Neither source establishes acquisition freshness or recovery, and the
 history lacks per-field contributor lineage. Diagnostics replaces acquisition
 datetimes with placeholders; the [diagnostics owner](../10-integration/diagnostics-repairs.md)
-owns that serialization limitation. Thus #691, #693, #694 and #666 remain release
-blockers under the scope below. A 24-hour candidate soak has not occurred.
+owns that serialization limitation. At preflight, #691, #693, #694 and #666
+remained release blockers. The deployment checkpoint below updates #691; a
+24-hour candidate soak has not occurred.
 
 #692 is closed upstream by #695: its acceptance explicitly permits mocked
 active/inactive behavior, and the merged tests also cover real HA startup and
-registry identity. This does not claim that patched production startup has been
-observed. All other issue classifications below remain the proposed scope;
+registry identity. The preflight did not include patched production startup;
+the deployment checkpoint below adds that observation. Other issue classifications remain the proposed scope;
 no outstanding hardware/reporter acceptance was closed in this continuation.
 
 The exact existing-main runtime candidate and archive digest are recorded in
@@ -117,8 +118,10 @@ nested-host and wrapper repair-ID exposure before and after deployment. New
 [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) is a release
 blocker until resolved or explicitly scoped by the user. The diagnostics owner
 records the boundary; no private values are published. This is not a
-candidate-attributable redaction regression. #691's metadata-I/O portion passes,
-but its full acceptance remains open, as do #693/#694/#666 and the required soak.
+candidate-attributable redaction regression. #691's stated acceptance is narrower:
+independent review, green CI and authorized runtime verification without metadata
+blocking warnings. Those conditions are met; its closure does not discharge the
+separate #697 redaction gate. #693/#694/#666 and the required soak remain open.
 
 The initial ten-minute stability capture has 21 successful snapshots with stable
 active IDs and no degradation of previously known states. It is not the settling
@@ -188,7 +191,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 
 | Issue | Classification | Remaining boundary |
 |---|---|---|
-| [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Release blocker: complete diagnostics acceptance | Deployed metadata-I/O check passes; identity/configuration preserved. Pre-existing full-download redaction exposure is tracked in #697 and prevents claiming complete acceptance. |
+| [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Metadata-I/O acceptance met | Independent review and green CI precede the authorized deployed download without blocking warnings. Identity/configuration are preserved. The separate full-download redaction defect remains under #697. |
 | [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) | Release blocker: diagnostics redaction | Nested generic transport hosts and serial-bearing IDs in HA's Repairs wrapper remain exposed in both baseline and candidate. Fix/test the complete boundary or obtain explicit scope acceptance; do not publish private diagnostics. |
 | [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns. Authorized October 25 candidate startup preserves the two existing IDs, reports zero while inactive and emits no duplicate-ID startup warnings; no quick charge was initiated. |
 | [#693](https://github.com/joyfulhouse/eg4_web_monitor/issues/693) | Release blocker: production characterization | Recurring dongle warnings need timestamps, duration/freshness/fallback correlation and natural recovery if it occurs. Neither a network root cause nor a library regression is established. |

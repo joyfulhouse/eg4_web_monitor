@@ -58,7 +58,7 @@
     "activation_utc": "2026-10-25T14:13:15Z"
   },
   "next_step": "Complete and review the post-settling 24-hour passive capture including natural midnight. Retain acquisition/provenance gaps. Resolve #697 redaction exposure before claiming full diagnostics/final-release acceptance. No further deployment or restart is covered except the already-authorized conditional rollback if needed.",
-  "acceptance": "Metadata-I/O and countdown runtime checks passed. Full #691 diagnostics acceptance remains open with #697; #693/#694/#666 remain open. No final release publication.",
+  "acceptance": "#691 stated metadata-I/O acceptance met: independent review, green CI and authorized post-restart diagnostics without blocking warnings. #697 separately retains full-download redaction exposure. #693/#694/#666 remain open. No final release publication.",
   "after": {
     "capture_utc": "2026-10-25T14:17:00.226076+00:00",
     "ha": "2026.10.3",

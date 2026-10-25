@@ -1867,3 +1867,12 @@ Filed #697 with sanitized paths only; no private values were published. The
 [readiness owner](60-history/final-release-readiness-2026-10-23.md) retains complete
 diagnostics acceptance and the longer-soak/provenance gates. No rollback or final
 release publication occurred.
+
+## [2026-10-25] ingest | Separate metadata issue acceptance from new redaction gate
+
+Re-read #691's original acceptance rather than inferring it from the broader
+deployment checklist. It requires independent review, green CI and an authorized
+download without metadata blocking warnings; those conditions are met. The
+[readiness owner](60-history/final-release-readiness-2026-10-23.md) now separates
+that resolved scope from #697's pre-existing full-download redaction exposure.
+Closing #691 must not imply that #697 or final-release acceptance is complete.

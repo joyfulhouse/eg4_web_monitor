@@ -112,8 +112,9 @@ and [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697).
 
 The authorized candidate's metadata lookup produced no new blocking warnings
 after restart and preserved raw EG4 config and entity identity. That validates
-the I/O portion of #691, not complete redaction acceptance. Do not attach the raw
-download publicly or treat payload aliasing as coverage of the outer wrapper.
+the stated metadata-I/O acceptance of #691. Complete download redaction remains
+the separate #697 gate. Do not attach the raw download publicly or treat payload
+aliasing as coverage of the outer wrapper.
 
 > The diagnostics platform **did not exist until 2026-08-02** (issue #515). Triage comments
 > predating that asked reporters to download diagnostics that were not implemented.
