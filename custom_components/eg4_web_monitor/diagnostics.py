@@ -17,12 +17,14 @@ are added or removed between downloads.
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from .const import (
     CONF_DONGLE_HOST,
@@ -190,18 +192,26 @@ def _alias_serials(
     return obj
 
 
-def _jsonable(obj: Any) -> Any:
+def _jsonable(obj: Any, *, preserve_datetimes: bool = False) -> Any:
     """Reduce arbitrary values to JSON-serializable primitives.
 
     Unknown objects become a bounded ``<TypeName>`` placeholder rather than
     ``repr()`` — a repr can embed credentials, hosts or tokens (e.g. an
     aiohttp exception carrying the connection target), and nothing
     downstream could redact free-form repr text reliably.
+
+    The first cleaning pass retains aware datetimes so identity substitution
+    cannot corrupt them; the final pass emits their timezone-bearing ISO strings.
     """
+    if isinstance(obj, datetime) and obj.utcoffset() is not None:
+        return obj if preserve_datetimes else obj.isoformat()
     if isinstance(obj, dict):
-        return {str(key): _jsonable(value) for key, value in obj.items()}
+        return {
+            str(key): _jsonable(value, preserve_datetimes=preserve_datetimes)
+            for key, value in obj.items()
+        }
     if isinstance(obj, (list, tuple, set, frozenset)):
-        return [_jsonable(item) for item in obj]
+        return [_jsonable(item, preserve_datetimes=preserve_datetimes) for item in obj]
     if isinstance(obj, (str, int, float, bool)) or obj is None:
         return obj
     return f"<{type(obj).__name__}>"
@@ -241,8 +251,14 @@ async def async_get_config_entry_diagnostics(
     pattern = _build_alias_pattern(aliases)
 
     def _clean(obj: Any) -> Any:
-        return _alias_serials(
-            async_redact_data(_jsonable(obj), TO_REDACT), aliases, pattern
+        # Keep typed timestamps out of substring aliasing: a plant ID can
+        # coincide with a year or fractional second. Ordinary strings still alias.
+        return _jsonable(
+            _alias_serials(
+                async_redact_data(_jsonable(obj, preserve_datetimes=True), TO_REDACT),
+                aliases,
+                pattern,
+            )
         )
 
     base_url = entry.data.get("base_url")
@@ -251,6 +267,7 @@ async def async_get_config_entry_diagnostics(
         entry_data["base_url"] = "**REDACTED**"
 
     result: dict[str, Any] = {
+        "captured_at": dt_util.utcnow().isoformat(),
         "entry": {
             "data": _clean(entry_data),
             "options": _clean(dict(entry.options)),

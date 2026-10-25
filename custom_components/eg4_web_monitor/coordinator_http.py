@@ -31,6 +31,7 @@ from pylxpweb.exceptions import (
     LuxpowerConnectionError,
 )
 
+from .energy_evidence import reconcile_daily_evidence
 from .const import (
     CONF_INCLUDE_AC_COUPLE_PV,
     CONNECTION_TYPE_HTTP,
@@ -1052,6 +1053,8 @@ class HTTPUpdateMixin(_MixinBase):
                                 recompute_consumption=False,
                                 pg_sample_times=group_data.get("energy_sample_times"),
                                 gb_sample_times=mid_data.get("energy_sample_times", {}),
+                                pg_evidence=group_data.get("energy_evidence"),
+                                gb_evidence=mid_data.get("energy_evidence", {}),
                             )
 
                         except Exception as e:
@@ -1443,4 +1446,6 @@ class HTTPUpdateMixin(_MixinBase):
                 inverters_needing_params, processed
             )
 
+        for device_data in processed.get("devices", {}).values():
+            reconcile_daily_evidence(device_data)
         return processed

@@ -57,6 +57,12 @@ from .cloud_requests import (
     release_shared_firmware_status,
 )
 from .endpoint_bus import EndpointBusCapability
+from .energy_evidence import (
+    carry_daily_evidence,
+    mapped_daily_evidence,
+    overlay_gridboss_evidence,
+    reconcile_daily_evidence,
+)
 from .energy_provenance import mapped_daily_sample_times, same_day_sample_time
 from .coordinator_mappings import (
     CLOUD_SUPPLEMENTAL_LOST_KEYS,
@@ -837,6 +843,8 @@ def apply_gridboss_to_parallel_group(
     recompute_consumption: bool,
     pg_sample_times: dict[str, datetime] | None = None,
     gb_sample_times: dict[str, datetime] | None = None,
+    pg_evidence: dict[str, Any] | None = None,
+    gb_evidence: dict[str, Any] | None = None,
 ) -> None:
     """Apply the full GridBOSS workflow to a parallel group's sensors.
 
@@ -858,8 +866,14 @@ def apply_gridboss_to_parallel_group(
             energy balance (LOCAL path); the HTTP path keeps the cloud value.
         pg_sample_times: Qualified daily field times, replaced with the overlay.
         gb_sample_times: Qualified GridBOSS times; absent evidence clears dates.
+        pg_evidence: Detached diagnostic lineage, replaced with the numeric source.
+        gb_evidence: GridBOSS lineage captured with its numeric values.
     """
     apply_gridboss_overlay(pg_sensors, gb_sensors, group_name)
+    if pg_evidence is not None:
+        overlay_gridboss_evidence(
+            pg_sensors, gb_sensors, pg_evidence, gb_evidence or {}, _GRIDBOSS_PG_OVERLAY
+        )
     if pg_sample_times is not None:
         gb_sample_times = gb_sample_times or {}
         for gb_key, pg_key in _GRIDBOSS_PG_OVERLAY.items():
@@ -1710,9 +1724,8 @@ class DeviceProcessingMixin(_MixinBase):
         suffixes: Collection[str] = ("yield", "yield_lifetime"),
     ) -> None:
         """Copy the previous cycle's cloud-capable PV string energy values."""
-        prev_sensors = (
-            (self.data or {}).get("devices", {}).get(serial, {}).get("sensors", {})
-        )
+        previous = (self.data or {}).get("devices", {}).get(serial, {})
+        prev_sensors = previous.get("sensors", {})
         sensors = target["sensors"]
         if string_numbers is None:
             string_numbers = range(1, 7)
@@ -1725,7 +1738,10 @@ class DeviceProcessingMixin(_MixinBase):
                 key = f"pv{string_number}_{suffix}"
                 value = prev_sensors.get(key)
                 if value is not None:
+                    copied = key not in sensors
                     sensors.setdefault(key, value)
+                    if copied:
+                        carry_daily_evidence(target, previous, key)
 
     def _pv_string_energy_key_is_publishable(
         self,
@@ -2125,6 +2141,11 @@ class DeviceProcessingMixin(_MixinBase):
         sensors = target["sensors"]
         if daily_values is not None:
             sensors.update(daily_values)
+            # The chart contract has no acquisition lineage. A new equal-valued
+            # response still replaces any retained local evidence for that key.
+            target.setdefault("energy_evidence", {}).update(
+                mapped_daily_evidence(daily_values, {}, {})
+            )
         if lifetime_values is not None:
             sensors.update(lifetime_values)
 
@@ -2876,6 +2897,7 @@ class DeviceProcessingMixin(_MixinBase):
             # healthy cycle's throttled fetch won't pick up.
             self._carry_forward_ac_couple_soc(inverter.serial_number, processed)
             self._carry_forward_smart_load(inverter.serial_number, processed)
+            reconcile_daily_evidence(processed)
             return processed
 
         # Map inverter properties to sensor keys
@@ -3015,6 +3037,19 @@ class DeviceProcessingMixin(_MixinBase):
             {**property_map, "energy_today_usage": "load_energy"},
             balance=inverter.transport is not None,
         )
+        processed["energy_evidence"] = mapped_daily_evidence(
+            processed["sensors"],
+            inverter.energy_provenance,
+            property_map,
+            balance=inverter.transport is not None,
+        )
+        processed["energy_evidence"].update(
+            mapped_daily_evidence(
+                {"load_energy": processed["sensors"].get("load_energy")},
+                inverter.energy_provenance,
+                {"energy_today_usage": "load_energy"},
+            )
+        )
         transport_energy = inverter.transport_energy
 
         # Fetch any PV1-3 tier not already supplied by local transport. The
@@ -3049,6 +3084,13 @@ class DeviceProcessingMixin(_MixinBase):
                 value = getattr(transport_energy, energy_attr, None)
                 if value is not None:
                     sensors[sensor_key] = value
+                    processed["energy_evidence"].update(
+                        mapped_daily_evidence(
+                            {sensor_key: value},
+                            transport_energy.provenance,
+                            {energy_attr: sensor_key},
+                        )
+                    )
                     processed["energy_sample_times"].update(
                         mapped_daily_sample_times(
                             {sensor_key: value},
@@ -3269,6 +3311,7 @@ class DeviceProcessingMixin(_MixinBase):
         if any(k.startswith("battery_bank_") for k in processed["sensors"]):
             processed["sensors"]["battery_bank_last_polled"] = dt_util.utcnow()
 
+        reconcile_daily_evidence(processed)
         return processed
 
     @staticmethod
@@ -3651,6 +3694,16 @@ class DeviceProcessingMixin(_MixinBase):
                 sensors.get("grid_export_lifetime"),
             )
 
+        processed["energy_evidence"] = mapped_daily_evidence(
+            processed["sensors"],
+            group.energy_provenance,
+            property_map,
+            balance=any(
+                inv.transport_energy is not None
+                for inv in getattr(group, "inverters", [])
+            ),
+        )
+
         # Runtime measurements can describe the online subset, but cumulative
         # counters must keep fixed membership to avoid outage/recovery jumps.
         # Use a copy so discovery, energy reads and controls retain the full group.
@@ -3673,6 +3726,7 @@ class DeviceProcessingMixin(_MixinBase):
                 }
                 sensors.update(_map_device_properties(live_group, runtime_map))
 
+        reconcile_daily_evidence(processed)
         return processed
 
     @staticmethod
@@ -3781,6 +3835,11 @@ class DeviceProcessingMixin(_MixinBase):
                 mid_device.energy_provenance,
                 property_map,
             )
+            processed["energy_evidence"] = mapped_daily_evidence(
+                processed["sensors"],
+                mid_device.energy_provenance,
+                property_map,
+            )
             processed["sensors"]["midbox_last_polled"] = dt_util.utcnow()
         else:
             _LOGGER.warning("MID device %s has no data", mid_device.serial_number)
@@ -3789,6 +3848,7 @@ class DeviceProcessingMixin(_MixinBase):
         # events too (live-validated 2026-07-15: eventType=MIDBOX_WARNING).
         await self._fetch_last_event(mid_device.serial_number, processed)
 
+        reconcile_daily_evidence(processed)
         return processed
 
     @staticmethod
