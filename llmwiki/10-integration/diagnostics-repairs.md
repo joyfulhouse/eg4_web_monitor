@@ -15,6 +15,8 @@ sources:
   - eg4_web_monitor issues #174, #322, #515
   - docs/production/beta21-2026-10-23.json
   - docs/production/release-preflight-2026-10-25.json
+  - docs/production/candidate-deployment-2026-10-25.json
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/697
   - tests/test_diagnostics.py
 verified-against: 9f6d6e2
 # Metadata executor/redaction-order subsection re-verified at bf8bfe6 on 2026-10-23.
@@ -92,6 +94,26 @@ discarded acquisition evidence or full contributor lineage. Passive acceptance
 for #693/#666 must retain that gap until a suitable capture path exists; do not
 grade numeric resets alone as provenance acceptance. No serializer change is
 included in this observation.
+
+### Full-download redaction boundary observed October 25
+
+At `77e6c8652d46042e2a919c8e461ddd2c10724c3a`, `TO_REDACT` covers
+`modbus_host` and `dongle_host` but not the generic `host` key used under
+`entry.data.local_transports`. `_clean` therefore retains those nested hosts.
+Grade: `verified-against-code` (`diagnostics.py` -> `TO_REDACT`, `_clean`).
+
+Private before/after checks on HA 2026.10.3 also found serial-bearing repair IDs
+under the downloaded HA wrapper's `issues[*].issue_id`, outside the integration's
+returned `data` object. Both exposures were present on published beta.21 and
+the authorized candidate; neither is established as a candidate regression.
+These capture observations are `asserted-unverified`, recorded without private
+values in the [deployment evidence](../../docs/production/candidate-deployment-2026-10-25.json)
+and [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697).
+
+The authorized candidate's metadata lookup produced no new blocking warnings
+after restart and preserved raw EG4 config and entity identity. That validates
+the I/O portion of #691, not complete redaction acceptance. Do not attach the raw
+download publicly or treat payload aliasing as coverage of the outer wrapper.
 
 > The diagnostics platform **did not exist until 2026-08-02** (issue #515). Triage comments
 > predating that asked reporters to download diagnostics that were not implemented.

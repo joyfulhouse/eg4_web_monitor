@@ -1839,3 +1839,31 @@ Prepared the exact existing-main runtime archive and recorded its digest in the
 unexecuted deployment plan. Updated the latest HA/plugin validation pair together.
 No deployment, restart, hardware write, clock change, master reconstruction or
 release publication was performed.
+
+## [2026-10-25] ingest | Authorized candidate staged; operational gate pending
+
+The user authorized the exact prepared candidate, a fresh private backup, one
+Core restart and conditional rollback with one additional restart. Created and
+verified the fresh backup and staged all 81 candidate files, preserving ownership
+and permissions. The operational gate did not pass, so the active component and
+running HA process were left untouched. The [readiness owner](60-history/final-release-readiness-2026-10-23.md)
+and linked execution record distinguish authorization and completed preparation
+from activation and acceptance. Authorization remains valid; recheck the baseline
+and operational preconditions before continuing. No acceptance issue was closed.
+
+## [2026-10-25] ingest | Candidate deployed; full-download redaction gap retained
+
+The preceding staging checkpoint used a preliminary check broader than the site's
+documented operational inputs. Rechecked the canonical inputs before activation;
+the operational preconditions passed. Deployed the exact approved candidate with
+one restart and verified all 81 installed files, raw EG4 configuration, registry
+identity and initial availability. Inactive countdowns now report zero without
+duplicate-ID startup warnings; no new metadata blocking warnings accompanied the
+post-restart diagnostics request.
+
+The [diagnostics owner](10-integration/diagnostics-repairs.md) records pre-existing
+nested-host and outer-wrapper repair-ID exposure found in both private captures.
+Filed #697 with sanitized paths only; no private values were published. The
+[readiness owner](60-history/final-release-readiness-2026-10-23.md) retains complete
+diagnostics acceptance and the longer-soak/provenance gates. No rollback or final
+release publication occurred.

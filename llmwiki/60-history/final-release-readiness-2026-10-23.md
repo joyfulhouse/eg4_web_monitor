@@ -10,6 +10,7 @@ sources:
   - docs/production/final-release-acceptance-plan-2026-10-23.md
   - docs/production/final-release-preparation-2026-10-23.json
   - docs/production/release-preflight-2026-10-25.json
+  - docs/production/candidate-deployment-2026-10-25.json
   - custom_components/eg4_web_monitor/ha_modbus.py
   - tests/test_ha_modbus.py
   - tests/test_sensor_entities.py
@@ -88,9 +89,48 @@ no outstanding hardware/reporter acceptance was closed in this continuation.
 The exact existing-main runtime candidate and archive digest are recorded in
 the preflight artifact. Its runtime delta from beta.21 is limited to the three
 files in the [deployment plan](../../docs/production/final-release-acceptance-plan-2026-10-23.md).
-The old rollback files remain readable, but they preserve beta.20; a fresh
-beta.21 backup and explicit deployment/restart authorization are still required.
-No production mutation or release publication occurred.
+The old rollback files remained readable, but preserved beta.20; at that
+preflight checkpoint a fresh beta.21 backup and explicit deployment/restart
+authorization were still required.
+No production mutation or release publication occurred during that preflight.
+
+### Authorized deployment checkpoint
+
+After the preflight, the user authorized the exact candidate replacement, a
+fresh private backup, one Core restart and conditional rollback with one further
+restart. The [deployment record](../../docs/production/candidate-deployment-2026-10-25.json)
+records the subsequent work (`asserted-unverified`, dated execution evidence).
+The fresh rollback archive is listable, its component hashes match the installed
+baseline. Canonical operational preconditions passed before activation at
+14:13:15 UTC. All 81 installed files match the candidate, with original
+ownership/permissions preserved. One restart completed; no rollback was needed.
+
+At 14:17 UTC the entry was loaded, raw EG4 config entries and entity registry
+records were unchanged, and device records differed only in five `modified_at`
+timestamps. No previously known state degraded. The two existing
+inactive countdown entities now report zero, with no duplicate-ID startup
+warnings. The downloaded diagnostics produced no post-restart metadata blocking
+warnings; older log entries were excluded by the activation timestamp.
+
+Full diagnostics acceptance remains open: private checks reproduced pre-existing
+nested-host and wrapper repair-ID exposure before and after deployment. New
+[#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) is a release
+blocker until resolved or explicitly scoped by the user. The diagnostics owner
+records the boundary; no private values are published. This is not a
+candidate-attributable redaction regression. #691's metadata-I/O portion passes,
+but its full acceptance remains open, as do #693/#694/#666 and the required soak.
+
+The initial ten-minute stability capture has 21 successful snapshots with stable
+active IDs and no degradation of previously known states. It is not the settling
+gate. With the configured 600-second HTTP interval, the plan retains a 50-minute
+settling allowance: the conservative 14:17 UTC anchor places its deadline at
+15:07 UTC on October 25. A finite private read-only collector started at 14:33 UTC
+and is configured through 15:07 UTC on October 26, covering the full subsequent
+24 hours and natural local midnight. Its start and initial subscription/downloads
+were verified; completion and acceptance are pending. It watches the existing
+enabled entity set, so later registry additions need separate reconciliation.
+Neither the collector nor elapsed time resolves acquisition/provenance gaps or
+automatically closes an issue.
 
 ## Evidence available in the October 23 session
 
@@ -148,8 +188,9 @@ claim missing hardware acceptance. New evidence can change the classification.
 
 | Issue | Classification | Remaining boundary |
 |---|---|---|
-| [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Release blocker: production acceptance | Executor/redaction fix merged in #690; authorized deployed diagnostics must complete without the metadata blocking warnings and preserve identity/redaction. Source tests alone do not meet this issue's acceptance. |
-| [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Duplicate generic/specialized countdown producers reproduced and removed. Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns without activating hardware. Production still runs unpatched beta.21 as of the October 25 preflight. |
+| [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Release blocker: complete diagnostics acceptance | Deployed metadata-I/O check passes; identity/configuration preserved. Pre-existing full-download redaction exposure is tracked in #697 and prevents claiming complete acceptance. |
+| [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) | Release blocker: diagnostics redaction | Nested generic transport hosts and serial-bearing IDs in HA's Repairs wrapper remain exposed in both baseline and candidate. Fix/test the complete boundary or obtain explicit scope acceptance; do not publish private diagnostics. |
+| [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns. Authorized October 25 candidate startup preserves the two existing IDs, reports zero while inactive and emits no duplicate-ID startup warnings; no quick charge was initiated. |
 | [#693](https://github.com/joyfulhouse/eg4_web_monitor/issues/693) | Release blocker: production characterization | Recurring dongle warnings need timestamps, duration/freshness/fallback correlation and natural recovery if it occurs. Neither a network root cause nor a library regression is established. |
 | [#694](https://github.com/joyfulhouse/eg4_web_monitor/issues/694) | Release blocker: production soak | Natural local midnight and longer passive observations remain unverified. Full reconfiguration and rollback restoration remain untested and must stay explicit. |
 | [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666) | Release blocker for LOCAL production rollover acceptance; accepted limitation for undated sources | Released b13 lineage adoption is covered by software regressions. Natural production source continuity is outstanding; cloud/battery/chart counter-day and device reset timezone remain unproven. |
@@ -189,6 +230,7 @@ these fixes. No issue with outstanding stated acceptance is closed by this repor
 
 The [deployment and rollback plan](../../docs/production/final-release-acceptance-plan-2026-10-23.md)
 defines a candidate-only overlay, fresh backup, identity/redaction checks and
-conditional rollback. Its status is unexecuted. Fix the source commit and archive
-digest before requesting approval. Deployment/restarts and eventual publication
-are separate authorizations.
+conditional rollback. The exact candidate is deployed; the one initial restart
+is complete. Continue passive acceptance and address #697; the conditional
+rollback authorization remains available if needed. Eventual release publication
+remains a separate authorization.
