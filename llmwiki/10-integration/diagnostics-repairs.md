@@ -14,11 +14,13 @@ sources:
   - memory/issue-reporting-hardening.md
   - eg4_web_monitor issues #174, #322, #515
   - docs/production/beta21-2026-10-23.json
+  - docs/production/release-preflight-2026-10-25.json
   - tests/test_diagnostics.py
 verified-against: 9f6d6e2
 # Metadata executor/redaction-order subsection re-verified at bf8bfe6 on 2026-10-23.
 # Other sections retain their original pin and date scope.
-last-verified: 2026-10-23
+# Datetime serialization limitation re-verified at 77e6c86 on 2026-10-25.
+last-verified: 2026-10-25
 see-also:
   - ../50-operations/issue-pipeline.md
 ---
@@ -74,6 +76,22 @@ These are software validation results; the fix was not installed on
 production during the [smoke test](../60-history/production-beta21-2026-10-23.md).
 Issue #691's separate production acceptance remains tracked in the
 [final-release readiness report](../60-history/final-release-readiness-2026-10-23.md).
+
+### Acquisition timestamp limitation
+
+At `77e6c8652d46042e2a919c8e461ddd2c10724c3a`, `_jsonable` recognizes
+primitive containers and scalars but not `datetime`. Acquisition values in
+`energy_sample_times` and last-polled fields therefore become the literal
+`<datetime>` placeholder. Grade: `verified-against-code` (`diagnostics.py` ->
+`_jsonable`). The October 25 [production preflight](../../docs/production/release-preflight-2026-10-25.json)
+observed those placeholders in installed beta.21 (`asserted-unverified`).
+
+A successful diagnostics download cannot establish the age or HA-local date
+of those samples. Recorder state publication timestamps cannot recover the
+discarded acquisition evidence or full contributor lineage. Passive acceptance
+for #693/#666 must retain that gap until a suitable capture path exists; do not
+grade numeric resets alone as provenance acceptance. No serializer change is
+included in this observation.
 
 > The diagnostics platform **did not exist until 2026-08-02** (issue #515). Triage comments
 > predating that asked reporters to download diagnostics that were not implemented.

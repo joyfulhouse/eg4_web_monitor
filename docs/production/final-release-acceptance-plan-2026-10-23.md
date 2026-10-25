@@ -3,6 +3,21 @@
 Status: **not executed**. Deployment, restart and rollback restart require fresh
 explicit authorization. Publishing any release requires separate authorization.
 
+October 25 preflight: the locally prepared source candidate is
+`77e6c8652d46042e2a919c8e461ddd2c10724c3a`, with 81 files in a `git archive`
+tar and SHA-256
+`a1a88813c0fac664ba23644aaf85d9eb7acdfe8f9c231007383c58d04d5536c8`.
+Every archive file was checked against that commit. The installed component
+still matches published beta.21, while HA now reports 2026.10.3. The
+[preflight record](release-preflight-2026-10-25.json) owns the dated observations.
+This identifies a reviewable candidate; it does not authorize installation.
+
+The existing diagnostics serializer replaces acquisition datetimes with
+`<datetime>`. Recorder history also lacks full contributor lineage. These
+capture paths cannot satisfy the acquisition-freshness and provenance gates
+below, even if numeric values change or reset. A suitable evidence path remains
+required; do not silently relax the gates or treat a restart as resolving them.
+
 ## Candidate and scope
 
 Use the exact reviewed integration main commit supplied with the deployment

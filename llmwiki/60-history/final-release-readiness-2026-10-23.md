@@ -1,6 +1,6 @@
 ---
 canonical-for:
-  - "October 23 2026 final-release preparation issue classification and acceptance gaps"
+  - "October 2026 final-release preparation issue classification and acceptance gaps"
 sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/691
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/692
@@ -9,15 +9,16 @@ sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/666
   - docs/production/final-release-acceptance-plan-2026-10-23.md
   - docs/production/final-release-preparation-2026-10-23.json
+  - docs/production/release-preflight-2026-10-25.json
   - custom_components/eg4_web_monitor/ha_modbus.py
   - tests/test_ha_modbus.py
   - tests/test_sensor_entities.py
   - tests/test_energy_provenance_adoption.py
   - tests/test_energy_guard_restore.py
 verified-against:
-  eg4_web_monitor: af613d779035a19412c84a1bcf300b210f2adf32
+  eg4_web_monitor: 77e6c8652d46042e2a919c8e461ddd2c10724c3a
   pylxpweb: cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b
-last-verified: 2026-10-23
+last-verified: 2026-10-25
 see-also:
   - production-beta21-2026-10-23.md
   - maintenance-2026-10-22.md
@@ -34,11 +35,53 @@ release judgment (`inferred` from the linked issue acceptance criteria), not a
 claim that every open feature blocks shipping. No release publication is
 authorized by this report.
 
-## Evidence available in this session
+## October 25 continuation
+
+The [read-only preflight record](../../docs/production/release-preflight-2026-10-25.json)
+owns the fresh observations and validation results. Upstream integration main is
+`77e6c8652d46042e2a919c8e461ddd2c10724c3a` after #695; library main remains
+`cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b`. No PRs were open when checked.
+Unlike the October 23 preparation session below, authenticated API and existing
+SSH access worked. Production reports HA 2026.10.3 and released b13. All 81
+installed component files match published beta.21, so neither #690 nor #695 is
+deployed. These are dated observations, `asserted-unverified` under the wiki
+legend, not hardware-toggle evidence.
+
+The entry is loaded. The new registry/state capture has the same aggregate
+counts as the prior smoke test, but does not establish identity equality across
+the two captures or transport health. Classification distinguishes inactive
+countdowns, button states and explicit AC-couple disabled sentinels from missing
+measurements. All unavailable states carry HA's `restored` attribute; none is
+attributed to the dongle on count evidence alone. Registry entries were not
+removed or changed.
+
+The diagnostics request reproduced the metadata blocking warnings on installed
+beta.21. Historical logs contain dongle connection timeouts and host-unreachable
+errors. Recorder history spanning a natural local midnight shows numeric daily
+resets. Neither source establishes acquisition freshness or recovery, and the
+history lacks per-field contributor lineage. Diagnostics replaces acquisition
+datetimes with placeholders; the [diagnostics owner](../10-integration/diagnostics-repairs.md)
+owns that serialization limitation. Thus #691, #693, #694 and #666 remain release
+blockers under the scope below. A 24-hour candidate soak has not occurred.
+
+#692 is closed upstream by #695: its acceptance explicitly permits mocked
+active/inactive behavior, and the merged tests also cover real HA startup and
+registry identity. This does not claim that patched production startup has been
+observed. All other issue classifications below remain the proposed scope;
+no outstanding hardware/reporter acceptance was closed in this continuation.
+
+The exact existing-main runtime candidate and archive digest are recorded in
+the preflight artifact. Its runtime delta from beta.21 is limited to the three
+files in the [deployment plan](../../docs/production/final-release-acceptance-plan-2026-10-23.md).
+The old rollback files remain readable, but they preserve beta.20; a fresh
+beta.21 backup and explicit deployment/restart authorization are still required.
+No production mutation or release publication occurred.
+
+## Evidence available in the October 23 session
 
 Fetched upstream before work: integration `bf8bfe6ef02570288cae809445773e1e29fb074a`
-and library `cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b`. The front matter pins
-the subsequently tested source. There were
+and library `cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b`. The October 23 validation
+artifact records the subsequently tested source `af613d779035a19412c84a1bcf300b210f2adf32`. There were
 16 open integration issues, six open library issues, and no open PRs. Work used
 isolated worktrees. The local cgroup limit was 8 GiB; heavy validation was
 serialized. These are dated observations (`asserted-unverified`, this report).
@@ -58,7 +101,7 @@ button unknowns and inactive countdowns must be distinguished using a fresh
 private registry/state capture; no blanket regression classification is justified
 (`inferred` from the evidence fields in `docs/production/beta21-2026-10-23.json`).
 
-## Reviewed software and validation
+## October 23 reviewed software and validation
 
 The tested source is `af613d779035a19412c84a1bcf300b210f2adf32`.
 The [sanitized validation record](../../docs/production/final-release-preparation-2026-10-23.json)
@@ -91,7 +134,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 | Issue | Classification | Remaining boundary |
 |---|---|---|
 | [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Release blocker: production acceptance | Executor/redaction fix merged in #690; authorized deployed diagnostics must complete without the metadata blocking warnings and preserve identity/redaction. Source tests alone do not meet this issue's acceptance. |
-| [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Source fix complete; merge required | Duplicate generic/specialized countdown producers reproduced and removed. Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns without activating hardware. |
+| [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Duplicate generic/specialized countdown producers reproduced and removed. Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns without activating hardware. Production still runs unpatched beta.21 as of the October 25 preflight. |
 | [#693](https://github.com/joyfulhouse/eg4_web_monitor/issues/693) | Release blocker: production characterization | Recurring dongle warnings need timestamps, duration/freshness/fallback correlation and natural recovery if it occurs. Neither a network root cause nor a library regression is established. |
 | [#694](https://github.com/joyfulhouse/eg4_web_monitor/issues/694) | Release blocker: production soak | Natural local midnight and longer passive observations remain unverified. Full reconfiguration and rollback restoration remain untested and must stay explicit. |
 | [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666) | Release blocker for LOCAL production rollover acceptance; accepted limitation for undated sources | Released b13 lineage adoption is covered by software regressions. Natural production source continuity is outstanding; cloud/battery/chart counter-day and device reset timezone remain unproven. |
