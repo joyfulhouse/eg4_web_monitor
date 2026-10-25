@@ -18,13 +18,15 @@ sources:
   - docs/production/release-preflight-2026-10-25.json
   - docs/production/candidate-deployment-2026-10-25.json
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/697
+  - tests/test_diagnostics_acquisition_times.py
   - tests/test_diagnostics.py
   - tests/test_repair_registry.py
   - tests/test_init.py
-verified-against: c006150eeef0486db30e2c986dba9415b7e0e644
+verified-against: ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21
 # Metadata executor/redaction-order subsection re-verified at bf8bfe6 on 2026-10-23.
 # Other sections retain their original pin and date scope.
-# Datetime serialization limitation re-verified at 77e6c86 on 2026-10-25.
+# Acquisition-time subsection and output pipeline verified at the pin above.
+# The historical limitation retains 77e6c86; the privacy fix retains c006150.
 last-verified: 2026-10-25
 see-also:
   - ../50-operations/issue-pipeline.md
@@ -33,12 +35,14 @@ see-also:
 # Diagnostics, Repairs, and device removal
 
 Historical line-number citations retain `9f6d6e2`; the October 25 privacy fix
-below is checked at the front-matter pin. Symbol names are the durable anchor.
+below retains its named c006150 pin; the acquisition-time additions use the
+front-matter pin. Symbol names are the durable anchor.
 
 ## 1. Diagnostics output shape
 
 ```python
 {
+  "captured_at": "<aware UTC ISO 8601 capture timestamp>",
   "entry": {"data": {...}, "options": {...}},
   "versions": {"pylxpweb": "<version>" | "unknown"},
   "coordinator": {
@@ -48,12 +52,14 @@ below is checked at the front-matter pin. Symbol names are the durable anchor.
 }
 ```
 
-Evidence: `verified-against-code` — `diagnostics.py:200-263`.
+This example shows the inverter/station coordinator shape; the direct-battery
+branch has its own coordinator metadata. Evidence: `verified-against-code` —
+`diagnostics.py` -> `async_get_config_entry_diagnostics` at the front-matter pin.
 
 | Behavior | Detail | Cite |
 |---|---|---|
 | **Works on a failed-setup or unloaded entry.** `runtime_data` is only assigned after the first successful refresh, so the dump degrades to a config-only snapshot (`"coordinator": None`) instead of raising | The reporter whose setup fails is exactly the reporter who most needs to attach evidence | `diagnostics.py:201-216`, `:254-256` |
-| Per-value pipeline | `_jsonable()` → `async_redact_data(TO_REDACT)` → `_alias_serials()` | `diagnostics.py:227-230` |
+| Per-value pipeline | `_jsonable(preserve_datetimes=True)` → `async_redact_data(TO_REDACT)` → `_alias_serials()` → `_jsonable()` | `diagnostics.py` -> `async_get_config_entry_diagnostics`, `_jsonable`, `_alias_serials` at the front-matter pin |
 | `pylxpweb` version resolution | `importlib.metadata.version("pylxpweb")`, falling back to `"unknown"` on `PackageNotFoundError` | `diagnostics.py:232-236` |
 
 All rows: `verified-against-code`.
@@ -83,21 +89,37 @@ production during the [smoke test](../60-history/production-beta21-2026-10-23.md
 Issue #691's separate production acceptance remains tracked in the
 [final-release readiness report](../60-history/final-release-readiness-2026-10-23.md).
 
-### Acquisition timestamp limitation
+### Acquisition timestamps and capture time
 
-At `77e6c8652d46042e2a919c8e461ddd2c10724c3a`, `_jsonable` recognizes
-primitive containers and scalars but not `datetime`. Acquisition values in
-`energy_sample_times` and last-polled fields therefore become the literal
-`<datetime>` placeholder. Grade: `verified-against-code` (`diagnostics.py` ->
-`_jsonable`). The October 25 [production preflight](../../docs/production/release-preflight-2026-10-25.json)
-observed those placeholders in installed beta.21 (`asserted-unverified`).
+At the deployed candidate `77e6c8652d46042e2a919c8e461ddd2c10724c3a`,
+`_jsonable` did not recognize `datetime`, so acquisition values in
+`energy_sample_times` and last-polled fields became `<datetime>` placeholders.
+That historical code claim is `verified-against-code` at its named pin; the
+October 25 [preflight](../../docs/production/release-preflight-2026-10-25.json)
+and [partial-soak record](../../docs/production/candidate-soak-progress-2026-10-25.json)
+retain their dated observations (`asserted-unverified`). They are not repaired
+retroactively by a later serializer change.
 
-A successful diagnostics download cannot establish the age or HA-local date
-of those samples. Recorder state publication timestamps cannot recover the
-discarded acquisition evidence or full contributor lineage. Passive acceptance
-for #693/#666 must retain that gap until a suitable capture path exists; do not
-grade numeric resets alone as provenance acceptance. No serializer change is
-included in this observation.
+At `ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21`, aware datetime objects are
+preserved through redaction and identifier aliasing, then rendered with
+`isoformat()` including their offset
+and precision. This ordering prevents numeric plant identifiers from replacing
+an ISO timestamp's year or fractional seconds. Naive datetimes still produce
+`<datetime>`; unrelated unknown objects retain bounded type placeholders rather
+than `repr()` output. Existing identifier aliasing remains effective on ordinary
+identifier-bearing strings. Grade: `verified-against-code` (`diagnostics.py` ->
+`_jsonable`, `_alias_serials`, `async_get_config_entry_diagnostics`;
+`tests/test_diagnostics_acquisition_times.py` ->
+`test_only_aware_datetimes_become_acquisition_strings`,
+`test_repeated_downloads_do_not_refresh_cached_acquisition`).
+
+The top-level `captured_at` is the diagnostics snapshot time in UTC. Repeated
+downloads can change it while leaving retained sample acquisitions unchanged,
+including across HA-local midnight; it must never substitute for acquisition,
+measurement or counter-reset time. The [data-semantics owner](data-semantics.md#423-daily-energy-diagnostic-evidence-666)
+defines the retained daily-energy tree and its eligibility/privacy limits.
+The serializer exposes existing evidence; it does not discover absent provenance
+or establish production rollover, transport recovery or device counter day.
 
 ### Full-download redaction boundary observed October 25
 
@@ -152,8 +174,9 @@ uses HA internals because HA exposes no rename API; this is a compatibility
 boundary requiring minimum/latest validation. Grade: `verified-against-code`
 (`repair_registry.py`, `tests/test_repair_registry.py`, `tests/test_init.py`).
 
-The residual alias-collection limits in section 3.1 and the acquisition timestamp
-limitation remain distinct. The [readiness owner](../60-history/final-release-readiness-2026-10-23.md)
+The residual alias-collection limits in section 3.1 and the
+[acquisition-time contract](#acquisition-timestamps-and-capture-time) remain
+distinct. The [readiness owner](../60-history/final-release-readiness-2026-10-23.md)
 tracks the authorized private production acceptance still required by #697.
 
 > The diagnostics platform **did not exist until 2026-08-02** (issue #515). Triage comments

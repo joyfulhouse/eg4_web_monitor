@@ -1907,3 +1907,15 @@ nonpersistent serialization omits sensitive UI metadata, while history and
 recovery survive. Collision-order and numeric battery-serial regressions exposed
 additional defects during implementation and now pass. Supported HA matrix and
 quality gates pass; authorized private production acceptance remains separate.
+
+## [2026-10-25] ingest | Preserve daily acquisition evidence without asserting production acceptance
+
+Source `ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21` adds detached per-value
+daily lineage and aware timestamp serialization. Updated [data semantics](10-integration/data-semantics.md) with
+the numeric-source/cache/CT contract and diagnostic-only eligibility limits;
+updated [diagnostics](10-integration/diagnostics-repairs.md) with capture versus
+acquisition time, alias-safe datetime ordering and the remaining unknown-object
+boundary. The prior `<datetime>` observation remains true for its deployed pin
+and recorded captures. [Readiness](60-history/final-release-readiness-2026-10-23.md)
+retains #693/#694/#666 and separate #697 production gates. No existing capture is
+promoted into provenance acceptance, and no deployment or publication is claimed.

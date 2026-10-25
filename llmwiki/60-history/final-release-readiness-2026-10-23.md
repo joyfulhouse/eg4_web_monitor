@@ -2,6 +2,12 @@
 canonical-for:
   - "October 2026 final-release preparation issue classification and acceptance gaps"
 sources:
+  - docs/production/acquisition-evidence-validation-2026-10-25.json
+  - custom_components/eg4_web_monitor/energy_evidence.py
+  - custom_components/eg4_web_monitor/diagnostics.py
+  - tests/test_daily_energy_evidence.py
+  - tests/test_diagnostics_acquisition_times.py
+  - https://github.com/joyfulhouse/pylxpweb/commit/cac7a9f498aa20528577a08ce1541fdb59f77481
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/691
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/692
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/693
@@ -19,8 +25,10 @@ sources:
   - tests/test_energy_provenance_adoption.py
   - tests/test_energy_guard_restore.py
 verified-against:
-  eg4_web_monitor: 77e6c8652d46042e2a919c8e461ddd2c10724c3a
-  pylxpweb: cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b
+  # Acquisition-evidence source progress only; historical sections retain their pins.
+  eg4_web_monitor: ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21
+  # Candidate-version source only; historical b13 checks retain cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b.
+  pylxpweb: cac7a9f498aa20528577a08ce1541fdb59f77481
 last-verified: 2026-10-25
 see-also:
   - production-beta21-2026-10-23.md
@@ -77,8 +85,8 @@ The diagnostics request reproduced the metadata blocking warnings on installed
 beta.21. Historical logs contain dongle connection timeouts and host-unreachable
 errors. Recorder history spanning a natural local midnight shows numeric daily
 resets. Neither source establishes acquisition freshness or recovery, and the
-history lacks per-field contributor lineage. Diagnostics replaces acquisition
-datetimes with placeholders; the [diagnostics owner](../10-integration/diagnostics-repairs.md)
+history lacks per-field contributor lineage. The deployed candidate's diagnostics
+replaced acquisition datetimes with placeholders; the [diagnostics owner](../10-integration/diagnostics-repairs.md)
 owns that serialization limitation. At preflight, #691, #693, #694 and #666
 remained release blockers. The deployment checkpoint below updates #691; a
 24-hour candidate soak has not occurred.
@@ -194,11 +202,46 @@ records the 16:24 UTC collector heartbeat and readable event prefix through
 prefix, and the collector reports no errors. These are dated observations,
 `asserted-unverified` under the evidence legend. They support partial published
 availability stability, not local acquisition freshness or transport recovery.
-The recorded warnings continue, and cached diagnostics still discard acquisition
-datetimes. The [diagnostics owner](../10-integration/diagnostics-repairs.md)
+The recorded warnings continue, and the diagnostics captured at this checkpoint
+still discard acquisition datetimes. The [diagnostics owner](../10-integration/diagnostics-repairs.md)
 owns that limitation. Natural local midnight at October 26 07:00 UTC and the
 post-settling 24-hour deadline at 15:07 UTC have not occurred at this checkpoint.
 #693, #694 and #666 remain blockers; elapsed time alone cannot satisfy them.
+
+### October 25 acquisition-evidence source progress
+
+Source at `ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21` adds a daily-energy
+evidence capture path and preserves aware acquisition timestamps in diagnostics. The
+[data-semantics owner](../10-integration/data-semantics.md#423-daily-energy-diagnostic-evidence-666)
+and [diagnostics owner](../10-integration/diagnostics-repairs.md#acquisition-timestamps-and-capture-time)
+own the code contract, scope and privacy limits. These are
+`verified-against-code` source claims, not an observation that production runs
+this code. The [validation artifact](../../docs/production/acquisition-evidence-validation-2026-10-25.json)
+records passing complete minimum/latest HA suites, strict typing, Ruff, formatting,
+tier checks and commit hooks. The tests exercise released b13 and HA lifecycle;
+these software results do not establish production acceptance.
+
+The deployed candidate and its existing private collector remain on their
+previous source. This change neither recovers discarded timestamps from older
+captures nor supplies poll duration, runtime fallback or recovery evidence.
+A separately authorized installation/restart and suitable subsequent capture
+are still required before making new production acquisition claims. The
+existing natural-midnight/soak window remains evidence about its exact deployed
+candidate. #693, #694 and #666 remain open; #697 retains its separate private
+full-download acceptance gate. No release publication follows from this source
+progress.
+
+At this checkpoint, pylxpweb main is
+`cac7a9f498aa20528577a08ce1541fdb59f77481`; its merged release candidate declares
+`0.10.0b14` (`verified-against-code`, `pyproject.toml` at that commit). Publication
+remains pending: required immutable `v*` update/deletion protection is missing,
+and the prepared rule awaits authorization. It has no bypass actors or
+tag-creation restriction. The integration manifest and this validation use
+released b13, and production remains on integration
+`77e6c8652d46042e2a919c8e461ddd2c10724c3a` with b13. A merged
+library release candidate is not evidence of a published artifact or deployed
+integration pin. The dated workflow/authorization state is `asserted-unverified`
+in the linked validation artifact, not a permanent statement about later releases.
 
 ### Classification
 
@@ -214,7 +257,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 | [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns. Authorized October 25 candidate startup preserves the two existing IDs, reports zero while inactive and emits no duplicate-ID startup warnings; no quick charge was initiated. |
 | [#693](https://github.com/joyfulhouse/eg4_web_monitor/issues/693) | Release blocker: production characterization | Recurring dongle warnings need timestamps, duration/freshness/fallback correlation and natural recovery if it occurs. Neither a network root cause nor a library regression is established. |
 | [#694](https://github.com/joyfulhouse/eg4_web_monitor/issues/694) | Release blocker: production soak | Natural local midnight and longer passive observations remain unverified. Full reconfiguration and rollback restoration remain untested and must stay explicit. |
-| [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666) | Release blocker for LOCAL production rollover acceptance; accepted limitation for undated sources | Released b13 lineage adoption is covered by software regressions. Natural production source continuity is outstanding; cloud/battery/chart counter-day and device reset timezone remain unproven. |
+| [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666) | Release blocker for LOCAL production rollover acceptance; accepted limitation for undated sources | Released b13 lineage adoption and the new capture path have software coverage. Natural production source continuity still needs qualified observations from deployed code; cloud/battery/chart counter-day and device reset timezone remain unproven. The data-semantics and diagnostics owners define the bounded capture contract. |
 | [#619](https://github.com/joyfulhouse/eg4_web_monitor/issues/619) | Accepted limitation | Partial-group runtime works; incomplete cumulative sums remain unknown. Restart/outage/membership continuity needs a defined contract before emitting partial totals. |
 | [#659](https://github.com/joyfulhouse/eg4_web_monitor/issues/659) | Accepted limitation, model/source scoped | Existing 12000XP balance-versus-portal discrepancy remains unresolved. Same-time cloud/local counter evidence is required; recognition is fixed separately. No source substitution or statistics repair is justified. |
 | [#658](https://github.com/joyfulhouse/eg4_web_monitor/issues/658) | Future work | Generator-energy feature requires nonzero producer/chart evidence, units and leg semantics; persistence is separate. Zeros do not establish a mapping. |

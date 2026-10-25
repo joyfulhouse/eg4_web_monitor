@@ -1,0 +1,83 @@
+{
+  "date": "2026-10-25",
+  "source_commit": "ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21",
+  "integration_base_commit": "e1a5ba011c1ffb69154f52677985d9b8bbf21627",
+  "issue": 666,
+  "scope": "Offline validation of daily-energy diagnostic evidence and aware timestamp serialization; no guard, numeric energy formula or polling changes.",
+  "matrix": [
+    {
+      "homeassistant": "2026.10.0",
+      "pytest_homeassistant_custom_component": "0.13.371",
+      "pylxpweb": "0.10.0b13",
+      "python": "3.14.6",
+      "passed": 4235,
+      "skipped": 9,
+      "warnings": 36,
+      "elapsed_seconds": 165.23,
+      "strict_typing": "passed",
+      "typed_source_files": 58
+    },
+    {
+      "homeassistant": "2026.10.4",
+      "pytest_homeassistant_custom_component": "0.13.375",
+      "pylxpweb": "0.10.0b13",
+      "python": "3.14.6",
+      "passed": 4235,
+      "skipped": 9,
+      "warnings": 36,
+      "elapsed_seconds": 162.88,
+      "strict_typing": "passed",
+      "typed_source_files": 58
+    }
+  ],
+  "quality": {
+    "ruff": "passed",
+    "format": "passed",
+    "silver": "passed",
+    "gold": "passed",
+    "platinum": "passed",
+    "commit_hooks": "passed"
+  },
+  "regressions": [
+    "Original coordinator output lacked detached per-value evidence; real coordinator assertions failed before implementation.",
+    "Cached values preserve original recursive acquisition lineage through failed energy reads, the actual LOCAL interval-skip path and PV-string carry-forward.",
+    "An equal-valued fresh chart response replaces prior local evidence with explicit missing lineage.",
+    "Mixed-day, HTTP, missing, unknown and empty contributor trees remain ineligible; member loss and GridBOSS CT/phase overlays follow numeric source selection.",
+    "Aware datetime offsets and precision survive serialization; plant IDs matching ISO years or fractional seconds do not corrupt timestamp values.",
+    "Repeated diagnostics capture timestamps change without refreshing cached acquisition times; naive datetimes and unknown objects retain bounded placeholders."
+  ],
+  "contract_limits": [
+    "Daily counters are derived from present sensor keys with reset_period=daily; lifetime counters are outside this evidence projection.",
+    "Evidence value is the raw coordinator value before HA entity guard presentation. accepted_for_daily_guard expresses diagnostic eligibility, not actual guard expiration, device reset, counter day or hardware validation.",
+    "Source identifiers and free-form field names are omitted; recursive contributor structure does not identify physical contributors.",
+    "Future equal-valued source replacements need explicit evidence updates at their assignment sites; numeric reconciliation alone cannot detect them.",
+    "Cloud, battery and chart device-counter-day semantics remain unresolved. This change does not add runtime poll durations or establish transport fallback/recovery."
+  ],
+  "library_checkpoint": {
+    "main_commit": "cac7a9f498aa20528577a08ce1541fdb59f77481",
+    "declared_candidate_version": "0.10.0b14",
+    "source_state": "release candidate merged",
+    "publication_state": "not published; required tag protection remains a release prerequisite",
+    "integration_requirement": "pylxpweb==0.10.0b13",
+    "tag_protection_state": "required immutable v* update/deletion protection is missing; prepared rule awaits authorization",
+    "prepared_tag_protection": "No bypass actors and no tag-creation restriction."
+  },
+  "production_checkpoint": {
+    "integration_commit": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+    "pylxpweb": "0.10.0b13",
+    "observability_change_deployed": false,
+    "new_production_operations": "none",
+    "open_acceptance_issues": [
+      666,
+      693,
+      694,
+      697
+    ]
+  },
+  "validation_limits": [
+    "Counts are dated results from the complete serialized minimum/latest runs; warnings were reported and are not represented as warning-free validation.",
+    "Final independent review and PR checks remain separate merge gates; this artifact does not claim their completion.",
+    "No release publication, deployment, restart, clock change, hardware write, induced outage or recovery exercise occurred.",
+    "Historical captures that discarded acquisition timestamps remain incomplete; source changes cannot recover that evidence."
+  ]
+}
