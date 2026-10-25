@@ -1,6 +1,7 @@
 ---
 canonical-for:
   - staleness, carry-forward and eviction rules
+  - daily-energy diagnostic lineage and eligibility evidence
   - direct battery projection, cell-voltage presentation and consumer acceptance boundaries
   - capability gating by inverter_family (never by model-name substring)
   - INVERTER_FAMILY_UNKNOWN as a truthy string
@@ -10,6 +11,9 @@ canonical-for:
   - parameter cache seeding after writes
   - the time.monotonic() fresh-boot throttle trap
 sources:
+  - custom_components/eg4_web_monitor/energy_evidence.py
+  - custom_components/eg4_web_monitor/energy_provenance.py
+  - tests/test_daily_energy_evidence.py
   - custom_components/eg4_web_monitor/battery_bus.py
   - tests/test_battery_bus.py
   - pylxpweb src/pylxpweb/transports/battery_modbus.py
@@ -80,12 +84,14 @@ verified-against:
   # Direct battery projection only is re-verified at these pins. Other sections
   # retain previous page pins (eg4_web_monitor d8e2027, pylxpweb 204b95d)
   # and their explicitly scoped inline pins.
-  eg4_web_monitor: 7d697a4d4c66ef151588faa12c999a25be50c22e
+  # Section 4.2.3 only is verified at the integration pin below; prior sections
+  # retain their scoped pins, including direct battery projection at 7d697a4.
+  eg4_web_monitor: ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21
   pylxpweb: bce390936f2068000b7a53e2e981e9399139753f
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
 # Direct battery projection re-verified against 7d697a4d4c66ef151588faa12c999a25be50c22e on 2026-10-22.
 # Partial-group runtime behavior re-verified at e5fa860 on 2026-10-20.
-last-verified: 2026-10-22
+last-verified: 2026-10-25
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -592,6 +598,72 @@ Battery accumulation and chart-derived values still lack usable day evidence.
 Unknown/mixed-day aggregates keep the bounded guard until qualifying evidence
 arrives; no day, timezone, missing component or lifetime source is fabricated.
 Reliable device counter-day/reset evidence for those paths remains outstanding.
+
+### 4.2.3 Daily-energy diagnostic evidence (#666)
+
+At `ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21`, processed device/group data
+retains `energy_evidence` beside `sensors` and `energy_sample_times`. Its
+population is derived from sensor keys
+present in the mapping whose `SENSOR_TYPES` metadata declares
+`reset_period="daily"`; this is not a catalog of every energy source or a
+lifetime-counter feature. Each record binds the raw mapped coordinator value to
+a detached recursive lineage tree. That value precedes the HA entity's bounded
+dip guard and need not equal the entity's displayed state.
+
+The tree preserves source kind, original `acquired_at` and component structure.
+It omits `source_id` and `field_name`, which can contain serials, URLs or group
+names. Contributor positions remain visible, but the tree alone cannot identify
+which physical device supplied each leaf. It does not expose or infer device
+measurement time, counter day or reset timezone. Grade: `verified-against-code`
+(`energy_evidence.py` -> `_daily`, `_lineage`, `_evidence`,
+`mapped_daily_evidence`).
+
+`accepted_for_daily_guard` describes diagnostic eligibility under the existing
+LOCAL/same-HA-day lineage policy. It is not an instruction to the guard and does
+not mean that an entity baseline expired or a device counter reset. Rejected
+records retain explicit reasons: `missing`, `unknown`, `http`, `empty`,
+`missing_acquisition_time`, `mixed_day` or `no_value`. Multiple failures can be
+reported together. The existing `energy_provenance.py` guard adapters remain
+the policy inputs; this diagnostic projection does not change their timestamps,
+energy formulas, polling or lifetime behavior. Grade: `verified-against-code`
+(`energy_evidence.py` -> `_evidence`; `energy_provenance.py` ->
+`daily_sample_times`).
+
+Evidence is projected when numeric values are mapped or overlaid, before later
+asynchronous work can replace a device snapshot. LOCAL group aggregation reads
+the evidence stored with member values, retaining cached contributor times and
+missing contributors. GridBOSS overlays replace selected grid-energy lineage
+and build consumption from the UPS/load trees; missing CT values cannot retain
+an inverter-consumption explanation. Numeric blanking clears eligibility.
+Grade: `verified-against-code` (`coordinator_local.py` ->
+`_build_local_device_data`, `_process_single_local_device`,
+`_process_local_parallel_groups`; `coordinator_mixins.py` ->
+`_process_inverter_object`, `_process_parallel_group_object`,
+`_process_mid_device_object`, `apply_gridboss_to_parallel_group`;
+`energy_evidence.py` -> `aggregate_daily_evidence`,
+`overlay_gridboss_evidence`, `reconcile_daily_evidence`).
+
+Whole-device interval skips keep the prior evidence. Individual PV-string
+carry-forward copies the prior tree only when it copies that numeric value.
+A new chart response clears old local evidence even when its numeric value is
+unchanged, because that chart response has no usable acquisition-lineage
+contract here. Numeric equality alone cannot establish source continuity:
+future same-valued source replacements must update evidence at their assignment
+site, rather than relying on `reconcile_daily_evidence` to detect them.
+Grade: `verified-against-code` (`coordinator_local.py` ->
+`_async_update_local_data`; `coordinator_mixins.py` ->
+`_carry_forward_pv_string_energy`, `_fetch_pv_string_energy`;
+`energy_evidence.py` -> `carry_daily_evidence`).
+
+The real-library/coordinator regressions in `tests/test_daily_energy_evidence.py`
+cover mixed source/day and missing/empty contributors, source changes during an
+await, a failed energy read retaining cached acquisition, the actual LOCAL
+interval-skip path, lost-member blanking, GridBOSS phase/CT replacement, and an
+equal-valued fresh chart response replacing cached local evidence. These are
+software-contract tests, not hardware acquisition or natural-midnight results.
+The [diagnostics owner](diagnostics-repairs.md#acquisition-timestamps-and-capture-time)
+owns how these retained datetime objects reach a download. Production acceptance
+and undated cloud/battery/chart counter-day boundaries remain open under #666.
 
 ### 4.3 Consumption and load are two distinct meters
 

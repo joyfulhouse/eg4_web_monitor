@@ -61,6 +61,12 @@ from .coordinator_mappings import (
     compute_bank_charge_rate,
     compute_parallel_group_charge_rate,
 )
+from .energy_evidence import (
+    local_daily_evidence,
+    mapped_daily_evidence,
+    aggregate_daily_evidence,
+    reconcile_daily_evidence,
+)
 from .energy_provenance import (
     local_daily_sample_times,
     mapped_daily_sample_times,
@@ -908,6 +914,9 @@ class LocalTransportMixin(_MixinBase):
             device_data["energy_sample_times"] = local_daily_sample_times(
                 energy_sensors, energy_data
             )
+            device_data["energy_evidence"] = local_daily_evidence(
+                energy_sensors, energy_data
+            )
 
         if battery_data := inverter.transport_battery:
             device_data["sensors"].update(
@@ -1378,6 +1387,11 @@ class LocalTransportMixin(_MixinBase):
                         mid_device.energy_provenance,
                         self._get_mid_device_property_map(),
                     ),
+                    "energy_evidence": mapped_daily_evidence(
+                        sensors,
+                        mid_device.energy_provenance,
+                        self._get_mid_device_property_map(),
+                    ),
                 }
 
                 processed["devices"][serial] = device_data
@@ -1510,6 +1524,9 @@ class LocalTransportMixin(_MixinBase):
                     energy_sensors = _build_energy_sensor_mapping(energy_data)
                     device_data["sensors"].update(energy_sensors)
                     device_data["energy_sample_times"] = local_daily_sample_times(
+                        energy_sensors, energy_data
+                    )
+                    device_data["energy_evidence"] = local_daily_evidence(
                         energy_sensors, energy_data
                     )
 
@@ -2277,6 +2294,9 @@ class LocalTransportMixin(_MixinBase):
                 total_devices,
             )
 
+        for device_data in processed["devices"].values():
+            reconcile_daily_evidence(device_data)
+
         # Process local parallel groups from device config
         await self._process_local_parallel_groups(processed)
 
@@ -2562,6 +2582,9 @@ class LocalTransportMixin(_MixinBase):
             group_sample_times = aggregate_daily_sample_times(
                 group_sensors, (data for _, data in group_devices)
             )
+            group_evidence = aggregate_daily_evidence(
+                group_sensors, (data for _, data in group_devices)
+            )
 
             # Override grid/load power, energy, and voltage with MID device
             # (GridBOSS) data if available.  The MID device has grid CTs and is
@@ -2601,6 +2624,8 @@ class LocalTransportMixin(_MixinBase):
                     recompute_consumption=True,
                     pg_sample_times=group_sample_times,
                     gb_sample_times=device_data.get("energy_sample_times", {}),
+                    pg_evidence=group_evidence,
+                    gb_evidence=device_data.get("energy_evidence", {}),
                 )
 
                 break  # Only one MID device per system
@@ -2648,6 +2673,7 @@ class LocalTransportMixin(_MixinBase):
                 "member_serials": [serial for serial, _ in group_devices],
                 "sensors": group_sensors,
                 "energy_sample_times": group_sample_times,
+                "energy_evidence": group_evidence,
             }
             previous_group = (
                 (self.data or {}).get("devices", {}).get(group_device_id, {})
@@ -2671,6 +2697,7 @@ class LocalTransportMixin(_MixinBase):
                 pg_device_data["error"] = _stale_parallel_member_error(
                     processed["devices"], stale_members
                 )
+            reconcile_daily_evidence(pg_device_data)
             processed["devices"][group_device_id] = pg_device_data
 
             self._register_pg_device(group_device_id, group_name)
