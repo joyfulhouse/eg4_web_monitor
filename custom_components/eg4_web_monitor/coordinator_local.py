@@ -12,12 +12,13 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.helpers import device_registry as dr, issue_registry as ir
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from pylxpweb.devices.inverters.base import BaseInverter
 from pylxpweb.exceptions import LuxpowerDeviceError
+from . import repair_registry as ir
 from .const import (
     CONF_GRID_TYPE,
     CONF_INCLUDE_AC_COUPLE_PV,

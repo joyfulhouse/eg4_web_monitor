@@ -9,6 +9,7 @@ from pylxpweb.exceptions import LuxpowerAPIError
 from homeassistant.components.number import RestoreNumber
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
+from custom_components.eg4_web_monitor import repair_registry
 from custom_components.eg4_web_monitor.const import (
     GRID_PEAK_SHAVING_VOLT_MAX,
     GRID_PEAK_SHAVING_VOLT_MIN,
@@ -268,6 +269,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         # +5 (#592): the rest of the daily Grid Peak Shaving set.
@@ -338,6 +340,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -362,6 +365,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert len(entities) == 0
@@ -377,6 +381,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -392,6 +397,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -405,6 +411,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert len(entities) > 0
@@ -428,6 +435,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -455,6 +463,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -495,6 +504,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -514,6 +524,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -542,6 +553,7 @@ class TestNumberPlatformSetup:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -2556,6 +2568,7 @@ class TestOffgridGridTiedNumberSuppression:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -2592,6 +2605,7 @@ class TestOffgridGridTiedNumberSuppression:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -2644,10 +2658,14 @@ class TestOffgridGridTiedNumberSuppression:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_grid_controls_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_grid_controls_removed_{serial}"
+            ),
         )
         assert issue is not None
 
@@ -2678,10 +2696,14 @@ class TestOffgridGridTiedNumberSuppression:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_grid_controls_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_grid_controls_removed_{serial}"
+            ),
         )
         assert issue is not None
 
@@ -2728,10 +2750,14 @@ class TestOffgridACChargeSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            ),
         )
         assert issue is not None
 
@@ -2748,10 +2774,14 @@ class TestOffgridACChargeSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            ),
         )
         assert issue is None
 
@@ -2777,10 +2807,14 @@ class TestOffgridACChargeSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            ),
         )
         assert issue is None
 
@@ -2802,10 +2836,14 @@ class TestOffgridACChargeSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            ),
         )
         assert issue is not None
 
@@ -2828,10 +2866,14 @@ class TestOffgridACChargeSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"offgrid_ac_charge_soc_limit_removed_{serial}"
+            ),
         )
         assert issue is None
 
@@ -3299,6 +3341,7 @@ class TestACCoupleSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -3313,6 +3356,7 @@ class TestACCoupleSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -3328,6 +3372,7 @@ class TestACCoupleSOCWindow:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
@@ -3693,6 +3738,7 @@ class TestSmartLoadNumbers:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         created = [e for e in entities if isinstance(e, SmartLoadNumber)]
@@ -3706,6 +3752,7 @@ class TestSmartLoadNumbers:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert len([e for e in entities if isinstance(e, SmartLoadNumber)]) == 5
@@ -3719,6 +3766,7 @@ class TestSmartLoadNumbers:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         assert not any(isinstance(e, SmartLoadNumber) for e in entities)
@@ -3731,6 +3779,7 @@ class TestSmartLoadNumbers:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         created = [e for e in entities if isinstance(e, SmartLoadNumber)]
@@ -3745,6 +3794,7 @@ class TestSmartLoadNumbers:
         entry.runtime_data = coordinator
 
         entities = []
+        await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         ids = [e.unique_id for e in entities if isinstance(e, SmartLoadNumber)]

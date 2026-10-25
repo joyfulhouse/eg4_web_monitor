@@ -1,0 +1,93 @@
+{
+  "record_type": "partial_passive_soak_review",
+  "review_date_utc": "2026-10-25",
+  "candidate_commit": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+  "scope": "Read-only review of existing private collector artifacts. No production requests, hardware writes, restarts, collector changes or release publication were performed by this review.",
+  "observation_window": {
+    "collector_started_utc": "2026-10-25T14:33:20.979102+00:00",
+    "settling_deadline_utc": "2026-10-25T15:07:00.226076+00:00",
+    "acceptance_window_end_utc": "2026-10-26T15:07:00.226076+00:00",
+    "next_natural_ha_local_midnight_utc": "2026-10-26T07:00:00+00:00",
+    "required_midnight_coverage_minutes_each_side": 60,
+    "complete": false
+  },
+  "collector_status_snapshot": {
+    "heartbeat_utc": "2026-10-25T16:24:23.702720+00:00",
+    "last_event_utc": "2026-10-25T16:24:14.157884+00:00",
+    "status": "running",
+    "connected": true,
+    "connections": 1,
+    "recorded_errors": 0,
+    "reported_events": 26947,
+    "diagnostics_captures": 12,
+    "log_captures": 4,
+    "interpretation": "Collector health only; an uninterrupted HA subscription does not establish hardware transport health."
+  },
+  "readable_event_prefix": {
+    "first_event_utc": "2026-10-25T14:33:21.021950+00:00",
+    "last_event_utc": "2026-10-25T16:07:13.886675+00:00",
+    "complete_event_records": 23216,
+    "initial_state_events": 1,
+    "change_events": 23215,
+    "entity_count": 651,
+    "availability_counts_throughout_prefix": {
+      "known": 614,
+      "unknown": 22,
+      "unavailable": 15
+    },
+    "known_to_unknown_or_unavailable_transitions": 0,
+    "interpretation": "Supports partial availability stability, including the settling deadline, for the subscribed entity set. The compressed stream was still being written; newer events reported by collector status were not yet readable in this buffered prefix. This is not evidence of an acquisition gap or proof of fresh local measurements."
+  },
+  "cached_diagnostics": {
+    "latest_reviewed_capture_utc": "2026-10-25T16:23:23.699657+00:00",
+    "datetime_placeholders": 57,
+    "affected_evidence": "Acquisition values in inverter, parallel-group and GridBOSS energy_sample_times remain serialized as <datetime>.",
+    "interpretation": "These captures cannot establish acquisition freshness or per-field contributing lineage. State publication timestamps are not a substitute."
+  },
+  "existing_log_excerpts": {
+    "review_start_utc": "2026-10-25T14:17:00+00:00",
+    "distinct_matching_warning_lines": 19,
+    "latest_matching_warning_utc": "2026-10-25T15:43:17.199000+00:00",
+    "method": "Deduplicated matching dongle/link connection-warning lines by timestamp across the existing collector log excerpts.",
+    "interpretation": "Connection warnings recur after deployment. Excerpts are not a complete failure census and do not establish cause, fallback duration, acquisition freshness, natural recovery or candidate attribution."
+  },
+  "historical_midnight_evidence": {
+    "window_start_utc": "2026-10-25T06:00:00+00:00",
+    "window_end_utc": "2026-10-25T08:00:00+00:00",
+    "energy_series": 20,
+    "state_records": 743,
+    "interpretation": "Previously reviewed numeric daily resets precede the deployed-candidate soak. Recorder history lacks contributing acquisition lineage and does not demonstrate the missed-reset guard, cached/member-loss recovery or device counter reset timezone."
+  },
+  "issue_classification": {
+    "693": {
+      "status": "open",
+      "classification": "production characterization blocker",
+      "remaining": "Correlate warning timestamps with successful local acquisitions, poll durations, source selection, fallback intervals and any natural recovery. Explicitly retain unresolved cause or unobserved recovery."
+    },
+    "694": {
+      "status": "open",
+      "classification": "in-progress soak and evidence blocker",
+      "remaining": "Complete the existing 24-hour post-settling window, inspect final capture continuity, reconcile any registry additions, and review natural midnight with qualified provenance. Preserve untested scenarios; elapsed time alone does not satisfy acceptance."
+    },
+    "666": {
+      "status": "open",
+      "classification": "LOCAL production provenance acceptance blocker",
+      "remaining": "Preserve actual numeric-source contributors and acquisition timestamps across midnight. Nonempty, entirely LOCAL, same-HA-day lineage is required for baseline expiration; cached, missing, HTTP, unknown and mixed-day cases must remain conservative. Cloud, battery and chart counter-day semantics remain unresolved."
+    }
+  },
+  "limitations": [
+    "The required natural midnight and full observation window were still in the future at the inspected heartbeat.",
+    "The collector subscribes to the existing enabled entity set; later registry additions require separate reconciliation.",
+    "Stable published availability does not distinguish fresh local readings from cloud fallback or cached data.",
+    "No forced outage, clock change, generator operation, full reconfiguration or rollback exercise is included.",
+    "Raw private captures, entity identifiers, network addresses and unredacted log text are intentionally excluded."
+  ],
+  "references": [
+    "docs/production/candidate-deployment-2026-10-25.json",
+    "docs/production/final-release-acceptance-plan-2026-10-23.md",
+    "docs/production/release-preflight-2026-10-25.json",
+    "https://github.com/joyfulhouse/eg4_web_monitor/issues/693",
+    "https://github.com/joyfulhouse/eg4_web_monitor/issues/694",
+    "https://github.com/joyfulhouse/eg4_web_monitor/issues/666"
+  ]
+}

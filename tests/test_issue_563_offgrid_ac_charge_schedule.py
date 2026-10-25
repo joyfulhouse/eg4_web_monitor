@@ -23,6 +23,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.eg4_web_monitor import repair_registry
 from custom_components.eg4_web_monitor.binary_sensor import (
     EG4ScheduleActiveBinarySensor,
     async_setup_entry as async_setup_binary_sensor,
@@ -305,14 +306,20 @@ class TestACChargeSwitchRegistryCleanup:
         issue_registry = ir.async_get(hass)
         assert (
             issue_registry.async_get_issue(
-                DOMAIN, f"offgrid_ac_charge_switch_removed_{offgrid}"
+                DOMAIN,
+                repair_registry.repair_issue_id(
+                    hass, f"offgrid_ac_charge_switch_removed_{offgrid}"
+                ),
             )
             is not None
         )
         for serial in (hybrid, unknown, missing, lxp):
             assert (
                 issue_registry.async_get_issue(
-                    DOMAIN, f"offgrid_ac_charge_switch_removed_{serial}"
+                    DOMAIN,
+                    repair_registry.repair_issue_id(
+                        hass, f"offgrid_ac_charge_switch_removed_{serial}"
+                    ),
                 )
                 is None
             )
@@ -670,14 +677,20 @@ class TestFamilyReclassificationRecleanup:
         issue_registry = ir.async_get(hass)
         assert (
             issue_registry.async_get_issue(
-                DOMAIN, f"offgrid_ac_charge_switch_removed_{offgrid}"
+                DOMAIN,
+                repair_registry.repair_issue_id(
+                    hass, f"offgrid_ac_charge_switch_removed_{offgrid}"
+                ),
             )
             is not None
         )
         for serial in (hybrid, lxp):
             assert (
                 issue_registry.async_get_issue(
-                    DOMAIN, f"offgrid_ac_charge_switch_removed_{serial}"
+                    DOMAIN,
+                    repair_registry.repair_issue_id(
+                        hass, f"offgrid_ac_charge_switch_removed_{serial}"
+                    ),
                 )
                 is None
             )

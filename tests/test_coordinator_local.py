@@ -33,6 +33,8 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
+from custom_components.eg4_web_monitor import repair_registry
+
 from tests.conftest import make_real_inverter, make_real_mid, make_transport_spec
 
 from custom_components.eg4_web_monitor.coordinator_mixins import (
@@ -146,6 +148,12 @@ def http_config_entry():
 
 
 # ── _read_modbus_parameters ─────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+async def initialize_repairs(hass):
+    """Direct coordinator tests run after component Repairs initialization."""
+    await repair_registry.async_initialize(hass)
 
 
 class TestReadModbusParameters:
@@ -4746,7 +4754,10 @@ class TestLocalLinkDownFlow:
 
         # One-shot Repairs issue exists with the right placeholders.
         registry = ir.async_get(hass)
-        issue = registry.async_get_issue(DOMAIN, "transport_link_down_SYNTH10013")
+        issue = registry.async_get_issue(
+            DOMAIN,
+            repair_registry.repair_issue_id(hass, "transport_link_down_SYNTH10013"),
+        )
         assert issue is not None
         assert issue.translation_key == "transport_link_down"
         assert issue.translation_placeholders == {
@@ -4791,6 +4802,7 @@ class TestLocalLinkDownFlow:
             translation_key="transport_link_down",
             translation_placeholders={"serial": "SYNTH10013", "host": "x"},
         )
+        await repair_registry.async_initialize(hass)
         coordinator._link_down_notified = {"SYNTH10013"}
 
         transport = MagicMock(spec=["is_connected", "host", "port"])
@@ -4805,7 +4817,11 @@ class TestLocalLinkDownFlow:
 
         registry = ir.async_get(hass)
         assert (
-            registry.async_get_issue(DOMAIN, "transport_link_down_SYNTH10013") is None
+            registry.async_get_issue(
+                DOMAIN,
+                repair_registry.repair_issue_id(hass, "transport_link_down_SYNTH10013"),
+            )
+            is None
         )
         assert coordinator._link_down_notified == set()
 

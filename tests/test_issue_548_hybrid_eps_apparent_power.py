@@ -9,6 +9,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.eg4_web_monitor import repair_registry
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_DST_SYNC,
@@ -235,14 +236,20 @@ class TestHybridEpsApparentPowerRegistryCleanup:
         issue_registry = ir.async_get(hass)
         assert (
             issue_registry.async_get_issue(
-                DOMAIN, f"hybrid_eps_apparent_power_sensors_removed_{hybrid}"
+                DOMAIN,
+                repair_registry.repair_issue_id(
+                    hass, f"hybrid_eps_apparent_power_sensors_removed_{hybrid}"
+                ),
             )
             is not None
         )
         for serial in (offgrid, unknown, missing, lxp, gridboss):
             assert (
                 issue_registry.async_get_issue(
-                    DOMAIN, f"hybrid_eps_apparent_power_sensors_removed_{serial}"
+                    DOMAIN,
+                    repair_registry.repair_issue_id(
+                        hass, f"hybrid_eps_apparent_power_sensors_removed_{serial}"
+                    ),
                 )
                 is None
             )

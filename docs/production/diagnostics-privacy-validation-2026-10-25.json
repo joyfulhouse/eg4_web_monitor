@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-25",
+  "source_commit": "c006150eeef0486db30e2c986dba9415b7e0e644",
+  "issue": 697,
+  "python": "3.14.6",
+  "pylxpweb": "0.10.0b13",
+  "matrix": [
+    {
+      "homeassistant": "2026.10.0",
+      "pytest_homeassistant_custom_component": "0.13.371",
+      "passed": 4215,
+      "skipped": 9,
+      "warnings": 36,
+      "strict_typing": "passed"
+    },
+    {
+      "homeassistant": "2026.10.4",
+      "pytest_homeassistant_custom_component": "0.13.375",
+      "passed": 4215,
+      "skipped": 9,
+      "warnings": 36,
+      "strict_typing": "passed"
+    }
+  ],
+  "quality": {
+    "ruff": "passed",
+    "format": "passed",
+    "silver": "passed",
+    "gold": "passed",
+    "platinum": "passed",
+    "commit_hooks": "passed with supported HA interpreter"
+  },
+  "regressions": [
+    "Original nested-host/full-wrapper synthetic disclosure reproduced before fix.",
+    "Migration collision order reproduced loss of creation/dismissal/activity metadata before correction.",
+    "Direct-battery numeric serial disclosure reproduced before collector correction.",
+    "Actual authenticated HTTP diagnostics wrapper, unloaded entries, battery data, storage/identity reload, duplicate-cloud reconstruction and transport recovery covered."
+  ],
+  "validation_limits": [
+    "Initial full run exposed direct-test setup prerequisites and literal legacy repair-ID assertions; adapted test initialization and opaque identity assertions then reran both full environments.",
+    "First commit hook selected stale default dependencies; rerun with explicit supported HA interpreter passed without bypassing hooks.",
+    "No new production deployment, restart, hardware operation or release publication.",
+    "Issue697 remains open for authorized private production acceptance."
+  ]
+}

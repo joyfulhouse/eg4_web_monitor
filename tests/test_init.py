@@ -32,6 +32,7 @@ from custom_components.eg4_web_monitor.coordinator_mappings import (
     GRIDBOSS_STATIC_ENTITY_KEYS,
     SMART_PORT_VALIDATED_KEY,
 )
+from custom_components.eg4_web_monitor import repair_registry
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,
     CONF_CONNECTION_TYPE,
@@ -1801,7 +1802,10 @@ class TestAsyncMigrateEntry:
         assert await async_migrate_entry(hass, duplicate) is False
 
         issue = ir.async_get(hass).async_get_issue(
-            DOMAIN, f"duplicate_cloud_entry_{duplicate.entry_id}"
+            DOMAIN,
+            repair_registry.repair_issue_id(
+                hass, f"duplicate_cloud_entry_{duplicate.entry_id}"
+            ),
         )
         assert issue is not None
         assert issue.is_fixable is False
@@ -1830,19 +1834,21 @@ class TestAsyncMigrateEntry:
         # The user-visible Repair still exists despite the entry being untouched.
         assert (
             ir.async_get(hass).async_get_issue(
-                DOMAIN, f"duplicate_cloud_entry_{duplicate.entry_id}"
+                DOMAIN,
+                repair_registry.repair_issue_id(
+                    hass, f"duplicate_cloud_entry_{duplicate.entry_id}"
+                ),
             )
             is not None
         )
 
-    async def test_duplicate_repair_persists_and_dedupes_on_repeat(
-        self, hass: HomeAssistant
-    ):
-        """Repeated failed migrations keep exactly one persistent Repair."""
+    async def test_duplicate_repair_dedupes_on_repeat(self, hass: HomeAssistant):
+        """Repeated failed migrations keep exactly one private Repair."""
         _owner, duplicate = self._cloud_conflict_pair(hass)
-        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
-
         assert await async_migrate_entry(hass, duplicate) is False
+        issue_id = repair_registry.repair_issue_id(
+            hass, f"duplicate_cloud_entry_{duplicate.entry_id}"
+        )
         assert await async_migrate_entry(hass, duplicate) is False
 
         registry = ir.async_get(hass)
@@ -1854,9 +1860,10 @@ class TestAsyncMigrateEntry:
     ):
         """Removing the conflict lets the entry migrate and clears its Repair."""
         owner, duplicate = self._cloud_conflict_pair(hass)
-        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
-
         assert await async_migrate_entry(hass, duplicate) is False
+        issue_id = repair_registry.repair_issue_id(
+            hass, f"duplicate_cloud_entry_{duplicate.entry_id}"
+        )
         assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
 
         # User resolves the conflict by removing the owning duplicate.
@@ -1870,9 +1877,10 @@ class TestAsyncMigrateEntry:
     async def test_removing_losing_entry_dismisses_repair(self, hass: HomeAssistant):
         """Removing the losing entry — the Repair's advised recovery — clears it."""
         _owner, duplicate = self._cloud_conflict_pair(hass)
-        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
-
         assert await async_migrate_entry(hass, duplicate) is False
+        issue_id = repair_registry.repair_issue_id(
+            hass, f"duplicate_cloud_entry_{duplicate.entry_id}"
+        )
         assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is not None
 
         # Delete the losing entry through the real Home Assistant removal path.
@@ -1880,14 +1888,15 @@ class TestAsyncMigrateEntry:
 
         assert ir.async_get(hass).async_get_issue(DOMAIN, issue_id) is None
 
-    async def test_duplicate_repair_survives_registry_reload(
+    async def test_duplicate_repair_reconstructed_after_registry_reload(
         self, hass: HomeAssistant, hass_storage
     ):
-        """The actionable Repair persists across a registry reload (restart)."""
+        """The conflict reconstructs private UI details after a registry reload."""
         _owner, duplicate = self._cloud_conflict_pair(hass)
-        issue_id = f"duplicate_cloud_entry_{duplicate.entry_id}"
-
         assert await async_migrate_entry(hass, duplicate) is False
+        issue_id = repair_registry.repair_issue_id(
+            hass, f"duplicate_cloud_entry_{duplicate.entry_id}"
+        )
 
         registry = ir.async_get(hass)
         await flush_store(registry._store)
@@ -1896,6 +1905,11 @@ class TestAsyncMigrateEntry:
         reloaded = ir.IssueRegistry(hass)
         await reloaded.async_load()
 
+        issue = reloaded.async_get_issue(DOMAIN, issue_id)
+        assert issue is None or issue.active is False
+        hass.data[ir.DATA_REGISTRY] = reloaded
+        ir.async_get.cache_clear()
+        assert await async_migrate_entry(hass, duplicate) is False
         issue = reloaded.async_get_issue(DOMAIN, issue_id)
         assert issue is not None
         assert issue.active is True

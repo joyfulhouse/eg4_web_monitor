@@ -1876,3 +1876,34 @@ download without metadata blocking warnings; those conditions are met. The
 [readiness owner](60-history/final-release-readiness-2026-10-23.md) now separates
 that resolved scope from #697's pre-existing full-download redaction exposure.
 Closing #691 must not imply that #697 or final-release acceptance is complete.
+
+## [2026-10-25] ingest | Partial candidate soak preserves acceptance gaps
+
+Added the sanitized [partial-soak record](../docs/production/candidate-soak-progress-2026-10-25.json)
+and updated the [release-readiness owner](60-history/final-release-readiness-2026-10-23.md).
+The observed event prefix supports published availability stability, while recurring
+warnings and discarded acquisition timestamps leave transport recovery and contributor
+provenance unresolved. The natural midnight and full observation deadline remain
+future at the recorded checkpoint; no issue is closed on elapsed-time inference.
+
+## [2026-10-25] ingest | Long-outage probe overflow fix and delivery boundary
+
+Updated [transports](20-pylxpweb/transports.md) from the primary merged library
+source at `a35cf5f6228363cc5f652420e8d288e35ac92e8a`. Bounding the exponent
+preserves probe cadence while preventing arithmetic from permanently blocking
+recovery. The [release-readiness owner](60-history/final-release-readiness-2026-10-23.md)
+separates the resolved source issue from delivery: the integration and production
+still use b13, so an authorized library artifact and reviewed dependency update
+remain necessary. The fix does not diagnose the recurring production warnings.
+
+## [2026-10-25] ingest | Diagnostics privacy includes HA's Repairs wrapper
+
+Updated the [diagnostics owner](10-integration/diagnostics-repairs.md) against
+`c006150eeef0486db30e2c986dba9415b7e0e644` and linked the
+[validation record](../docs/production/diagnostics-privacy-validation-2026-10-25.json)
+from release readiness. Payload-only aliasing could not reach HA's earlier
+Repairs snapshot. Initialization now migrates stable pseudonymous identities and
+nonpersistent serialization omits sensitive UI metadata, while history and
+recovery survive. Collision-order and numeric battery-serial regressions exposed
+additional defects during implementation and now pass. Supported HA matrix and
+quality gates pass; authorized private production acceptance remains separate.

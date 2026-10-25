@@ -6,6 +6,7 @@ canonical-for:
   - device-removal observation ledger
 sources:
   - custom_components/eg4_web_monitor/diagnostics.py
+  - custom_components/eg4_web_monitor/repair_registry.py
   - custom_components/eg4_web_monitor/device_removal.py
   - custom_components/eg4_web_monitor/utils.py
   - custom_components/eg4_web_monitor/coordinator_local.py
@@ -18,7 +19,9 @@ sources:
   - docs/production/candidate-deployment-2026-10-25.json
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/697
   - tests/test_diagnostics.py
-verified-against: 9f6d6e2
+  - tests/test_repair_registry.py
+  - tests/test_init.py
+verified-against: c006150eeef0486db30e2c986dba9415b7e0e644
 # Metadata executor/redaction-order subsection re-verified at bf8bfe6 on 2026-10-23.
 # Other sections retain their original pin and date scope.
 # Datetime serialization limitation re-verified at 77e6c86 on 2026-10-25.
@@ -29,7 +32,8 @@ see-also:
 
 # Diagnostics, Repairs, and device removal
 
-Line numbers pinned to `9f6d6e2`; symbol names are the durable anchor.
+Historical line-number citations retain `9f6d6e2`; the October 25 privacy fix
+below is checked at the front-matter pin. Symbol names are the durable anchor.
 
 ## 1. Diagnostics output shape
 
@@ -116,6 +120,42 @@ the stated metadata-I/O acceptance of #691. Complete download redaction remains
 the separate #697 gate. Do not attach the raw download publicly or treat payload
 aliasing as coverage of the outer wrapper.
 
+### October 25 privacy fix
+
+At `c006150eeef0486db30e2c986dba9415b7e0e644`, nested `host`,
+`transport_host` and `serial_port` keys are redacted. Serial collection includes
+entry options, generic configured serial fields and supported direct-battery
+coordinator data, including integer serial values. The actual authenticated HA
+HTTP download is covered by `test_full_download_does_not_expose_legacy_repairs`;
+configuration-only and direct-battery tests preserve non-sensitive readings.
+These are `verified-against-code` claims (`diagnostics.py`,
+`tests/test_diagnostics.py`), not deployed production acceptance.
+
+HA snapshots domain Repairs before calling the integration diagnostics callback.
+`repair_registry.async_initialize` therefore migrates domain records during
+component setup, with entry migration/setup/removal safeguards. Stored IDs are
+`eg4_v2_` plus HMAC-SHA256 of the complete legacy identity using HA's stable
+instance ID. This is installation-scoped pseudonymization, not encryption or a
+guarantee that the instance ID is secret. The facade prevents double hashing and
+keeps all current create/delete callers on one identity scheme.
+Grade: `verified-against-code` (`repair_registry.py`, `__init__.py`,
+`coordinator_local.py`, `utils.py`).
+
+Repairs retain UI placeholders in memory but are nonpersistent, so HA omits that
+metadata from serialized diagnostics/storage. Migration preserves creation time,
+activity and dismissal; collisions retain any active warning and an existing
+dismissal, choosing the earliest creation. Tests cover both insertion orders,
+idempotence, store reload and instance-ID reload. Recovery deletes both opaque
+and legacy identities. Duplicate-cloud conditions reconstruct their UI details
+through `async_migrate_entry` after restart. The state-preserving registry rekey
+uses HA internals because HA exposes no rename API; this is a compatibility
+boundary requiring minimum/latest validation. Grade: `verified-against-code`
+(`repair_registry.py`, `tests/test_repair_registry.py`, `tests/test_init.py`).
+
+The residual alias-collection limits in section 3.1 and the acquisition timestamp
+limitation remain distinct. The [readiness owner](../60-history/final-release-readiness-2026-10-23.md)
+tracks the authorized private production acceptance still required by #697.
+
 > The diagnostics platform **did not exist until 2026-08-02** (issue #515). Triage comments
 > predating that asked reporters to download diagnostics that were not implemented.
 > (`asserted-unverified` — `memory/issue-reporting-hardening.md`.)
@@ -125,7 +165,7 @@ aliasing as coverage of the outer wrapper.
 | Rule | Detail | Cite |
 |---|---|---|
 | **Entry title is never emitted** | It embeds the plant name | `verified-against-code` — the result dict contains only `entry.data` and `entry.options` (`:243-248`) |
-| Redacted keys (`TO_REDACT`) | `username`, `password`, `plant_name`, `modbus_host`, `dongle_host`, plus location fields `name`, `address`, `phone`, `latitude`, `longitude`, `lat`, `lng`, `country`, `city`. Nested occurrences are covered because `async_redact_data` walks the whole tree | `diagnostics.py:35-53` |
+| Redacted keys (`TO_REDACT`) | Credentials, plant/location fields and transport keys, including nested `host`, `transport_host`, `serial_port`. Nested occurrences are covered because `async_redact_data` walks the whole tree | `diagnostics.py` -> `TO_REDACT` at the front-matter pin |
 | Base URL allowlist | Kept only if it is one of 3 public portal URLs (`monitor.eg4electronics.com`, `us.luxpowertek.com`, `eu.luxpowertek.com`), else `**REDACTED**`. Anything else is the reporter's private topology (a proxy, an internal hostname) | `diagnostics.py:57-61`, `:238-241` |
 | **No `repr()`, ever** | Unknown objects become a bounded `<TypeName>` placeholder. A `repr` can embed credentials, hosts or tokens — an aiohttp exception repr carries the connection target — and nothing downstream could redact free-form repr text reliably | `diagnostics.py:184-198` |
 
@@ -142,7 +182,7 @@ All rows: `verified-against-code`.
 | **Digit-boundary guards** | A purely numeric serial or plant id is wrapped in `(?<!\d)…(?!\d)`, so it only matches where it is not part of a longer number. Without this, an energy reading containing the plant id as a substring would be corrupted | `diagnostics.py:134-151` |
 | **Minimum serial length = 4** | Shorter (or empty) values are **dropped from the alias map** rather than aliased — a short string is more likely to be a coincidental substring than a serial. This is a deliberate trade-off with a residual gap; see §3.1 | `diagnostics.py:68-69`, `:127` |
 | **int-typed occurrences handled explicitly** | The cloud returns `plantId` as a number; an int-typed serial or plant id would otherwise sail past the string replacement | `diagnostics.py:178-180` |
-| Serial collection sources | Device dict keys + a recursive walk (`batteries` keys, any key containing `serial` or `battery_sn`) + entry data (`inverter_serial`, `dongle_serial`) + transports | `diagnostics.py:64-132` |
+| Serial collection sources | Device dict keys, supported coordinator data, entry data/options and transports; recursive `batteries` keys and string/integer serial-designated values | `diagnostics.py` -> `_collect_serials`, `_walk_serials` at the front-matter pin |
 
 All rows: `verified-against-code`.
 

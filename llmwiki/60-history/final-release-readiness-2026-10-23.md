@@ -11,6 +11,8 @@ sources:
   - docs/production/final-release-preparation-2026-10-23.json
   - docs/production/release-preflight-2026-10-25.json
   - docs/production/candidate-deployment-2026-10-25.json
+  - docs/production/candidate-soak-progress-2026-10-25.json
+  - docs/production/diagnostics-privacy-validation-2026-10-25.json
   - custom_components/eg4_web_monitor/ha_modbus.py
   - tests/test_ha_modbus.py
   - tests/test_sensor_entities.py
@@ -184,6 +186,22 @@ acceptance (`asserted-unverified`, the validation record).
 
 ## Integration acceptance and release scope
 
+### October 25 partial-soak checkpoint
+
+The [sanitized progress record](../../docs/production/candidate-soak-progress-2026-10-25.json)
+records the 16:24 UTC collector heartbeat and readable event prefix through
+16:07 UTC. No previously known entity becomes unknown or unavailable in that
+prefix, and the collector reports no errors. These are dated observations,
+`asserted-unverified` under the evidence legend. They support partial published
+availability stability, not local acquisition freshness or transport recovery.
+The recorded warnings continue, and cached diagnostics still discard acquisition
+datetimes. The [diagnostics owner](../10-integration/diagnostics-repairs.md)
+owns that limitation. Natural local midnight at October 26 07:00 UTC and the
+post-settling 24-hour deadline at 15:07 UTC have not occurred at this checkpoint.
+#693, #694 and #666 remain blockers; elapsed time alone cannot satisfy them.
+
+### Classification
+
 Each classification is a release judgment (`inferred`) from the linked issue and
 its acceptance comments. "Accepted limitation" means retained, explicitly
 bounded behavior in this proposed release scope; it does not close the issue or
@@ -192,7 +210,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 | Issue | Classification | Remaining boundary |
 |---|---|---|
 | [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Metadata-I/O acceptance met | Independent review and green CI precede the authorized deployed download without blocking warnings. Identity/configuration are preserved. The separate full-download redaction defect remains under #697. |
-| [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) | Release blocker: diagnostics redaction | Nested generic transport hosts and serial-bearing IDs in HA's Repairs wrapper remain exposed in both baseline and candidate. Fix/test the complete boundary or obtain explicit scope acceptance; do not publish private diagnostics. |
+| [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) | Release blocker: diagnostics redaction | Source fix at `c006150eeef0486db30e2c986dba9415b7e0e644` covers the actual HA wrapper and state-preserving Repairs migration. Production still uses the earlier candidate; the required authorized private full-download check remains open. See the diagnostics owner for the exact privacy boundary. |
 | [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns. Authorized October 25 candidate startup preserves the two existing IDs, reports zero while inactive and emits no duplicate-ID startup warnings; no quick charge was initiated. |
 | [#693](https://github.com/joyfulhouse/eg4_web_monitor/issues/693) | Release blocker: production characterization | Recurring dongle warnings need timestamps, duration/freshness/fallback correlation and natural recovery if it occurs. Neither a network root cause nor a library regression is established. |
 | [#694](https://github.com/joyfulhouse/eg4_web_monitor/issues/694) | Release blocker: production soak | Natural local midnight and longer passive observations remain unverified. Full reconfiguration and rollback restoration remain untested and must stay explicit. |
@@ -213,6 +231,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 
 | Issue | Classification | Remaining boundary |
 |---|---|---|
+| [#389](https://github.com/joyfulhouse/pylxpweb/issues/389) | Source resolved; release blocker for the b13 dependency | PR #390 merges the reviewed overflow fix at `a35cf5f6228363cc5f652420e8d288e35ac92e8a`. Production and the integration manifest still use b13. An authorized library publication, verified artifact and reviewed integration pin update are required to deliver it; no publication is authorized here. |
 | [#384](https://github.com/joyfulhouse/pylxpweb/issues/384) | Accepted limitation | Decoder correction is published in b13. Integration master suppression remains until deliberate complete-inventory opt-in and validation; responding configured units do not establish physical completeness. |
 | [#363](https://github.com/joyfulhouse/pylxpweb/issues/363) | Future work | Shared battery `unit_factory` awaits a consumer. Owned battery transport remains supported. Borrowed ownership/memoization and link-error-only recycling are required if implemented. |
 | [#350](https://github.com/joyfulhouse/pylxpweb/issues/350) | Accepted limitation for independent connections; host-conflict fix tracked separately | Per-connection locks do not coordinate the physical endpoint or other applications. Exclusive gateways need host scheduling/ownership; a shared-link conflict must not silently create an independent link. |
