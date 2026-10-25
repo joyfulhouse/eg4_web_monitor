@@ -1822,3 +1822,20 @@ Independent review tightened observation thresholds and disabled/eligible entity
 acceptance. Production authentication was unavailable, so no historical smoke-test
 count was promoted to current live health, and no deployment, restart, hardware
 write or release publication occurred.
+
+## [2026-10-25] ingest | Release preflight after merged countdown fix
+
+Reconciled the handoff with upstream #695 and retained #692's permitted software
+acceptance as resolved. The [readiness owner](60-history/final-release-readiness-2026-10-23.md)
+now links fresh authenticated read-only production evidence, with HA version and
+installed-source verification, non-known state classifications, recurring dongle
+connection failures and retrospective natural-midnight recorder observations.
+Numeric resets do not establish acquisition provenance or device reset timezone.
+The [diagnostics owner](10-integration/diagnostics-repairs.md) records why datetime
+placeholders cannot fill that evidence gap. The proposed scope still holds final
+publication for #691/#693/#694/#666 acceptance.
+
+Prepared the exact existing-main runtime archive and recorded its digest in the
+unexecuted deployment plan. Updated the latest HA/plugin validation pair together.
+No deployment, restart, hardware write, clock change, master reconstruction or
+release publication was performed.

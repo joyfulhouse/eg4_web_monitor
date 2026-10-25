@@ -1,0 +1,224 @@
+{
+  "captured_at_utc": "2026-10-25T13:16:29.256061+00:00",
+  "scope": "Read-only production preflight; no deployment, restart, induced outage, clock change, generator test, hardware write, or release publication.",
+  "upstream": {
+    "integration_main": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+    "library_main": "cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b",
+    "open_integration_prs": 0,
+    "open_library_prs": 0,
+    "resolved_since_handoff": [
+      "692 via PR695"
+    ]
+  },
+  "production": {
+    "home_assistant": "2026.10.3",
+    "timezone": "America/Los_Angeles",
+    "integration": "3.5.1-beta.21",
+    "pylxpweb": "0.10.0b13",
+    "installed_source": "ca2f63580091bc5a771253a7dbc5fa09fdb70f2a",
+    "installed_files_checked": 81,
+    "installed_files_match_tag": true,
+    "mode": "hybrid",
+    "entry_state": "loaded",
+    "coordinator_last_update_success": true,
+    "registered_entities": 934,
+    "disabled_entities": 283,
+    "device_records": 17,
+    "active_states": 651,
+    "known": 612,
+    "unknown": 24,
+    "unavailable": 15
+  },
+  "state_classification": {
+    "unknown": [
+      {
+        "count": 6,
+        "class": "button",
+        "interpretation": "Unknown button state alone is not a defect."
+      },
+      {
+        "count": 2,
+        "class": "quick_charge_remaining",
+        "interpretation": "Both inverter status objects report no unclosed task and zero remaining time; no active operation tested."
+      },
+      {
+        "count": 2,
+        "class": "ac_couple_end_soc",
+        "interpretation": "Both state attributes explicitly report disabled_sentinel=true."
+      },
+      {
+        "count": 8,
+        "class": "inverter EPS per-leg daily/lifetime energy",
+        "interpretation": "Corresponding keys absent from captured coordinator sensor dictionaries; source support not established."
+      },
+      {
+        "count": 4,
+        "class": "inverter grid_voltage_l1/l2",
+        "interpretation": "Keys absent; source deliberately omits the inverter dead-grid-leg keys. Does not establish hardware semantics."
+      },
+      {
+        "count": 2,
+        "class": "inverter transport_host",
+        "interpretation": "Keys absent from captured sensor dictionaries; no connection-health inference."
+      }
+    ],
+    "unavailable": {
+      "count": 15,
+      "all_have_restored_attribute": true,
+      "groups": [
+        {
+          "count": 12,
+          "class": "inverter R/S/T grid/EPS voltage"
+        },
+        {
+          "count": 2,
+          "class": "inverter grid_current_l1"
+        },
+        {
+          "count": 1,
+          "class": "GridBOSS transport_host"
+        }
+      ],
+      "interpretation": "HA restored placeholders. Do not attribute to the dongle or delete registry entries from this observation.",
+      "creation_gate_check": {
+        "runtime_source_pin": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+        "method": "sensor._should_create_sensor with captured inverter features",
+        "three_phase_keys_rejected": 14,
+        "interpretation": "Both captured inverters report supports_three_phase=false; the 14 voltage/current entries are excluded by that existing gate. No registry deletion or hardware-support claim follows."
+      }
+    }
+  },
+  "configured_intervals_seconds": {
+    "coordinator": 5,
+    "modbus": 5,
+    "dongle": 10,
+    "http": 600,
+    "parameter_refresh": 60
+  },
+  "connectivity": {
+    "historical_log_window_ha_local": [
+      "2026-10-24 22:07:56.452",
+      "2026-10-25 06:16:29.274"
+    ],
+    "dongle_warning_lines": 29,
+    "connect_timeout_lines": 26,
+    "host_unreachable_errno113_lines": 3,
+    "interpretation": "Connection establishment failures are observed, but network/gateway cause versus reconnect behavior is not resolved. Log excerpt is not a complete failure census. No demonstrated acquisition-freshness or natural-recovery acceptance.",
+    "poll_durations_available": false,
+    "acquisition_timestamps_available": false,
+    "fallback_intervals_established": false
+  },
+  "diagnostics": {
+    "download_succeeded": true,
+    "metadata_blocking_warnings_reproduced": [
+      "listdir",
+      "read_text",
+      "open"
+    ],
+    "request_correlated_at_ha_local": "2026-10-25 06:16:29",
+    "energy_sample_times_serialization": "<datetime>",
+    "limitation": "Existing diagnostics discard datetime contents; no contributor lineage can be recovered from those placeholders. HA publication timestamps are not acquisition timestamps."
+  },
+  "natural_midnight_history": {
+    "query_window_utc": [
+      "2026-10-25T06:00:00Z",
+      "2026-10-25T08:00:00Z"
+    ],
+    "ha_local_midnight_utc": "2026-10-25T07:00:00Z",
+    "energy_series": 20,
+    "state_records": 743,
+    "numeric_reset_observed": true,
+    "contributor_lineage_available": false,
+    "interpretation": "Retrospective recorder evidence shows numeric resets across natural midnight. It does not prove device reset timezone, missed-reset guard acceptance, source lineage, or cached/member-loss behavior."
+  },
+  "candidate": {
+    "source_commit": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+    "archive_format": "git archive tar",
+    "archive_sha256": "a1a88813c0fac664ba23644aaf85d9eb7acdfe8f9c231007383c58d04d5536c8",
+    "files": 81,
+    "changed_runtime_files_since_beta21": [
+      "diagnostics.py",
+      "ha_modbus.py",
+      "sensor.py"
+    ],
+    "manifest_and_dependency_unchanged": true,
+    "deployed": false,
+    "prior_beta20_rollback_archive_readable": true,
+    "prior_component_directory_readable": true,
+    "fresh_beta21_backup_created": false,
+    "rollback_exercised": false,
+    "durable_artifact_directory": "eg4-release-candidate-2026-10-25 (private local artifacts; archive contains repository source only)",
+    "prior_beta20_rollback_archive_listable": true,
+    "october_22_native_backup_listed": true
+  },
+  "acceptance": {
+    "691": "open: candidate must be authorized, deployed and verified",
+    "692": "closed upstream using permitted software acceptance; live patched startup not observed here",
+    "693": "open: connection failures documented; cause, durations, freshness, fallback and recovery remain incomplete",
+    "694": "open: no candidate deployment or 24-hour candidate soak",
+    "666": "open: numeric recorder resets do not meet per-field provenance acceptance"
+  },
+  "validation": {
+    "python": "3.14.6",
+    "minimum_ha": "2026.10.0",
+    "minimum_tests": {
+      "passed": 4190,
+      "skipped": 9,
+      "warnings": 36
+    },
+    "minimum_mypy": "passed: 56 source files",
+    "first_minimum_attempt": "4188 passed; two local socket binds denied by sandbox. Full unsandboxed offline retry passed.",
+    "latest_ha": "2026.10.4",
+    "latest_plugin": "0.13.375",
+    "latest_tests": {
+      "passed": 4190,
+      "skipped": 9,
+      "warnings": 36
+    },
+    "latest_mypy": "passed: 56 source files",
+    "ruff_lint": "passed",
+    "ruff_format": "passed",
+    "tier_validators": [
+      "Silver passed",
+      "Gold passed",
+      "Platinum passed"
+    ],
+    "exact_production_ha_2026_10_3_tested": true,
+    "production_ha_tests": {
+      "passed": 4190,
+      "skipped": 9,
+      "warnings": 36
+    },
+    "production_ha_plugin": "0.13.374",
+    "production_ha_mypy": "passed: 56 source files"
+  },
+  "upstream_dependency_observation": {
+    "date": "2026-10-25",
+    "aioresponses": "0.7.9",
+    "tmodbus": "0.6.2",
+    "modbus-connection": "4.12.6",
+    "interpretation": "No newer release observed than the handoff. Version availability alone does not justify removing workarounds or closing library acceptance issues."
+  },
+  "passive_baseline": {
+    "start_utc": "2026-10-25T13:17:45.148748+00:00",
+    "end_utc": "2026-10-25T13:47:51.476916+00:00",
+    "elapsed_seconds": 1806.328168,
+    "sample_interval_seconds": 30,
+    "samples": 61,
+    "read_errors": 0,
+    "same_active_entity_id_set_every_sample": true,
+    "availability_every_sample": {
+      "known": 612,
+      "unknown": 24,
+      "unavailable": 15
+    },
+    "closing_snapshot_utc": "2026-10-25T13:48:19.045504+00:00",
+    "entity_registry_full_records_unchanged": true,
+    "device_registry_full_records_unchanged": true,
+    "config_entry_listing_records_unchanged": true,
+    "scope_of_config_comparison": "Config-entry listing metadata; not a comparison of raw stored credentials/configuration. No production mutation was performed.",
+    "dongle_warning_lines_in_window": 1,
+    "dongle_warning_timestamp_ha_local": "2026-10-25 06:37:23.343",
+    "interpretation": "State availability and registry identity remained stable while a dongle warning occurred. Acquisition durations/freshness, fallback interval and natural recovery remain unproven; this is a pre-deployment baseline, not the required candidate soak."
+  }
+}
