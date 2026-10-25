@@ -2,6 +2,10 @@
 canonical-for:
   - "October 2026 final-release preparation issue classification and acceptance gaps"
 sources:
+  - docs/production/pylxpweb-b14-publication-2026-10-25.json
+  - docs/production/candidate-soak-progress-2026-10-25-late.json
+  - custom_components/eg4_web_monitor/manifest.json
+  - tests/requirements-test.txt
   - docs/production/acquisition-evidence-validation-2026-10-25.json
   - custom_components/eg4_web_monitor/energy_evidence.py
   - custom_components/eg4_web_monitor/diagnostics.py
@@ -25,8 +29,8 @@ sources:
   - tests/test_energy_provenance_adoption.py
   - tests/test_energy_guard_restore.py
 verified-against:
-  # Acquisition-evidence source progress only; historical sections retain their pins.
-  eg4_web_monitor: ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21
+  # Dependency delivery and acquisition evidence; historical sections retain their pins.
+  eg4_web_monitor: c336cb58ef6be127c03bd3a4b7ac369c06280192
   # Candidate-version source only; historical b13 checks retain cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b.
   pylxpweb: cac7a9f498aa20528577a08ce1541fdb59f77481
 last-verified: 2026-10-25
@@ -243,6 +247,43 @@ library release candidate is not evidence of a published artifact or deployed
 integration pin. The dated workflow/authorization state is `asserted-unverified`
 in the linked validation artifact, not a permanent statement about later releases.
 
+### October 25 authorized b14 delivery and natural recovery observation
+
+The user authorized version-tag protection and the prepared pylxpweb prerelease.
+The [publication record](../../docs/production/pylxpweb-b14-publication-2026-10-25.json)
+records active immutable-version-tag protection, successful release workflow
+`40216833784`, and independent source/tree/attestation/hash verification of the
+same wheel and sdist on TestPyPI and PyPI. A clean offline wheel install passes
+inverter/GridBOSS deep-counter recovery with no network attempts. These are dated
+execution observations, `asserted-unverified` under the wiki legend; the
+[release-process owner](../50-operations/release-process.md) owns the trust contract.
+
+At integration `c336cb58ef6be127c03bd3a4b7ac369c06280192`, both runtime and test
+requirements select the verified `pylxpweb==0.10.0b14` artifact
+(`verified-against-code`, `manifest.json`, `tests/requirements-test.txt`). Full
+minimum/latest HA tests, dependency checks, strict typing and quality gates pass;
+the publication record owns exact validation results. Production still runs the
+older integration source with b13. This delivery does not authorize an integration
+release or another production deployment/restart.
+
+The [later passive checkpoint](../../docs/production/candidate-soak-progress-2026-10-25-late.json)
+adds a natural software-reported GridBOSS link-down/restore event. Nine local-only
+AC-couple controls became unavailable and recovered within about 56.25 seconds;
+no sensor availability loss was observed during that event. The source-linked
+availability predicate explains why the link flag gates those controls. The
+artifact records exact times, adjacent snapshots and pinned source analysis.
+These runtime observations are `asserted-unverified`; code predicates are
+`verified-against-code` at the artifact's installed integration/library pins.
+
+Issue #693's original bounded investigation acceptance permits documenting the
+remaining evidence gap. Independent review adjudicated that acceptance met by
+this software-state recovery plus the explicit gaps: cause, poll/fallback duration,
+validated acquisition freshness and unobserved object replacement remain unresolved.
+No root cause or warning fix is claimed. **The deployment plan's stricter recovery
+check has not passed:** fresh local acquisitions plus recovered baseline states
+remain required under #694. #666 retains acquisition-lineage and natural rollover
+acceptance. Closing the narrower investigation cannot relax those release gates.
+
 ### Classification
 
 Each classification is a release judgment (`inferred`) from the linked issue and
@@ -255,8 +296,8 @@ claim missing hardware acceptance. New evidence can change the classification.
 | [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Metadata-I/O acceptance met | Independent review and green CI precede the authorized deployed download without blocking warnings. Identity/configuration are preserved. The separate full-download redaction defect remains under #697. |
 | [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) | Release blocker: diagnostics redaction | Source fix at `c006150eeef0486db30e2c986dba9415b7e0e644` covers the actual HA wrapper and state-preserving Repairs migration. Production still uses the earlier candidate; the required authorized private full-download check remains open. See the diagnostics owner for the exact privacy boundary. |
 | [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns. Authorized October 25 candidate startup preserves the two existing IDs, reports zero while inactive and emits no duplicate-ID startup warnings; no quick charge was initiated. |
-| [#693](https://github.com/joyfulhouse/eg4_web_monitor/issues/693) | Release blocker: production characterization | Recurring dongle warnings need timestamps, duration/freshness/fallback correlation and natural recovery if it occurs. Neither a network root cause nor a library regression is established. |
-| [#694](https://github.com/joyfulhouse/eg4_web_monitor/issues/694) | Release blocker: production soak | Natural local midnight and longer passive observations remain unverified. Full reconfiguration and rollback restoration remain untested and must stay explicit. |
+| [#693](https://github.com/joyfulhouse/eg4_web_monitor/issues/693) | Bounded investigation acceptance met; accepted limitation | Natural software link/control recovery and remaining evidence gaps are documented. Warnings/root cause are not fixed. The stricter deployment recovery/freshness gate remains open under #694; acquisition lineage remains under #666. |
+| [#694](https://github.com/joyfulhouse/eg4_web_monitor/issues/694) | Release blocker: production soak | Natural local midnight, the full soak and fresh-local-acquisition recovery remain unverified. The narrower #693 investigation conclusion does not satisfy this deployment recovery gate. Full reconfiguration and rollback restoration remain untested. |
 | [#666](https://github.com/joyfulhouse/eg4_web_monitor/issues/666) | Release blocker for LOCAL production rollover acceptance; accepted limitation for undated sources | Released b13 lineage adoption and the new capture path have software coverage. Natural production source continuity still needs qualified observations from deployed code; cloud/battery/chart counter-day and device reset timezone remain unproven. The data-semantics and diagnostics owners define the bounded capture contract. |
 | [#619](https://github.com/joyfulhouse/eg4_web_monitor/issues/619) | Accepted limitation | Partial-group runtime works; incomplete cumulative sums remain unknown. Restart/outage/membership continuity needs a defined contract before emitting partial totals. |
 | [#659](https://github.com/joyfulhouse/eg4_web_monitor/issues/659) | Accepted limitation, model/source scoped | Existing 12000XP balance-versus-portal discrepancy remains unresolved. Same-time cloud/local counter evidence is required; recognition is fixed separately. No source substitution or statistics repair is justified. |
@@ -274,7 +315,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 
 | Issue | Classification | Remaining boundary |
 |---|---|---|
-| [#389](https://github.com/joyfulhouse/pylxpweb/issues/389) | Source resolved; release blocker for the b13 dependency | PR #390 merges the reviewed overflow fix at `a35cf5f6228363cc5f652420e8d288e35ac92e8a`. Production and the integration manifest still use b13. An authorized library publication, verified artifact and reviewed integration pin update are required to deliver it; no publication is authorized here. |
+| [#389](https://github.com/joyfulhouse/pylxpweb/issues/389) | Resolved in published b14 and integration source | The authorized b14 artifact is independently verified and both integration pins select it. Production remains on b13 until a separately authorized deployment; no hardware root-cause fix is implied. |
 | [#384](https://github.com/joyfulhouse/pylxpweb/issues/384) | Accepted limitation | Decoder correction is published in b13. Integration master suppression remains until deliberate complete-inventory opt-in and validation; responding configured units do not establish physical completeness. |
 | [#363](https://github.com/joyfulhouse/pylxpweb/issues/363) | Future work | Shared battery `unit_factory` awaits a consumer. Owned battery transport remains supported. Borrowed ownership/memoization and link-error-only recycling are required if implemented. |
 | [#350](https://github.com/joyfulhouse/pylxpweb/issues/350) | Accepted limitation for independent connections; host-conflict fix tracked separately | Per-connection locks do not coordinate the physical endpoint or other applications. Exclusive gateways need host scheduling/ownership; a shared-link conflict must not silently create an independent link. |
@@ -297,5 +338,6 @@ The [deployment and rollback plan](../../docs/production/final-release-acceptanc
 defines a candidate-only overlay, fresh backup, identity/redaction checks and
 conditional rollback. The exact candidate is deployed; the one initial restart
 is complete. Continue passive acceptance and address #697; the conditional
-rollback authorization remains available if needed. Eventual release publication
-remains a separate authorization.
+rollback authorization remains available if needed. The new privacy/evidence/b14
+candidate needs its own prepared deployment and explicit restart authorization.
+Final integration release publication remains separately unauthorized.

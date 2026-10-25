@@ -1,0 +1,178 @@
+{
+  "record_type": "partial_passive_soak_followup",
+  "review_date_utc": "2026-10-25",
+  "review_clock_utc": "2026-10-25T17:31:17+00:00",
+  "deployed_integration_commit": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+  "pylxpweb": "0.10.0b13",
+  "scope": "Read-only inspection of existing private collector artifacts. No production API calls, mutations, restarts, hardware operations or collector changes were performed by this review.",
+  "collector_status_snapshot": {
+    "heartbeat_utc": "2026-10-25T17:30:25.065709+00:00",
+    "last_event_utc": "2026-10-25T17:30:05.241000+00:00",
+    "status": "running",
+    "connected": true,
+    "connections": 1,
+    "recorded_errors": 0,
+    "reported_events": 42147,
+    "diagnostics_captures": 18,
+    "log_captures": 6,
+    "interpretation": "Collection continuity does not prove local hardware acquisition health."
+  },
+  "readable_event_prefix": {
+    "first_event_utc": "2026-10-25T14:33:21.021950+00:00",
+    "last_event_utc": "2026-10-25T17:18:26.159901+00:00",
+    "complete_event_records": 39469,
+    "initial_state_events": 1,
+    "change_events": 39468,
+    "entity_count": 651,
+    "interpretation": "The compressed stream was still being written. Its readable prefix ends before the collector heartbeat; buffered later events were not adjudicated."
+  },
+  "observed_control_event": {
+    "first_unavailable_utc": "2026-10-25T17:12:28.525791+00:00",
+    "last_unavailable_transition_utc": "2026-10-25T17:12:28.526047+00:00",
+    "first_recovered_utc": "2026-10-25T17:13:24.776941+00:00",
+    "last_recovered_utc": "2026-10-25T17:13:24.777305+00:00",
+    "first_loss_to_last_recovery_seconds": 56.251514,
+    "affected_entities": 9,
+    "affected_registry_devices": 1,
+    "control_category": "AC-couple controls",
+    "domains": {
+      "number": 2,
+      "switch": 1,
+      "time": 6
+    },
+    "description": "Two SOC number controls, one switch and six schedule-time controls changed from known states to unavailable, then returned to known states naturally within the readable event prefix.",
+    "availability_before": {
+      "known": 614,
+      "unknown": 22,
+      "unavailable": 15
+    },
+    "availability_at_maximum_observed_impact": {
+      "known": 605,
+      "unknown": 22,
+      "unavailable": 24
+    },
+    "availability_after_recovery": {
+      "known": 614,
+      "unknown": 22,
+      "unavailable": 15
+    },
+    "known_sensor_to_unknown_or_unavailable_transitions_during_observed_event": 0,
+    "interpretation": "Observed HA control-state availability recovered in approximately 56.25 seconds. This does not establish cause, hardware reconnect, fresh local acquisition or cloud fallback duration; no candidate attribution is made."
+  },
+  "diagnostics_and_logs": {
+    "latest_reviewed_diagnostics_utc": "2026-10-25T17:23:25.040893+00:00",
+    "datetime_placeholders": 57,
+    "distinct_matching_connection_warning_lines_since_deployment_anchor": 22,
+    "latest_matching_warning_utc": "2026-10-25T16:47:07.143000+00:00",
+    "event_window_log_evidence": "The two latest existing log excerpts had no entries in the event minute or following recovery minute. Sampling may precede the event; this is not evidence that no relevant warning occurred.",
+    "interpretation": "Cached acquisition fields still contain placeholders. Available logs and diagnostics cannot establish the cause of this control-state event or independently validated numeric acquisition at recovery."
+  },
+  "acceptance_window": {
+    "settling_deadline_utc": "2026-10-25T15:07:00.226076+00:00",
+    "next_natural_ha_local_midnight_utc": "2026-10-26T07:00:00+00:00",
+    "acceptance_window_end_utc": "2026-10-26T15:07:00.226076+00:00",
+    "complete_at_review": false
+  },
+  "acceptance": {
+    "693": "Bounded investigation acceptance met through explicit evidence gaps and observed natural software link/control recovery, independently adjudicated against the original issue body. No root cause or warning fix established. The stricter deployment recovery gate requiring fresh local acquisitions plus recovered baseline states remains unmet and tracked under694;666 retains acquisition-lineage acceptance. Issue status is updated only after this reviewed evidence is merged.",
+    "694": "open: partial-soak control availability event and recovery are characterized, but natural midnight and the complete 24-hour post-settling window remain pending.",
+    "666": "open: acquisition/contributor evidence remains unavailable from the deployed serializer; numeric publication and control-state recovery cannot establish daily-baseline provenance."
+  },
+  "evidence_limits": [
+    "The earlier partial-soak artifact remains a valid record of its shorter readable prefix; this follow-up extends the window and records a later event.",
+    "No raw entity identifiers, private hosts, custom device names, credentials or raw log text are included.",
+    "No forced outage, clock change, generator operation, full reconfiguration or rollback exercise occurred.",
+    "Issue693 bounded investigation acceptance does not satisfy the stricter deployment recovery/freshness gate. That gate remains under694, and666 retains acquisition-lineage acceptance."
+  ],
+  "references": [
+    "docs/production/candidate-soak-progress-2026-10-25.json",
+    "docs/production/candidate-deployment-2026-10-25.json",
+    "docs/production/final-release-acceptance-plan-2026-10-23.md",
+    "https://github.com/joyfulhouse/eg4_web_monitor/issues/693",
+    "https://github.com/joyfulhouse/eg4_web_monitor/tree/77e6c8652d46042e2a919c8e461ddd2c10724c3a/custom_components/eg4_web_monitor",
+    "https://github.com/joyfulhouse/pylxpweb/tree/bce390936f2068000b7a53e2e981e9399139753f/src/pylxpweb"
+  ],
+  "shared_availability_evidence": {
+    "integration_source_pin": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+    "entities": "GridBOSS smart-port option entities, not inverter AC-couple entities.",
+    "classes": [
+      "EG4SmartPortOptionNumber",
+      "EG4SmartPortOptionSwitch",
+      "EG4SmartPortWindowTime"
+    ],
+    "common_predicate": "smart_port_options.py:PortOptionEntity._option_available",
+    "predicate_requirements": [
+      "base_entity.py:EG4OptimisticEntity._control_device_available requires a successful coordinator update, applicable device type and supported control discovery.",
+      "The parent local transport must not report transport_link_down.",
+      "smart_port_devices.py:resolve_port_mode must match the option specification mode.",
+      "Every option parameter returned by _option_names must be present and not None.",
+      "PortOptionEntity._gates_open must accept applicable portal gates; SOC/voltage is registry selection, not an availability gate."
+    ],
+    "affected_specs": "Two AC-couple SOC thresholds, one AC-couple enable and six AC-couple window boundaries. Their specifications do not impose Smart Load time-based or shedding availability gates.",
+    "label_source": "coordinator_http.py:HTTPUpdateMixin._async_update_hybrid_data renders the link-down transport label from coordinator_mixins.py:is_transport_link_down; coordinator.py:EG4DataUpdateCoordinator.is_transport_link_down resolves the device for the option gate.",
+    "link_down_label_utc": "2026-10-25T17:12:28.525594+00:00",
+    "healthy_hybrid_label_utc": "2026-10-25T17:13:24.776560+00:00",
+    "port_mode_or_status_state_changes_in_event_window": 0,
+    "interpretation": "The displayed parent local-link-down flag is a source-linked sufficient availability rejection for all nine options. Its return to healthy and restoration of the controls demonstrate observed software-state recovery, without identifying the original transport failure cause.",
+    "additional_source_symbols": [
+      "endpoint_bus.py:EndpointBusCapability.read_midbox_runtime",
+      "endpoint_bus.py:_EndpointBusOwner.invoke",
+      "coordinator_http.py:HTTPUpdateMixin._refresh_station_devices",
+      "coordinator_http.py:HTTPUpdateMixin._async_update_http_data",
+      "const/midbox.py:PORT_OPTION_SPECS"
+    ]
+  },
+  "adjacent_snapshot_constraints": {
+    "captures_utc": [
+      "2026-10-25T17:03:24.440192+00:00",
+      "2026-10-25T17:13:24.973252+00:00",
+      "2026-10-25T17:23:25.040893+00:00"
+    ],
+    "coordinator_success_at_each": true,
+    "parent_device_type_at_each": "gridboss",
+    "selected_port_mode_at_each": "ac_couple",
+    "required_option_parameters": 15,
+    "all_required_parameters_present_at_each": true,
+    "ac_couple_parameter_values_equal_across_snapshots": true,
+    "device_error_present_at_each": false,
+    "matching_link_down_repair_at_each": false,
+    "limitation": "No cached diagnostics snapshot falls inside the unavailable interval. These adjacent observations cannot exclude an additional transient missing-parameter, mode or other condition during the interval."
+  },
+  "library_recovery_semantics": {
+    "pylxpweb_source_pin": "bce390936f2068000b7a53e2e981e9399139753f",
+    "version": "0.10.0b13",
+    "primary_symbols": [
+      "src/pylxpweb/devices/base.py:BaseDevice.__init__",
+      "src/pylxpweb/devices/base.py:BaseDevice.transport_link_down",
+      "src/pylxpweb/devices/base.py:BaseDevice._tracked_transport_read",
+      "src/pylxpweb/devices/base.py:BaseDevice._record_transport_read_success",
+      "src/pylxpweb/devices/mid_device.py:MIDDevice.refresh",
+      "src/pylxpweb/devices/mid_device.py:MIDDevice._refresh_via_http",
+      "src/pylxpweb/devices/station.py:Station.refresh_all_data",
+      "src/pylxpweb/transports/dongle.py:DongleTransport.read_midbox_runtime",
+      "src/pylxpweb/transports/_register_data.py:RegisterDataMixin.read_midbox_runtime"
+    ],
+    "flag_reset": "The flag derives from consecutive transport-read failures. Source inspection finds its counter initialized to zero on object construction and reset by _record_transport_read_success, called by _tracked_transport_read after a successful return. HTTP fallback does not reset it.",
+    "normal_mid_read_path": "MIDDevice.refresh wraps read_midbox_runtime in _tracked_transport_read. The dongle path forwards to register reads; the integration endpoint capability invokes the raw operation rather than substituting a retained snapshot.",
+    "validation_boundary": "The success counter resets before MID corrupt-data and energy validation. A healthy flag alone therefore does not prove a validated numeric sample was accepted. The optional smart-port-mode register read may fail without failing the entire runtime read.",
+    "object_replacement_boundary": "A newly constructed device begins with zero failures. The ordinary integration refresh path retains the station and its existing device objects, and Station.refresh_all_data explicitly does not reload the hierarchy. However, the captures do not contain Python object identities, so an unobserved object replacement or integration reload cannot be excluded absolutely.",
+    "interpretation": "Supports normal software-reported transport/control recovery on the inspected ordinary path. Does not establish independently validated acquisition freshness, the physical failure cause or device counter-day behavior."
+  },
+  "acceptance_assessment": {
+    "primary_issue": "https://github.com/joyfulhouse/eg4_web_monitor/issues/693",
+    "quoted_acceptance": "identify the cause or explicitly document the remaining evidence gap, and demonstrate normal recovery if it occurs naturally",
+    "recommendation": "Eligible for independent adjudication toward bounded investigation closure if normal recovery is stated as the observed software link/control recovery and the remaining cause, duration and freshness gaps are retained explicitly.",
+    "not_claimed": [
+      "Warnings are fixed or no longer recurring.",
+      "A gateway/network cause or library regression is established.",
+      "A valid fresh local numeric sample committed at recovery.",
+      "All transport poll durations, actual outage duration or actual cloud-fallback interval were measured.",
+      "Production acquisition-day or 24-hour soak acceptance is complete."
+    ],
+    "open_separate_gates": [
+      666,
+      694
+    ],
+    "closure_performed": false
+  }
+}
