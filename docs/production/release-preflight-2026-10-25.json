@@ -79,7 +79,13 @@
           "class": "GridBOSS transport_host"
         }
       ],
-      "interpretation": "HA restored placeholders. Do not attribute to the dongle or delete registry entries from this observation."
+      "interpretation": "HA restored placeholders. Do not attribute to the dongle or delete registry entries from this observation.",
+      "creation_gate_check": {
+        "runtime_source_pin": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+        "method": "sensor._should_create_sensor with captured inverter features",
+        "three_phase_keys_rejected": 14,
+        "interpretation": "Both captured inverters report supports_three_phase=false; the 14 voltage/current entries are excluded by that existing gate. No registry deletion or hardware-support claim follows."
+      }
     }
   },
   "configured_intervals_seconds": {
@@ -141,7 +147,9 @@
     "prior_component_directory_readable": true,
     "fresh_beta21_backup_created": false,
     "rollback_exercised": false,
-    "durable_artifact_directory": "eg4-release-candidate-2026-10-25 (private local artifacts; archive contains repository source only)"
+    "durable_artifact_directory": "eg4-release-candidate-2026-10-25 (private local artifacts; archive contains repository source only)",
+    "prior_beta20_rollback_archive_listable": true,
+    "october_22_native_backup_listed": true
   },
   "acceptance": {
     "691": "open: candidate must be authorized, deployed and verified",
@@ -190,5 +198,27 @@
     "tmodbus": "0.6.2",
     "modbus-connection": "4.12.6",
     "interpretation": "No newer release observed than the handoff. Version availability alone does not justify removing workarounds or closing library acceptance issues."
+  },
+  "passive_baseline": {
+    "start_utc": "2026-10-25T13:17:45.148748+00:00",
+    "end_utc": "2026-10-25T13:47:51.476916+00:00",
+    "elapsed_seconds": 1806.328168,
+    "sample_interval_seconds": 30,
+    "samples": 61,
+    "read_errors": 0,
+    "same_active_entity_id_set_every_sample": true,
+    "availability_every_sample": {
+      "known": 612,
+      "unknown": 24,
+      "unavailable": 15
+    },
+    "closing_snapshot_utc": "2026-10-25T13:48:19.045504+00:00",
+    "entity_registry_full_records_unchanged": true,
+    "device_registry_full_records_unchanged": true,
+    "config_entry_listing_records_unchanged": true,
+    "scope_of_config_comparison": "Config-entry listing metadata; not a comparison of raw stored credentials/configuration. No production mutation was performed.",
+    "dongle_warning_lines_in_window": 1,
+    "dongle_warning_timestamp_ha_local": "2026-10-25 06:37:23.343",
+    "interpretation": "State availability and registry identity remained stable while a dongle warning occurred. Acquisition durations/freshness, fallback interval and natural recovery remain unproven; this is a pre-deployment baseline, not the required candidate soak."
   }
 }

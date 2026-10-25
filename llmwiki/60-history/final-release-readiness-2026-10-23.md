@@ -62,6 +62,14 @@ measurements. All unavailable states carry HA's `restored` attribute; none is
 attributed to the dongle on count evidence alone. Registry entries were not
 removed or changed.
 
+The completed 30-minute passive baseline contains 61 state snapshots without a
+read error. Active entity IDs and availability counts remain constant, and the
+closing entity/device registry records and config-entry listing metadata equal
+the initial captures. This does not compare raw stored credentials or establish
+identity continuity back to October 23. One dongle warning occurs inside this
+window despite stable state availability. The preflight record preserves the
+timestamps and the unresolved acquisition/fallback/recovery boundaries.
+
 The diagnostics request reproduced the metadata blocking warnings on installed
 beta.21. Historical logs contain dongle connection timeouts and host-unreachable
 errors. Recorder history spanning a natural local midnight shows numeric daily
