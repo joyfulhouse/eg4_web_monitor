@@ -11,16 +11,30 @@ sources:
   - https://github.com/joyfulhouse/pylxpweb/issues/350
   - https://github.com/joyfulhouse/pylxpweb/issues/363
   - https://github.com/joyfulhouse/pylxpweb/issues/189
+  - https://github.com/joyfulhouse/pylxpweb/pull/390
+  - pylxpweb/src/pylxpweb/devices/base.py
 verified-against:
   eg4_web_monitor: af613d779035a19412c84a1bcf300b210f2adf32
-  pylxpweb: 204b95d
+  pylxpweb: a35cf5f6228363cc5f652420e8d288e35ac92e8a
 # The maintenance snapshot below is separately scoped to cc503f8.
-last-verified: 2026-10-23
+last-verified: 2026-10-25
 ---
 
 # Local transports
 
 Evidence grades follow the [canonical llmwiki legend](../README.md). Do not generalize one transport's wire behavior to another.
+
+## Long-outage probe arithmetic at a35cf5f
+
+`BaseDevice._link_probe_interval` bounds the exponent before evaluating the
+floating-point power, preserving the existing maximum probe interval. This avoids
+an `OverflowError` before the next link probe when consecutive failures reach
+the float exponent limit. Successful reads retain the existing counter reset.
+Grade: `verified-against-code` at the library front-matter pin
+(`src/pylxpweb/devices/base.py`, `tests/unit/devices/test_link_probe_cost.py`;
+[PR #390](https://github.com/joyfulhouse/pylxpweb/pull/390)). This fixes arithmetic
+that could prevent recovery; it does not establish why a gateway probe fails or
+prove production recovery. Earlier sections retain their explicit historical pins.
 
 ## Backend and ownership contract at cc503f8
 
