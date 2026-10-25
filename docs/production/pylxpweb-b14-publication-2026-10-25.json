@@ -1,0 +1,79 @@
+{
+  "run_id": 40216833784,
+  "commit": "cac7a9f498aa20528577a08ce1541fdb59f77481",
+  "tree": "df77701852cdbc0cb9b701e2c11a5d58185fc453",
+  "version": "0.10.0b14",
+  "artifact_id": 12608146772,
+  "digests": {
+    "dist/pylxpweb-0.10.0b14-py3-none-any.whl": "93fe3b9305dd5a84100f0d8dfd911326503d9d35ed3090d3e9461e1c391c54c3",
+    "dist/pylxpweb-0.10.0b14.tar.gz": "a0081563711ee4f2978bd488acc2c6eaf40093ad4b58954072bfd92ba404a48c"
+  },
+  "smoke": "passed",
+  "date": "2026-10-25",
+  "release_url": "https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b14",
+  "workflow_url": "https://github.com/joyfulhouse/pylxpweb/actions/runs/40216833784",
+  "prerelease": true,
+  "authorization": "User explicitly authorized the prepared pylxpweb tag protection, publication and verified integration dependency delivery.",
+  "tag_protection": {
+    "ruleset_id": 25829155,
+    "target": "tag",
+    "include": [
+      "refs/tags/v*"
+    ],
+    "enforcement": "active",
+    "rules": [
+      "update",
+      "deletion"
+    ],
+    "bypass_actors": [],
+    "creation_restricted": false
+  },
+  "verification": {
+    "release_terminal_job": "success",
+    "approved_source_tree_binding": "passed",
+    "sealed_bundle_hashes": "passed",
+    "source_and_build_attestations": "passed",
+    "testpypi_and_pypi_downloaded_bytes": "matched sealed wheel and sdist",
+    "clean_offline_install": "passed",
+    "installed_import_and_deep_counter_recovery": "passed for inverter and GridBOSS",
+    "network_attempts_during_smoke": 0
+  },
+  "verification_limitations": [
+    "Initial offline install failed due to uncached runtime dependencies. Populated an isolated cache using binary wheels, then reran the unchanged full verifier successfully in a fresh output directory.",
+    "Artifact verification does not establish production transport recovery or hardware semantics."
+  ],
+  "production_changed": false,
+  "final_integration_release_published": false,
+  "integration_validation": {
+    "source_commit": "c336cb58ef6be127c03bd3a4b7ac369c06280192",
+    "requirement": "pylxpweb==0.10.0b14",
+    "installed_from": "hash-verified published wheel",
+    "python": "3.14.6",
+    "matrix": [
+      {
+        "homeassistant": "2026.10.0",
+        "plugin": "0.13.371",
+        "passed": 4235,
+        "skipped": 9,
+        "warnings": 36,
+        "elapsed_seconds": 166.72,
+        "strict_typing": "passed",
+        "dependency_check": "passed"
+      },
+      {
+        "homeassistant": "2026.10.4",
+        "plugin": "0.13.375",
+        "passed": 4235,
+        "skipped": 9,
+        "warnings": 36,
+        "elapsed_seconds": 167.89,
+        "strict_typing": "passed",
+        "dependency_check": "passed"
+      }
+    ],
+    "ruff": "passed",
+    "format": "passed",
+    "tier_validators": "passed",
+    "commit_hooks": "passed"
+  }
+}

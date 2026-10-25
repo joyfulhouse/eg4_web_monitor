@@ -7,11 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**Requires [pylxpweb==0.10.0b14](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b14)**
+
 ### Fixed
 
+- Prevent sustained local-transport failures from overflowing the library's link-probe backoff and permanently blocking recovery (pylxpweb #389).
+- Redact nested transport identities and migrate Repairs to stable pseudonymous IDs before Home Assistant snapshots diagnostics, preserving dismissal history and recovery cleanup (#697).
 - Run diagnostics package-version filesystem reads in Home Assistant's executor and collect redaction aliases after that wait (#691).
 - Create one specialized Quick Charge Remaining sensor per inverter during startup and late discovery, preserving existing entity IDs and the countdown status source (#692).
 - Reject conflicting Home Assistant shared Modbus settings instead of opening a competing owned connection. Preserve the original conflict and allow normal retry after it clears (related to pylxpweb #350).
+
+### Added
+
+- Retain anonymous daily-energy contributor evidence and original acquisition timestamps in diagnostics, including cached values and GridBOSS overlays. A separate capture timestamp does not refresh sample age; eligibility does not prove a device reset or production midnight acceptance (#666).
 
 ## [3.5.1-beta.21] - 2026-10-22
 

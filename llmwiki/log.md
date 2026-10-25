@@ -1919,3 +1919,28 @@ boundary. The prior `<datetime>` observation remains true for its deployed pin
 and recorded captures. [Readiness](60-history/final-release-readiness-2026-10-23.md)
 retains #693/#694/#666 and separate #697 production gates. No existing capture is
 promoted into provenance acceptance, and no deployment or publication is claimed.
+
+## [2026-10-25] ingest | Authorized b14 publication and bounded dongle investigation
+
+Recorded [b14 publication and verification](../docs/production/pylxpweb-b14-publication-2026-10-25.json)
+after the user authorized the required immutable version-tag rule and prerelease.
+The sealed wheel/sdist match both indexes and their source/build attestations;
+clean offline installed-wheel recovery passes without network attempts. Integration
+source `c336cb58ef6be127c03bd3a4b7ac369c06280192` moves both exact pins after
+that gate, with both supported HA suites and quality checks passing.
+
+The [later passive checkpoint](../docs/production/candidate-soak-progress-2026-10-25-late.json)
+links a brief GridBOSS local-link flag transition to nine local-only control
+availability transitions and their natural restoration. Independent review found
+#693's bounded investigation acceptance met with explicit evidence gaps. The
+[readiness owner](60-history/final-release-readiness-2026-10-23.md) retains the
+stricter fresh-acquisition deployment recovery gate under #694 and lineage
+acceptance under #666. Neither a warning/root-cause fix nor new production
+acceptance is inferred from software-state recovery.
+
+Refreshed the [release-process owner](50-operations/release-process.md) and
+[pin-mechanics owner](20-pylxpweb/release-and-pinning.md) against the same exact
+source pins. Their former operative manual-dispatch and minimum-floor instructions
+were historical, not the current tag-bound sealed-artifact workflow or exact pin.
+Useful provenance lessons remain explicitly historical; current guidance follows
+the primary workflow and links the dated execution record.
