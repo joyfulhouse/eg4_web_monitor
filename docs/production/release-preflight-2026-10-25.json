@@ -175,6 +175,20 @@
       "Gold passed",
       "Platinum passed"
     ],
-    "exact_production_ha_2026_10_3_tested": false
+    "exact_production_ha_2026_10_3_tested": true,
+    "production_ha_tests": {
+      "passed": 4190,
+      "skipped": 9,
+      "warnings": 36
+    },
+    "production_ha_plugin": "0.13.374",
+    "production_ha_mypy": "passed: 56 source files"
+  },
+  "upstream_dependency_observation": {
+    "date": "2026-10-25",
+    "aioresponses": "0.7.9",
+    "tmodbus": "0.6.2",
+    "modbus-connection": "4.12.6",
+    "interpretation": "No newer release observed than the handoff. Version availability alone does not justify removing workarounds or closing library acceptance issues."
   }
 }

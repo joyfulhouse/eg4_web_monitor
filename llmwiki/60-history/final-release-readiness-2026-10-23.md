@@ -47,6 +47,13 @@ installed component files match published beta.21, so neither #690 nor #695 is
 deployed. These are dated observations, `asserted-unverified` under the wiki
 legend, not hardware-toggle evidence.
 
+Fresh offline validation covers minimum HA 2026.10.0, latest published HA
+2026.10.4, and exact production HA 2026.10.3 with matching test plugins.
+All three full suites and strict typing pass; exact counts and the initial
+sandbox-only socket-bind failures are in the preflight record. The latest CI
+constraints move to the published pair together. This is software compatibility
+evidence, not deployed-candidate acceptance.
+
 The entry is loaded. The new registry/state capture has the same aggregate
 counts as the prior smoke test, but does not establish identity equality across
 the two captures or transport health. Classification distinguishes inactive
