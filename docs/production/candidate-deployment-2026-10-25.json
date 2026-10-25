@@ -1,0 +1,125 @@
+{
+  "date": "2026-10-25",
+  "authorization": {
+    "granted_in_session": true,
+    "scope": [
+      "fresh private backup",
+      "exact candidate replacement",
+      "one HA Core restart",
+      "conditional component rollback and one additional restart if needed"
+    ],
+    "release_publication_authorized": false
+  },
+  "candidate": {
+    "source_commit": "77e6c8652d46042e2a919c8e461ddd2c10724c3a",
+    "archive_sha256": "a1a88813c0fac664ba23644aaf85d9eb7acdfe8f9c231007383c58d04d5536c8",
+    "staged_files_verified": 81,
+    "ownership_and_permissions_preserved": true
+  },
+  "before": {
+    "capture_utc": "2026-10-25T14:05:24.119798+00:00",
+    "ha": "2026.10.3",
+    "integration": "3.5.1-beta.21",
+    "pylxpweb": "0.10.0b13",
+    "installed_source": "ca2f63580091bc5a771253a7dbc5fa09fdb70f2a",
+    "installed_source_unchanged_since_preflight": true,
+    "entry": "loaded",
+    "registered_entities": 934,
+    "disabled_entities": 283,
+    "devices": 17,
+    "known": 612,
+    "unknown": 24,
+    "unavailable": 15
+  },
+  "backup": {
+    "created": true,
+    "private": true,
+    "contains": [
+      "entire installed component",
+      "core.config_entries",
+      "core.entity_registry",
+      "core.device_registry",
+      "HA Core info"
+    ],
+    "archive_listable": true,
+    "component_hashes_equal_baseline": true,
+    "prior_backups_preserved": true,
+    "restore_exercised": false
+  },
+  "execution": {
+    "status": "deployed_initial_checks_passed_soak_pending",
+    "operational_preconditions_passed": true,
+    "active_component_replaced": true,
+    "restart_count": 1,
+    "rollback_count": 0,
+    "hardware_test_writes": 0,
+    "clock_changed": false,
+    "master_reconstruction_enabled": false,
+    "activation_utc": "2026-10-25T14:13:15Z"
+  },
+  "next_step": "Complete and review the post-settling 24-hour passive capture including natural midnight. Retain acquisition/provenance gaps. Resolve #697 redaction exposure before claiming full diagnostics/final-release acceptance. No further deployment or restart is covered except the already-authorized conditional rollback if needed.",
+  "acceptance": "#691 stated metadata-I/O acceptance met: independent review, green CI and authorized post-restart diagnostics without blocking warnings. #697 separately retains full-download redaction exposure. #693/#694/#666 remain open. No final release publication.",
+  "after": {
+    "capture_utc": "2026-10-25T14:17:00.226076+00:00",
+    "ha": "2026.10.3",
+    "pylxpweb": "0.10.0b13",
+    "installed_files_match_candidate": 81,
+    "entry_state": "loaded",
+    "active_states": 651,
+    "known": 614,
+    "unknown": 22,
+    "unavailable": 15,
+    "newly_degraded_known_states": 0,
+    "same_active_entity_ids": true,
+    "entity_registry_full_records_unchanged": true,
+    "device_ids_and_substantive_fields_unchanged": true,
+    "device_record_differences": "modified_at timestamps on five records only",
+    "raw_eg4_config_entries_unchanged": true,
+    "quick_charge_countdowns": "Two existing entities now report 0.0 while inactive; no charging was initiated.",
+    "post_restart_eg4_duplicate_id_warnings": 0,
+    "post_restart_metadata_blocking_warnings": 0,
+    "post_restart_eg4_setup_errors": 0
+  },
+  "diagnostics_redaction": {
+    "issue": 697,
+    "candidate_regression": false,
+    "baseline_and_candidate_exposures": [
+      "data.entry.data.local_transports[*].host",
+      "HA wrapper issues[*].issue_id containing serials"
+    ],
+    "sensitive_values_published": false,
+    "full_acceptance": "not met; same exposure existed before deployment"
+  },
+  "observation_windows": {
+    "settling_anchor_utc": "2026-10-25T14:17:00.226076+00:00",
+    "tmax_seconds": 600,
+    "settling_allowance_seconds": 3000,
+    "settling_deadline_utc": "2026-10-25T15:07:00.226076+00:00",
+    "post_settling_24h_end_utc": "2026-10-26T15:07:00.226076+00:00",
+    "status": "pending; initial stability checks do not complete settling or soak acceptance"
+  },
+  "initial_stability_check": {
+    "start_utc": "2026-10-25T14:21:29.104865+00:00",
+    "end_utc": "2026-10-25T14:31:30.702578+00:00",
+    "elapsed_seconds": 601.597713,
+    "snapshots": 21,
+    "read_errors": 0,
+    "same_active_ids": true,
+    "previously_known_states_degraded": 0,
+    "interpretation": "Initial ten-minute stability check only; does not replace the 50-minute settling allowance or full subsequent 24-hour capture."
+  },
+  "passive_capture": {
+    "started_utc": "2026-10-25T14:33:20.979102+00:00",
+    "status_at_verification": "running",
+    "subscription_connected": true,
+    "initial_diagnostics_and_log_capture_succeeded": true,
+    "private_artifacts_retained": true,
+    "scope": "Existing enabled EG4 state events, periodic cached diagnostics and log excerpts. No service calls, hardware queries or automatic remediation.",
+    "limits": [
+      "New registry entities require separate reconciliation.",
+      "State publication times are not acquisition times.",
+      "Diagnostics datetime placeholders and full contributor-lineage gaps remain.",
+      "Capture completion requires a later review; no automatic issue closure."
+    ]
+  }
+}

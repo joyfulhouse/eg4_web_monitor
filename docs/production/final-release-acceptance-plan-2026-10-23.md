@@ -1,16 +1,23 @@
 # Final-release production acceptance plan, 2026-10-23
 
-Status: **not executed**. Deployment, restart and rollback restart require fresh
-explicit authorization. Publishing any release requires separate authorization.
+Status as of October 25: **candidate deployed with one authorized Core restart;
+longer acceptance pending**. The user authorized the exact candidate,
+a fresh private backup, one HA Core restart, and conditional component rollback
+with one additional restart if needed. Canonical operational preconditions passed
+before activation. The initial restart authorization has been used; conditional
+rollback remains available if needed. Publishing any release requires separate
+authorization. The [deployment record](candidate-deployment-2026-10-25.json) owns
+the execution checkpoint; no rollback was needed during initial checks.
 
 October 25 preflight: the locally prepared source candidate is
 `77e6c8652d46042e2a919c8e461ddd2c10724c3a`, with 81 files in a `git archive`
 tar and SHA-256
 `a1a88813c0fac664ba23644aaf85d9eb7acdfe8f9c231007383c58d04d5536c8`.
-Every archive file was checked against that commit. The installed component
-still matches published beta.21, while HA now reports 2026.10.3. The
+Every archive file was checked against that commit. At preflight the installed
+component matched published beta.21, while HA reported 2026.10.3. The
 [preflight record](release-preflight-2026-10-25.json) owns the dated observations.
-This identifies a reviewable candidate; it does not authorize installation.
+The subsequent authorization covered this exact candidate; versions, source
+hashes and the private baseline were rechecked before activation.
 
 The existing diagnostics serializer replaces acquisition datetimes with
 `<datetime>`. Recorder history also lacks full contributor lineage. These
