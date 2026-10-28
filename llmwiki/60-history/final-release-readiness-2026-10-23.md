@@ -2,6 +2,9 @@
 canonical-for:
   - "October 2026 final-release preparation issue classification and acceptance gaps"
 sources:
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/702
+  - https://github.com/joyfulhouse/pylxpweb/issues/396
+  - docs/production/hybrid-energy-fallback-validation-2026-10-28.json
   - docs/production/pylxpweb-b14-publication-2026-10-25.json
   - docs/production/candidate-soak-progress-2026-10-25-late.json
   - custom_components/eg4_web_monitor/manifest.json
@@ -33,7 +36,7 @@ verified-against:
   eg4_web_monitor: c336cb58ef6be127c03bd3a4b7ac369c06280192
   # Candidate-version source only; historical b13 checks retain cc503f8f6ac1e0535c26945e7f0062d4cdfaf15b.
   pylxpweb: cac7a9f498aa20528577a08ce1541fdb59f77481
-last-verified: 2026-10-25
+last-verified: 2026-10-28
 see-also:
   - production-beta21-2026-10-23.md
   - maintenance-2026-10-22.md
@@ -284,6 +287,24 @@ check has not passed:** fresh local acquisitions plus recovered baseline states
 remain required under #694. #666 retains acquisition-lineage and natural rollover
 acceptance. Closing the narrower investigation cannot relax those release gates.
 
+### October 28 source-switch regression
+
+Issue #702 reports repeated HYBRID counter drops during local failures, followed
+by inflated HA statistics on recovery (`asserted-unverified`, issue body and
+reporter follow-up). The reporter corrected the initial setup-only hypothesis:
+the stale HTTP snapshot sometimes advances between events. The
+[validation record](../../docs/production/hybrid-energy-fallback-validation-2026-10-28.json)
+reproduces the mismatch with released b14 and records the bounded integration
+fix at `0b7cbb6b15efb5fce05f598bc89cf1f7304e308a`. The [data-semantics owner](../10-integration/data-semantics.md#424-locally-configured-hybrid-inverter-energy-during-gaps-702)
+owns its source contract and limitations. Tests and source review do not establish
+reporter or production acceptance; #702 remains open for that follow-up.
+
+The previously approved deployment candidate `75aaba62cd993201569de7d18748e666c4eb86d0`
+has not been installed by this work. Operational preconditions remained unmet
+when rechecked October 28. A candidate incorporating #702 must be separately
+identified before activation; no restart or hardware action occurred during
+this investigation. Final publication remains on hold.
+
 ### Classification
 
 Each classification is a release judgment (`inferred`) from the linked issue and
@@ -293,6 +314,8 @@ claim missing hardware acceptance. New evidence can change the classification.
 
 | Issue | Classification | Remaining boundary |
 |---|---|---|
+| [#704](https://github.com/joyfulhouse/eg4_web_monitor/issues/704) | Future work: validator compatibility transition | Retain the required serial dependency for the supported floor and use the pinned official Hassfest baseline. Reevaluate when core pyserial reaches that floor; the quality-gates owner records the boundary. |
+| [#702](https://github.com/joyfulhouse/eg4_web_monitor/issues/702) | Release blocker: counter-source regression | Software source-gap protection and real-library/HA regressions are implemented; reporter/deployed acceptance remains. Source withholding is an accepted limitation; historic statistics are not rewritten. |
 | [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Metadata-I/O acceptance met | Independent review and green CI precede the authorized deployed download without blocking warnings. Identity/configuration are preserved. The separate full-download redaction defect remains under #697. |
 | [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) | Release blocker: diagnostics redaction | Source fix at `c006150eeef0486db30e2c986dba9415b7e0e644` covers the actual HA wrapper and state-preserving Repairs migration. Production still uses the earlier candidate; the required authorized private full-download check remains open. See the diagnostics owner for the exact privacy boundary. |
 | [#692](https://github.com/joyfulhouse/eg4_web_monitor/issues/692) | Resolved in merged #695 | Software acceptance covers initial/late discovery, stable registry identity and status-based inactive/active countdowns. Authorized October 25 candidate startup preserves the two existing IDs, reports zero while inactive and emits no duplicate-ID startup warnings; no quick charge was initiated. |
@@ -316,6 +339,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 | Issue | Classification | Remaining boundary |
 |---|---|---|
 | [#389](https://github.com/joyfulhouse/pylxpweb/issues/389) | Resolved in published b14 and integration source | The authorized b14 artifact is independently verified and both integration pins select it. Production remains on b13 until a separately authorized deployment; no hardware root-cause fix is implied. |
+| [#396](https://github.com/joyfulhouse/pylxpweb/issues/396) | Release blocker for the library validation/publication contract | Source-specific history, corruption bounds, delayed responses, midnight and MID behavior need a separate fix. Integration #702 bounds inverter/group publication but does not repair this contract or establish MID source equivalence. |
 | [#384](https://github.com/joyfulhouse/pylxpweb/issues/384) | Accepted limitation | Decoder correction is published in b13. Integration master suppression remains until deliberate complete-inventory opt-in and validation; responding configured units do not establish physical completeness. |
 | [#363](https://github.com/joyfulhouse/pylxpweb/issues/363) | Future work | Shared battery `unit_factory` awaits a consumer. Owned battery transport remains supported. Borrowed ownership/memoization and link-error-only recycling are required if implemented. |
 | [#350](https://github.com/joyfulhouse/pylxpweb/issues/350) | Accepted limitation for independent connections; host-conflict fix tracked separately | Per-connection locks do not coordinate the physical endpoint or other applications. Exclusive gateways need host scheduling/ownership; a shared-link conflict must not silently create an independent link. |

@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Keep locally configured HYBRID inverter energy counters unknown when their local energy snapshot is missing, preventing an older cloud value from being published as a counter reset. Apply the same rule to dependent group energy; independent complete GridBOSS CT consumption and runtime cloud fallback remain available (#702).
+- Show the configured connection address in local-link Repairs when the shared transport hides its address; diagnostics continue to omit the private UI placeholders (#702).
 - Prevent sustained local-transport failures from overflowing the library's link-probe backoff and permanently blocking recovery (pylxpweb #389).
 - Redact nested transport identities and migrate Repairs to stable pseudonymous IDs before Home Assistant snapshots diagnostics, preserving dismissal history and recovery cleanup (#697).
 - Run diagnostics package-version filesystem reads in Home Assistant's executor and collect redaction aliases after that wait (#691).

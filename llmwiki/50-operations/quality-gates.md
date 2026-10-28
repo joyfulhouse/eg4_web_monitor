@@ -1,6 +1,8 @@
 ---
 canonical-for: lint, format, typecheck, tests, coverage, quality-scale tier validators, CI blocking vs advisory
 sources:
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/704
+  - .github/workflows/home-assistant-validation.yml
   - docs/DEVELOPMENT.md
   - tests/requirements-test.txt
   - tests/mypy.ini
@@ -13,7 +15,7 @@ sources:
   - tests/test_ci_summary_gates.py
 verified-against: 9f6d6e2
 # Python/HA CI matrix below re-verified at 5e3752e; other sections retain this pin.
-last-verified: 2026-10-20
+last-verified: 2026-10-28
 ---
 
 # Quality gates
@@ -196,3 +198,26 @@ document is authoritative for it, including this one. Collect it:
 ```bash
 uv run pytest tests/ --collect-only -q | tail -1
 ```
+
+## Hassfest baseline during core dependency transition (#704)
+
+At `9cd541907108bfc28437be44696340f39821fbf0`, the Home Assistant validation
+workflow runs the official image pinned to
+`sha256:e5828f7e305518506d8b4e8346411357d68358531b761bd118fe6a1631feff44`,
+with its normal entrypoint and a read-only workspace mount. The validator rules
+are unchanged. Grade: `verified-against-code` (`home-assistant-validation.yml`
+-> `hassfest`). Other sections retain their historical scoped pins.
+
+The prior scheduled run `40627894302` passed for unchanged integration `75aaba6`.
+The moving image `456369388b6d5bae2b76de7a5574b26e4efdf926f2d0c36453ada7c1eed54fbe`
+then rejected `pyserial>=3.5` because HA development added it to core dependencies.
+Supported minimum HA 2026.10.0 does not declare that dependency, while the
+integration's serial-port discovery imports it. These dated observations are
+`asserted-unverified`, retained in [#704](https://github.com/joyfulhouse/eg4_web_monitor/issues/704)
+and the linked successful/failing run records. The pin supplies a reproducible
+validator baseline; the supported runtime/type/dependency matrix supplies stable
+HA compatibility evidence. It makes no current-development compatibility claim.
+
+Reevaluate #704 when core pyserial reaches the supported minimum or upstream
+provides a validator compatible with the supported range. Removing the dependency
+without checking that floor would break serial enumeration on supported installs.

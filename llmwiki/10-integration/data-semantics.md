@@ -11,6 +11,9 @@ canonical-for:
   - parameter cache seeding after writes
   - the time.monotonic() fresh-boot throttle trap
 sources:
+  - tests/test_hybrid_energy_fallback.py
+  - https://github.com/joyfulhouse/eg4_web_monitor/issues/702
+  - https://github.com/joyfulhouse/pylxpweb/issues/396
   - custom_components/eg4_web_monitor/energy_evidence.py
   - custom_components/eg4_web_monitor/energy_provenance.py
   - tests/test_daily_energy_evidence.py
@@ -84,14 +87,15 @@ verified-against:
   # Direct battery projection only is re-verified at these pins. Other sections
   # retain previous page pins (eg4_web_monitor d8e2027, pylxpweb 204b95d)
   # and their explicitly scoped inline pins.
-  # Section 4.2.3 only is verified at the integration pin below; prior sections
+  # Section 4.2.4 is verified at the current integration/library pins.
+  # Section 4.2.3 retains ca2bbf0; prior sections
   # retain their scoped pins, including direct battery projection at 7d697a4.
-  eg4_web_monitor: ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21
-  pylxpweb: bce390936f2068000b7a53e2e981e9399139753f
+  eg4_web_monitor: 0b7cbb6b15efb5fce05f598bc89cf1f7304e308a
+  pylxpweb: cac7a9f498aa20528577a08ce1541fdb59f77481
 # Section 4.2.1 re-verified at 0708cc52d101dfcaff7e1f813c14d51ce6dae717 on 2026-10-13; other sections retain their pins.
 # Direct battery projection re-verified against 7d697a4d4c66ef151588faa12c999a25be50c22e on 2026-10-22.
 # Partial-group runtime behavior re-verified at e5fa860 on 2026-10-20.
-last-verified: 2026-10-25
+last-verified: 2026-10-28
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -664,6 +668,50 @@ software-contract tests, not hardware acquisition or natural-midnight results.
 The [diagnostics owner](diagnostics-repairs.md#acquisition-timestamps-and-capture-time)
 owns how these retained datetime objects reach a download. Production acceptance
 and undated cloud/battery/chart counter-day boundaries remain open under #666.
+
+### 4.2.4 Locally configured HYBRID inverter energy during gaps (#702)
+
+At `0b7cbb6b15efb5fce05f598bc89cf1f7304e308a`, a HYBRID inverter with an attached transport
+or matching local configuration cannot publish energy when `transport_energy`
+is absent. Present sensor keys whose `SENSOR_TYPES` entry declares
+`device_class="energy"` become `None`; matching daily sample times are removed
+and diagnostic evidence is reconciled. This covers daily/lifetime counters and
+chart/carry-forward energy, including the no-runtime-data return. Runtime power
+and SOC retain their existing fallback. Pure-cloud devices remain unchanged.
+Grade: `verified-against-code` (`coordinator_mixins.py` ->
+`_inverter_local_energy_gap`, `_blank_energy_measurements`,
+`_process_inverter_object`; `tests/test_hybrid_energy_fallback.py`).
+
+Eligibility is captured with the initial numeric mapping before supplemental
+awaits. If energy returns during a chart/event fetch, that cycle stays unknown;
+the next mapping may use the accepted local snapshot. No retained value is
+retimestamped, and no never-decrease clamp or synthetic zero is introduced.
+A trusted next-day local reset still reaches the existing entity guard.
+Grade: `verified-against-code` (same processing method and the recovery/midnight
+regressions in `tests/test_hybrid_energy_fallback.py`).
+
+Parallel-group inverter energy also becomes unknown if any locally configured
+member lacks energy. This prevents partial sums and an old group HTTP snapshot
+from replacing the prior counter. Later independent GridBOSS grid/CT overlays
+retain their existing authority, including complete CT consumption; the gate
+does not assert that those MID values are LOCAL. Grade: `verified-against-code`
+(`_process_parallel_group_object`, `apply_gridboss_to_parallel_group`).
+
+The root library mismatch is separately tracked in pylxpweb #396. At b14,
+inverter `_fetch_energy` and `_fetch_energy_http` compare different snapshot
+slots while using shared validation clocks. `_on_transport_link_down` clears
+local energy; HTTP rejection/failure leaves the older cloud snapshot selected
+by public properties. The real-library regression reproduces 16.6 -> 2.6 kWh
+with a 52-second delta window before the integration gate, and the HA state
+sequence 16.6 -> unknown -> 16.7 afterward. Grade: `verified-against-code`
+(library `devices/inverters/base.py`, `devices/base.py` at the front-matter
+library pin; integration `tests/test_hybrid_energy_fallback.py`).
+
+This is an explicit continuity tradeoff: even a valid cloud energy response is
+withheld during the configured local gap. Library validation/recovery clocks,
+MID source mixing and historic statistics repair are not changed. Reporter
+observations and production acceptance belong to the
+[readiness owner](../60-history/final-release-readiness-2026-10-23.md).
 
 ### 4.3 Consumption and load are two distinct meters
 

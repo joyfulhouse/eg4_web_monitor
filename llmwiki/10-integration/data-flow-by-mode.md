@@ -166,6 +166,11 @@ Entry point: `_async_update_hybrid_data` (`coordinator_http.py:342-418`). Eviden
 > path's reliance on the HTTP first cycle is `verified-against-code` (`coordinator_http.py` →
 > `_async_update_hybrid_data`).
 
+The inverter energy source-gap rule introduced for #702 is owned by
+[data semantics](data-semantics.md#424-locally-configured-hybrid-inverter-energy-during-gaps-702).
+The runtime fallback described here does not authorize switching locally
+configured inverter counters to HTTP while their local energy snapshot is absent.
+
 ### 4.1 Why HYBRID omits the `error` key but LOCAL sets it
 
 | Mode | `_sync_transport_link_state` argument | `error` key set? | Rationale |

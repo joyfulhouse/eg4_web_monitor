@@ -22,12 +22,13 @@ sources:
   - tests/test_diagnostics.py
   - tests/test_repair_registry.py
   - tests/test_init.py
-verified-against: ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21
+verified-against: 0b7cbb6b15efb5fce05f598bc89cf1f7304e308a
 # Metadata executor/redaction-order subsection re-verified at bf8bfe6 on 2026-10-23.
 # Other sections retain their original pin and date scope.
-# Acquisition-time subsection and output pipeline verified at the pin above.
+# Acquisition-time subsection and output pipeline retain ca2bbf0.
+# Link-down address selection is rechecked at the current pin.
 # The historical limitation retains 77e6c86; the privacy fix retains c006150.
-last-verified: 2026-10-25
+last-verified: 2026-10-28
 see-also:
   - ../50-operations/issue-pipeline.md
 ---
@@ -271,6 +272,14 @@ enumerated from the file):
 | Created **once** per down transition; deleted on recovery | `verified-against-code` — `coordinator_local.py:2934-2961` |
 | The healthy path performs an idempotent registry no-op, which clears a stale issue left by a restart that happened mid-outage | `verified-against-code` — same |
 | LOCAL passes `processed` (sets the device `error` key **and** the issue); HYBRID passes `None` (issue only) | `verified-against-code` — `coordinator_local.py:2120` vs `coordinator_http.py:416` |
+
+The link-down UI address comes from the matching configured `host` or
+`serial_port`, falling back to transport attributes. Owner-issued capabilities
+can hide both attributes, so relying only on the capability produced `?` in
+Repairs. The nonpersistent Repairs adapter still omits these placeholders from
+serialization. Grade: `verified-against-code` at `0b7cbb6b15efb5fce05f598bc89cf1f7304e308a`
+(`coordinator_local.py` -> `_sync_transport_link_state`,
+`tests/test_hybrid_energy_fallback.py` -> `test_repair_host_uses_config_for_owner_capability`).
 
 ## 5. Services (context for diagnostics consumers)
 

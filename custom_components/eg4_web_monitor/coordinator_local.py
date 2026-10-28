@@ -3145,8 +3145,21 @@ class LocalTransportMixin(_MixinBase):
                 if serial in self._link_down_notified:
                     continue
                 self._link_down_notified.add(serial)
-                host = getattr(transport, "host", None) or getattr(
-                    transport, "port", "?"
+                config = next(
+                    (
+                        item
+                        for item in self._local_transport_configs
+                        if item.get("serial") == serial
+                    ),
+                    {},
+                )
+                # Owner capabilities intentionally hide connection details.
+                # Repairs can use configuration while diagnostics omit this UI context.
+                host = (
+                    config.get("host")
+                    or config.get("serial_port")
+                    or getattr(transport, "host", None)
+                    or getattr(transport, "port", "?")
                 )
                 ir.async_create_issue(
                     self.hass,
