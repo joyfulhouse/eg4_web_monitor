@@ -1960,3 +1960,14 @@ The [validation record](../docs/production/hybrid-energy-fallback-validation-202
 keeps software evidence separate from production acceptance. Library #396 remains
 open for validation history/publication and MID behavior; no hardware test or
 statistics rewrite occurred. Data-flow documentation links to the source-rule owner.
+
+## [2026-10-28] ingest | Pin Hassfest across the pyserial core transition
+
+Updated the [quality-gates owner](50-operations/quality-gates.md) and
+[readiness classification](60-history/final-release-readiness-2026-10-23.md)
+for #704. The moving development validator rejected a dependency absent from
+our supported stable floor but required for serial enumeration. The workflow
+at `9cd541907108bfc28437be44696340f39821fbf0` retains the last successful official
+image by immutable digest and its normal rules. Supported HA matrix coverage
+remains required; this is not a development-HA compatibility claim. Independent
+review approved the bounded approach, with candidate CI still required.

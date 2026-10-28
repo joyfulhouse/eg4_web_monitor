@@ -57,5 +57,16 @@
     "commit_hooks": "passed",
     "initial_sandbox_run": "Three socket-permission failures; rerun with local socket access passed.",
     "independent_review": "gpt-6-astra medium, no blocking findings in scoped source and tests. Final PR CI remains a separate merge gate."
+  },
+  "ci_validator_boundary": {
+    "issue": 704,
+    "source_commit": "9cd541907108bfc28437be44696340f39821fbf0",
+    "official_image_digest": "e5828f7e305518506d8b4e8346411357d68358531b761bd118fe6a1631feff44",
+    "prior_successful_run": 40627894302,
+    "new_development_image_failure_run": 40740639831,
+    "reason": "Development HA now declares pyserial as a core dependency and its validator rejects the manifest declaration. Supported HA floor does not provide it; serial discovery requires it.",
+    "workflow_syntax": "actionlint and YAML hooks passed",
+    "independent_review": "gpt-6-astra medium approved bounded pin, contingent on candidate CI.",
+    "scope": "Normal image entrypoint/rules, read-only workspace, supported HA runtime matrix unchanged."
   }
 }

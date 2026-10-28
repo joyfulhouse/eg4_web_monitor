@@ -314,6 +314,7 @@ claim missing hardware acceptance. New evidence can change the classification.
 
 | Issue | Classification | Remaining boundary |
 |---|---|---|
+| [#704](https://github.com/joyfulhouse/eg4_web_monitor/issues/704) | Future work: validator compatibility transition | Retain the required serial dependency for the supported floor and use the pinned official Hassfest baseline. Reevaluate when core pyserial reaches that floor; the quality-gates owner records the boundary. |
 | [#702](https://github.com/joyfulhouse/eg4_web_monitor/issues/702) | Release blocker: counter-source regression | Software source-gap protection and real-library/HA regressions are implemented; reporter/deployed acceptance remains. Source withholding is an accepted limitation; historic statistics are not rewritten. |
 | [#691](https://github.com/joyfulhouse/eg4_web_monitor/issues/691) | Metadata-I/O acceptance met | Independent review and green CI precede the authorized deployed download without blocking warnings. Identity/configuration are preserved. The separate full-download redaction defect remains under #697. |
 | [#697](https://github.com/joyfulhouse/eg4_web_monitor/issues/697) | Release blocker: diagnostics redaction | Source fix at `c006150eeef0486db30e2c986dba9415b7e0e644` covers the actual HA wrapper and state-preserving Repairs migration. Production still uses the earlier candidate; the required authorized private full-download check remains open. See the diagnostics owner for the exact privacy boundary. |
