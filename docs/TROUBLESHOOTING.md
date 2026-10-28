@@ -21,6 +21,27 @@ local snapshot. This does not accelerate gateway polling; a failed later refresh
 can still make measurements unavailable.
 
 
+## HYBRID energy becomes unknown during a local outage
+
+For an inverter configured with a local transport, daily and lifetime energy
+counters use the local energy snapshot. When that snapshot is missing, including
+a failed attachment or recovery that has restored runtime but not energy yet,
+the counters show `unknown`. This also withholds inverter-derived parallel-group
+energy when a locally configured member lacks energy. Complete independent
+GridBOSS CT consumption remains available. Power and SOC may continue through
+cloud fallback, and devices configured only for cloud keep their cloud counters.
+
+This prevents an older cloud counter from appearing as a meter reset and
+inflating Home Assistant statistics when the local value returns (#702).
+Counters resume after an accepted local energy snapshot; genuine daily resets
+retain their existing handling. The source rule does not diagnose or fix a
+gateway outage, and missing local measurements are not replaced by cloud energy.
+
+Previously inflated statistics are not repaired automatically. Review affected
+series in Home Assistant's Developer Tools > Statistics, retain a backup, and
+correct only adjustments supported by recorded evidence. Do not repeatedly
+restart HA or disable validation to address a transport outage.
+
 ## Common Issues
 
 ### "Cannot connect to EG4 Web Monitor"

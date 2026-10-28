@@ -44,9 +44,11 @@ if TYPE_CHECKING:
 
 from .const import (
     CONF_LOCAL_TRANSPORTS,
+    CONNECTION_TYPE_HYBRID,
     DOMAIN,
     INVERTER_FAMILY_EG4_OFFGRID,
     MANUFACTURER,
+    SENSOR_TYPES,
     operating_state_slug,
 )
 from .cloud_requests import (
@@ -212,6 +214,17 @@ SIDEFETCH_CONNECTIVITY_ERRORS = (
     aiohttp.ClientError,
     LuxpowerConnectionError,
 )
+
+
+def _blank_energy_measurements(processed: dict[str, Any]) -> None:
+    """Withhold counters whose configured local source has no accepted sample."""
+    for key in processed.get("sensors", {}):
+        if (
+            cast(dict[str, Any], SENSOR_TYPES.get(key, {})).get("device_class")
+            == "energy"
+        ):
+            processed["sensors"][key] = None
+            processed.get("energy_sample_times", {}).pop(key, None)
 
 
 def _derive_using_generator(inverter: Any) -> bool | None:
@@ -2837,6 +2850,9 @@ class DeviceProcessingMixin(_MixinBase):
         # Check for firmware updates (pylxpweb 0.3.7+)
         firmware_update_info = await self._poll_firmware_update_info(inverter)
 
+        # Capture source eligibility with the values, before supplemental awaits.
+        local_energy_gap = self._inverter_local_energy_gap(inverter)
+
         processed: dict[str, Any] = {
             "serial": inverter.serial_number,
             "type": "inverter",
@@ -2897,6 +2913,8 @@ class DeviceProcessingMixin(_MixinBase):
             # healthy cycle's throttled fetch won't pick up.
             self._carry_forward_ac_couple_soc(inverter.serial_number, processed)
             self._carry_forward_smart_load(inverter.serial_number, processed)
+            if local_energy_gap:
+                _blank_energy_measurements(processed)
             reconcile_daily_evidence(processed)
             return processed
 
@@ -3311,8 +3329,24 @@ class DeviceProcessingMixin(_MixinBase):
         if any(k.startswith("battery_bank_") for k in processed["sensors"]):
             processed["sensors"]["battery_bank_last_polled"] = dt_util.utcnow()
 
+        if local_energy_gap:
+            _blank_energy_measurements(processed)
         reconcile_daily_evidence(processed)
         return processed
+
+    def _inverter_local_energy_gap(self, inverter: "BaseInverter") -> bool:
+        """Keep locally configured HYBRID counters on their local source (#702)."""
+        return (
+            self.connection_type == CONNECTION_TYPE_HYBRID
+            and (
+                inverter.transport is not None
+                or any(
+                    config.get("serial") == inverter.serial_number
+                    for config in self._local_transport_configs
+                )
+            )
+            and inverter.transport_energy is None
+        )
 
     @staticmethod
     def _get_inverter_property_map() -> dict[str, str]:
@@ -3657,6 +3691,9 @@ class DeviceProcessingMixin(_MixinBase):
         }
 
         property_map = self._get_parallel_group_property_map()
+        local_energy_gap = any(
+            self._inverter_local_energy_gap(inv) for inv in group.inverters
+        )
         processed["sensors"] = _map_device_properties(group, property_map)
         processed["sensors"]["parallel_group_last_polled"] = dt_util.utcnow()
         processed["energy_sample_times"] = mapped_daily_sample_times(
@@ -3726,6 +3763,10 @@ class DeviceProcessingMixin(_MixinBase):
                 }
                 sensors.update(_map_device_properties(live_group, runtime_map))
 
+        # A partial local aggregate or the group's old HTTP snapshot can both
+        # fabricate a counter reset. Independent GridBOSS CT overlays run later.
+        if local_energy_gap:
+            _blank_energy_measurements(processed)
         reconcile_daily_evidence(processed)
         return processed
 
