@@ -835,11 +835,8 @@ def _create_number_entities(
                 else:
                     entities.extend(
                         [
-                            GridPeakShavingPowerNumber(coordinator, serial),
-                            # The rest of the daily peak-shaving set (#592):
-                            # PS2 power + period-1/2 SOC and voltage floors.
-                            # Same non-off-grid branch as PS1; no Repairs
-                            # suffix (never existed on off-grid registries).
+                            # The daily peak-shaving set:
+                            # PS1 & PS2 power + period-1/2 SOC and voltage floors.
                             *(
                                 PeakShavingNumber(coordinator, serial, spec)
                                 for spec in PEAK_SHAVING_NUMBER_SPECS
@@ -1432,69 +1429,12 @@ class PVChargePowerNumber(EG4BaseNumberEntity):
         )
 
 
-async def _require_peak_shaving_mode_on(entity: EG4BaseNumberEntity) -> None:
-    """Refuse a Peak Shaving POWER write while the mode is known-off (#328).
-
-    Shared by PS1 (``GridPeakShavingPowerNumber``) and PS2
-    (``PeakShavingNumber`` with ``mode_precheck``). The firmware rejects the
-    power setpoint (DATAFRAME_TIMEOUT) while Peak Shaving mode
-    (FUNC_GRID_PEAK_SHAVING, reg 179 bit 7) is disabled and clears the
-    setpoint whenever the mode deactivates, so a write with the mode
-    known-off is refused up front with a clear message.
-
-    Verify-then-block: the parameter cache refreshes ~hourly, so a user who
-    just enabled the mode on the EG4 portal or the inverter LCD would
-    otherwise be locked out by a stale cached False until the next refresh.
-    With a cloud client the cached False is confirmed by a live
-    single-register cloud read (reg 179 carries the FUNC bit) before
-    refusing; if the read fails or omits the bit the write proceeds
-    fail-open (the firmware is the final arbiter), and a live True seeds the
-    parameter cache so the mode switch stops showing stale state. Without a
-    cloud client (pure-LOCAL) only the cached value can testify: a cached
-    False blocks, a missing value fails OPEN.
-    """
-    mode_state = entity._parameter_data.get(PARAM_FUNC_GRID_PEAK_SHAVING)
-    if mode_state is None or mode_state:
-        return
-    client = entity.coordinator.client
-    if client is not None:
-        try:
-            response = await client.api.control.read_parameters(
-                entity.serial, start_register=179, point_number=1
-            )
-            mode_state = response.parameters.get(PARAM_FUNC_GRID_PEAK_SHAVING)
-        except Exception as err:
-            _LOGGER.debug(
-                "Live Peak Shaving mode check for %s failed (%s); proceeding fail-open",
-                entity.serial,
-                err,
-            )
-            mode_state = None
-        if mode_state is None:
-            return
-        if mode_state:
-            # The cache said off but the device says ON — seed the fresh
-            # truth so the mode switch stops showing stale state until the
-            # next scheduled parameter refresh.
-            entity.coordinator.note_parameters_written(
-                entity.serial, {PARAM_FUNC_GRID_PEAK_SHAVING: True}
-            )
-            return
-    raise ServiceValidationError(
-        "Peak Shaving mode is disabled — enable it first: the "
-        "inverter rejects the power setpoint while the mode is "
-        "off, and the firmware clears the setpoint whenever the "
-        "mode deactivates."
-    )
-
-
 @dataclass(frozen=True)
 class PeakShavingNumberSpec:
     """Declarative configuration for one daily Grid Peak Shaving number (#592).
 
-    Covers the five daily peak-shaving holding registers PS1 (reg 206,
-    ``GridPeakShavingPowerNumber``) does not: PS2 power and the period-1/2
-    SOC and voltage floors. Every row is in the pinned pylxpweb's
+    Covers the six daily peak-shaving holding registers: PS1 & PS2 power and
+    the period-1/2 SOC and voltage floors. Every row is in the pinned pylxpweb's
     ``REGISTER_TO_PARAM_KEYS`` and canonical holding table, graded
     ``portal-correlated`` (raw/portal correlation only — no named-action raw
     before/after/restore tuple), so no row is treated as hardware-proven.
@@ -1531,6 +1471,22 @@ class PeakShavingNumberSpec:
 
 
 PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
+    PeakShavingNumberSpec(
+        key="grid_peak_shaving_power",
+        param_key=PARAM_HOLD_GRID_PEAK_SHAVING_POWER,
+        register=206,
+        unit="kW",
+        min_value=GRID_PEAK_SHAVING_POWER_MIN,
+        max_value=GRID_PEAK_SHAVING_POWER_MAX,
+        step=GRID_PEAK_SHAVING_POWER_STEP,
+        read_min=GRID_PEAK_SHAVING_POWER_MIN,
+        read_max=GRID_PEAK_SHAVING_POWER_MAX,
+        div10=True,
+        control_key=None,
+        mode_precheck=True,
+        label="grid peak shaving power 1",
+        icon="mdi:chart-bell-curve-cumulative",
+    ),
     PeakShavingNumberSpec(
         key="grid_peak_shaving_power_2",
         param_key=PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2,
@@ -1660,6 +1616,59 @@ class PeakShavingNumber(EG4BaseNumberEntity):
         self._attr_icon = spec.icon
         self._attr_native_precision = 1 if spec.div10 else 0
 
+    async def _require_peak_shaving_mode_on(self) -> None:
+        """Refuse a Peak Shaving POWER write while the mode is known-off (#328).
+
+        The firmware rejects the power setpoint (DATAFRAME_TIMEOUT) while
+        Peak Shaving mode (FUNC_GRID_PEAK_SHAVING, reg 179 bit 7) is disabled
+        and clears the setpoint whenever the mode deactivates, so a write with
+        the mode known-off is refused up front with a clear message.
+
+        Verify-then-block: the parameter cache refreshes ~hourly, so a user who
+        just enabled the mode on the EG4 portal or the inverter LCD would
+        otherwise be locked out by a stale cached False until the next refresh.
+        With a cloud client the cached False is confirmed by a live
+        single-register cloud read (reg 179 carries the FUNC bit) before
+        refusing; if the read fails or omits the bit the write proceeds
+        fail-open (the firmware is the final arbiter), and a live True seeds the
+        parameter cache so the mode switch stops showing stale state. Without a
+        cloud client (pure-LOCAL) only the cached value can testify: a cached
+        False blocks, a missing value fails OPEN.
+        """
+        mode_state = self._parameter_data.get(PARAM_FUNC_GRID_PEAK_SHAVING)
+        if mode_state is None or mode_state:
+            return
+        client = self.coordinator.client
+        if client is not None:
+            try:
+                response = await client.api.control.read_parameters(
+                    self.serial, start_register=179, point_number=1
+                )
+                mode_state = response.parameters.get(PARAM_FUNC_GRID_PEAK_SHAVING)
+            except Exception as err:
+                _LOGGER.debug(
+                    "Live Peak Shaving mode check for %s failed (%s); proceeding fail-open",
+                    self.serial,
+                    err,
+                )
+                mode_state = None
+            if mode_state is None:
+                return
+            if mode_state:
+                # The cache said off but the device says ON — seed the fresh
+                # truth so the mode switch stops showing stale state until the
+                # next scheduled parameter refresh.
+                self.coordinator.note_parameters_written(
+                    self.serial, {PARAM_FUNC_GRID_PEAK_SHAVING: True}
+                )
+                return
+        raise ServiceValidationError(
+            "Peak Shaving mode is disabled — enable it first: the "
+            "inverter rejects the power setpoint while the mode is "
+            "off, and the firmware clears the setpoint whenever the "
+            "mode deactivates."
+        )
+
     @property
     def native_value(self) -> float | None:
         """Return the cached engineering value (kW / V / %), params first.
@@ -1701,7 +1710,7 @@ class PeakShavingNumber(EG4BaseNumberEntity):
             )
             shown = f"{write_value}{spec.unit}"
         if spec.mode_precheck:
-            await _require_peak_shaving_mode_on(self)
+            await self._require_peak_shaving_mode_on()
         label = f"{spec.label} to {shown}"
         await self._write_parameter(
             value,
@@ -1725,142 +1734,6 @@ class PeakShavingNumber(EG4BaseNumberEntity):
                 spec.register, spec.label
             ),
         )
-
-
-class GridPeakShavingPowerNumber(EG4BaseNumberEntity):
-    """Number entity for Grid Peak Shaving Power control.
-
-    PS1 lives at holding register 206, not the register 231 the transport
-    name map historically claimed (eg4-gfu5) — local NAME-map writes are
-    never used for this control. A cloud client is always required (the
-    write raises without one). Routing (#570 r6): on a positively resolved
-    non-off-grid family the write goes through pylxpweb's
-    ``set_grid_peak_shaving_power``, which is TRANSPORT-FIRST onto raw
-    H206 (deci-kW, verified on hybrid hardware — pylxpweb#158 raw 41 ->
-    4.1 kW) with a cloud named-parameter fallback; an earlier revision of
-    this docstring called the entity "cloud-write-only", which the pinned
-    wheel falsifies. Off-grid/unresolved families fail closed and write
-    the cloud named parameter directly — no off-grid H206 write evidence
-    exists, and the entity is fail-open CREATED on unresolved families.
-
-    Firmware coupling to Peak Shaving mode (#328, live-verified 2026-07):
-    the inverter only accepts this setpoint while Peak Shaving mode
-    (FUNC_GRID_PEAK_SHAVING, reg 179 bit 7) is enabled — writes with the
-    mode off fail param-specifically with DATAFRAME_TIMEOUT — and the
-    firmware ZEROES the stored setpoint whenever the mode deactivates. A
-    0 readback right after the mode turns off is therefore firmware
-    behavior, not a read bug.
-    """
-
-    def __init__(self, coordinator: EG4DataUpdateCoordinator, serial: str) -> None:
-        """Initialize the number entity."""
-        super().__init__(coordinator, serial)
-        self._attr_name = "Grid Peak Shaving Power"
-        self._attr_unique_id = self._stable_control_unique_id("grid_peak_shaving_power")
-        self._attr_native_min_value = GRID_PEAK_SHAVING_POWER_MIN
-        self._attr_native_max_value = GRID_PEAK_SHAVING_POWER_MAX
-        self._attr_native_step = GRID_PEAK_SHAVING_POWER_STEP
-        self._attr_native_unit_of_measurement = "kW"
-        self._attr_icon = "mdi:chart-bell-curve-cumulative"
-        self._attr_native_precision = 1
-        if coordinator.is_local_only():
-            # Pure-LOCAL reads this control since #328 (reg 206, deci-kW
-            # encoding verified; hybrid-family-gated targeted read) but the
-            # write path is still cloud-routed — register it disabled so a
-            # write-less config entity is opt-in. Users who attach cloud
-            # credentials (or want the read-only view) can enable it.
-            self._attr_entity_registry_enabled_default = False
-
-    @property
-    def native_value(self) -> float | None:
-        """Return the current grid peak shaving power (cloud-sourced kW)."""
-        return self._read_param_value(
-            param_key=PARAM_HOLD_GRID_PEAK_SHAVING_POWER,
-            value_min=0,
-            value_max=25.5,
-            inverter_attr="grid_peak_shaving_power_limit",
-            as_float=True,
-        )
-
-    async def async_set_native_value(self, value: float) -> None:
-        """Set the grid peak shaving power (family-routed, cloud client required).
-
-        Never routed through the local transport NAME map: the old map
-        entry pointed local writes at register 231 (an unknown, unrelated
-        register). Resolved non-off-grid families use pylxpweb's
-        transport-first raw-H206 method (hybrid-verified deci-kW encoding,
-        cloud named fallback); off-grid/unresolved families write the
-        cloud named parameter directly (#570 r6 fail-closed). In pure-LOCAL
-        mode this control cannot be written (no cloud client).
-
-        Pre-check (#328): the firmware rejects this write (DATAFRAME_TIMEOUT)
-        while Peak Shaving mode is disabled, and clears the setpoint whenever
-        the mode deactivates — so a write with the mode known-off is refused
-        up front with a clear message. Because the parameter cache refreshes
-        ~hourly, a cached False is confirmed with a live reg-179 cloud read
-        before blocking (verify-then-block) so a mode just enabled on the
-        portal/LCD isn't wrongly refused. When the mode state is unknown
-        (parameter absent, or the live read fails) the write proceeds
-        fail-open rather than blocking on missing data.
-        """
-        if value < 0.0 or value > 25.5:
-            raise HomeAssistantError(
-                f"Grid peak shaving power must be between 0.0-25.5 kW, got {value}"
-            )
-        client = self.coordinator.client
-        if client is None:
-            raise HomeAssistantError(
-                "Grid peak shaving power requires the cloud API: the local "
-                "register encoding is unverified (the previous local write "
-                "path targeted the wrong register). Add cloud credentials to "
-                "this integration entry to use this control."
-            )
-        await _require_peak_shaving_mode_on(self)
-        _LOGGER.info(
-            "Setting grid peak shaving power to %.1f kW for %s", value, self.serial
-        )
-        self._warn_if_ineffective()
-        label = f"grid peak shaving power to {value:.1f} kW"
-        with optimistic_value_context(self, value, label) as write:
-            if is_positively_non_offgrid_family(self._device_data):
-                # pylxpweb's set_grid_peak_shaving_power is TRANSPORT-FIRST
-                # onto raw H206 (deci-kW, verified on hybrid hardware —
-                # pylxpweb#158 raw 41 -> 4.1 kW) — allowed only on a
-                # positively resolved non-off-grid family.
-                inverter = self._get_inverter_or_raise()
-                success = await inverter.set_grid_peak_shaving_power(power_kw=value)
-            else:
-                # #570 r6: fail closed on off-grid/unresolved families —
-                # the transport-first library method would silently ACK a
-                # raw H206 write with no off-grid evidence (the exact
-                # first-run window round 5 closed for H67/H82/H83). Write
-                # the cloud named parameter directly instead (pylxpweb's
-                # own cloud leg); the client is guaranteed above.
-                result = await client.api.control.write_parameter(
-                    self.serial, PARAM_HOLD_GRID_PEAK_SHAVING_POWER, str(value)
-                )
-                success = bool(result.success)
-                if success:
-                    # #570 r7 convergence: seed the acknowledged value in
-                    # kW, the unit the parameter cache carries for this key
-                    # on EVERY path (r11 correction — an earlier revision
-                    # claimed the local name map never carries it, which is
-                    # false): the cloud returns the engineering value in kW,
-                    # and the pinned pylxpweb maps reg 206 to this key with
-                    # a DIV_10 decode (LOCAL_PARAM_SCALE_DIV10), so a local
-                    # read also surfaces kW, not raw deci-kW. Seeding the
-                    # raw deci-kW value here would read back 10x. The seed
-                    # keeps the post-write refresh from clearing optimism
-                    # onto the stale inverter attribute.
-                    self.coordinator.note_parameters_written(
-                        self.serial,
-                        {PARAM_HOLD_GRID_PEAK_SHAVING_POWER: value},
-                    )
-            if not success:
-                raise HomeAssistantError(
-                    f"Failed to set grid peak shaving power to {value:.1f} kW"
-                )
-            write.refresh_ok = await self._refresh_related_entities()
 
 
 class ACChargeSOCLimitNumber(EG4BaseNumberEntity):
