@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "Netzeinspeiseleistung"
       },
+      "grid_peak_shaving_power": {
+        "name": "Netz-Lastspitzenkappung Leistung 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "Netz-Lastspitzenkappung Leistung 2"
       },
