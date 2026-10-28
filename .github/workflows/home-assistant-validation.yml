@@ -25,7 +25,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Hassfest
-        uses: home-assistant/actions/hassfest@master
+        # The moving development image now bans pyserial, still needed on our
+        # supported HA floor. Keep the last compatible validator until #704.
+        run: >-
+          docker run --rm
+          --mount type=bind,source="${{ github.workspace }}",target=/github/workspace,readonly
+          ghcr.io/home-assistant/hassfest@sha256:e5828f7e305518506d8b4e8346411357d68358531b761bd118fe6a1631feff44
 
   # ========================================
   # HACS VALIDATION
