@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "Grid Sell Back Power"
       },
+      "grid_peak_shaving_power": {
+        "name": "Grid Peak Shaving Power 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "Grid Peak Shaving Power 2"
       },

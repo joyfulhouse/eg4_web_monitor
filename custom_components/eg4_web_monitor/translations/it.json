@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "Potenza di vendita alla rete"
       },
+      "grid_peak_shaving_power": {
+        "name": "Potenza Peak Shaving Rete 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "Potenza Peak Shaving Rete 2"
       },

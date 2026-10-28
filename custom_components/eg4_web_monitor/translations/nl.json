@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "Terugleververmogen"
       },
+      "grid_peak_shaving_power": {
+        "name": "Netpiekafvlakking vermogen 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "Netpiekafvlakking vermogen 2"
       },
