@@ -1944,3 +1944,19 @@ source pins. Their former operative manual-dispatch and minimum-floor instructio
 were historical, not the current tag-bound sealed-artifact workflow or exact pin.
 Useful provenance lessons remain explicitly historical; current guidance follows
 the primary workflow and links the dated execution record.
+
+## [2026-10-28] ingest | HYBRID counters cannot fall back to stale HTTP snapshots
+
+Updated [data semantics](10-integration/data-semantics.md), the
+[Repairs owner](10-integration/diagnostics-repairs.md), and
+[release readiness](60-history/final-release-readiness-2026-10-23.md)
+against `0b7cbb6b15efb5fce05f598bc89cf1f7304e308a`. Real released-library fetches reproduce
+#702's 16.6-to-2.6 drop: an old HTTP baseline is tested with the shared local
+change clock. The consumer now withholds energy during configured local gaps,
+including dependent group and chart/carry paths, while preserving runtime fallback
+and independent CT authority. The secondary Repairs address defect came from
+owner capabilities hiding connection attributes; UI context now uses configuration.
+The [validation record](../docs/production/hybrid-energy-fallback-validation-2026-10-28.json)
+keeps software evidence separate from production acceptance. Library #396 remains
+open for validation history/publication and MID behavior; no hardware test or
+statistics rewrite occurred. Data-flow documentation links to the source-rule owner.

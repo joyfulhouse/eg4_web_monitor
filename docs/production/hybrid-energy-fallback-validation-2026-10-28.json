@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-28",
+  "integration_base": "75aaba62cd993201569de7d18748e666c4eb86d0",
+  "library_artifact": "pylxpweb==0.10.0b14",
+  "library_source": "cac7a9f498aa20528577a08ce1541fdb59f77481",
+  "issue": 702,
+  "reproduction": {
+    "http_baseline_kwh": 2.6,
+    "last_local_kwh": 16.6,
+    "fallback_http_kwh": 16.6,
+    "incorrect_elapsed_seconds": 52,
+    "rated_power_kw": 21,
+    "observed_rejection_limit_kwh": 0.6,
+    "original_fallback_published_kwh": 2.6,
+    "method": "Real released HybridInverter separate and combined energy fetches with synthetic transport/API responses; no hardware access."
+  },
+  "fixed_contract": {
+    "inverter": "For locally configured or attached HYBRID inverters, no local energy snapshot means mapped energy counters are unknown. Cloud power/SOC can remain available.",
+    "group": "Inverter-derived group energy is withheld if any configured local member lacks energy. Existing independent GridBOSS CT overlays retain authority.",
+    "daily": "Original acquisition times remain attached to accepted local data. No clamp or synthetic timestamp is introduced, and a genuine local next-day reset remains visible.",
+    "repairs": "Matching configured host or serial_port supplies UI context when an owner capability hides address attributes; the nonpersistent Repairs adapter keeps that metadata out of serialization."
+  },
+  "regressions": [
+    "Original integration: 8 failed / 1 passed across energy source-gap cases; repaired implementation passes those cases.",
+    "Repair host lookup fails with '?' before the fix and passes with the configured synthetic address after the fix.",
+    "Real HA sensor state follows 16.6 -> unknown -> 16.7, never the stale HTTP counter.",
+    "Cases include rejected/failed/lower/current HTTP, separate/combined local reads, failed attachment, cloud-only entries, partial/full group gaps, CT overlay, actual HTTP runtime, chart/carry-forward, recovery during await, and midnight."
+  ],
+  "limitations": [
+    "This change withholds even valid cloud energy during a local energy gap; continuity is favored over source switching.",
+    "pylxpweb issue396 tracks the underlying shared validation state and broader publication contract. Validation clocks are unchanged here.",
+    "MID/GridBOSS source mixing remains outside this inverter/group fix; the existing CT overlay may use HTTP-derived data.",
+    "Historic statistics are not rewritten automatically.",
+    "No production deployment, restart, clock change, induced outage or hardware write occurred during this investigation. Reporter/production acceptance remains outstanding."
+  ],
+  "source_commit": "0b7cbb6b15efb5fce05f598bc89cf1f7304e308a",
+  "validation": {
+    "minimum_ha": "2026.10.0",
+    "minimum_full_suite": {
+      "passed": 4253,
+      "skipped": 9,
+      "warnings": 36
+    },
+    "latest_ha": "2026.10.4",
+    "latest_full_suite_before_final_http_runtime_test": {
+      "passed": 4252,
+      "skipped": 9,
+      "warnings": 36
+    },
+    "latest_final_focused_suite": {
+      "passed": 18
+    },
+    "strict_typing": "passed both supported environments",
+    "ruff": "passed",
+    "format": "passed",
+    "tier_validators": "passed",
+    "commit_hooks": "passed",
+    "initial_sandbox_run": "Three socket-permission failures; rerun with local socket access passed.",
+    "independent_review": "gpt-6-astra medium, no blocking findings in scoped source and tests. Final PR CI remains a separate merge gate."
+  }
+}
