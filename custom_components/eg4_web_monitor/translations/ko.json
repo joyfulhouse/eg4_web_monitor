@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "계통 판매 전력"
       },
+      "grid_peak_shaving_power": {
+        "name": "그리드 피크 쉐이빙 전력 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "그리드 피크 쉐이빙 전력 2"
       },

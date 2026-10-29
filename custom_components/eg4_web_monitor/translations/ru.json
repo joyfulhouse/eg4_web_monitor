@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "Мощность продажи в сеть"
       },
+      "grid_peak_shaving_power": {
+        "name": "Мощность срезания пиков сети 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "Мощность срезания пиков сети 2"
       },

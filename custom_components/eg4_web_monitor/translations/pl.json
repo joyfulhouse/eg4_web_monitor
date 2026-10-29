@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "Moc sprzedaży do sieci"
       },
+      "grid_peak_shaving_power": {
+        "name": "Moc redukcji szczytów sieci 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "Moc redukcji szczytów sieci 2"
       },

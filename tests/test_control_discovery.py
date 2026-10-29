@@ -13,7 +13,7 @@ import custom_components.eg4_web_monitor.switch as switch_module
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.number import (
     ACChargePowerNumber,
-    GridPeakShavingPowerNumber,
+    PeakShavingNumber,
     QuickChargeDurationNumber,
     async_setup_entry as async_setup_number,
 )
@@ -195,9 +195,7 @@ async def test_family_specific_controls_become_inapplicable_without_duplicates(
         )
     elif platform == "number":
         target = next(
-            entity
-            for entity in entities
-            if isinstance(entity, GridPeakShavingPowerNumber)
+            entity for entity in entities if isinstance(entity, PeakShavingNumber)
         )
         survivor = next(
             entity for entity in entities if isinstance(entity, ACChargePowerNumber)
