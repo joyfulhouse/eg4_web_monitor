@@ -7,9 +7,11 @@ for the USB/RS485 configuration dropdown.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
 
+from homeassistant.components.usb import async_scan_serial_ports
+from homeassistant.components.usb.models import SerialDevice
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
@@ -18,13 +20,6 @@ _LOGGER = logging.getLogger(__name__)
 RS485_KEYWORDS = frozenset(
     {"rs485", "ch340", "ch341", "ftdi", "prolific", "pl2303", "cp210", "usb"}
 )
-
-
-async def _async_scan_serial_ports(hass: HomeAssistant) -> Any:
-    """Load USB discovery only when the config flow requests serial ports."""
-    from homeassistant.components.usb import async_scan_serial_ports
-
-    return await async_scan_serial_ports(hass)
 
 
 @dataclass
@@ -40,23 +35,20 @@ class SerialPortInfo:
     manufacturer: str | None = None
     """Manufacturer name if available."""
 
-    product: str | None = None
-    """Product name if available."""
 
-
-def _is_rs485_adapter(port: Any) -> bool:
+def _is_rs485_adapter(port: SerialDevice) -> bool:
     """Check if a port looks like an RS485 adapter based on its metadata."""
     searchable = " ".join(
-        filter(None, [port.description, port.manufacturer, port.product, port.device])
+        filter(None, [port.description, port.manufacturer, port.device])
     ).lower()
     return any(keyword in searchable for keyword in RS485_KEYWORDS)
 
 
-def _build_port_description(port: Any) -> str:
+def _build_port_description(port: SerialDevice) -> str:
     """Build human-readable description for a serial port."""
-    desc_parts = [p for p in (port.manufacturer, port.product) if p]
+    desc_parts = [p for p in (port.manufacturer, port.description) if p]
     if not desc_parts:
-        desc_parts = [port.description or port.device]
+        desc_parts = [port.device]
     return f"{port.device} ({' - '.join(desc_parts)})"
 
 
@@ -68,7 +60,7 @@ async def list_serial_ports(hass: HomeAssistant) -> list[SerialPortInfo]:
         sorted with likely RS485 adapters first.
     """
     try:
-        raw_ports = await _async_scan_serial_ports(hass)
+        raw_ports: Sequence[SerialDevice] = await async_scan_serial_ports(hass)
 
         # Build port info list with RS485 classification
         port_data = [
@@ -77,7 +69,6 @@ async def list_serial_ports(hass: HomeAssistant) -> list[SerialPortInfo]:
                     device=port.device,
                     description=_build_port_description(port),
                     manufacturer=port.manufacturer,
-                    product=port.product,
                 ),
                 _is_rs485_adapter(port),
             )

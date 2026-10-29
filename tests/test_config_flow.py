@@ -946,7 +946,7 @@ async def test_owned_endpoint_discovery_maps_to_redacted_form_error(
             new=AsyncMock(side_effect=EndpointOwnerInUseError("redacted")),
         ),
         patch(
-            "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+            "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
             new=AsyncMock(return_value=[]),
         ),
     ):
@@ -2022,21 +2022,30 @@ class TestDiscoverSerialDeviceWithErrors:
 
     async def test_config_flow_scans_usb_ports(self, hass: HomeAssistant):
         """The serial form awaits HA USB discovery through the user journey."""
-        from types import SimpleNamespace
+        from homeassistant.components.usb.models import USBDevice
 
         scanner = AsyncMock(
             return_value=[
-                SimpleNamespace(
-                    device="/dev/ttyUSB0",
+                USBDevice(
+                    device="/dev/ttyACM0",
+                    vid="1a86",
+                    pid="7523",
                     serial_number="abc",
                     manufacturer="QinHeng",
-                    description="USB Serial",
-                    product="",
-                )
+                    description="CH340 RS485 Adapter",
+                ),
+                USBDevice(
+                    device="/dev/ttyS0",
+                    vid="0000",
+                    pid="0000",
+                    serial_number=None,
+                    manufacturer="Acme",
+                    description="Built-in UART",
+                ),
             ]
         )
         with patch(
-            "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+            "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
             new=scanner,
         ):
             result = await _init_and_select_local(hass)
@@ -2046,6 +2055,18 @@ class TestDiscoverSerialDeviceWithErrors:
 
         assert result["step_id"] == "local_serial"
         scanner.assert_awaited_once_with(hass)
+        serial_port_key = next(
+            key
+            for key in result["data_schema"].schema
+            if getattr(key, "schema", None) == "serial_port"
+        )
+        port_selector = result["data_schema"].schema[serial_port_key]
+        assert hasattr(port_selector, "container")
+        port_options = port_selector.container
+        assert list(port_options)[:2] == ["/dev/ttyACM0", "/dev/ttyS0"]
+        assert port_options["/dev/ttyACM0"] == (
+            "/dev/ttyACM0 (QinHeng - CH340 RS485 Adapter)"
+        )
 
     async def test_serial_timeout_error(self, hass: HomeAssistant):
         """Test serial discovery timeout returns correct error."""
@@ -2055,7 +2076,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=TimeoutError("Timeout")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
                 new=AsyncMock(return_value=[]),
             ),
         ):
@@ -2088,7 +2109,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=PermissionError("Access denied")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
                 new=AsyncMock(return_value=[]),
             ),
         ):
@@ -2123,7 +2144,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 ),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
                 new=AsyncMock(return_value=[]),
             ),
         ):
@@ -2156,7 +2177,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(side_effect=OSError("No such device")),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
                 new=AsyncMock(return_value=[]),
             ),
         ):
@@ -2191,7 +2212,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 new=AsyncMock(return_value=device),
             ),
             patch(
-                "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+                "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
                 new=AsyncMock(return_value=[]),
             ),
         ):
@@ -2218,7 +2239,7 @@ class TestDiscoverSerialDeviceWithErrors:
     async def test_serial_manual_entry_redirect(self, hass: HomeAssistant):
         """Test selecting manual_entry redirects to serial_manual step."""
         with patch(
-            "custom_components.eg4_web_monitor._config_flow.serial_ports._async_scan_serial_ports",
+            "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
             new=AsyncMock(return_value=[]),
         ):
             result = await _init_and_select_local(hass)
