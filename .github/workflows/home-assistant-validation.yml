@@ -25,8 +25,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Hassfest
-        # The moving development image now bans pyserial, still needed on our
-        # supported HA floor. Keep the last compatible validator until #704.
+        # HA 2026.11 ships pyserial and hassfest rejects core dependencies in
+        # custom manifests; our 2026.10.x floor still needs it at runtime.
+        # Remove when hacs.json reaches 2026.11.0 and pyserial leaves the manifest.
         run: >-
           docker run --rm
           --mount type=bind,source="${{ github.workspace }}",target=/github/workspace,readonly

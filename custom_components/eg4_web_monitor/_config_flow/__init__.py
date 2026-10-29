@@ -672,7 +672,7 @@ class EG4ConfigFlow(
                 return await self.async_step_local_device_confirmed()
 
         # Detect available serial ports
-        ports = list_serial_ports()
+        ports = await list_serial_ports(self.hass)
         port_options = build_port_selector_options(ports) if ports else None
 
         return self.async_show_form(
@@ -1322,7 +1322,7 @@ class EG4ConfigFlow(
                 self._reconfigure_after_device = True
                 return await self.async_step_local_device_confirmed()
 
-        ports = list_serial_ports()
+        ports = await list_serial_ports(self.hass)
         port_options = build_port_selector_options(ports) if ports else None
 
         return self.async_show_form(

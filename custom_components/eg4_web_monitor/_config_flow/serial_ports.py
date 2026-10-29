@@ -10,12 +10,21 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from homeassistant.core import HomeAssistant
+
 _LOGGER = logging.getLogger(__name__)
 
 # Keywords that suggest RS485/USB-serial adapters
 RS485_KEYWORDS = frozenset(
     {"rs485", "ch340", "ch341", "ftdi", "prolific", "pl2303", "cp210", "usb"}
 )
+
+
+async def _async_scan_serial_ports(hass: HomeAssistant) -> Any:
+    """Load USB discovery only when the config flow requests serial ports."""
+    from homeassistant.components.usb import async_scan_serial_ports
+
+    return await async_scan_serial_ports(hass)
 
 
 @dataclass
@@ -51,7 +60,7 @@ def _build_port_description(port: Any) -> str:
     return f"{port.device} ({' - '.join(desc_parts)})"
 
 
-def list_serial_ports() -> list[SerialPortInfo]:
+async def list_serial_ports(hass: HomeAssistant) -> list[SerialPortInfo]:
     """Detect available serial ports.
 
     Returns:
@@ -59,9 +68,7 @@ def list_serial_ports() -> list[SerialPortInfo]:
         sorted with likely RS485 adapters first.
     """
     try:
-        from serial.tools import list_ports
-
-        raw_ports = list(list_ports.comports())
+        raw_ports = await _async_scan_serial_ports(hass)
 
         # Build port info list with RS485 classification
         port_data = [
@@ -91,12 +98,6 @@ def list_serial_ports() -> list[SerialPortInfo]:
 
         return all_ports
 
-    except ImportError:
-        _LOGGER.warning(
-            "pyserial not installed - cannot enumerate serial ports. "
-            "Install with: pip install pyserial"
-        )
-        return []
     except Exception as err:
         _LOGGER.warning("Failed to list serial ports: %s", err)
         return []
