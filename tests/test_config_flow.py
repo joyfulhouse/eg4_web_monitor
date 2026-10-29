@@ -2027,20 +2027,20 @@ class TestDiscoverSerialDeviceWithErrors:
         scanner = AsyncMock(
             return_value=[
                 USBDevice(
-                    device="/dev/ttyACM0",
-                    vid="1a86",
-                    pid="7523",
-                    serial_number="abc",
-                    manufacturer="QinHeng",
-                    description="CH340 RS485 Adapter",
-                ),
-                USBDevice(
                     device="/dev/ttyS0",
                     vid="0000",
                     pid="0000",
                     serial_number=None,
                     manufacturer="Acme",
                     description="Built-in UART",
+                ),
+                USBDevice(
+                    device="/dev/ttyACM0",
+                    vid="1a86",
+                    pid="7523",
+                    serial_number="abc",
+                    manufacturer="QinHeng",
+                    description="CH340 RS485 Adapter",
                 ),
             ]
         )
