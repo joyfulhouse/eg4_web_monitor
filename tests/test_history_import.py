@@ -469,41 +469,18 @@ class TestStationAndUnits:
         fetch.assert_awaited_once_with(SERIAL, 2025, 1, parallel=True)
         assert response["units_queried"] == 1
 
-    async def test_gridboss_first_device_single_inverter_queries_member(
-        self, hass: HomeAssistant, mock_config_entry, mock_coordinator
+    @pytest.mark.parametrize("parallel", [False, True])
+    async def test_gridboss_first_device_queries_member(
+        self, hass: HomeAssistant, mock_config_entry, mock_coordinator, parallel
     ):
         """A non-inverter first device does not receive the history query."""
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
-        mock_coordinator.station.parallel_groups[0].first_device_serial = "GRIDBOSS"
-
-        fetch = mock_coordinator.client.analytics.get_month_daily_energy
-        fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=1.0)])
-
-        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
-        with add_patch, load_patch, delay_patch, drain_patch:
-            await async_import_historical_data(
-                hass,
-                _call(
-                    {
-                        "config_entry": "test_entry_id",
-                        "start_date": date(2025, 1, 1),
-                        "end_date": date(2025, 1, 31),
-                    }
-                ),
-            )
-
-        fetch.assert_awaited_once_with(SERIAL, 2025, 1, parallel=False)
-
-    async def test_gridboss_first_device_parallel_group_queries_member(
-        self, hass: HomeAssistant, mock_config_entry, mock_coordinator
-    ):
-        """Parallel aggregation uses an inverter member serial."""
-        await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
         group = mock_coordinator.station.parallel_groups[0]
         group.first_device_serial = "GRIDBOSS"
-        inverter2 = MagicMock()
-        inverter2.serial_number = SERIAL_2
-        group.inverters.append(inverter2)
+        if parallel:
+            inverter2 = MagicMock()
+            inverter2.serial_number = SERIAL_2
+            group.inverters.append(inverter2)
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=1.0)])
@@ -521,12 +498,12 @@ class TestStationAndUnits:
                 ),
             )
 
-        fetch.assert_awaited_once_with(SERIAL, 2025, 1, parallel=True)
+        fetch.assert_awaited_once_with(SERIAL, 2025, 1, parallel=parallel)
 
     async def test_all_zero_history_logs_warning(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator, caplog
     ):
-        """An all-zero fetch is visible while mixed zero days remain valid."""
+        """An all-zero fetch emits a warning."""
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(
