@@ -437,7 +437,6 @@ def _collect_units(
         ]
         if not serials:
             continue
-        # Only inverter members can serve as the history endpoint serial.
         first_serial = serials[0]
         designated_serial = getattr(group, "first_device_serial", None)
         if isinstance(designated_serial, str) and designated_serial in serials:
@@ -531,7 +530,7 @@ async def _fetch_daily_values(
                 for attr in _ACCUMULATED_ATTRS
                 if (value := getattr(entry, attr, None)) is not None
             ]
-            if values and all(value == 0.0 for value in values):
+            if values and not any(values):
                 _LOGGER.warning(
                     "Energy history for %s (%d-%02d) returned only zero values",
                     serial,
