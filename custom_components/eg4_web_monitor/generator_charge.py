@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.components.sensor import SensorEntity
@@ -36,7 +36,6 @@ class GeneratorChargeSpec:
 
 
 # Start SOC's portal [40, 57] conflicts with dumps reading 10%; use 0-100%.
-# End SOC and remote auto turn-off bounds match #705's portal screenshot.
 GENERATOR_CHARGE_SPECS = (
     GeneratorChargeSpec(
         "OFF_GRID_HOLD_GEN_CHG_START_SOC",
@@ -91,18 +90,12 @@ def create_generator_charge_entities(
     return entities
 
 
-class _GeneratorChargeEntity(CoordinatorEntity):
+class _GeneratorChargeEntity(CoordinatorEntity["EG4DataUpdateCoordinator"]):
     """Shared device identity and local-link availability."""
 
     _attr_entity_registry_enabled_default = False
     _attr_has_entity_name = True
     _attr_icon = "mdi:engine"
-
-    _serial: str
-
-    @property
-    def _coordinator(self) -> EG4DataUpdateCoordinator:
-        return cast("EG4DataUpdateCoordinator", self.coordinator)
 
     def _init_generator_charge(self, serial: str, param: str, name: str) -> None:
         self._serial = serial
@@ -114,7 +107,7 @@ class _GeneratorChargeEntity(CoordinatorEntity):
     def native_value(self) -> int | None:
         """Return the decoded parameter, or unknown before the first read."""
         value = (
-            (self._coordinator.data or {})
+            (self.coordinator.data or {})
             .get("parameters", {})
             .get(self._serial, {})
             .get(self._param)
@@ -124,12 +117,12 @@ class _GeneratorChargeEntity(CoordinatorEntity):
     @property
     def available(self) -> bool:
         """Require a successful update, a local link and a known parameter."""
-        device = (self._coordinator.data or {}).get("devices", {}).get(self._serial, {})
+        device = (self.coordinator.data or {}).get("devices", {}).get(self._serial, {})
         return bool(
-            self._coordinator.last_update_success
+            self.coordinator.last_update_success
             and device.get("type") == DEVICE_TYPE_GRIDBOSS
-            and self._coordinator.has_configured_local_transport(self._serial)
-            and not self._coordinator.is_transport_link_down(self._serial)
+            and self.coordinator.has_configured_local_transport(self._serial)
+            and not self.coordinator.is_transport_link_down(self._serial)
             and self.native_value is not None
         )
 
