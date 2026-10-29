@@ -9,7 +9,6 @@ dpkt>=1.9.8  # offline-only PCAP sanitizer tests (#576)
 
 # Home Assistant core for testing
 homeassistant>=2026.10.0
-# HA's usb integration dependency is not included in the core test requirements.
 aiousbwatcher==1.1.2
 
 # Integration dependencies

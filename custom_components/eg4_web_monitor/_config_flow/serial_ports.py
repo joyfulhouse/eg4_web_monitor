@@ -7,7 +7,6 @@ for the USB/RS485 configuration dropdown.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
 from dataclasses import dataclass
 
 from homeassistant.components.usb import async_scan_serial_ports
@@ -60,7 +59,7 @@ async def list_serial_ports(hass: HomeAssistant) -> list[SerialPortInfo]:
         sorted with likely RS485 adapters first.
     """
     try:
-        raw_ports: Sequence[SerialDevice] = await async_scan_serial_ports(hass)
+        raw_ports = await async_scan_serial_ports(hass)
 
         # Build port info list with RS485 classification
         port_data = [
