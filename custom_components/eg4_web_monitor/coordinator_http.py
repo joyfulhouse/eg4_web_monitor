@@ -448,7 +448,7 @@ class HTTPUpdateMixin(_MixinBase):
     async def _update_midbox_smart_port_options(
         self, processed: dict[str, Any], *, poll_functions: bool = True
     ) -> None:
-        """Refresh smart port option params for GridBOSS devices.
+        """Refresh smart port and generator option params for GridBOSS devices.
 
         HYBRID only in practice: the read rides each MID device's attached
         local transport. Pure-cloud MID devices have no transport and are

@@ -10,8 +10,8 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, EntityCategory
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
@@ -29,11 +29,19 @@ from custom_components.eg4_web_monitor.const import (
 from custom_components.eg4_web_monitor.const.midbox import (
     MIDBOX_OPTION_FIELDS,
     MIDBOX_OPTION_READ_BLOCKS,
+    MIDBOX_GENERATOR_RAW_FIELDS,
+    MIDBOX_GENERATOR_WRITABLE_FIELDS,
     decode_midbox_options,
     encode_midbox_field,
 )
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator
 from custom_components.eg4_web_monitor.coordinator_http import HTTPUpdateMixin
+from custom_components.eg4_web_monitor.generator_charge import (
+    GeneratorChargeNumber,
+    GeneratorChargeRawSensor,
+    create_generator_charge_entities,
+)
+from custom_components.eg4_web_monitor.number import async_setup_entry as setup_numbers
 
 GRIDBOSS_SERIAL = "9876543210"
 
@@ -41,6 +49,17 @@ GRIDBOSS_SERIAL = "9876543210"
 # ports 1-3 Smart Load, enabled, grid-on, based on SOC/Volt; shedding on
 # ports 1-2. Registers not listed read 0.
 LIVE_REGISTERS: dict[int, int] = {
+    # Synthetic generator words for offline polling, not the live read above.
+    194: 400,
+    195: 560,
+    196: 10,
+    197: 100,
+    198: 600,
+    224: 1,
+    225: 0,
+    226: 120,
+    227: 120,
+    228: 20,
     229: 0x3077,
     230: 0x4650,
     231: 0x555A,
@@ -85,13 +104,15 @@ def test_every_field_is_covered_by_a_read_block():
 def test_field_count():
     """Per port: 4 enables, based-on, 3 SOC pairs, 3 volt pairs, PV, 2x6 windows."""
     per_port = 4 + 1 + 6 + 6 + 1 + 2 * 6 * 2
-    assert len(MIDBOX_OPTION_FIELDS) == 4 * per_port
+    assert len(MIDBOX_OPTION_FIELDS) == 4 * per_port + len(
+        MIDBOX_GENERATOR_WRITABLE_FIELDS
+    )
 
 
 def test_decode_live_read_matches_portal():
     """The live read decodes to the settings the portal showed."""
     values = decode_midbox_options(LIVE_REGISTERS)
-    assert len(values) == len(MIDBOX_OPTION_FIELDS)
+    assert len(values) == len(MIDBOX_OPTION_FIELDS) + len(MIDBOX_GENERATOR_RAW_FIELDS)
     # Port 1 (Garage): enabled, grid-on, shedding, SOC/Volt, 80/70, PS 80/40.
     assert values["FUNC_SMART_LOAD_EN_1"] is True
     assert values["FUNC_SMART_LOAD_GRID_ON_1"] is True
@@ -274,8 +295,13 @@ def _attach(coord: EG4DataUpdateCoordinator, transport: FakeTransport | None) ->
     through the real resolution (review finding: ``get_local_transport``
     never searches ``station.all_mid_devices``).
     """
-    mid = SimpleNamespace(serial_number=GRIDBOSS_SERIAL, transport=transport)
-    coord.station = SimpleNamespace(all_mid_devices=[mid])  # type: ignore[assignment]
+    mid = SimpleNamespace(
+        serial_number=GRIDBOSS_SERIAL, transport=transport, transport_link_down=False
+    )
+    station = SimpleNamespace(
+        all_mid_devices=[mid], standalone_mid_devices=[mid], all_inverters=[]
+    )
+    setattr(coord, "station", station)
 
 
 # ── Read path ────────────────────────────────────────────────────────
@@ -688,3 +714,189 @@ async def test_persistent_failure_backoff_cannot_overflow(coordinator):
         )
     assert params["FUNC_SMART_LOAD_EN_1"] is True
     assert coordinator._midbox_option_next_read[GRIDBOSS_SERIAL] == 4600.0
+
+
+@pytest.mark.parametrize("mode", ["local", "hybrid"])
+async def test_generator_charge_settings_journey(hass, coordinator, mode):
+    """Open device settings after a poll, then save each supported setting."""
+    transport = FakeTransport(LIVE_REGISTERS)
+    _attach(coordinator, transport)
+    coordinator.last_update_success = True
+    if mode == "local":
+        coordinator._mid_device_cache[GRIDBOSS_SERIAL] = SimpleNamespace(
+            transport=transport
+        )
+        params = await coordinator._read_midbox_smart_port_options(
+            transport, GRIDBOSS_SERIAL
+        )
+        coordinator.data["parameters"][GRIDBOSS_SERIAL] = params
+    else:
+        await coordinator._update_midbox_smart_port_options(coordinator.data)
+
+    assert (194, 35) in transport.reads
+    assert all(count <= 40 for _, count in transport.reads)
+    coordinator.entry.runtime_data = coordinator
+    added = []
+    await setup_numbers(
+        hass, coordinator.entry, lambda entities, **kwargs: added.extend(entities)
+    )
+    settings = [entity for entity in added if isinstance(entity, GeneratorChargeNumber)]
+    expected = [
+        (196, 10, 12, "%", 0, 100),
+        (197, 100, 95, "%", 0, 100),
+        (228, 20, 15, "min", 5, 20),
+    ]
+    assert len(settings) == len(expected)
+    for entity, (register, initial, written, unit, minimum, maximum) in zip(
+        settings, expected, strict=True
+    ):
+        assert entity.available
+        assert entity.native_value == initial
+        assert entity.entity_category == EntityCategory.CONFIG
+        assert entity.entity_registry_enabled_default is False
+        assert entity.native_unit_of_measurement == unit
+        assert (entity.native_min_value, entity.native_max_value) == (minimum, maximum)
+        assert entity.native_step == 1
+        assert "smart_port" not in entity.unique_id
+        with patch.object(
+            coordinator,
+            "get_device_info",
+            return_value={"identifiers": {("eg4_web_monitor", GRIDBOSS_SERIAL)}},
+        ) as device_info:
+            assert entity.device_info["identifiers"] == {
+                ("eg4_web_monitor", GRIDBOSS_SERIAL)
+            }
+            device_info.assert_called_once_with(GRIDBOSS_SERIAL)
+        with patch.object(
+            coordinator, "write_midbox_options", wraps=coordinator.write_midbox_options
+        ) as writer:
+            await entity.async_set_native_value(written)
+            writer.assert_awaited_once()
+        assert transport.writes[-1] == {register: written}
+        assert entity.native_value == written
+    assert {reg for write in transport.writes for reg in write} == {196, 197, 228}
+
+
+@pytest.mark.parametrize("param", list(MIDBOX_GENERATOR_RAW_FIELDS))
+async def test_generator_charge_raw_diagnostic_journey(coordinator, param):
+    """Enable a raw diagnostic; it displays a word and has no write path."""
+    transport = FakeTransport(LIVE_REGISTERS)
+    _attach(coordinator, transport)
+    coordinator.last_update_success = True
+    coordinator.data["parameters"][
+        GRIDBOSS_SERIAL
+    ] = await coordinator._read_midbox_smart_port_options(transport, GRIDBOSS_SERIAL)
+    sensors = create_generator_charge_entities(coordinator, "sensor")
+    sensor = next(
+        entity for entity in sensors if entity.unique_id.endswith(param.lower())
+    )
+    assert isinstance(sensor, GeneratorChargeRawSensor)
+    assert sensor.available
+    assert (
+        sensor.native_value
+        == LIVE_REGISTERS[MIDBOX_GENERATOR_RAW_FIELDS[param].register]
+    )
+    assert sensor.native_unit_of_measurement is None
+    assert "raw, unverified" in sensor.name
+    assert sensor.entity_category == EntityCategory.DIAGNOSTIC
+    assert sensor.entity_registry_enabled_default is False
+    assert not hasattr(sensor, "async_set_native_value")
+    # Even direct use of the shared writer cannot turn a raw diagnostic into a control.
+    with pytest.raises(KeyError):
+        await coordinator.write_midbox_options(GRIDBOSS_SERIAL, {param: 1})
+    assert transport.writes == []
+
+
+@pytest.mark.parametrize(
+    "index,minimum,maximum", [(0, 0, 100), (1, 0, 100), (2, 5, 20)]
+)
+@pytest.mark.parametrize("invalid", ["low", "high", "fraction", "nan", "infinity"])
+async def test_generator_charge_rejects_invalid_service_value(
+    coordinator, index, minimum, maximum, invalid
+):
+    """A number service cannot save a value outside its advertised whole-unit range."""
+    transport = FakeTransport(LIVE_REGISTERS)
+    _attach(coordinator, transport)
+    coordinator.last_update_success = True
+    coordinator.data["parameters"][GRIDBOSS_SERIAL] = decode_midbox_options(
+        LIVE_REGISTERS
+    )
+    entity = create_generator_charge_entities(coordinator, "number")[index]
+    value = {
+        "low": minimum - 1,
+        "high": maximum + 1,
+        "fraction": minimum + 0.5,
+        "nan": float("nan"),
+        "infinity": float("inf"),
+    }[invalid]
+    with pytest.raises(ServiceValidationError):
+        await entity.async_set_native_value(value)
+    assert transport.writes == []
+
+
+@pytest.mark.parametrize("platform", ["number", "sensor"])
+async def test_generator_charge_cloud_only_journey(hass, coordinator, platform):
+    """A cloud-only GridBOSS gets no generator settings, even with cached values."""
+    coordinator.station = SimpleNamespace(
+        all_mid_devices=[SimpleNamespace(serial_number=GRIDBOSS_SERIAL, transport=None)]
+    )
+    hass.config_entries.async_update_entry(
+        coordinator.entry, data={CONF_CONNECTION_TYPE: "http"}
+    )
+    coordinator._local_transport_configs = []
+    coordinator.data["parameters"][GRIDBOSS_SERIAL] = decode_midbox_options(
+        LIVE_REGISTERS
+    )
+    assert not coordinator.has_configured_local_transport(GRIDBOSS_SERIAL)
+    assert create_generator_charge_entities(coordinator, platform) == []
+
+
+@pytest.mark.parametrize("state", ["unread", "down", "detached", "removed", "failed"])
+async def test_generator_charge_unavailable_journey(coordinator, state):
+    """An enabled setting becomes unavailable if its local source disappears."""
+    transport = FakeTransport(LIVE_REGISTERS)
+    _attach(coordinator, transport)
+    coordinator.last_update_success = True
+    coordinator.data["parameters"][GRIDBOSS_SERIAL] = decode_midbox_options(
+        LIVE_REGISTERS
+    )
+    entities = create_generator_charge_entities(coordinator, "number")
+    entities += create_generator_charge_entities(coordinator, "sensor")
+    assert entities and all(entity.available for entity in entities)
+    if state == "unread":
+        coordinator.data["parameters"][GRIDBOSS_SERIAL] = {}
+    elif state == "down":
+        coordinator.station.all_mid_devices[0].transport_link_down = True
+    elif state == "detached":
+        with patch.object(
+            coordinator, "has_configured_local_transport", return_value=False
+        ):
+            assert all(not entity.available for entity in entities)
+            with pytest.raises(ServiceValidationError):
+                await entities[0].async_set_native_value(20)
+        return
+    elif state == "removed":
+        coordinator.data["devices"].clear()
+    else:
+        coordinator.last_update_success = False
+    assert all(not entity.available for entity in entities)
+    with pytest.raises(ServiceValidationError):
+        await entities[0].async_set_native_value(20)
+    assert transport.writes == []
+
+
+async def test_generator_charge_sensor_platform_journey(
+    hass, coordinator, hybrid_config_entry
+):
+    """Loading the sensor platform registers raw diagnostics on the GridBOSS device."""
+    from custom_components.eg4_web_monitor.sensor import async_setup_entry
+
+    _attach(coordinator, FakeTransport(LIVE_REGISTERS))
+    hybrid_config_entry.runtime_data = coordinator
+    added = []
+    await async_setup_entry(hass, hybrid_config_entry, added.extend)
+    diagnostics = [
+        entity for entity in added if isinstance(entity, GeneratorChargeRawSensor)
+    ]
+    assert len(diagnostics) == 7
+    assert {entity._serial for entity in diagnostics} == {GRIDBOSS_SERIAL}

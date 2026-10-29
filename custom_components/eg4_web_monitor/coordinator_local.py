@@ -778,14 +778,14 @@ class LocalTransportMixin(_MixinBase):
         *,
         poll_functions: bool = True,
     ) -> dict[str, Any]:
-        """Read a GridBOSS's smart port option registers for the parameter store.
+        """Read GridBOSS smart port and generator options for the parameter store.
 
         Returns the decoded cloud-named option values (layout and evidence in
         const/midbox.py) merged over the previous cycle's values.
 
         Cadence: register 229 — the per-port enables, which switch port
         power immediately — is read on every GridBOSS poll when
-        ``poll_functions`` is set; the full option blocks (229-317, 2101)
+        ``poll_functions`` is set; the full option blocks (194-317, 2101)
         on the parameter refresh interval, retried after
         ``_MIDBOX_OPTION_RETRY_SECONDS`` when any block fails. Writes seed
         the store from their own verify read (write_midbox_options).
