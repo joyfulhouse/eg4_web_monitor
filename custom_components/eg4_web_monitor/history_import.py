@@ -437,9 +437,11 @@ def _collect_units(
         ]
         if not serials:
             continue
-        # Prefer the group's designated first device (what the EG4 app
-        # queries the parallel aggregate with); fall back to any member.
-        first_serial = getattr(group, "first_device_serial", None) or serials[0]
+        # Only inverter members can serve as the history endpoint serial.
+        first_serial = serials[0]
+        designated_serial = getattr(group, "first_device_serial", None)
+        if isinstance(designated_serial, str) and designated_serial in serials:
+            first_serial = designated_serial
         units.append((first_serial, len(serials) > 1))
 
     for inverter in getattr(station, "standalone_inverters", None) or []:
@@ -514,7 +516,30 @@ async def _fetch_daily_values(
                 ) from err
             api_calls += 1
 
-            for entry in getattr(history, "days", None) or []:
+            rows = getattr(history, "days", None) or []
+            _LOGGER.debug(
+                "Fetched energy history for %s (parallel=%s, %d-%02d): %d rows",
+                serial,
+                parallel,
+                year,
+                month,
+                len(rows),
+            )
+            values = [
+                float(value)
+                for entry in rows
+                for attr in _ACCUMULATED_ATTRS
+                if (value := getattr(entry, attr, None)) is not None
+            ]
+            if values and all(value == 0.0 for value in values):
+                _LOGGER.warning(
+                    "Energy history for %s (%d-%02d) returned only zero values",
+                    serial,
+                    year,
+                    month,
+                )
+
+            for entry in rows:
                 try:
                     day = date(year, month, int(entry.day))
                 except (TypeError, ValueError):
