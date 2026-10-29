@@ -4,6 +4,7 @@
   "after_dependencies": ["modbus", "network", "recorder"],
   "codeowners": ["@btli"],
   "config_flow": true,
+  "dependencies": ["usb"],
   "documentation": "https://github.com/joyfulhouse/eg4_web_monitor",
   "integration_type": "device",
   "iot_class": "local_polling",
