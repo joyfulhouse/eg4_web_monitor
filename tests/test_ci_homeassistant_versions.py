@@ -57,11 +57,7 @@ def test_ha_constraints_pin_core_plugin_and_usb_dependencies(target: str) -> Non
 @pytest.mark.parametrize("target", ["minimum", "latest"])
 def test_usb_constraints_match_installed_home_assistant(target: str) -> None:
     constraints = ROOT / f"tests/constraints-ha-{target}.txt"
-    pins = [
-        line
-        for line in constraints.read_text().splitlines()
-        if line and not line.startswith("#")
-    ]
+    pins = constraints.read_text().splitlines()
     ha_pin = next(
         line.removeprefix("homeassistant==")
         for line in pins
