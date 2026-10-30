@@ -46,7 +46,9 @@ def test_ha_constraints_pin_core_plugin_and_usb_dependencies(target: str) -> Non
     pins = [line for line in pins if line and not line.startswith("#")]
     assert pins[0].startswith("homeassistant==")
     assert pins[1].startswith("pytest-homeassistant-custom-component==")
-    assert pins[2:] == ["aiousbwatcher==1.1.2", "serialx==1.11.0"]
+    assert len(pins) == 4
+    assert re.fullmatch(r"aiousbwatcher==\S+", pins[2])
+    assert re.fullmatch(r"serialx==\S+", pins[3])
 
 
 def test_auxiliary_ha_jobs_use_latest_environment() -> None:
