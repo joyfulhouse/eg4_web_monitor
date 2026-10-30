@@ -3,6 +3,8 @@ canonical-for: lint, format, typecheck, tests, coverage, quality-scale tier vali
 sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/704
   - .github/workflows/home-assistant-validation.yml
+  - .github/workflows/hassfest-canary.yml
+  - custom_components/eg4_web_monitor/_config_flow/serial_ports.py
   - docs/DEVELOPMENT.md
   - tests/requirements-test.txt
   - tests/mypy.ini
@@ -214,8 +216,9 @@ The prior scheduled run `40627894302` passed for unchanged integration `75aaba6`
 The moving image `456369388b6d5bae2b76de7a5574b26e4efdf926f2d0c36453ada7c1eed54fbe`
 rejected `pyserial>=3.5` after HA development added it to core dependencies. HA
 2026.10.0, the supported minimum, does not declare pyserial. Serial-port discovery
-uses Home Assistant's `usb.async_scan_serial_ports` API (`_config_flow/serial_ports.py`;
-PR #708), so discovery does not require pyserial. The manifest retains pyserial for
+uses Home Assistant's `usb.async_scan_serial_ports` API, so discovery does not require
+pyserial. `verified-against-code` (`custom_components/eg4_web_monitor/_config_flow/serial_ports.py`
+-> `list_serial_ports`, verified at `b66e04d`; PR #708). The manifest retains pyserial for
 the pymodbus serial transport until `hacs.json` reaches 2026.11.0, when the pinned
 Hassfest baseline can be reevaluated. These dated observations are
 `asserted-unverified`, retained in [#704](https://github.com/joyfulhouse/eg4_web_monitor/issues/704)
