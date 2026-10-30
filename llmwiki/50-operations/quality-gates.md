@@ -21,7 +21,7 @@ sources:
   - tests/test_ci_summary_gates.py
 verified-against:
   # Python/HA matrix and workflow inventory re-verified against this PR's base `5bceb57` (PR #711 squash merge); other sections retain this pin.
-  # HACS digest and USB drift-guard additions re-verified at a44fceb.
+  # HACS digest and USB drift-guard additions re-verified at 17668da.
   # #704 / Hassfest section and workflow table below re-verified at b66e04d.
   eg4_web_monitor: 9f6d6e2
   hacs-action: d556e736
@@ -156,6 +156,10 @@ checks the matching installed-HA leg offline and skips the other leg with its
 version mismatch in the reason (`verified-against-code` at `a44fceb`,
 `tests/test_ci_homeassistant_versions.py` ->
 `test_usb_constraints_match_installed_home_assistant`).
+The guard also asserts that the installed HA matches one constraints leg, so the
+USB comparison cannot skip on both legs (`verified-against-code` at `17668da`,
+`tests/test_ci_homeassistant_versions.py` ->
+`test_installed_homeassistant_matches_a_constraints_leg`).
 
 ## Blocking vs advisory (quality-validation.yml)
 

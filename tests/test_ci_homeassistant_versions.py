@@ -64,7 +64,12 @@ def test_installed_homeassistant_matches_a_constraints_leg() -> None:
         .splitlines()
         if line.startswith("homeassistant==")
     }
-    assert installed_ha in constrained_versions
+    assert installed_ha in constrained_versions, (
+        f"Installed Home Assistant {installed_ha} is not in constrained versions "
+        f"{sorted(constrained_versions)}. Install with "
+        "-c tests/constraints-ha-latest.txt or "
+        "-c tests/constraints-ha-minimum.txt."
+    )
 
 
 @pytest.mark.parametrize("target", ["minimum", "latest"])
