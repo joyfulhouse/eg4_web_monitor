@@ -1,10 +1,13 @@
-"""GridBOSS (MIDBOX) smart port option registers.
+"""GridBOSS (MIDBOX) smart port and generator option registers.
 
 The per-port settings the portal shows under each GridBOSS smart port —
 enables, "based on", SOC / voltage thresholds, power shedding and time
 windows. pylxpweb's MIDBOX name map does not carry these registers (reg-117
 precedent, GH #272), so the integration reads them raw over the local
 transport and decodes them here.
+
+Generator settings use raw read-only fields below. Their names come from
+the cloud range dumps; local scaling remains unverified (#705).
 
 Register layout (n = smart port 1-4)::
 
@@ -106,6 +109,7 @@ MIDBOX_OPTION_READ_BLOCKS: tuple[tuple[int, int], ...] = (
     (269, 40),
     (309, 9),
     (MIDBOX_REG_SMART_LOAD_BASE_ON, 1),
+    (194, 35),
 )
 
 # "flag": one bit decoded as bool. "bit": one bit decoded as int 0/1.
@@ -184,12 +188,27 @@ def _build_fields() -> dict[str, MidboxField]:
     return fields
 
 
+# Cloud-decoded values do not establish local scaling for generator fields.
+# 225 can start a generator: it must never enter the writable field table.
+MIDBOX_GENERATOR_RAW_FIELDS: dict[str, MidboxField] = {
+    "OFF_GRID_HOLD_GEN_CHG_START_VOLT_RAW": MidboxField(194, "word"),
+    "OFF_GRID_HOLD_GEN_CHG_END_VOLT_RAW": MidboxField(195, "word"),
+    "OFF_GRID_HOLD_GEN_CHG_START_SOC_RAW": MidboxField(196, "word"),
+    "OFF_GRID_HOLD_GEN_CHG_END_SOC_RAW": MidboxField(197, "word"),
+    "OFF_GRID_HOLD_MAX_GEN_CHG_BAT_CURR_RAW": MidboxField(198, "word"),
+    "MIDBOX_HOLD_GEN_VOLT_SOC_ENABLE_RAW": MidboxField(224, "word"),
+    "MIDBOX_HOLD_GEN_REMOTE_CTRL_RAW": MidboxField(225, "word"),
+    "MIDBOX_HOLD_GEN_WARN_UP_TIME_RAW": MidboxField(226, "word"),
+    "MIDBOX_HOLD_GEN_COOL_DOWN_TIME_RAW": MidboxField(227, "word"),
+    "MIDBOX_HOLD_GEN_REMOTE_TURN_OFF_TIME_RAW": MidboxField(228, "word"),
+}
+
 MIDBOX_OPTION_FIELDS: dict[str, MidboxField] = _build_fields()
 
 
 def _fields_by_register() -> dict[int, dict[str, MidboxField]]:
     by_register: dict[int, dict[str, MidboxField]] = {}
-    for name, field in MIDBOX_OPTION_FIELDS.items():
+    for name, field in (MIDBOX_OPTION_FIELDS | MIDBOX_GENERATOR_RAW_FIELDS).items():
         by_register.setdefault(field.register, {})[name] = field
     return by_register
 
