@@ -1,8 +1,11 @@
 """Keep CI's minimum and current HA environments explicit and blocking."""
 
+from importlib.metadata import version
+import json
 from pathlib import Path
 import re
 
+import homeassistant
 import pytest
 import yaml
 
@@ -49,6 +52,37 @@ def test_ha_constraints_pin_core_plugin_and_usb_dependencies(target: str) -> Non
     assert len(pins) == 4
     assert re.fullmatch(r"aiousbwatcher==\S+", pins[2])
     assert re.fullmatch(r"serialx==\S+", pins[3])
+
+
+@pytest.mark.parametrize("target", ["minimum", "latest"])
+def test_usb_constraints_match_installed_home_assistant(target: str) -> None:
+    constraints = ROOT / f"tests/constraints-ha-{target}.txt"
+    pins = [
+        line
+        for line in constraints.read_text().splitlines()
+        if line and not line.startswith("#")
+    ]
+    ha_pin = next(
+        line.removeprefix("homeassistant==")
+        for line in pins
+        if line.startswith("homeassistant==")
+    )
+    installed_ha = version("homeassistant")
+    if ha_pin != installed_ha:
+        pytest.skip(f"{target} pins HA {ha_pin}; installed HA is {installed_ha}")
+
+    usb_manifest = Path(homeassistant.__file__).parent / "components/usb/manifest.json"
+    requirements = json.loads(usb_manifest.read_text())["requirements"]
+    usb_requirements = {
+        requirement.split("==", maxsplit=1)[0]: requirement
+        for requirement in requirements
+        if requirement.startswith(("aiousbwatcher==", "serialx=="))
+    }
+    assert set(usb_requirements) == {"aiousbwatcher", "serialx"}
+    constraint_usb_pins = {
+        pin for pin in pins if pin.startswith(("aiousbwatcher==", "serialx=="))
+    }
+    assert constraint_usb_pins == set(usb_requirements.values())
 
 
 def test_auxiliary_ha_jobs_use_latest_environment() -> None:
