@@ -1971,3 +1971,11 @@ at `9cd541907108bfc28437be44696340f39821fbf0` retains the last successful offici
 image by immutable digest and its normal rules. Supported HA matrix coverage
 remains required; this is not a development-HA compatibility claim. Independent
 review approved the bounded approach, with candidate CI still required.
+
+## [2026-10-29] ingest | Follow up on serial discovery and Hassfest validation
+
+Updated the [quality-gates owner](50-operations/quality-gates.md) against
+`b66e04d` and PR #708: serial discovery now uses HA's USB API, pyserial remains
+for pymodbus transport until the supported floor moves, and the weekly moving
+Hassfest canary is advisory. The canary was added to the workflow table; the #704
+section and workflow table were scoped-reverified at `b66e04d`.

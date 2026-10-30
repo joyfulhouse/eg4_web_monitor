@@ -3,6 +3,8 @@ canonical-for: lint, format, typecheck, tests, coverage, quality-scale tier vali
 sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/704
   - .github/workflows/home-assistant-validation.yml
+  - .github/workflows/hassfest-canary.yml
+  - custom_components/eg4_web_monitor/_config_flow/serial_ports.py
   - docs/DEVELOPMENT.md
   - tests/requirements-test.txt
   - tests/mypy.ini
@@ -13,9 +15,10 @@ sources:
   - tests/constraints-ha-latest.txt
   - scripts/check_ci_dependencies.py
   - tests/test_ci_summary_gates.py
-verified-against: 9f6d6e2
 # Python/HA CI matrix below re-verified at 5e3752e; other sections retain this pin.
-last-verified: 2026-10-28
+verified-against: 9f6d6e2
+# #704 / Hassfest section and workflow table below re-verified at b66e04d.
+last-verified: 2026-10-29
 ---
 
 # Quality gates
@@ -109,6 +112,7 @@ jobs `bronze-summary`, `silver-summary`, `gold-summary` and their dependents.
 |----------|------|----------|------|
 | Quality Tier Validation | `.github/workflows/quality-validation.yml` | **push → `develop` only**; PR → `main`,`develop`; `workflow_dispatch` | Bronze→Silver→Gold→Platinum |
 | Home Assistant Validation | `.github/workflows/home-assistant-validation.yml` | push → `develop`; PR → `main`,`develop`; daily cron; dispatch | hassfest + HACS |
+| Hassfest Latest Canary | `.github/workflows/hassfest-canary.yml` | weekly schedule; `workflow_dispatch` | Advisory moving-image check; failures do not block PRs |
 | Release | `.github/workflows/release.yml` | `release: published` | Zip + attach `eg4_web_monitor.zip` |
 | Issue Log Validation | `.github/workflows/issue-log-validation.yml` | issues opened/edited; comments | Auto-close bad debug logs |
 | Issue Triage | `.github/workflows/issue-triage.yml` | issues opened (+ dispatch) | Claude triage + rate limit |
@@ -210,14 +214,14 @@ are unchanged. Grade: `verified-against-code` (`home-assistant-validation.yml`
 
 The prior scheduled run `40627894302` passed for unchanged integration `75aaba6`.
 The moving image `456369388b6d5bae2b76de7a5574b26e4efdf926f2d0c36453ada7c1eed54fbe`
-then rejected `pyserial>=3.5` because HA development added it to core dependencies.
-Supported minimum HA 2026.10.0 does not declare that dependency, while the
-integration's serial-port discovery imports it. These dated observations are
+rejected `pyserial>=3.5` after HA development added it to core dependencies. HA
+2026.10.0, the supported minimum, does not declare pyserial. Serial-port discovery
+uses Home Assistant's `usb.async_scan_serial_ports` API, so discovery does not require
+pyserial. `verified-against-code` (`custom_components/eg4_web_monitor/_config_flow/serial_ports.py`
+-> `list_serial_ports`, verified at `b66e04d`; PR #708). The manifest retains pyserial for
+the pymodbus serial transport until `hacs.json` reaches 2026.11.0, when the pinned
+Hassfest baseline can be reevaluated. These dated observations are
 `asserted-unverified`, retained in [#704](https://github.com/joyfulhouse/eg4_web_monitor/issues/704)
-and the linked successful/failing run records. The pin supplies a reproducible
-validator baseline; the supported runtime/type/dependency matrix supplies stable
-HA compatibility evidence. It makes no current-development compatibility claim.
-
-Reevaluate #704 when core pyserial reaches the supported minimum or upstream
-provides a validator compatible with the supported range. Removing the dependency
-without checking that floor would break serial enumeration on supported installs.
+and the linked successful/failing run records. The digest pin supplies a reproducible
+validator baseline; the supported runtime/type/dependency matrix supplies stable HA
+compatibility evidence. It makes no current-development compatibility claim.

@@ -41,12 +41,14 @@ def test_ha_gates_cover_minimum_and_latest(job_name: str) -> None:
 
 
 @pytest.mark.parametrize("target", ["minimum", "latest"])
-def test_ha_constraints_pin_core_and_plugin(target: str) -> None:
+def test_ha_constraints_pin_core_plugin_and_usb_dependencies(target: str) -> None:
     pins = (ROOT / f"tests/constraints-ha-{target}.txt").read_text().splitlines()
     pins = [line for line in pins if line and not line.startswith("#")]
-    assert len(pins) == 2
     assert pins[0].startswith("homeassistant==")
     assert pins[1].startswith("pytest-homeassistant-custom-component==")
+    assert len(pins) == 4
+    assert re.fullmatch(r"aiousbwatcher==\S+", pins[2])
+    assert re.fullmatch(r"serialx==\S+", pins[3])
 
 
 def test_auxiliary_ha_jobs_use_latest_environment() -> None:

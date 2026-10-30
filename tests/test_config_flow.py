@@ -2068,6 +2068,78 @@ class TestDiscoverSerialDeviceWithErrors:
             "/dev/ttyACM0 (QinHeng - CH340 RS485 Adapter)"
         )
 
+    async def test_serial_device_only_label_in_initial_setup(self, hass: HomeAssistant):
+        """Use the device path when USB metadata has no label fields."""
+        from homeassistant.components.usb.models import USBDevice
+
+        scanner = AsyncMock(
+            return_value=[
+                USBDevice(
+                    device="/dev/ttyUSB7",
+                    vid="0000",
+                    pid="0000",
+                    serial_number=None,
+                    manufacturer=None,
+                    description=None,
+                )
+            ]
+        )
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
+            new=scanner,
+        ):
+            result = await _init_and_select_local(hass)
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "local_serial"}
+            )
+
+        options = result["data_schema"].schema["serial_port"].container
+        assert options["/dev/ttyUSB7"] == "/dev/ttyUSB7 (/dev/ttyUSB7)"
+
+    @pytest.mark.parametrize("journey", ["initial", "reconfigure"])
+    async def test_serial_scan_failure_keeps_manual_entry(
+        self, hass: HomeAssistant, journey: str
+    ):
+        """Keep serial port text entry available when USB scanning fails."""
+        if journey == "initial":
+            result = await _init_and_select_local(hass)
+            step_id = "local_serial"
+        else:
+            entry = MockConfigEntry(
+                domain=DOMAIN,
+                title="Local Installation",
+                data={
+                    CONF_CONNECTION_TYPE: "local",
+                    CONF_LOCAL_TRANSPORTS: [],
+                },
+            )
+            entry.add_to_hass(hass)
+            result = await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={
+                    "source": config_entries.SOURCE_RECONFIGURE,
+                    "entry_id": entry.entry_id,
+                },
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_devices"}
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": "reconfigure_device_add"}
+            )
+            step_id = "reconfigure_add_serial"
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.serial_ports.async_scan_serial_ports",
+            new=AsyncMock(side_effect=RuntimeError("USB scan unavailable")),
+        ):
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"], {"next_step_id": step_id}
+            )
+
+        assert result["step_id"] == step_id
+        assert result["data_schema"].schema["serial_port"] is str
+
     async def test_serial_timeout_error(self, hass: HomeAssistant):
         """Test serial discovery timeout returns correct error."""
         with (
