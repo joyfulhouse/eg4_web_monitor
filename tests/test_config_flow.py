@@ -2095,11 +2095,7 @@ class TestDiscoverSerialDeviceWithErrors:
                 result["flow_id"], {"next_step_id": "local_serial"}
             )
 
-        options = next(
-            value.container
-            for key, value in result["data_schema"].schema.items()
-            if getattr(key, "schema", None) == "serial_port"
-        )
+        options = result["data_schema"].schema["serial_port"].container
         assert options["/dev/ttyUSB7"] == "/dev/ttyUSB7 (/dev/ttyUSB7)"
 
         entry = MockConfigEntry(
@@ -2133,12 +2129,7 @@ class TestDiscoverSerialDeviceWithErrors:
             )
 
         assert result["step_id"] == "reconfigure_add_serial"
-        serial_port_validator = next(
-            value
-            for key, value in result["data_schema"].schema.items()
-            if getattr(key, "schema", None) == "serial_port"
-        )
-        assert serial_port_validator is str
+        assert result["data_schema"].schema["serial_port"] is str
 
     async def test_serial_timeout_error(self, hass: HomeAssistant):
         """Test serial discovery timeout returns correct error."""
