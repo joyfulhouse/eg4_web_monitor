@@ -52,12 +52,13 @@ jobs:
       id-token: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Run Claude Triage
-        uses: anthropics/claude-code-action@v1
+        uses: anthropics/claude-code-action@6d5ae526d25ce88daa2200be073e1a373167f064  # v1
         env:
           ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}
           REPO: ${{ github.repository }}

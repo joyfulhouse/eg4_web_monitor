@@ -3,6 +3,10 @@ canonical-for: lint, format, typecheck, tests, coverage, quality-scale tier vali
 sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/704
   - .github/workflows/home-assistant-validation.yml
+  - PR #712 (GHCR registry lookup for HACS action tags)
+  - https://github.com/hacs/action/blob/d556e736723344f83838d08488c983a15381059a/action.yml
+  - https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/action/action.py
+  - https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/custom_components/hacs/validate/manager.py
   - .github/workflows/hassfest-canary.yml
   - custom_components/eg4_web_monitor/_config_flow/serial_ports.py
   - docs/DEVELOPMENT.md
@@ -10,15 +14,19 @@ sources:
   - tests/mypy.ini
   - prek.toml
   - .github/workflows/quality-validation.yml
-  - .github/workflows/home-assistant-validation.yml
   - tests/constraints-ha-minimum.txt
   - tests/constraints-ha-latest.txt
+  - tests/test_ci_homeassistant_versions.py
   - scripts/check_ci_dependencies.py
   - tests/test_ci_summary_gates.py
-# Python/HA CI matrix below re-verified at 5e3752e; other sections retain this pin.
-verified-against: 9f6d6e2
-# #704 / Hassfest section and workflow table below re-verified at b66e04d.
-last-verified: 2026-10-29
+verified-against:
+  # Python/HA matrix and workflow inventory re-verified against this PR's base `5bceb57` (PR #711 squash merge); other sections retain this pin.
+  # HACS digest and USB drift-guard additions re-verified at 17668da.
+  # #704 / Hassfest section and workflow table below re-verified at b66e04d.
+  eg4_web_monitor: 9f6d6e2
+  hacs-action: d556e736
+  hacs-integration: 0704ffc6
+last-verified: 2026-10-30
 ---
 
 # Quality gates
@@ -142,6 +150,16 @@ without explicit paired constraints can silently test an older HA. Both matrix
 environments must pass; `fail-fast: false` lets both report failures. Mypy infers
 the active interpreter's Python version instead of forcing dependency parsing
 to Python 3.13. HA's aiodns pin selects the compatible pycares major version.
+The constraints also carry `aiousbwatcher` and `serialx` from the HA USB
+integration manifest; `test_usb_constraints_match_installed_home_assistant`
+checks the matching installed-HA leg offline and skips the other leg with its
+version mismatch in the reason (`verified-against-code` at `a44fceb`,
+`tests/test_ci_homeassistant_versions.py` ->
+`test_usb_constraints_match_installed_home_assistant`).
+The guard also asserts that the installed HA matches one constraints leg, so the
+USB comparison cannot skip on both legs (`verified-against-code` at `17668da`,
+`tests/test_ci_homeassistant_versions.py` ->
+`test_installed_homeassistant_matches_a_constraints_leg`).
 
 ## Blocking vs advisory (quality-validation.yml)
 
@@ -225,3 +243,24 @@ Hassfest baseline can be reevaluated. These dated observations are
 and the linked successful/failing run records. The digest pin supplies a reproducible
 validator baseline; the supported runtime/type/dependency matrix supplies stable HA
 compatibility evidence. It makes no current-development compatibility claim.
+
+The HACS job uses the `ghcr.io/hacs/action:main` index digest from 2026-10-30;
+the `22.5.0` tag returned 404 (`asserted-unverified`, PR #712). The workflow sets
+`comment: false` to match `action.yml` -> `inputs.comment`
+(`verified-against-code` — `hacs-action`, `action.yml` -> `inputs.comment`). In
+the pinned image source, module-level assignments in `action/action.py` read
+`INPUT_GITHUB_TOKEN`, `INPUT_REPOSITORY`, and `INPUT_CATEGORY`; `preflight` reads
+the event data via `get_event_data` (`verified-against-code` — `hacs-integration`,
+`action/action.py` -> module-level assignments, `preflight`, `get_event_data`).
+`ValidationManager.async_run_repository_checks` in
+`custom_components/hacs/validate/manager.py` reads `INPUT_IGNORE`
+(`verified-against-code` — `hacs-integration`,
+`custom_components/hacs/validate/manager.py` ->
+`ValidationManager.async_run_repository_checks`). The pinned image has no
+commenting path and neither source reads `INPUT_COMMENT`
+(`verified-against-code` — `hacs-integration`, `action/action.py` -> `preflight`,
+`custom_components/hacs/validate/manager.py` ->
+`ValidationManager.async_run_repository_checks`). The workflow passes the token
+for API reads; its `contents: read` permission cannot post comments
+(`verified-against-code` — `eg4_web_monitor`,
+`.github/workflows/home-assistant-validation.yml` -> `hacs-validation`).

@@ -49,11 +49,13 @@ jobs:
           persist-credentials: false
 
       - name: Run HACS Action
-        uses: hacs/action@d556e736723344f83838d08488c983a15381059a  # 22.5.0; runs mutable ghcr.io/hacs/action:main image
+        # ghcr.io/hacs/action:main index digest on 2026-10-30 (no 22.5.0 image tag).
+        uses: docker://ghcr.io/hacs/action@sha256:187499a09c5d41f9f0d42ff80d203ed87b974c028290140913b61e005fb0aab2
         with:
           category: integration
-          # Ignore specific checks if needed:
-          # ignore: "brands"
+          ignore: ""
+          comment: false
+          github_token: ${{ github.token }}
 
   # ========================================
   # VALIDATION SUMMARY
