@@ -1977,6 +1977,5 @@ review approved the bounded approach, with candidate CI still required.
 Updated the [quality-gates owner](50-operations/quality-gates.md) against
 `b66e04d` and PR #708: serial discovery now uses HA's USB API, pyserial remains
 for pymodbus transport until the supported floor moves, and the weekly moving
-Hassfest canary is advisory. Added the canary to the workflow inventory and
-recorded the follow-up CI pinning, matrix-resolved test dependency, and config-flow
-regression coverage.
+Hassfest canary is advisory. The canary was added to the workflow table; the #704
+section and workflow table were scoped-reverified at `b66e04d`.

@@ -49,7 +49,7 @@ jobs:
           persist-credentials: false
 
       - name: Run HACS Action
-        uses: hacs/action@d556e736723344f83838d08488c983a15381059a  # 22.5.0
+        uses: hacs/action@d556e736723344f83838d08488c983a15381059a  # 22.5.0; runs mutable ghcr.io/hacs/action:main image
         with:
           category: integration
           # Ignore specific checks if needed:

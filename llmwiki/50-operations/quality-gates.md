@@ -13,7 +13,9 @@ sources:
   - tests/constraints-ha-latest.txt
   - scripts/check_ci_dependencies.py
   - tests/test_ci_summary_gates.py
-verified-against: b66e04d
+# Python/HA CI matrix below re-verified at 5e3752e; other sections retain this pin.
+verified-against: 9f6d6e2
+# #704 / Hassfest section and workflow table below re-verified at b66e04d.
 last-verified: 2026-10-29
 ---
 
