@@ -6,9 +6,8 @@ windows. pylxpweb's MIDBOX name map does not carry these registers (reg-117
 precedent, GH #272), so the integration reads them raw over the local
 transport and decodes them here.
 
-Generator settings use a separate writable allowlist and raw read-only fields
-below. Their names come from the cloud range dumps; local voltage scaling and
-cool-down units remain unverified (#705).
+Generator settings use raw read-only fields below. Their names come from
+the cloud range dumps; local scaling remains unverified (#705).
 
 Register layout (n = smart port 1-4)::
 
@@ -189,30 +188,22 @@ def _build_fields() -> dict[str, MidboxField]:
     return fields
 
 
-# Cloud range dumps name these fields; #705's portal shows SOC (%) and
-# remote auto turn-off (minutes). Inverter definitions for 227/228 do not apply.
-MIDBOX_GENERATOR_WRITABLE_FIELDS: dict[str, MidboxField] = {
-    "OFF_GRID_HOLD_GEN_CHG_START_SOC": MidboxField(196, "word"),
-    "OFF_GRID_HOLD_GEN_CHG_END_SOC": MidboxField(197, "word"),
-    "MIDBOX_HOLD_GEN_REMOTE_TURN_OFF_TIME": MidboxField(228, "word"),
-}
-
-# Named cloud values do not prove local voltage scaling or cool-down units.
+# Cloud-decoded values do not establish local scaling for generator fields.
 # 225 can start a generator: it must never enter the writable field table.
 MIDBOX_GENERATOR_RAW_FIELDS: dict[str, MidboxField] = {
     "OFF_GRID_HOLD_GEN_CHG_START_VOLT_RAW": MidboxField(194, "word"),
     "OFF_GRID_HOLD_GEN_CHG_END_VOLT_RAW": MidboxField(195, "word"),
+    "OFF_GRID_HOLD_GEN_CHG_START_SOC_RAW": MidboxField(196, "word"),
+    "OFF_GRID_HOLD_GEN_CHG_END_SOC_RAW": MidboxField(197, "word"),
     "OFF_GRID_HOLD_MAX_GEN_CHG_BAT_CURR_RAW": MidboxField(198, "word"),
     "MIDBOX_HOLD_GEN_VOLT_SOC_ENABLE_RAW": MidboxField(224, "word"),
     "MIDBOX_HOLD_GEN_REMOTE_CTRL_RAW": MidboxField(225, "word"),
     "MIDBOX_HOLD_GEN_WARN_UP_TIME_RAW": MidboxField(226, "word"),
     "MIDBOX_HOLD_GEN_COOL_DOWN_TIME_RAW": MidboxField(227, "word"),
+    "MIDBOX_HOLD_GEN_REMOTE_TURN_OFF_TIME_RAW": MidboxField(228, "word"),
 }
 
-MIDBOX_OPTION_FIELDS: dict[str, MidboxField] = {
-    **_build_fields(),
-    **MIDBOX_GENERATOR_WRITABLE_FIELDS,
-}
+MIDBOX_OPTION_FIELDS: dict[str, MidboxField] = _build_fields()
 
 
 def _fields_by_register() -> dict[int, dict[str, MidboxField]]:

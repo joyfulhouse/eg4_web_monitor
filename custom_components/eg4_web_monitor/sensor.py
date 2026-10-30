@@ -280,8 +280,8 @@ async def async_setup_entry(
     # Phase 1 entities: root devices (station, parallel groups) - no via_device
     phase1_entities: list[SensorEntity] = []
     # Phase 2 entities: inverters, gridboss, battery banks (via_device → parallel group)
-    phase2_entities: list[SensorEntity] = create_generator_charge_entities(
-        coordinator, "sensor"
+    phase2_entities: list[SensorEntity] = list(
+        create_generator_charge_entities(coordinator)
     )
     # Phase 3 entities: individual batteries (via_device → battery bank) and
     # smart port sensors (via_device → GridBOSS)

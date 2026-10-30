@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add disabled-by-default GridBOSS generator Start/End SOC and remote auto turn-off controls for LOCAL/HYBRID, plus raw diagnostics for settings whose local scale or semantics need verification. Generator remote control remains read-only; cloud-only support and Generator Boost are deferred (#705).
+- Add disabled-by-default, read-only raw GridBOSS generator diagnostics for registers 194-198 and 224-228 on LOCAL/HYBRID connections. Local scaling remains unverified; writable generator settings, cloud-only support and Generator Boost are deferred (#705).
 - Retain anonymous daily-energy contributor evidence and original acquisition timestamps in diagnostics, including cached values and GridBOSS overlays. A separate capture timestamp does not refresh sample age; eligibility does not prove a device reset or production midnight acceptance (#666).
 
 ## [3.5.1-beta.21] - 2026-10-22
