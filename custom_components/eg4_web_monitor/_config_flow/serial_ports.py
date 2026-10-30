@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+
+from homeassistant.components.usb import async_scan_serial_ports
+from homeassistant.components.usb.models import SerialDevice
+from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,27 +34,24 @@ class SerialPortInfo:
     manufacturer: str | None = None
     """Manufacturer name if available."""
 
-    product: str | None = None
-    """Product name if available."""
 
-
-def _is_rs485_adapter(port: Any) -> bool:
+def _is_rs485_adapter(port: SerialDevice) -> bool:
     """Check if a port looks like an RS485 adapter based on its metadata."""
     searchable = " ".join(
-        filter(None, [port.description, port.manufacturer, port.product, port.device])
+        filter(None, [port.description, port.manufacturer, port.device])
     ).lower()
     return any(keyword in searchable for keyword in RS485_KEYWORDS)
 
 
-def _build_port_description(port: Any) -> str:
+def _build_port_description(port: SerialDevice) -> str:
     """Build human-readable description for a serial port."""
-    desc_parts = [p for p in (port.manufacturer, port.product) if p]
+    desc_parts = [p for p in (port.manufacturer, port.description) if p]
     if not desc_parts:
-        desc_parts = [port.description or port.device]
+        desc_parts = [port.device]
     return f"{port.device} ({' - '.join(desc_parts)})"
 
 
-def list_serial_ports() -> list[SerialPortInfo]:
+async def list_serial_ports(hass: HomeAssistant) -> list[SerialPortInfo]:
     """Detect available serial ports.
 
     Returns:
@@ -59,9 +59,7 @@ def list_serial_ports() -> list[SerialPortInfo]:
         sorted with likely RS485 adapters first.
     """
     try:
-        from serial.tools import list_ports
-
-        raw_ports = list(list_ports.comports())
+        raw_ports = await async_scan_serial_ports(hass)
 
         # Build port info list with RS485 classification
         port_data = [
@@ -70,7 +68,6 @@ def list_serial_ports() -> list[SerialPortInfo]:
                     device=port.device,
                     description=_build_port_description(port),
                     manufacturer=port.manufacturer,
-                    product=port.product,
                 ),
                 _is_rs485_adapter(port),
             )
@@ -91,12 +88,6 @@ def list_serial_ports() -> list[SerialPortInfo]:
 
         return all_ports
 
-    except ImportError:
-        _LOGGER.warning(
-            "pyserial not installed - cannot enumerate serial ports. "
-            "Install with: pip install pyserial"
-        )
-        return []
     except Exception as err:
         _LOGGER.warning("Failed to list serial ports: %s", err)
         return []

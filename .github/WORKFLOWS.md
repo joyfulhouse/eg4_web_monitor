@@ -80,6 +80,7 @@ uv pip install --python .venv/bin/python -r tests/requirements-test.txt -c tests
 ### Other Active Workflows
 
 - `home-assistant-validation.yml` — Hassfest and HACS validation (PRs, daily schedule)
+- `hassfest-canary.yml` — weekly schedule + manual dispatch; failures surface without blocking PRs
 - `issue-log-validation.yml` — enforces the bug-report debug-log requirement (auto-close/reopen)
 - `issue-triage.yml` — automated triage of newly opened issues
 - `release.yml` — attaches the integration zip to published releases

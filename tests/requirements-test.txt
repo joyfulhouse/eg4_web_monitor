@@ -9,6 +9,7 @@ dpkt>=1.9.8  # offline-only PCAP sanitizer tests (#576)
 
 # Home Assistant core for testing
 homeassistant>=2026.10.0
+aiousbwatcher
 
 # Integration dependencies
 aiohttp>=3.10.0

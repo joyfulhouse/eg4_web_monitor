@@ -1,0 +1,23 @@
+name: Hassfest Latest Canary
+
+on:
+  schedule:
+    - cron: "17 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hassfest-latest:
+    name: Hassfest moving latest image (non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          persist-credentials: false
+      - name: Run moving Hassfest image
+        run: >-
+          docker run --rm
+          --mount type=bind,source="${{ github.workspace }}",target=/github/workspace,readonly
+          ghcr.io/home-assistant/hassfest:latest
