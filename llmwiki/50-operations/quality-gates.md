@@ -3,6 +3,10 @@ canonical-for: lint, format, typecheck, tests, coverage, quality-scale tier vali
 sources:
   - https://github.com/joyfulhouse/eg4_web_monitor/issues/704
   - .github/workflows/home-assistant-validation.yml
+  - PR #712 (GHCR registry lookup for HACS action tags)
+  - https://github.com/hacs/action/blob/d556e736723344f83838d08488c983a15381059a/action.yml
+  - https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/action/action.py
+  - https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/custom_components/hacs/validate/manager.py
   - .github/workflows/hassfest-canary.yml
   - custom_components/eg4_web_monitor/_config_flow/serial_ports.py
   - docs/DEVELOPMENT.md
@@ -15,10 +19,13 @@ sources:
   - tests/test_ci_homeassistant_versions.py
   - scripts/check_ci_dependencies.py
   - tests/test_ci_summary_gates.py
-# Python/HA matrix and workflow inventory re-verified against this PR's base `5bceb57` (PR #711 squash merge); other sections retain this pin.
-# HACS digest and USB drift-guard additions re-verified at a44fceb.
-verified-against: 9f6d6e2
-# #704 / Hassfest section and workflow table below re-verified at b66e04d.
+verified-against:
+  # Python/HA matrix and workflow inventory re-verified against this PR's base `5bceb57` (PR #711 squash merge); other sections retain this pin.
+  # HACS digest and USB drift-guard additions re-verified at a44fceb.
+  # #704 / Hassfest section and workflow table below re-verified at b66e04d.
+  eg4_web_monitor: 9f6d6e2
+  hacs-action: d556e736
+  hacs-integration: 0704ffc6
 last-verified: 2026-10-30
 ---
 
@@ -233,12 +240,23 @@ and the linked successful/failing run records. The digest pin supplies a reprodu
 validator baseline; the supported runtime/type/dependency matrix supplies stable HA
 compatibility evidence. It makes no current-development compatibility claim.
 
-The HACS job pins the `ghcr.io/hacs/action` registry digest resolved from the
-`main` manifest on 2026-10-30. The workflow sets `comment: false` to match the
-input declared by `hacs/action@d556e736723344f83838d08488c983a15381059a`'s
-`action.yml`. The pinned image has no commenting path: its source
-`hacs/integration@0704ffc6e790b9714c82384d8c564266434ff6f9` reads action inputs
-in `action/action.py` -> `preflight` but never reads `INPUT_COMMENT`
-(`verified-against-code`). The workflow passes the token for API reads; its
-`contents: read` permission cannot post comments (`verified-against-code` at
-`a44fceb`, `.github/workflows/home-assistant-validation.yml` -> `hacs-validation`).
+The HACS job uses the `ghcr.io/hacs/action:main` index digest from 2026-10-30;
+the `22.5.0` tag returned 404 (`asserted-unverified`, PR #712). The workflow sets
+`comment: false` to match `action.yml` -> `inputs.comment`
+(`verified-against-code` — `hacs-action`, `action.yml` -> `inputs.comment`). In
+the pinned image source, module-level assignments in `action/action.py` read
+`INPUT_GITHUB_TOKEN`, `INPUT_REPOSITORY`, and `INPUT_CATEGORY`; `preflight` reads
+the event data via `get_event_data` (`verified-against-code` — `hacs-integration`,
+`action/action.py` -> module-level assignments, `preflight`, `get_event_data`).
+`ValidationManager.async_run_repository_checks` in
+`custom_components/hacs/validate/manager.py` reads `INPUT_IGNORE`
+(`verified-against-code` — `hacs-integration`,
+`custom_components/hacs/validate/manager.py` ->
+`ValidationManager.async_run_repository_checks`). The pinned image has no
+commenting path and neither source reads `INPUT_COMMENT`
+(`verified-against-code` — `hacs-integration`, `action/action.py` -> `preflight`,
+`custom_components/hacs/validate/manager.py` ->
+`ValidationManager.async_run_repository_checks`). The workflow passes the token
+for API reads; its `contents: read` permission cannot post comments
+(`verified-against-code` — `eg4_web_monitor`,
+`.github/workflows/home-assistant-validation.yml` -> `hacs-validation`).
