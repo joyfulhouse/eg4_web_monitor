@@ -525,6 +525,66 @@ class TestStationAndUnits:
 
         assert "returned only zero values" in caplog.text
 
+    async def test_zero_history_with_out_of_range_production_logs_warning(
+        self, hass: HomeAssistant, mock_config_entry, mock_coordinator, caplog
+    ):
+        """Out-of-range production cannot hide all-zero imported history."""
+        await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
+        fetch = mock_coordinator.client.analytics.get_month_daily_energy
+        fetch.return_value = _month_history(
+            2025,
+            1,
+            [
+                _day_entry(1, inverter_kwh=5.0),
+                _day_entry(2, inverter_kwh=0.0, pv_kwh=0.0),
+            ],
+        )
+
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
+            await async_import_historical_data(
+                hass,
+                _call(
+                    {
+                        "config_entry": "test_entry_id",
+                        "start_date": date(2025, 1, 2),
+                        "end_date": date(2025, 1, 31),
+                    }
+                ),
+            )
+
+        assert "returned only zero values" in caplog.text
+
+    async def test_mixed_zero_and_production_history_does_not_warn(
+        self, hass: HomeAssistant, mock_config_entry, mock_coordinator, caplog
+    ):
+        """A zero day alongside production is not an all-zero fetch."""
+        await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
+        fetch = mock_coordinator.client.analytics.get_month_daily_energy
+        fetch.return_value = _month_history(
+            2025,
+            1,
+            [
+                _day_entry(1, inverter_kwh=5.0),
+                _day_entry(2, inverter_kwh=0.0, pv_kwh=0.0),
+            ],
+        )
+
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
+            await async_import_historical_data(
+                hass,
+                _call(
+                    {
+                        "config_entry": "test_entry_id",
+                        "start_date": date(2025, 1, 1),
+                        "end_date": date(2025, 1, 31),
+                    }
+                ),
+            )
+
+        assert "returned only zero values" not in caplog.text
+
     async def test_parallel_group_without_first_device_serial(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
     ):
