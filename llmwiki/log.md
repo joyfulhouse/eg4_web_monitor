@@ -1979,3 +1979,10 @@ Updated the [quality-gates owner](50-operations/quality-gates.md) against
 for pymodbus transport until the supported floor moves, and the weekly moving
 Hassfest canary is advisory. The canary was added to the workflow table; the #704
 section and workflow table were scoped-reverified at `b66e04d`.
+
+## [2026-10-30] ingest | Record #704 validation follow-ups
+
+Updated the [quality-gates owner](50-operations/quality-gates.md) for the #704
+follow-up: removed its duplicate workflow source, documented the HACS digest and
+comment setting, and recorded the USB constraint drift guard and its scoped
+verification pins.

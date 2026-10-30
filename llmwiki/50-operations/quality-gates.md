@@ -10,15 +10,16 @@ sources:
   - tests/mypy.ini
   - prek.toml
   - .github/workflows/quality-validation.yml
-  - .github/workflows/home-assistant-validation.yml
   - tests/constraints-ha-minimum.txt
   - tests/constraints-ha-latest.txt
+  - tests/test_ci_homeassistant_versions.py
   - scripts/check_ci_dependencies.py
   - tests/test_ci_summary_gates.py
-# Python/HA CI matrix below re-verified at 5e3752e; other sections retain this pin.
+# Python/HA matrix and workflow inventory re-verified at PR #711 base 5bceb57; other sections retain this pin.
+# HACS digest and USB drift-guard additions re-verified at a44fceb.
 verified-against: 9f6d6e2
 # #704 / Hassfest section and workflow table below re-verified at b66e04d.
-last-verified: 2026-10-29
+last-verified: 2026-10-30
 ---
 
 # Quality gates
@@ -142,6 +143,12 @@ without explicit paired constraints can silently test an older HA. Both matrix
 environments must pass; `fail-fast: false` lets both report failures. Mypy infers
 the active interpreter's Python version instead of forcing dependency parsing
 to Python 3.13. HA's aiodns pin selects the compatible pycares major version.
+The constraints also carry `aiousbwatcher` and `serialx` from the HA USB
+integration manifest; `test_usb_constraints_match_installed_home_assistant`
+checks the matching installed-HA leg offline and skips the other leg with its
+version mismatch in the reason (`verified-against-code` at `a44fceb`,
+`tests/test_ci_homeassistant_versions.py` ->
+`test_usb_constraints_match_installed_home_assistant`).
 
 ## Blocking vs advisory (quality-validation.yml)
 
@@ -225,3 +232,9 @@ Hassfest baseline can be reevaluated. These dated observations are
 and the linked successful/failing run records. The digest pin supplies a reproducible
 validator baseline; the supported runtime/type/dependency matrix supplies stable HA
 compatibility evidence. It makes no current-development compatibility claim.
+
+The HACS job pins the `ghcr.io/hacs/action` registry digest resolved from the
+`main` manifest on 2026-10-30. Its Docker inputs keep the integration category
+and empty ignore list, pass the workflow token, and disable PR comments because
+the job has only `contents: read` (`verified-against-code` at `a44fceb`,
+`.github/workflows/home-assistant-validation.yml` -> `hacs-validation`).
