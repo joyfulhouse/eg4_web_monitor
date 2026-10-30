@@ -439,6 +439,7 @@ def _collect_units(
             continue
         first_serial = serials[0]
         designated_serial = getattr(group, "first_device_serial", None)
+        # pylxpweb may designate the GridBOSS; only inverter members have energy history.
         if isinstance(designated_serial, str) and designated_serial in serials:
             first_serial = designated_serial
         units.append((first_serial, len(serials) > 1))
@@ -524,20 +525,7 @@ async def _fetch_daily_values(
                 month,
                 len(rows),
             )
-            values = [
-                float(value)
-                for entry in rows
-                for attr in _ACCUMULATED_ATTRS
-                if (value := getattr(entry, attr, None)) is not None
-            ]
-            if values and not any(values):
-                _LOGGER.warning(
-                    "Energy history for %s (%d-%02d) returned only zero values",
-                    serial,
-                    year,
-                    month,
-                )
-
+            kept_values: list[float] = []
             for entry in rows:
                 try:
                     day = date(year, month, int(entry.day))
@@ -556,12 +544,21 @@ async def _fetch_daily_values(
                     value = getattr(entry, attr, None)
                     if value is None:
                         continue
+                    kept_values.append(float(value))
                     # Energy totals cannot be negative; the cloud
                     # occasionally returns small negative consumption
                     # values (the EG4 app clamps them too).
                     kwh = max(0.0, float(value))
                     day_map = accumulated[attr]
                     day_map[day] = day_map.get(day, 0.0) + kwh
+
+            if kept_values and not any(kept_values):
+                _LOGGER.warning(
+                    "Energy history for %s (%d-%02d) returned only zero values",
+                    serial,
+                    year,
+                    month,
+                )
 
             await asyncio.sleep(FETCH_DELAY_SECONDS)
 
