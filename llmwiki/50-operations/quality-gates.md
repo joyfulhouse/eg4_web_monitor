@@ -15,7 +15,7 @@ sources:
   - tests/test_ci_homeassistant_versions.py
   - scripts/check_ci_dependencies.py
   - tests/test_ci_summary_gates.py
-# Python/HA matrix and workflow inventory re-verified at PR #711 base 5bceb57; other sections retain this pin.
+# Python/HA matrix and workflow inventory re-verified against this PR's base `5bceb57` (PR #711 squash merge); other sections retain this pin.
 # HACS digest and USB drift-guard additions re-verified at a44fceb.
 verified-against: 9f6d6e2
 # #704 / Hassfest section and workflow table below re-verified at b66e04d.
@@ -234,7 +234,11 @@ validator baseline; the supported runtime/type/dependency matrix supplies stable
 compatibility evidence. It makes no current-development compatibility claim.
 
 The HACS job pins the `ghcr.io/hacs/action` registry digest resolved from the
-`main` manifest on 2026-10-30. Its Docker inputs keep the integration category
-and empty ignore list, pass the workflow token, and disable PR comments because
-the job has only `contents: read` (`verified-against-code` at `a44fceb`,
-`.github/workflows/home-assistant-validation.yml` -> `hacs-validation`).
+`main` manifest on 2026-10-30. The workflow sets `comment: false` to match the
+input declared by `hacs/action@d556e736723344f83838d08488c983a15381059a`'s
+`action.yml`. The pinned image has no commenting path: its source
+`hacs/integration@0704ffc6e790b9714c82384d8c564266434ff6f9` reads action inputs
+in `action/action.py` -> `preflight` but never reads `INPUT_COMMENT`
+(`verified-against-code`). The workflow passes the token for API reads; its
+`contents: read` permission cannot post comments (`verified-against-code` at
+`a44fceb`, `.github/workflows/home-assistant-validation.yml` -> `hacs-validation`).

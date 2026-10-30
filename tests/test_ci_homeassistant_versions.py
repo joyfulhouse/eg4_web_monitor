@@ -54,6 +54,19 @@ def test_ha_constraints_pin_core_plugin_and_usb_dependencies(target: str) -> Non
     assert re.fullmatch(r"serialx==\S+", pins[3])
 
 
+def test_installed_homeassistant_matches_a_constraints_leg() -> None:
+    installed_ha = version("homeassistant")
+    constrained_versions = {
+        line.removeprefix("homeassistant==")
+        for target in ("minimum", "latest")
+        for line in (ROOT / f"tests/constraints-ha-{target}.txt")
+        .read_text()
+        .splitlines()
+        if line.startswith("homeassistant==")
+    }
+    assert installed_ha in constrained_versions
+
+
 @pytest.mark.parametrize("target", ["minimum", "latest"])
 def test_usb_constraints_match_installed_home_assistant(target: str) -> None:
     constraints = ROOT / f"tests/constraints-ha-{target}.txt"
