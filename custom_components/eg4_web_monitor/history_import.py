@@ -544,11 +544,11 @@ async def _fetch_daily_values(
                     value = getattr(entry, attr, None)
                     if value is None:
                         continue
-                    kept_values.append(float(value))
                     # Energy totals cannot be negative; the cloud
                     # occasionally returns small negative consumption
                     # values (the EG4 app clamps them too).
                     kwh = max(0.0, float(value))
+                    kept_values.append(kwh)
                     day_map = accumulated[attr]
                     day_map[day] = day_map.get(day, 0.0) + kwh
 

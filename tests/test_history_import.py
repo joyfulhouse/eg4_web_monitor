@@ -562,16 +562,33 @@ class TestStationAndUnits:
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(
-            2025,
-            1,
-            [
-                _day_entry(1, inverter_kwh=5.0),
-                _day_entry(2, inverter_kwh=0.0, pv_kwh=0.0),
-            ],
+            2025, 1, [_day_entry(1, inverter_kwh=0.0, pv_kwh=0.0)]
         )
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
         with add_patch, load_patch, delay_patch, drain_patch:
+            await async_import_historical_data(
+                hass,
+                _call(
+                    {
+                        "config_entry": "test_entry_id",
+                        "start_date": date(2025, 1, 1),
+                        "end_date": date(2025, 1, 31),
+                    }
+                ),
+            )
+
+            assert "returned only zero values" in caplog.text
+            caplog.clear()
+
+            fetch.return_value = _month_history(
+                2025,
+                1,
+                [
+                    _day_entry(1, inverter_kwh=5.0),
+                    _day_entry(2, inverter_kwh=0.0, pv_kwh=0.0),
+                ],
+            )
             await async_import_historical_data(
                 hass,
                 _call(
