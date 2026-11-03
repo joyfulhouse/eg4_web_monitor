@@ -836,6 +836,9 @@
       "grid_sell_back_power": {
         "name": "Puissance de revente au réseau"
       },
+      "grid_peak_shaving_power": {
+        "name": "Puissance d'écrêtage réseau 1"
+      },
       "grid_peak_shaving_power_2": {
         "name": "Puissance d'écrêtage réseau 2"
       },

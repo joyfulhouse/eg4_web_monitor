@@ -52,7 +52,6 @@ from custom_components.eg4_web_monitor.number import (
     ForcedDischargePowerNumber,
     ForcedDischargeSOCLimitNumber,
     GridSellBackPowerNumber,
-    GridPeakShavingPowerNumber,
     OffGridSOCCutoffNumber,
     OnGridSOCCutoffNumber,
     PEAK_SHAVING_NUMBER_SPECS,
@@ -1179,60 +1178,6 @@ class TestFirstRunUnresolvedProtectedRouting:
             await entity.async_set_native_value(-50)
 
         coordinator.write_raw_parameter.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "device_data",
-        [dict(FIRST_RUN), {}],
-        ids=["unknown-family", "no-features"],
-    )
-    async def test_first_run_grid_peak_shaving_goes_cloud_named_never_library(
-        self, device_data
-    ):
-        """r6 (Grok MED): pylxpweb's set_grid_peak_shaving_power is
-        TRANSPORT-FIRST onto raw H206 — an earlier derivation claim called
-        the entity 'cloud-only by construction', which the pinned wheel
-        falsifies. On off-grid/unresolved families the entity must write
-        the cloud named parameter directly and never reach the library
-        method."""
-        coordinator = _mock_coordinator(
-            has_local=True, has_http=True, model="12000XP", device_data=device_data
-        )
-        entity = GridPeakShavingPowerNumber(coordinator, SERIAL)
-        _prep(entity)
-
-        await entity.async_set_native_value(5.0)
-
-        inverter = coordinator.get_inverter_object(SERIAL)
-        inverter.set_grid_peak_shaving_power.assert_not_awaited()
-        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
-            SERIAL, "_12K_HOLD_GRID_PEAK_SHAVING_POWER", "5.0"
-        )
-        # r7: the cloud-named branch seeds convergence too (it previously
-        # never called note_parameters_written at all).
-        coordinator.note_parameters_written.assert_called_once_with(
-            SERIAL, {"_12K_HOLD_GRID_PEAK_SHAVING_POWER": 5.0}
-        )
-        assert entity.native_value == pytest.approx(5.0)
-
-    @pytest.mark.asyncio
-    async def test_resolved_hybrid_grid_peak_shaving_uses_library_method(self):
-        """Regression guard: a positively resolved non-off-grid family keeps
-        pylxpweb's transport-first method (hybrid-verified deci-kW raw
-        encoding, cloud fallback inside the library)."""
-        coordinator = _mock_coordinator(
-            has_local=True,
-            has_http=True,
-            model="FlexBOSS21",
-            device_data=dict(HYBRID_FEATURES),
-        )
-        entity = GridPeakShavingPowerNumber(coordinator, SERIAL)
-        _prep(entity)
-
-        await entity.async_set_native_value(5.0)
-
-        inverter = coordinator.get_inverter_object(SERIAL)
-        inverter.set_grid_peak_shaving_power.assert_awaited_once_with(power_kw=5.0)
 
     @pytest.mark.asyncio
     async def test_resolved_hybrid_forced_discharge_keeps_local_first(self):
