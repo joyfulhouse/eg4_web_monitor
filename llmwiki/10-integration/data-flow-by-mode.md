@@ -1,20 +1,23 @@
 ---
+type: Reference
+title: "Data flow by connection mode"
+description: "HTTP / LOCAL / HYBRID end to end, and why HYBRID is not a third code path."
 canonical-for:
   - HTTP / LOCAL / HYBRID data flow end to end
   - the fact that HYBRID is not a third code path
   - poll intervals, throttles, cache TTLs
   - LOCAL static first-refresh phase
 sources:
-  - custom_components/eg4_web_monitor/coordinator_http.py
-  - custom_components/eg4_web_monitor/coordinator_local.py
-  - custom_components/eg4_web_monitor/coordinator.py
-  - custom_components/eg4_web_monitor/const/config_keys.py
-  - memory/architecture-patterns.md
-  - memory/feedback_eg4-data-model-and-sensor-noise.md
-  - memory/consumption-energy-sources.md
-  - eg4_web_monitor issues #83, #233, #653
-  - tests/test_local_startup_snapshot.py
-  - tests/test_hybrid_startup_registry.py
+  - resource: custom_components/eg4_web_monitor/coordinator_http.py
+  - resource: custom_components/eg4_web_monitor/coordinator_local.py
+  - resource: custom_components/eg4_web_monitor/coordinator.py
+  - resource: custom_components/eg4_web_monitor/const/config_keys.py
+  - resource: memory/architecture-patterns.md
+  - resource: memory/feedback_eg4-data-model-and-sensor-noise.md
+  - resource: memory/consumption-energy-sources.md
+  - resource: eg4_web_monitor issues #83, #233, #653
+  - resource: tests/test_local_startup_snapshot.py
+  - resource: tests/test_hybrid_startup_registry.py
 verified-against: 9f6d6e2
 # LOCAL static-phase claims below rechecked at f352c23; other sections retain this pin.
 # HYBRID registry-key startup seeding rechecked at f6abc8c.

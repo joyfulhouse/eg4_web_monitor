@@ -1,16 +1,19 @@
 ---
+type: Overview
+title: "What this project is"
+description: "The four moving parts and how a value travels from register to entity. Start here cold."
 canonical-for:
   - "The four moving parts of the EG4 system and the boundaries between them"
   - "The two-repo relationship (integration + pylxpweb)"
   - "Device hierarchy vocabulary at system level"
   - "The 'cloud is not a separate data source' principle"
 sources:
-  - custom_components/eg4_web_monitor/manifest.json
-  - custom_components/eg4_web_monitor/const/brand.py
-  - pylxpweb src/pylxpweb/client.py
-  - memory/feedback_eg4-data-model-and-sensor-noise.md
-  - memory/issue-544-generator-power-offgrid.md
-  - memory/maintainability-findings-and-live-bugs.md
+  - resource: custom_components/eg4_web_monitor/manifest.json
+  - resource: custom_components/eg4_web_monitor/const/brand.py
+  - resource: pylxpweb src/pylxpweb/client.py
+  - resource: memory/feedback_eg4-data-model-and-sensor-noise.md
+  - resource: memory/issue-544-generator-power-offgrid.md
+  - resource: memory/maintainability-findings-and-live-bugs.md
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

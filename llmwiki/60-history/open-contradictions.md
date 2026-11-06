@@ -1,19 +1,22 @@
 ---
+type: History
+title: "Open contradictions"
+description: "C1-C12: places project sources or policies differ and no adjudication has been made. Do not resolve one by writing a page that picks a side."
 canonical-for:
   - "Unresolved contradictions between project sources (C1-C12)"
 sources:
-  - docs/claude/FINAL_VALIDATION_REPORT.md
-  - docs/claude/MODE_COMPARISON_REPORT.md
-  - docs/claude/DEVICE_OBJECTS_DESIGN_PRINCIPLES.md
-  - docs/audits/2026-08-02-register-race-performance-audit.md
-  - llmwiki/20-pylxpweb/transports.md
-  - llmwiki/40-hardware/firmware-re.md
-  - issue eg4-hpwq
-  - memory/consumption-energy-sources.md
-  - memory/soc-charge-limit-101-top-balance.md
-  - memory/release-3.4.0-beta.18-status.md
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
-  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
+  - resource: docs/claude/FINAL_VALIDATION_REPORT.md
+  - resource: docs/claude/MODE_COMPARISON_REPORT.md
+  - resource: docs/claude/DEVICE_OBJECTS_DESIGN_PRINCIPLES.md
+  - resource: docs/audits/2026-08-02-register-race-performance-audit.md
+  - resource: llmwiki/20-pylxpweb/transports.md
+  - resource: llmwiki/40-hardware/firmware-re.md
+  - resource: issue eg4-hpwq
+  - resource: memory/consumption-energy-sources.md
+  - resource: memory/soc-charge-limit-101-top-balance.md
+  - resource: memory/release-3.4.0-beta.18-status.md
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/569
 verified-against:
   # eg4 pin moved for the C6/C7 refresh (#569 cloud-only routing shipped;
   # #570 sweep evidence ingested); C7's quoted pre-#569 exposure is history.

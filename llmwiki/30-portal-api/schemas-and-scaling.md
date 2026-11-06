@@ -1,4 +1,7 @@
 ---
+type: Reference
+title: "Schemas and scaling"
+description: "Response shapes, value scaling, and where sources disagree."
 canonical-for:
   - EG4 portal response shapes
   - EG4 cloud value scaling
@@ -6,20 +9,20 @@ canonical-for:
   - spec, documentation, sample, and pylxpweb schema divergences
   - GridBOSS generator-energy portal evidence and unresolved field contract (#658)
 sources:
-  - CHANGELOG.md
-  - docs/api/openapi.yaml
-  - docs/api/PORTAL_ENDPOINTS.md
-  - docs/api/README.md
-  - joyfulhouse/pylxpweb/samples/battery.json
-  - joyfulhouse/pylxpweb/samples/energy.json
-  - joyfulhouse/pylxpweb/samples/midbox_runtime.json
-  - joyfulhouse/pylxpweb/src/pylxpweb/client.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/constants/registers.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/models.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/constants/scaling.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/control.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/devices.py
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/658
+  - resource: CHANGELOG.md
+  - resource: docs/api/openapi.yaml
+  - resource: docs/api/PORTAL_ENDPOINTS.md
+  - resource: docs/api/README.md
+  - resource: joyfulhouse/pylxpweb/samples/battery.json
+  - resource: joyfulhouse/pylxpweb/samples/energy.json
+  - resource: joyfulhouse/pylxpweb/samples/midbox_runtime.json
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/client.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/constants/registers.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/models.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/constants/scaling.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/endpoints/control.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/endpoints/devices.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/658
 verified-against:
   eg4_web_monitor: cb7b6c83535b7c186c7a0082b83ea00b441e8154
   pylxpweb: bce390936f2068000b7a53e2e981e9399139753f

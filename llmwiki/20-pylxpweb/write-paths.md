@@ -1,9 +1,12 @@
 ---
+type: Reference
+title: "Write paths"
+description: "How the library routes and verifies a write."
 canonical-for: pylxpweb cloud, local, hybrid, and schedule write routing and verification
 sources:
-  - pylxpweb@204b95d:src/pylxpweb/endpoints/control.py
-  - pylxpweb@204b95d:src/pylxpweb/transports/
-  - pylxpweb@e53b16b:tests/unit/endpoints/test_control_helpers.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/endpoints/control.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/
+  - resource: pylxpweb@e53b16b:tests/unit/endpoints/test_control_helpers.py
 verified-against:
   pylxpweb: 204b95d
 last-verified: 2026-08-08

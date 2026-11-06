@@ -1,9 +1,12 @@
 ---
+type: History
+title: "Authorized beta.21 production smoke test"
+description: "Authorized production smoke test."
 canonical-for:
   - "October 23 2026 authorized beta.21 production smoke test and its acceptance limits"
 sources:
-  - docs/production/beta21-2026-10-23.json
-  - custom_components/eg4_web_monitor/diagnostics.py
+  - resource: docs/production/beta21-2026-10-23.json
+  - resource: custom_components/eg4_web_monitor/diagnostics.py
 verified-against: ca2f63580091bc5a771253a7dbc5fa09fdb70f2a
 last-verified: 2026-10-23
 see-also:

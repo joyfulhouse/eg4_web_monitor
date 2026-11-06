@@ -1,11 +1,14 @@
 ---
+type: Reference
+title: "Release and pinning"
+description: "Version derivation and the dependency pin."
 canonical-for: pylxpweb version derivation and eg4_web_monitor dependency pin mechanics
 sources:
-  - pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:pyproject.toml
-  - pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:src/pylxpweb/__init__.py
-  - custom_components/eg4_web_monitor/manifest.json
-  - tests/requirements-test.txt
-  - .github/workflows/quality-validation.yml
+  - resource: pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:pyproject.toml
+  - resource: pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:src/pylxpweb/__init__.py
+  - resource: custom_components/eg4_web_monitor/manifest.json
+  - resource: tests/requirements-test.txt
+  - resource: .github/workflows/quality-validation.yml
 verified-against:
   pylxpweb: cac7a9f498aa20528577a08ce1541fdb59f77481
   eg4_web_monitor: c336cb58ef6be127c03bd3a4b7ac369c06280192

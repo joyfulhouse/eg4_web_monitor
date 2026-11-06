@@ -1,16 +1,19 @@
 ---
+type: Reference
+title: "Portal endpoint reference"
+description: "The endpoint inventory and identifier model."
 canonical-for:
   - EG4 portal endpoint inventory
   - EG4 portal object and identifier model
   - OpenAPI coverage boundaries
 sources:
-  - docs/api/openapi.yaml
-  - docs/api/README.md
-  - docs/api/PORTAL_ENDPOINTS.md
-  - docs/reference/firmware/FIRMWARE_ACQUISITION.md
-  - scripts/download_inverter_firmware.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/endpoints/
-  - joyfulhouse/pylxpweb/src/pylxpweb/models.py
+  - resource: docs/api/openapi.yaml
+  - resource: docs/api/README.md
+  - resource: docs/api/PORTAL_ENDPOINTS.md
+  - resource: docs/reference/firmware/FIRMWARE_ACQUISITION.md
+  - resource: scripts/download_inverter_firmware.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/endpoints/
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/models.py
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

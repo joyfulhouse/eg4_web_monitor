@@ -1,14 +1,17 @@
 ---
+type: Reference
+title: "GridBOSS / POWER_HUB UART map"
+description: "GridBOSS specifics, including the smart-port mode register."
 canonical-for:
   - "GridBOSS POWER_HUB UART map"
   - "GridBOSS smart-port mode packing and reported mode-write side effects"
 sources:
-  - docs/reference/firmware/FIRMWARE_ACQUISITION.md
-  - docs/CONFIGURATION.md
-  - docs/DATA_MAPPING.md
-  - docs/audits/2026-08-02-register-race-performance-audit.md
-  - memory/gridboss-powerhub-uart-map.md
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/629
+  - resource: docs/reference/firmware/FIRMWARE_ACQUISITION.md
+  - resource: docs/CONFIGURATION.md
+  - resource: docs/DATA_MAPPING.md
+  - resource: docs/audits/2026-08-02-register-race-performance-audit.md
+  - resource: memory/gridboss-powerhub-uart-map.md
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/629
 verified-against: 9f6d6e2
 # Only the reported #629 side-effect section and postmortem link were rechecked
 # at 8289d6f4558e1aa8779a0a49e6c21816f337ee29. No firmware/portal grade promotion.

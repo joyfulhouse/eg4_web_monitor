@@ -1,17 +1,20 @@
 ---
+type: Process
+title: "Issue and PR pipeline"
+description: "Issue templates, log enforcement, PR conventions."
 canonical-for: GitHub issue templates, debug-log auto-close, PR conventions, beads work tracking prohibitions
 sources:
-  - .github/ISSUE_TEMPLATE/bug_report.yml
-  - .github/ISSUE_TEMPLATE/feature_request.yml
-  - .github/ISSUE_TEMPLATE/config.yml
-  - .github/workflows/issue-log-validation.yml
-  - .github/workflows/issue-triage.yml
-  - AGENTS.md
-  - scripts/bd_seed_maintainability.sh
-  - .github/CODEOWNERS
-  - pylxpweb .github/workflows/dependabot-auto-merge.yml
-  - memory/sprint-2026-07-16-issue-zeroing.md
-  - memory/issue-pipeline-log-enforcement.md
+  - resource: .github/ISSUE_TEMPLATE/bug_report.yml
+  - resource: .github/ISSUE_TEMPLATE/feature_request.yml
+  - resource: .github/ISSUE_TEMPLATE/config.yml
+  - resource: .github/workflows/issue-log-validation.yml
+  - resource: .github/workflows/issue-triage.yml
+  - resource: AGENTS.md
+  - resource: scripts/bd_seed_maintainability.sh
+  - resource: .github/CODEOWNERS
+  - resource: pylxpweb .github/workflows/dependabot-auto-merge.yml
+  - resource: memory/sprint-2026-07-16-issue-zeroing.md
+  - resource: memory/issue-pipeline-log-enforcement.md
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

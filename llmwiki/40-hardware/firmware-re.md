@@ -1,17 +1,20 @@
 ---
+type: Reference
+title: "Firmware reverse engineering"
+description: "Firmware acquisition/decoding methodology, invalid-artifact boundaries, and ESP32 WLAN local-listener analysis."
 canonical-for:
   - firmware-acquisition-decoding-and-register-re-methodology
   - ESP32-WLAN-dongle-local-listener-behaviour-and-patch-lineage
 sources:
-  - docs/reference/firmware/FIRMWARE_ACQUISITION.md
-  - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
-  - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
-  - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
-  - docs/reference/firmware/re/00_SUMMARY.md
-  - issue eg4-x00j
-  - issue eg4-gzol
-  - issue eg4-vr06
-  - issue eg4-vypa
+  - resource: docs/reference/firmware/FIRMWARE_ACQUISITION.md
+  - resource: docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
+  - resource: docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
+  - resource: docs/reference/firmware/HYBRID_EPS_REGISTERS.md
+  - resource: docs/reference/firmware/re/00_SUMMARY.md
+  - resource: issue eg4-x00j
+  - resource: issue eg4-gzol
+  - resource: issue eg4-vr06
+  - resource: issue eg4-vypa
 verified-against: bec0190
 last-verified: 2026-08-13
 ---

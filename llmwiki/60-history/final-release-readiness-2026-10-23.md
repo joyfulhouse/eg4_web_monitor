@@ -1,36 +1,39 @@
 ---
+type: History
+title: "Final-release preparation, 2026-10-23"
+description: "Final-release preparation and issue classification."
 canonical-for:
   - "October 2026 final-release preparation issue classification and acceptance gaps"
 sources:
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/702
-  - https://github.com/joyfulhouse/pylxpweb/issues/396
-  - docs/production/hybrid-energy-fallback-validation-2026-10-28.json
-  - docs/production/pylxpweb-b14-publication-2026-10-25.json
-  - docs/production/candidate-soak-progress-2026-10-25-late.json
-  - custom_components/eg4_web_monitor/manifest.json
-  - tests/requirements-test.txt
-  - docs/production/acquisition-evidence-validation-2026-10-25.json
-  - custom_components/eg4_web_monitor/energy_evidence.py
-  - custom_components/eg4_web_monitor/diagnostics.py
-  - tests/test_daily_energy_evidence.py
-  - tests/test_diagnostics_acquisition_times.py
-  - https://github.com/joyfulhouse/pylxpweb/commit/cac7a9f498aa20528577a08ce1541fdb59f77481
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/691
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/692
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/693
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/694
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/666
-  - docs/production/final-release-acceptance-plan-2026-10-23.md
-  - docs/production/final-release-preparation-2026-10-23.json
-  - docs/production/release-preflight-2026-10-25.json
-  - docs/production/candidate-deployment-2026-10-25.json
-  - docs/production/candidate-soak-progress-2026-10-25.json
-  - docs/production/diagnostics-privacy-validation-2026-10-25.json
-  - custom_components/eg4_web_monitor/ha_modbus.py
-  - tests/test_ha_modbus.py
-  - tests/test_sensor_entities.py
-  - tests/test_energy_provenance_adoption.py
-  - tests/test_energy_guard_restore.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/702
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/396
+  - resource: docs/production/hybrid-energy-fallback-validation-2026-10-28.json
+  - resource: docs/production/pylxpweb-b14-publication-2026-10-25.json
+  - resource: docs/production/candidate-soak-progress-2026-10-25-late.json
+  - resource: custom_components/eg4_web_monitor/manifest.json
+  - resource: tests/requirements-test.txt
+  - resource: docs/production/acquisition-evidence-validation-2026-10-25.json
+  - resource: custom_components/eg4_web_monitor/energy_evidence.py
+  - resource: custom_components/eg4_web_monitor/diagnostics.py
+  - resource: tests/test_daily_energy_evidence.py
+  - resource: tests/test_diagnostics_acquisition_times.py
+  - resource: https://github.com/joyfulhouse/pylxpweb/commit/cac7a9f498aa20528577a08ce1541fdb59f77481
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/691
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/692
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/693
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/694
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/666
+  - resource: docs/production/final-release-acceptance-plan-2026-10-23.md
+  - resource: docs/production/final-release-preparation-2026-10-23.json
+  - resource: docs/production/release-preflight-2026-10-25.json
+  - resource: docs/production/candidate-deployment-2026-10-25.json
+  - resource: docs/production/candidate-soak-progress-2026-10-25.json
+  - resource: docs/production/diagnostics-privacy-validation-2026-10-25.json
+  - resource: custom_components/eg4_web_monitor/ha_modbus.py
+  - resource: tests/test_ha_modbus.py
+  - resource: tests/test_sensor_entities.py
+  - resource: tests/test_energy_provenance_adoption.py
+  - resource: tests/test_energy_guard_restore.py
 verified-against:
   # Dependency delivery and acquisition evidence; historical sections retain their pins.
   eg4_web_monitor: c336cb58ef6be127c03bd3a4b7ac369c06280192

@@ -1,8 +1,38 @@
-# Agent Instructions
+# EG4 Web Monitor Home Assistant Integration — Agent Instructions
+
+Home Assistant custom component for EG4 devices (inverters, GridBOSS, batteries)
+over local Modbus TCP, WiFi dongle, serial RS485, cloud API, or hybrid. One config
+entry per station/plant. Protocol and transport logic live in
+[pylxpweb](https://github.com/joyfulhouse/pylxpweb); this repo is the HA wiring.
+
+This is the single instruction file for every coding agent. `CLAUDE.md` only
+imports it, so edit this file, never `CLAUDE.md`.
+
+## Why this file is short
+
+Release notes and the register map used to be duplicated inline here. Both churn
+continuously, so both rotted — a 2026-08 audit traced 39 verified documentation
+defects to exactly that duplication. **Continuous-churn content lives in exactly
+one place and this file points at it.** Do not paste version numbers, release
+narratives, or register tables back in.
+
+| Churning content | Single source of truth |
+|---|---|
+| Version + `pylxpweb` pin | `custom_components/eg4_web_monitor/manifest.json` |
+| Release history | `CHANGELOG.md` |
+| Register map / control registers | `docs/DATA_MAPPING.md`, `llmwiki/40-hardware/registers.md` |
+| Field → sensor mapping, mode differences | `docs/DATA_MAPPING.md` |
+| Polling/interval defaults | `const/config_keys.py` |
+| Portal API endpoints + schemas | `docs/api/` (OpenAPI 3.1), `docs/PLANT_API_DOCUMENTATION.md` |
+| User-facing options catalog | `docs/CONFIGURATION.md` |
+| Architecture narrative | `docs/ARCHITECTURE.md`, `llmwiki/10-integration/` |
+| Troubleshooting | `docs/TROUBLESHOOTING.md` |
+
+Never state the current version from memory — read `manifest.json`.
+
+## Issue tracking
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
-
-## Quick Reference
 
 ```bash
 bd ready              # Find available work
@@ -12,29 +42,33 @@ bd close <id>         # Complete work
 bd sync               # Sync with git
 ```
 
-## Maintaining `llmwiki/`
+## Project memory: `llmwiki/` (OKF v0.2)
 
-`llmwiki/` is a knowledge base that agents write and keep current: numbered chapters,
-plus `index.md` (the page catalog), `README.md` (canonical-source policy,
-evidence-grade legend, freshness discipline), `log.md` (append-only history) and
-`_conventions.md` (page template, front-matter schema, writing rules).
+`llmwiki/` is this project's persistent memory. Agents write it and keep it current.
+It is an [Open Knowledge Format (OKF) v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundle rooted at `llmwiki/`, made of numbered chapters, each with its own `index.md`.
+Alongside the chapters sit `index.md` (the root catalog), `README.md` (canonical-source
+policy, evidence-grade legend, freshness discipline, reading order), `_conventions.md`
+(page template, front-matter schema, index and log formats, concept types) and `log.md`
+(dated history, newest first).
 
-**To find a page, start at `llmwiki/index.md`** — it lists every page with a
-one-line summary and the facts it owns, so you never scan the tree. **To grade a
-claim, go to `llmwiki/README.md`**: it owns the rules the pages follow, not a list
-of what exists, and it carries the cold-start reading order.
+**To find a page, start at `llmwiki/index.md`.** It lists the chapters. Open the
+chapter's `index.md`, which lists every page with a one-line summary and the facts it
+owns, so you never scan the tree. Or search (see [OKF tooling](#okf-tooling) below).
+**To grade a claim, go to `llmwiki/README.md`.** It owns the rules the pages follow, not
+a list of what exists.
 
 ### Three layers, and the one-way rule
 
 | Layer | What it is | Who writes it |
 |---|---|---|
-| Raw sources | This repo's code, `pylxpweb` at its pinned commit, `docs/`, `memory/*.md`, GitHub issues and PRs | Normal development |
-| The wiki | `llmwiki/` — evidence-graded pages, one owner per fact | Agents |
-| The schema | This file and `CLAUDE.md` | Co-evolved; edit it when a workflow proves wrong |
+| Raw sources | This repo's code, `pylxpweb` at its pinned commit, `docs/`, GitHub issues and PRs, and the maintainers' `memory/*.md` agent-memory files (outside this repo; not present in every checkout) | Normal development |
+| The wiki | `llmwiki/`: evidence-graded pages, one owner per fact | Agents |
+| The schema | This file, plus `llmwiki/_conventions.md` for page mechanics | Co-evolved; edit it when a workflow proves wrong |
 
 **The wiki follows the code. The code is never changed to make a wiki claim true.**
 A documentation task that turns out to need a code change stops and files an issue.
-Issues #549 (CI compiles a non-existent `const.py`), #550 (inert `_attr_entity_id`
+Issues #549 (CI compiled a non-existent `const.py`), #550 (inert `_attr_entity_id`
 assignments) and #558 (a live local write whose stated mitigation cannot detect a
 wrong mapping) all exist because that rule held instead of being quietly patched in
 a docs PR.
@@ -44,21 +78,24 @@ a docs PR.
 A shipped fix, a hardware capture, a contradiction surfaced in review, a new issue:
 
 1. **Read the primary source.** Not a summary of it, not a memory file about it.
-2. **Find the owner.** `index.md` → the page whose `canonical-for:` covers the
-   fact. If nothing owns it, add it to the page whose subject it belongs to,
-   extend that page's `canonical-for:`, and add the row to `index.md`.
-3. **Update that page only.** Grade the claim, cite a durable artifact, refresh
-   `verified-against:` and `last-verified:`.
+2. **Find the owner.** Root `index.md` → chapter `index.md` → the page whose "Owns" /
+   `canonical-for:` covers the fact. If nothing owns it, add it to the page whose
+   subject it belongs to, extend that page's `canonical-for:`, and update the "Owns"
+   text of that page's entry in its chapter `index.md`.
+3. **Update that page only.** Grade the claim, cite a durable artifact, and refresh
+   `verified-against:` and `last-verified:`. A new page needs the full front matter
+   from `llmwiki/_conventions.md` (`type`, `title`, `description` and the rest) plus an
+   entry in its chapter `index.md` whose text contains its `description`.
 4. **Update whatever the new knowledge falsifies.** A promotion or downgrade is
    never a local edit — grep the register, symbol, or path across `llmwiki/` before
    you call it done.
-5. **Record it.** Append an entry to `llmwiki/log.md`. Keep the heading prefix
-   exact — `## [YYYY-MM-DD] <op> | <subject>` — because
-   `grep '^## \[' llmwiki/log.md | tail -5` is how the next agent reads recent
-   history; that file's header owns the `<op>` vocabulary and the append-only
-   rules, and you are opening it anyway. The commit message is a durable record
-   too, and the two serve different readers: the log carries reasoning across
-   commits, the commit message explains one diff.
+5. **Record it.** Add an entry at the **top** of `llmwiki/log.md`, under a
+   `## YYYY-MM-DD` heading for today (create it if the first heading is an older
+   date), as `### <op> | <subject>` plus prose. `grep -m 5 '^### ' llmwiki/log.md`
+   is how the next agent reads recent history. The file's header owns the `<op>`
+   vocabulary and the entry rules. The commit message is a durable record too, and
+   the two serve different readers: the log carries reasoning across commits, the
+   commit message explains one diff.
 
 **One fact, one owner.** A fact restated in two places has gone stale in two places
 three separate times during this wiki's construction: a test count, a coverage
@@ -67,14 +104,15 @@ falsified.
 
 ### Query — answering from the wiki
 
-Find the owner page in `index.md`, read it, and answer with a citation to that page
-and its `verified-against:` pin. **State the grade when it changes the answer** —
-"portal-correlated, not proven" is a different answer from "proven". If the question
-produced a durable new synthesis, file it back into the owning page rather than
-leaving it in chat history, and log it as a `query`.
+Find the owner page through the indexes (or `okf_search`), read it, and answer with a
+citation to that page and its `verified-against:` pin. **State the grade when it
+changes the answer** — "portal-correlated, not proven" is a different answer from
+"proven". If the question produced a durable new synthesis, file it back into the
+owning page rather than leaving it in chat history, and log it as a `query`.
 
 ### Lint — periodic health check
 
+- Run the conformance checks in [OKF tooling](#okf-tooling).
 - Contradictions between pages. An unresolved one belongs in
   `60-history/open-contradictions.md`, not resolved by assertion.
 - Claims whose `verified-against:` pin has moved — recheck or downgrade.
@@ -88,7 +126,10 @@ leaving it in chat history, and log it as a `query`.
 
 The grade vocabulary is closed and defined **only** in `llmwiki/README.md`. Never
 coin a grade, weaken one locally, or carve out an exception: that loophole regrew
-five times during construction, each time with locally reasonable wording.
+five times during construction, each time with locally reasonable wording. OKF's
+`generated:` / `verified:` trust keys do not replace these grades. If you add them,
+follow `llmwiki/_conventions.md`, and never write a `human:` actor for a review that
+did not happen.
 
 - **Never grade `hardware-proven` from source code, a README, or a `# verified`
   comment.** In this project's register tables `# verified` has historically meant
@@ -126,6 +167,236 @@ five times during construction, each time with locally reasonable wording.
   proposed "correction" taken from a secondary source would have published a false
   claim. A green check can be wrong — re-run a suspicious pass rather than trusting
   it.
+
+### OKF tooling
+
+**Always available.** `tests/test_llmwiki_okf.py` runs in the normal pytest suite and
+fails on any OKF or schema drift: missing front matter keys, an unknown `type`, a page
+missing from its chapter index or with a mismatched description, malformed index or
+log files, or a relative link that does not resolve.
+
+**Optional: the `okf` CLI and MCP server** from
+[okf-agent-memory](https://github.com/okf-memory/okf-agent-memory) (third-party,
+MIT, Go). It adds BM25 search and an MCP server. Install it onto your `PATH` with:
+
+```bash
+go install github.com/okf-memory/okf-agent-memory/cmd/okf@v0.8.0
+```
+
+```bash
+okf validate llmwiki             # must report "Conformant"
+okf validate llmwiki --drift     # also index-description drift
+okf search "smart port" llmwiki  # BM25 search
+okf show 40-hardware/registers llmwiki
+```
+
+Expect warnings from `okf validate` for links to repo files outside the bundle
+(`../../docs/...`) and links to `index.md` / `log.md`. The spec permits both, so do
+not gate on `--strict`; `llmwiki/_conventions.md` explains why.
+
+`.mcp.json` registers the server as `okf-memory` (`okf mcp llmwiki`, run from the repo
+root) for Claude Code and other MCP clients; it needs `okf` on `PATH`. **Use only its
+read tools — `okf_search`, `okf_show`, `okf_validate`.** Do not call `okf_create`,
+`okf_update` or `okf_relate` on `llmwiki/`. They write index and log entries in the
+tool's own format, skip this wiki's required keys and grades, and break
+`tests/test_llmwiki_okf.py`. Edit pages by hand following `llmwiki/_conventions.md`.
+Do not run `okf bootstrap`, `okf agents init` or `okf agents link` here either.
+`bootstrap` scaffolds a separate `knowledge/` bundle and appends its own section to
+this file. `agents link` replaces `CLAUDE.md` with a symlink. Read-only
+`okf agents lint` is harmless but enforces a 400-token budget this file does not follow.
+
+## Source map (where to edit)
+
+Under `custom_components/eg4_web_monitor/` (the main files, not an exhaustive
+listing; `ls` the directory for the rest):
+
+- `config_flow.py` — thin re-export shim that exists only because hassfest requires
+  a file of that name. It re-exports `EG4ConfigFlow` and `EG4OptionsFlow` from
+  `_config_flow/`, and nothing else. **Write code in
+  `_config_flow/`.** An empty `config_flow/` directory appearing locally is not
+  the package; ignore it.
+- `_config_flow/` — `__init__.py` (unified `EG4ConfigFlow`), `battery.py`,
+  `discovery.py`, `schemas.py`, `helpers.py`, `options.py`, `serial_ports.py`.
+- `const/` — a **package, not a `const.py` module**. Main modules: `brand.py`
+  (`ENTITY_PREFIX`), `config_keys.py` (`DEFAULT_*` intervals), `modbus.py`,
+  `midbox.py`, `sensors/types.py` (`SensorConfig` TypedDict), `device_types.py`,
+  `limits.py`, `diagnostics.py`, `operating_state.py`, `working_modes.py`.
+- `coordinator.py` (composes the mixins), `coordinator_http.py`,
+  `coordinator_local.py`, `coordinator_mixins.py`, `coordinator_mappings.py`.
+- `base_entity.py` — shared entity base classes.
+- Platforms: `sensor.py`, `binary_sensor.py`, `switch.py`, `number.py`,
+  `select.py`, `button.py`, `time.py`, `update.py`, plus `services.py`.
+
+**Config flow shape.** Connection type is *derived*, never chosen: cloud only →
+`http`, local only → `local`, both → `hybrid`. Local device types are Modbus TCP,
+WiFi dongle, **and serial RS485**. Reconfigure enters at `async_step_reconfigure`
+→ `async_step_reconfigure_menu`. The menu branches include
+`reconfigure_cloud_{update,add,station,remove}`, `reconfigure_devices` and
+`reconfigure_add_{modbus,dongle,serial}`, and there are further sub-steps. There is no
+`async_step_reconfigure_plant`. Grep `async def async_step_` in
+`_config_flow/__init__.py` for the full set rather than trusting any doc.
+
+**Coordinator mixins.** `EG4DataUpdateCoordinator` composes **eight** mixins, in
+MRO order: `HTTPUpdateMixin` (`coordinator_http.py`), `LocalTransportMixin`
+(`coordinator_local.py`), then `DeviceProcessingMixin`, `DeviceInfoMixin`,
+`ParameterManagementMixin`, `DSTSyncMixin`, `BackgroundTaskMixin`,
+`FirmwareUpdateMixin` (all `coordinator_mixins.py`), then
+`DataUpdateCoordinator`. The HTTP and local mixins come **first** and win the MRO.
+
+## Entity and unique IDs
+
+**Unique IDs** are set by the integration and are stable. The main sensor shapes are
+device `{serial}_{sensor_key}`, battery `{serial}_{battery_key}_{sensor_key}`, bank
+`{serial}_battery_bank_{sensor_key}` and station `station_{plant_id}_{sensor_key}`.
+Controls, smart ports, firmware-update and parallel-group entities use their own
+builders. `llmwiki/10-integration/entities-identity-availability.md` owns the full
+set.
+
+**Entity IDs are generated by Home Assistant**, not by this integration — HA
+slugifies `{device name}_{entity name}` for entities that set
+`_attr_has_entity_name = True`. The codebase used to assign `_attr_entity_id`; those
+assignments were inert, because `homeassistant.helpers.entity.Entity.entity_id` is a
+plain class attribute, not `_attr_`-backed, so HA ignored them (issue #550). They
+were removed in #566, and tests now assert their absence. Do not reintroduce them.
+
+**Scope of that claim.** It describes the ID HA *generates for a newly added
+entity*. It does **not** describe what is in any given user's registry. HA freezes
+an entity ID once assigned and users can rename entities, so registries predating
+a naming change — or carrying manual renames — can hold `eg4_`-prefixed or
+otherwise divergent IDs indefinitely. Never assume the generated form is what a
+user has; have them read their own registry.
+
+The *shapes* below match a live registry capture of one maintainer system; the
+**serials are synthetic** (`1234567890` 18kPV, `9876543210` GridBOSS,
+`1234A56789` FlexBOSS21):
+
+```
+sensor.18kpv_1234567890_battery_voltage
+sensor.battery_bank_1234567890_battery_bank_max_cell_temperature
+select.grid_boss_9876543210_smart_port_1_mode
+number.flexboss21_1234a56789_battery_charge_current
+sensor.parallel_group_a_ac_power
+```
+
+Note the FlexBOSS21 line: slugification **lowercases** the serial, so a serial
+containing `A` appears as `a` inside the entity ID. Never match entity IDs
+case-sensitively against a serial as the portal reports it.
+
+**Adjudicating an entity-ID claim.** Do not reason from `entity_key` constants or
+from the removed `_attr_entity_id` strings in history — both have produced wrong
+"corrections" in this repo. Use a real registry instead:
+
+- Canonical derivation and its evidence grade:
+  `llmwiki/10-integration/entities-identity-availability.md`.
+- The prior capture behind the examples above is recorded in the maintainers'
+  agent-memory file `memory/queue-cleanup-2026-07-26.md`, which is not in this repo. It
+  is not re-captured here and is `asserted-unverified` for any system but the one it
+  came from.
+- To produce a fresh capture, read the target instance's registry directly —
+  Developer Tools → States, or `GET /api/states` with a long-lived token — and
+  filter for the integration's devices. There is no committed capture in this
+  repo to fall back on.
+
+Serials are **10-character alphanumeric**, not numeric-only (`1234567890`,
+`1234A56789`). Never assume `\d{10}`.
+
+## Quality gates
+
+Run all of these before committing. `uv` only — never `pip`.
+
+```bash
+uv run ruff check custom_components/ --fix && uv run ruff format custom_components/
+uv run mypy --config-file tests/mypy.ini custom_components/eg4_web_monitor/
+uv run pytest tests/ -x --tb=short
+uv run python tests/validate_silver_tier.py
+uv run python tests/validate_gold_tier.py
+uv run python tests/validate_platinum_tier.py
+```
+
+The repo has no `pyproject.toml`, so `uv run` uses the active environment. Install
+`tests/requirements-test.txt` into it first. The pytest run includes
+`tests/test_llmwiki_okf.py`, so a wiki-only change is gated too.
+
+`prek.toml` (not `.pre-commit-config.yaml`) holds the ruff/mypy pre-commit hooks.
+Bronze quality-scale requirements are enforced by
+`.github/workflows/quality-validation.yml`; there is no Bronze validator script.
+
+Don't cite test counts — they rot. Count them when you need one:
+`grep -rhcE '^\s*(async )?def test_' tests/ | awk '{s+=$1} END {print s}'`. The
+coverage target and the full gate definitions live in
+`llmwiki/50-operations/quality-gates.md`, which is canonical for them. Fixtures come
+from `pytest-homeassistant-custom-component`; `enable_custom_integrations` is
+auto-enabled in `tests/conftest.py`. Mock mixin methods with instance-level
+`patch.object(coordinator, ...)`; config-flow tests patch
+`custom_components.eg4_web_monitor._config_flow.LuxpowerClient` — the **package**,
+not the shim. `config_flow.py` re-exports only `EG4ConfigFlow` and `EG4OptionsFlow`, so
+the name does not exist in that namespace and patching `config_flow.LuxpowerClient`
+**raises `AttributeError`** — `mock.patch` resolves the attribute when it starts and
+refuses a missing one unless `create=True`. It does not silently no-op.
+(`tests/test_config_flow.py:141`, `tests/test_cloud_session_isolation.py:496`. The
+maintainers' agent-memory `MEMORY.md`, outside this repo, is stale on this; see
+`llmwiki/10-integration/config-flow.md`.)
+Never disable a linter rule to make a gate pass.
+
+## Coding conventions
+
+- **f-strings** for ordinary formatting; **percent-style `%s` for logging only**
+  (lazy evaluation). Do not use `.format()` for ordinary formatting. The exception is
+  filling a stored template string, such as `param_name()` in `const/midbox.py`.
+- New entities inherit from `base_entity.py`. The common bases are
+  `EG4DeviceEntity`, `EG4BatteryEntity`, `EG4StationEntity`, `EG4BaseSensor`,
+  `EG4BaseBatterySensor`, `EG4BatteryBankEntity`, and the `EG4OptimisticEntity`
+  family (`EG4BaseSwitch`, `EG4BaseNumber`, `EG4BaseSelect`, `EG4BaseTime`). Switches
+  use `_execute_switch_action()` / `_get_inverter_or_raise()` and get optimistic
+  state for free from `EG4OptimisticEntity`.
+- `TypedDict` for config dicts; `DeviceInfo | None` from device-info methods.
+- Use `time.monotonic()`, never `asyncio.get_event_loop().time()`.
+  **Throttle gotcha:** `monotonic()` is host uptime on Linux, so `0.0` as the
+  "never ran" default in `now - last.get(key, 0.0) < INTERVAL` makes the
+  first-ever run look throttled on a freshly booted host (every CI runner) and it
+  silently never fires. Use a `None` sentinel. Bit PRs #378 and #380 the same day
+  (fix pattern `d66cc92`); regression-test with `monotonic` patched small.
+- Prefer capability/family gates over model-name substring matching.
+- Fetch once, update all — one API call often carries data for many devices.
+- Niche sensors ship `entity_registry_enabled_default=False`.
+
+## Docker development environment
+
+This section describes the maintainers' workspace, not this repo. The compose file,
+the mode-switch script and the `config*` directories live in the **parent** workspace
+(`../`) and are absent from a plain clone.
+
+Container `homeassistant-dev`, image `homeassistant/home-assistant:latest`, port
+8123. `custom_components/eg4_web_monitor` and
+`pylxpweb/src/pylxpweb` are bind-mounted live; restart to pick up import changes:
+`docker restart homeassistant-dev && docker logs -f homeassistant-dev`.
+
+`../scripts/eg4-switch-mode.sh <mode>` swaps the mounted HA config directory.
+**Four** modes, one at a time (API rate limits, Modbus collisions):
+
+| Mode | Config dir | Purpose |
+|---|---|---|
+| `cloud` | `./config` | Baseline — all data validated against this |
+| `local` | `./config-local` | Local only (Modbus / dongle / serial) |
+| `hybrid` | `./config-hybrid` | Local polling + cloud supplemental |
+| `local-nomidbox` | `./config-local-nomidbox` | Local without GridBOSS (inverters only) |
+
+Check the current mode from the parent workspace with
+`grep ":/config" docker-compose.yaml | head -1`.
+Local must reach at least entity parity with cloud; hybrid is a superset of cloud;
+small live-reading deltas are expected from cloud lag.
+
+**Gotchas.** A fresh container layer lacks the `pylxpweb` dist-info, so HA
+pip-installs over the bind mount and the integration dies — recreate a minimal
+dist-info after every mode switch. `docker restart` has wiped the bind-mounted
+`pylxpweb` source; commit first, recover with `git restore src/pylxpweb/`. Prod
+runs HYBRID against the same gateway, so leaving the dev container up degrades
+prod to cloud fallback — stop it when not developing.
+
+## Troubleshooting
+
+See `docs/TROUBLESHOOTING.md`. Import errors → `docker logs homeassistant-dev`.
+Changes not reflecting → the container needs a restart.
 
 ## Landing the Plane (Session Completion)
 

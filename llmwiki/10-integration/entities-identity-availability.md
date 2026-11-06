@@ -1,29 +1,32 @@
 ---
+type: Reference
+title: "Entities: inheritance, identity, availability"
+description: "Entity base classes, and why `unknown` and `unavailable` differ by class."
 canonical-for:
   - entity base-class inheritance graph
   - per-class availability semantics (unknown vs unavailable)
   - unique_id formats as implemented
   - entity_id derivation, and why _attr_entity_id is inert
 sources:
-  - custom_components/eg4_web_monitor/battery_bus.py
-  - tests/test_battery_bus.py
-  - custom_components/eg4_web_monitor/base_entity.py
-  - tests/test_energy_guard_restore.py
-  - tests/test_sensor_entities.py
-  - custom_components/eg4_web_monitor/sensor.py
-  - custom_components/eg4_web_monitor/binary_sensor.py
-  - custom_components/eg4_web_monitor/update.py
-  - custom_components/eg4_web_monitor/utils.py
-  - custom_components/eg4_web_monitor/coordinator_mixins.py
-  - custom_components/eg4_web_monitor/__init__.py
-  - https://github.com/joyfulhouse/eg4_web_monitor/pull/657
-  - homeassistant/helpers/entity.py (installed Home Assistant, repo .venv)
-  - memory/issue-261-hybrid-sensor-flicker.md
-  - memory/issue-253-duplicate-has-runtime-data.md
-  - memory/issue-262-operating-state-and-i18n-names.md
-  - memory/queue-cleanup-2026-07-26.md
-  - eg4_web_monitor issues #550, #253, #256, #261, #479
-  - eg4_web_monitor PRs #566, #571
+  - resource: custom_components/eg4_web_monitor/battery_bus.py
+  - resource: tests/test_battery_bus.py
+  - resource: custom_components/eg4_web_monitor/base_entity.py
+  - resource: tests/test_energy_guard_restore.py
+  - resource: tests/test_sensor_entities.py
+  - resource: custom_components/eg4_web_monitor/sensor.py
+  - resource: custom_components/eg4_web_monitor/binary_sensor.py
+  - resource: custom_components/eg4_web_monitor/update.py
+  - resource: custom_components/eg4_web_monitor/utils.py
+  - resource: custom_components/eg4_web_monitor/coordinator_mixins.py
+  - resource: custom_components/eg4_web_monitor/__init__.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/657
+  - resource: homeassistant/helpers/entity.py (installed Home Assistant, repo .venv)
+  - resource: memory/issue-261-hybrid-sensor-flicker.md
+  - resource: memory/issue-253-duplicate-has-runtime-data.md
+  - resource: memory/issue-262-operating-state-and-i18n-names.md
+  - resource: memory/queue-cleanup-2026-07-26.md
+  - resource: eg4_web_monitor issues #550, #253, #256, #261, #479
+  - resource: eg4_web_monitor PRs #566, #571
 verified-against:
   eg4_web_monitor: e42ed86
   homeassistant: 2025.11.2

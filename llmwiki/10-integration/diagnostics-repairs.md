@@ -1,27 +1,30 @@
 ---
+type: Reference
+title: "Diagnostics, Repairs, and device removal"
+description: "Diagnostics output, redaction, and the Repairs surface."
 canonical-for:
   - diagnostics output shape and redaction rules
   - serial/plant aliasing with digit-boundary guards
   - repairs issue keys and who raises them
   - device-removal observation ledger
 sources:
-  - custom_components/eg4_web_monitor/diagnostics.py
-  - custom_components/eg4_web_monitor/repair_registry.py
-  - custom_components/eg4_web_monitor/device_removal.py
-  - custom_components/eg4_web_monitor/utils.py
-  - custom_components/eg4_web_monitor/coordinator_local.py
-  - custom_components/eg4_web_monitor/__init__.py
-  - custom_components/eg4_web_monitor/strings.json
-  - memory/issue-reporting-hardening.md
-  - eg4_web_monitor issues #174, #322, #515
-  - docs/production/beta21-2026-10-23.json
-  - docs/production/release-preflight-2026-10-25.json
-  - docs/production/candidate-deployment-2026-10-25.json
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/697
-  - tests/test_diagnostics_acquisition_times.py
-  - tests/test_diagnostics.py
-  - tests/test_repair_registry.py
-  - tests/test_init.py
+  - resource: custom_components/eg4_web_monitor/diagnostics.py
+  - resource: custom_components/eg4_web_monitor/repair_registry.py
+  - resource: custom_components/eg4_web_monitor/device_removal.py
+  - resource: custom_components/eg4_web_monitor/utils.py
+  - resource: custom_components/eg4_web_monitor/coordinator_local.py
+  - resource: custom_components/eg4_web_monitor/__init__.py
+  - resource: custom_components/eg4_web_monitor/strings.json
+  - resource: memory/issue-reporting-hardening.md
+  - resource: eg4_web_monitor issues #174, #322, #515
+  - resource: docs/production/beta21-2026-10-23.json
+  - resource: docs/production/release-preflight-2026-10-25.json
+  - resource: docs/production/candidate-deployment-2026-10-25.json
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/697
+  - resource: tests/test_diagnostics_acquisition_times.py
+  - resource: tests/test_diagnostics.py
+  - resource: tests/test_repair_registry.py
+  - resource: tests/test_init.py
 verified-against: 0b7cbb6b15efb5fce05f598bc89cf1f7304e308a
 # Metadata executor/redaction-order subsection re-verified at bf8bfe6 on 2026-10-23.
 # Other sections retain their original pin and date scope.

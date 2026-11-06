@@ -1,56 +1,1998 @@
----
-canonical-for:
-  - "Chronological record of operations performed on llmwiki"
-sources:
-  - PR #553 and the sibling chapter PRs
-  - the round-by-round adjudication record for this build — a host-local orchestrator
-    ledger, NOT published in this repo and not openable by a reader
-verified-against: 9f6d6e2
-last-verified: 2026-08-09
-see-also:
-  - index.md
-  - README.md
----
-
 # Log
 
-Append-only record of what has been done to this wiki and why. Newest entries at the
-bottom.
+Dated record of what has been done to this wiki and why. This is the OKF v0.2 `log.md`
+for the bundle: date groups headed `## YYYY-MM-DD`, **newest first**. Each entry under a
+date is a `### <op> | <subject>` heading followed by prose. Within a date, the most recent
+entry comes first.
 
-**Entry format.** Every entry starts `## [YYYY-MM-DD] <op> | <subject>`, so the log stays
-parseable:
+**Reading recent history.** The first entries in the file are the newest:
 
 ```
-grep '^## \[' log.md | tail -5      # the last five operations
+grep -m 5 '^### ' log.md                 # the five most recent operations
+grep -E '^##+ ' log.md | head -12        # the same, with their dates
 ```
 
-**Operations.** `ingest` — a source was read and filed into pages. `query` — a question was
-answered from the wiki and the answer was worth keeping. `lint` — a health pass over the
-wiki itself. `build` — structural work on the wiki's own scaffolding.
+**Operations.** `ingest`: a source was read and filed into pages. `query`: a question was
+answered from the wiki and the answer was worth keeping. `lint`: a health pass over the
+wiki itself. `build`: structural work on the wiki's own scaffolding. `repin`: a page's
+`verified-against:` pin moved with no change in its claims.
 
-**Rules.** Append, never rewrite: a wrong entry gets a later correcting entry, because the
-sequence is the value. Record what changed and *why it was wrong before* — the reasoning is
-the durable part, and several entries below exist only because a plausible answer turned
-out to be unsound. Keep entries short and link the pages that changed.
+**Rules.** Add new entries at the top, under today's date heading (create the heading if it
+is not already the first one). Never rewrite an entry: a wrong entry gets a later
+correcting entry, because the sequence is the value. Refer to other entries by date and
+subject, never as "above" or "below". Record what changed and *why it was wrong before*.
+The reasoning is the durable part, and several entries exist only because a plausible
+answer turned out to be unsound. Keep entries short and link the pages that changed.
 
----
+## 2026-11-06
 
-## [2026-08-09] build | Wiki created — 33 pages across seven sections
+### build | Converted llmwiki to an OKF v0.2 bundle
 
-Initial construction of `llmwiki/` as a durable knowledge base for the EG4 Web Monitor
-integration and its two-repo system, written for an agent that must not guess.
+Made `llmwiki/` a conformant [Open Knowledge Format v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundle so OKF tooling can search and validate it. The schema owner is
+[`_conventions.md`](_conventions.md). No claim, grade or pin changed.
 
-The motivating defect was **duplication**: an accuracy pass over the repo's own
-documentation catalogued dozens of software-accuracy defects, and the dominant cause was
-one fact living in three or four documents, being corrected in one, and rotting in the
-rest. The wiki's answer is the canonical-source policy — one fact, one owner, everyone else
-links. Corrections to the source documents themselves ship separately as PR #557.
+- **Concept front matter.** Every page gained `type`, `title` and `description`. The
+  descriptions are the one-line summaries the catalog already carried. Each `sources:` string
+  became a `- resource:` entry with identical text. `canonical-for`, `verified-against`,
+  `last-verified`, `see-also`, `runbook-status` and `last-executed` are kept as OKF
+  extension keys and remain the wiki's own trust record. No page received `generated:` or
+  `verified:` because the authoring agents and the human reviewers were never recorded, and
+  inventing actors would grade provenance from nothing.
+- **Indexes.** OKF forbids front matter on `index.md` (except `okf_version` at the root) and
+  lists entries as `* [Title](url) - description`. The root `index.md` now lists the root
+  concepts and the seven chapters. Each chapter gained its own `index.md` holding that
+  chapter's catalog rows, with the "Owns" text unchanged. The root index's dropped front
+  matter claimed only catalog ownership, last rechecked 2026-10-25. The "where to start, by
+  task" table moved into [`README.md`](README.md), which already owned the reading order.
+  README's directory table moved into the root index as the chapter descriptions, and the
+  `60-history/` description now names its dated records.
+- **This log.** Its front matter was dropped (reserved file). Entries were regrouped under
+  `## YYYY-MM-DD` headings and reversed to newest first, with entries ordered by date and
+  then by original append order. The old `## [date] op | subject` heading became
+  `### op | subject`. Thirteen positional phrases ("the entry above", "the previous entry")
+  were reworded to name the earlier entry, because reversing the order made them point the
+  wrong way. The body text is otherwise byte-identical. `repin` was added to the operation
+  vocabulary because two existing entries already used it.
+- **Agent docs.** `CLAUDE.md` was merged into `AGENTS.md`, and `CLAUDE.md` now imports it.
 
-Sections: `00-orientation`, `10-integration`, `20-pylxpweb`, `30-portal-api`,
-`40-hardware`, `50-operations`, `60-history`, plus [`README.md`](README.md) (legend and
-rules) and [`_conventions.md`](_conventions.md) (page template).
+## 2026-10-30
 
-## [2026-08-09] lint | Ten-round adversarial review — a full three-engine tribunal for four of them
+### ingest | Record #704 validation follow-ups
+
+Updated the [quality-gates owner](50-operations/quality-gates.md) for the #704
+follow-up: removed its duplicate workflow source, documented the HACS digest and
+comment setting, and recorded the USB constraint drift guard and its scoped
+verification pins.
+
+## 2026-10-29
+
+### ingest | Follow up on serial discovery and Hassfest validation
+
+Updated the [quality-gates owner](50-operations/quality-gates.md) against
+`b66e04d` and PR #708: serial discovery now uses HA's USB API, pyserial remains
+for pymodbus transport until the supported floor moves, and the weekly moving
+Hassfest canary is advisory. The canary was added to the workflow table; the #704
+section and workflow table were scoped-reverified at `b66e04d`.
+
+## 2026-10-28
+
+### ingest | Pin Hassfest across the pyserial core transition
+
+Updated the [quality-gates owner](50-operations/quality-gates.md) and
+[readiness classification](60-history/final-release-readiness-2026-10-23.md)
+for #704. The moving development validator rejected a dependency absent from
+our supported stable floor but required for serial enumeration. The workflow
+at `9cd541907108bfc28437be44696340f39821fbf0` retains the last successful official
+image by immutable digest and its normal rules. Supported HA matrix coverage
+remains required; this is not a development-HA compatibility claim. Independent
+review approved the bounded approach, with candidate CI still required.
+
+### ingest | HYBRID counters cannot fall back to stale HTTP snapshots
+
+Updated [data semantics](10-integration/data-semantics.md), the
+[Repairs owner](10-integration/diagnostics-repairs.md), and
+[release readiness](60-history/final-release-readiness-2026-10-23.md)
+against `0b7cbb6b15efb5fce05f598bc89cf1f7304e308a`. Real released-library fetches reproduce
+#702's 16.6-to-2.6 drop: an old HTTP baseline is tested with the shared local
+change clock. The consumer now withholds energy during configured local gaps,
+including dependent group and chart/carry paths, while preserving runtime fallback
+and independent CT authority. The secondary Repairs address defect came from
+owner capabilities hiding connection attributes; UI context now uses configuration.
+The [validation record](../docs/production/hybrid-energy-fallback-validation-2026-10-28.json)
+keeps software evidence separate from production acceptance. Library #396 remains
+open for validation history/publication and MID behavior; no hardware test or
+statistics rewrite occurred. Data-flow documentation links to the source-rule owner.
+
+## 2026-10-25
+
+### ingest | Authorized b14 publication and bounded dongle investigation
+
+Recorded [b14 publication and verification](../docs/production/pylxpweb-b14-publication-2026-10-25.json)
+after the user authorized the required immutable version-tag rule and prerelease.
+The sealed wheel/sdist match both indexes and their source/build attestations;
+clean offline installed-wheel recovery passes without network attempts. Integration
+source `c336cb58ef6be127c03bd3a4b7ac369c06280192` moves both exact pins after
+that gate, with both supported HA suites and quality checks passing.
+
+The [later passive checkpoint](../docs/production/candidate-soak-progress-2026-10-25-late.json)
+links a brief GridBOSS local-link flag transition to nine local-only control
+availability transitions and their natural restoration. Independent review found
+#693's bounded investigation acceptance met with explicit evidence gaps. The
+[readiness owner](60-history/final-release-readiness-2026-10-23.md) retains the
+stricter fresh-acquisition deployment recovery gate under #694 and lineage
+acceptance under #666. Neither a warning/root-cause fix nor new production
+acceptance is inferred from software-state recovery.
+
+Refreshed the [release-process owner](50-operations/release-process.md) and
+[pin-mechanics owner](20-pylxpweb/release-and-pinning.md) against the same exact
+source pins. Their former operative manual-dispatch and minimum-floor instructions
+were historical, not the current tag-bound sealed-artifact workflow or exact pin.
+Useful provenance lessons remain explicitly historical; current guidance follows
+the primary workflow and links the dated execution record.
+
+### ingest | Preserve daily acquisition evidence without asserting production acceptance
+
+Source `ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21` adds detached per-value
+daily lineage and aware timestamp serialization. Updated [data semantics](10-integration/data-semantics.md) with
+the numeric-source/cache/CT contract and diagnostic-only eligibility limits;
+updated [diagnostics](10-integration/diagnostics-repairs.md) with capture versus
+acquisition time, alias-safe datetime ordering and the remaining unknown-object
+boundary. The prior `<datetime>` observation remains true for its deployed pin
+and recorded captures. [Readiness](60-history/final-release-readiness-2026-10-23.md)
+retains #693/#694/#666 and separate #697 production gates. No existing capture is
+promoted into provenance acceptance, and no deployment or publication is claimed.
+
+### ingest | Diagnostics privacy includes HA's Repairs wrapper
+
+Updated the [diagnostics owner](10-integration/diagnostics-repairs.md) against
+`c006150eeef0486db30e2c986dba9415b7e0e644` and linked the
+[validation record](../docs/production/diagnostics-privacy-validation-2026-10-25.json)
+from release readiness. Payload-only aliasing could not reach HA's earlier
+Repairs snapshot. Initialization now migrates stable pseudonymous identities and
+nonpersistent serialization omits sensitive UI metadata, while history and
+recovery survive. Collision-order and numeric battery-serial regressions exposed
+additional defects during implementation and now pass. Supported HA matrix and
+quality gates pass; authorized private production acceptance remains separate.
+
+### ingest | Long-outage probe overflow fix and delivery boundary
+
+Updated [transports](20-pylxpweb/transports.md) from the primary merged library
+source at `a35cf5f6228363cc5f652420e8d288e35ac92e8a`. Bounding the exponent
+preserves probe cadence while preventing arithmetic from permanently blocking
+recovery. The [release-readiness owner](60-history/final-release-readiness-2026-10-23.md)
+separates the resolved source issue from delivery: the integration and production
+still use b13, so an authorized library artifact and reviewed dependency update
+remain necessary. The fix does not diagnose the recurring production warnings.
+
+### ingest | Partial candidate soak preserves acceptance gaps
+
+Added the sanitized [partial-soak record](../docs/production/candidate-soak-progress-2026-10-25.json)
+and updated the [release-readiness owner](60-history/final-release-readiness-2026-10-23.md).
+The observed event prefix supports published availability stability, while recurring
+warnings and discarded acquisition timestamps leave transport recovery and contributor
+provenance unresolved. The natural midnight and full observation deadline remain
+future at the recorded checkpoint; no issue is closed on elapsed-time inference.
+
+### ingest | Separate metadata issue acceptance from new redaction gate
+
+Re-read #691's original acceptance rather than inferring it from the broader
+deployment checklist. It requires independent review, green CI and an authorized
+download without metadata blocking warnings; those conditions are met. The
+[readiness owner](60-history/final-release-readiness-2026-10-23.md) now separates
+that resolved scope from #697's pre-existing full-download redaction exposure.
+Closing #691 must not imply that #697 or final-release acceptance is complete.
+
+### ingest | Candidate deployed; full-download redaction gap retained
+
+The preceding staging checkpoint used a preliminary check broader than the site's
+documented operational inputs. Rechecked the canonical inputs before activation;
+the operational preconditions passed. Deployed the exact approved candidate with
+one restart and verified all 81 installed files, raw EG4 configuration, registry
+identity and initial availability. Inactive countdowns now report zero without
+duplicate-ID startup warnings; no new metadata blocking warnings accompanied the
+post-restart diagnostics request.
+
+The [diagnostics owner](10-integration/diagnostics-repairs.md) records pre-existing
+nested-host and outer-wrapper repair-ID exposure found in both private captures.
+Filed #697 with sanitized paths only; no private values were published. The
+[readiness owner](60-history/final-release-readiness-2026-10-23.md) retains complete
+diagnostics acceptance and the longer-soak/provenance gates. No rollback or final
+release publication occurred.
+
+### ingest | Authorized candidate staged; operational gate pending
+
+The user authorized the exact prepared candidate, a fresh private backup, one
+Core restart and conditional rollback with one additional restart. Created and
+verified the fresh backup and staged all 81 candidate files, preserving ownership
+and permissions. The operational gate did not pass, so the active component and
+running HA process were left untouched. The [readiness owner](60-history/final-release-readiness-2026-10-23.md)
+and linked execution record distinguish authorization and completed preparation
+from activation and acceptance. Authorization remains valid; recheck the baseline
+and operational preconditions before continuing. No acceptance issue was closed.
+
+### ingest | Release preflight after merged countdown fix
+
+Reconciled the handoff with upstream #695 and retained #692's permitted software
+acceptance as resolved. The [readiness owner](60-history/final-release-readiness-2026-10-23.md)
+now links fresh authenticated read-only production evidence, with HA version and
+installed-source verification, non-known state classifications, recurring dongle
+connection failures and retrospective natural-midnight recorder observations.
+Numeric resets do not establish acquisition provenance or device reset timezone.
+The [diagnostics owner](10-integration/diagnostics-repairs.md) records why datetime
+placeholders cannot fill that evidence gap. The proposed scope still holds final
+publication for #691/#693/#694/#666 acceptance.
+
+Prepared the exact existing-main runtime archive and recorded its digest in the
+unexecuted deployment plan. Updated the latest HA/plugin validation pair together.
+No deployment, restart, hardware write, clock change, master reconstruction or
+release publication was performed.
+
+## 2026-10-23
+
+### ingest | Final-release defects and acceptance boundaries
+
+Reproduced #692's generic/specialized countdown duplication at startup and late
+discovery. The [entity owner](10-integration/entities-identity-availability.md)
+records one status-backed producer with stable identity. Also replaced the
+shared-Modbus conflict fallback with a transport error preserving HA ownership;
+the [transport owner](20-pylxpweb/transports.md) retains #350's independent-connection
+scheduling boundary. Both fixes have before/after regressions and real HA
+lifecycle/ownership coverage.
+
+Updated the [diagnostics owner](10-integration/diagnostics-repairs.md) to identify
+#690 as merged source, and appended the released-dependency compatibility result
+to the [maintenance record](60-history/maintenance-2026-10-22.md). The
+[readiness report](60-history/final-release-readiness-2026-10-23.md) owns validation
+and issue classifications; the linked deployment plan remains unexecuted.
+Independent review tightened observation thresholds and disabled/eligible entity
+acceptance. Production authentication was unavailable, so no historical smoke-test
+count was promoted to current live health, and no deployment, restart, hardware
+write or release publication occurred.
+
+### ingest | Diagnostics review corrections
+
+Independent review of #690 found an alias-map race across the new executor
+await. Metadata lookup now precedes coordinator capture and alias collection;
+a refresh-during-lookup regression protects newly appearing device and battery
+identifiers. Removed household security/presence detail from the dated public
+evidence; the record retains only that operational preconditions were checked.
+
+### ingest | Authorized beta.21 production smoke test and diagnostics blocking I/O
+
+Recorded the authorized beta.20-to-beta.21 upgrade, unchanged registry/config
+identity and settled availability, recurring baseline warnings, and untested
+acceptance in [the dated report](60-history/production-beta21-2026-10-23.md).
+Added sanitized evidence under `docs/production/`; credentials, raw diagnostics,
+serials, and private endpoints remain outside Git. The diagnostics download
+exposed synchronous package-metadata I/O; updated
+[the owning page](10-integration/diagnostics-repairs.md) with the executor fix
+and a thread-identity regression test. The diagnostics source was identical
+on beta.20, so this finding is not a newly established beta.21 regression.
+No test hardware writes, PR merge, patch deployment, or release publication.
+
+## 2026-10-22
+
+### ingest | #176 master-field offer and beta.21 release preparation
+
+Read the new Wall Mount master-data offer on #176 and rechecked the released b13
+master decoder and integration projection. Recorded the testimony in the direct
+battery semantics owner without claiming universal firmware absence. Known bank
+aggregates are distinct from per-pack readings; SOC/capacity withholding is a
+separate conservative consumer policy. No duplicate hardware capture is required.
+Prepared integration beta.21 metadata and moved the Unreleased changelog, with
+HA 2026.10.0 minimum explicit and the published b13 pin unchanged. Publication
+will follow exact-head independent review, required checks, and merge.
+
+### ingest | #658 unused-generator follow-up
+
+Read the new reporter comment posted during maintenance: the generator has not
+been used yet, which the reporter offers as the likely explanation for the zero
+values. Added the cited operating-history testimony to the existing
+[schema evidence owner](30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658).
+It supplies no nonzero measurement and changes no scaling, leg-aggregation or
+lifetime acceptance boundary. No runtime change or hardware operation.
+
+### ingest | #666 released provenance consumer adoption
+
+Rechecked the full issue/comments against integration cb7b6c8 and released
+pylxpweb v0.10.0b13; comments describing b12 are historical. Updated only the
+[daily-energy subsection](10-integration/data-semantics.md#422-daily-baselines-follow-conservative-per-field-local-provenance-666)
+for the per-field adapter and its conservative acceptance boundary. Entirely
+LOCAL, same-HA-day lineage supplies its earliest acquisition; receipt-only,
+unknown, missing and mixed-day evidence cannot expire a guard. Numeric and
+lifetime handling remain unchanged. Real-library and HA lifecycle regressions
+provide software evidence; device reset timezone and cloud/battery/chart
+counter-day uncertainty remain on #666.
+
+Implementation verified at `c3c444392de0fb57baef1fa1be1762d6a97c06b7` on base `b95119b`; full-suite coverage, strict typing and tier gates passed.
+
+### ingest | #612 and #659 released family recognition acceptance
+
+Updated only the family-recognition section of
+[data semantics](10-integration/data-semantics.md#211-released-recognition-acceptance-612-recognition-only-for-659)
+after reading both full issues/comments and pylxpweb PR #382's released sources.
+The installed public dependency now contains the exact code-20 LXP and code-2102
+EG4_OFFGRID recognition; earlier b12 blocker comments describe an older pin.
+Consumer regressions at `e24fc95` use real installed library detection and local discovery,
+the integration feature mapper, and number/switch/select setup, including late
+discovery and existing off-grid exclusions. This establishes software discovery
+behavior, not hardware control semantics or reporter confirmation. No mapping,
+write route, battery/energy implementation, historical statistic, or #659
+consumption claim changes.
+
+### ingest | Battery cell precision and remaining #574/#176/#384 acceptance
+
+Read the issue bodies, comments and original attachments, including the October 21
+#574 clarification that the battery card retained cell decimals. Updated
+[the direct battery semantics owner](10-integration/data-semantics.md#direct-battery-projection)
+with the HA presentation fix and regression evidence; native voltage scaling stays
+unchanged. The tests exercise existing registry precision, all cell channels,
+minimum/maximum values and a user display override. These are software checks,
+not new hardware validation. Recorded the balance-field contract gap and the
+separate serial/CAN join requirement without promoting attachment table labels
+into proven semantics or requesting another dedicated-bus capture.
+
+As of this entry, published [pylxpweb b13](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b13)
+and [integration beta.20](https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.5.1-beta.20)
+meet #384's publication/dependency-update prerequisites. The integration still withholds
+master SOC/remaining capacity pending deliberate complete-physical-inventory
+opt-in and consumer validation; responding configured units do not prove that
+inventory. Other master aggregate fields need separate per-pack evidence.
+#574/#176/#384 remain open for unresolved acceptance. No release or hardware
+write was performed in this maintenance change.
+
+### ingest | #668 LXP AC-charge start/stop evidence
+
+Read the original log, diagnostics, all comments and screenshots, including the
+October 21 clarification. Updated the register keeper with the exact model and
+firmware, rejected H67=4 with start SOC=5, distinct H161/AC-couple/H227 values,
+and the difference between reporter testimony and write proof. Recorded the
+missing LXP H160 exposure and remaining acceptance evidence in open-questions.
+Added rejection-specific vendor-app guidance to the control error owner; #673
+already owns error normalization/rollback. No hardware grade promotion, register
+rerouting, new writable control, sentinel coercion or universal inequality.
+
+### lint | Transport audit ownership and claim scope
+
+Independent Astra review separated the constructor/API fact from unsupported
+integration-release testimony and corrected the inherited connect citation.
+Moved release versions, upstream state and acceptance tracking to
+[the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
+backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
+catalog entry. This corrects the location described in the earlier ingest entry.
+
+### ingest | Library transport maintenance triggers
+
+Read all current comments on library #189, #344, #345, #350 and #363 and the
+upstream release/source evidence. Added a scoped current snapshot to
+[transports](20-pylxpweb/transports.md), separating the historical pymodbus-only
+description from the released backend and shared-unit seams. Independently
+compared the three production connection/pacing/adapter modules in the 4.12.5
+and 4.12.6 wheels; byte equality is source evidence, not runtime validation.
+The upstream shim/lifecycle release triggers and host/shared-consumer acceptance
+remain open. No transport behavior or dependency pin changes.
+
+### ingest | #658 GridBOSS generator-energy evidence boundary
+
+Read the issue body, all three comments, and the October 21 PNG. Recorded the
+four zero-valued candidate fields and the reported Day/Total selector in
+[the portal schema owner](30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658).
+The earlier audit lacked these field names; the new screenshot still cannot
+establish electrical-leg aggregation, scaling, or lifetime semantics. Checked
+`MidboxData`, `MIDRuntimePropertiesMixin`, the analytics Total request and the
+integration GridBOSS mapping at the section's exact pins. Narrowed the older
+energy-scaling table to modeled fields so it does not silently license a divisor
+for the new candidates. Linked the existing hardware question and catalog;
+recorded precise capture requirements. No runtime change or evidence-grade
+promotion; #658 remains open for acceptance evidence.
+
+## 2026-10-20
+
+### ingest | October schema and device ownership migration
+
+PR #682 testing exposed October HA schema typing changes and deprecated device
+ownership access. Source commit `9ae5cde` migrates forms/services to `probatio`
+and uses singular config-entry ownership for topology and registry cleanup.
+Updated [config flow](10-integration/config-flow.md) and
+[architecture](10-integration/architecture.md): the old Voluptuous and shared-row
+cleanup descriptions no longer describe the supported minimum. Invalid-input
+regressions and cross-entry cleanup/topology tests verify software behavior;
+no hardware claim is made.
+
+### ingest | Home Assistant support starts at 2026.10.0
+
+At `5e3752e`, HACS and test requirements now require HA 2026.10.0, with
+minimum/latest core and plugin pairs for 2026.10.0/2026.10.2 on Python 3.14.
+Updated the quality-gates matrix and release-process HACS row; historical
+validation records remain historical. Published integration beta.20 keeps
+its original requirements. The library follows the new HA compatibility
+matrix while retaining standalone Python 3.13 support.
+
+### ingest | Entry-scoped GridBOSS registry compatibility
+
+PR #678 full-matrix validation exposed HA2026.9.4 entry-scoped device identities,
+while minimumHA2026.1 retains global/shared records. Updated the data-semantics
+owner with the capability-selected topology lookup and matching DeviceInfo guard.
+Regressions preserve legacy foreign/shared protection and assert independent
+markers for newer per-entry identities. This is software ownership evidence.
+
+### ingest | Partial-group observability and independent CT authority
+
+The group sensor state now exposes total and available member counts plus the
+lost-member flag. Real station-pipeline regressions cover outage and recovery
+with and without complete independent GridBOSS CT energy: paired CT totals
+remain authoritative at20kWh today/2000kWh lifetime while inverter-derived
+counters stay unknown during the outage. This does not solve missing-member
+cumulative-energy continuity for groups without complete independent CT data.
+
+### ingest | Partial parallel-group runtime availability
+
+Updated `10-integration/data-semantics.md` from commit `e5fa860` and its real
+ParallelGroup regression tests. A cloud-lost member no longer blanks live
+siblings' runtime measurements. Energy keeps fixed membership and remains
+unknown during a partial outage; #619 remains open for that continuity work.
+
+### ingest | Resolve legacy mixed groups and first-read source gaps (#661)
+
+Section 4.3.2 now pins `e4ca3f0f23254ee280669854eaafedef1c3e9f27`.
+Positive associations of every known GridBOSS elsewhere can resolve legacy
+HTTP/HYBRID groups without treating absence as topology proof. Foreign/shared
+registry roles are ignored and never overwritten by the classifier or cached
+device information. First MID discovery now persists its role before processing
+can fail. Added repeated-reload, partial-association and ownership regressions.
+
+### ingest | Verify LOCAL daily snapshot provenance against pinned library
+
+Rechecked the energy and MID register assembly, data conversion, and device
+acceptance paths at pylxpweb `v0.10.0b12` (unchanged in those files at
+`0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`). Updated data-semantics section
+4.2.2 with the absence of per-field cached energy carry-forward into fresh
+snapshots, MID subblock failure behavior, and unchanged scope limits.
+
+### ingest | Scoped LOCAL daily guard expiration (#666)
+
+Added data-semantics section 4.2.2 at `a9bab41`. Accepted LOCAL physical-counter
+snapshots now carry acquisition timestamps through mapping; daily baseline
+expiration follows sample-day changes instead of publication/access time.
+Documented the undated restore policy and kept cloud/aggregate/battery gaps
+explicit under issue #666 and library dependency #383. No hardware reset-clock
+semantics or cloud freshness claims are inferred from these software tests.
+
+### ingest | Direct battery independent-review corrections
+
+Commit `7bbb0b2` supersedes the initial master reconstruction gate: all master
+SOC/remaining capacity is withheld because the real released decoder can add
+655.36 Ah at low SOC, even with complete topology. Upstream issue
+https://github.com/joyfulhouse/pylxpweb/issues/384 records the reproducer.
+Config-flow and identity owners also record complete-poll shutdown draining,
+atomic effective polling options, changed-endpoint validation, and explicit
+address-removal policy. Regression tests and independent review cover these
+software paths; no new hardware validation is claimed.
+
+### ingest | Dedicated direct battery bridge
+
+Recorded the direct battery implementation at `6e5115c` in config-flow,
+data-semantics and entities-identity-availability. Updated obsolete discovery
+guidance. Identity is explicit entry/unit address; bank aggregate master
+fields and incomplete/unreconstructed master SOC remain unknown. Later #574
+reporter evidence resolves its earlier passive-capture gate only for the
+observed Z02T11 dedicated bus. Broader #176 acceptance remains open.
+
+### ingest | Portal-supported start discharge zero
+
+Issue #628 supplies reporter portal evidence that the LXP start-discharge
+threshold accepts 0 W; the 50 W default is not its minimum. Updated the H116
+keeper row with that scoped evidence and widened integration validation only
+for positively identified LXP inverters. No
+new register routing or hardware-semantic proof is claimed.
+
+### ingest | HYBRID measurement entity startup (#653)
+
+Updated data-flow-by-mode from f6abc8c and real HA lifecycle regressions.
+Previously registered eligible inverter/bank keys are seeded unknown before
+platform setup; first local data no longer needs to create those entities.
+Both delayed and hung-read scenarios fail on the baseline and pass with the
+change. Poll timing and never-observed sensor discovery are unchanged.
+
+### ingest | Physical-device hybrid conversion
+
+Updated [config flow](10-integration/config-flow.md) from `9ea6c83`: onboarding
+now correlates discovered serials with existing entries and offers an in-place
+hybrid conversion. Reviewed guards include both directions of partial overlap,
+concurrent target changes, identity conflicts, and retained options. The prior
+separate unique-ID namespaces alone could not prevent physical duplicate entries.
+No hardware capability or register claim changes.
+
+### ingest | Cloud write rejection normalization
+
+Updated [controls and writes](10-integration/controls-and-writes.md) from
+`ad79479` and the primary #668 traceback. The router previously allowed
+LuxpowerAPIError to escape into HA as an unexpected exception; known library
+cloud failures now retain their cause inside HomeAssistantError. Regression
+tests reproduce the original failure and assert rejected SOC writes publish
+4 then 100 without cache seeding. No register limits or hardware evidence
+grades change; #668 remains open for control intent and firmware evidence.
+
+### ingest | Deliberate LOCAL startup measurement placeholders (#653)
+
+Rechecked the static first refresh and documented the observable initial `unknown`
+in the data-flow owner and troubleshooting guide. Entity setup must remain
+independent of a stalled read; the real-HA regression covers first refresh,
+platform forwarding, eventual measurements and a never-completing read. The
+separate HYBRID transport-only discovery delay remains explicitly unresolved.
+
+### lint | Correct stale SOC routing and peak-shaving provenance (#606, #609)
+
+Rechecked `number.py` at integration `98ae596` against the register keeper's
+H160/H161 family rows and the routing owner's fail-closed policy. Corrected
+`docs/DATA_MAPPING.md`: family floors and cloud-only off-grid/unresolved
+writes already shipped in PR #600; the old ungated-local-write warning was
+false. Firmware proof remains limited to decoded CEAA/CCAA images, and live
+cloud toggle evidence remains limited to the tested hybrid units.
+
+Rechecked pylxpweb `80e8221` H208/H219 holding definitions cited by
+[`40-hardware/registers.md`](40-hardware/registers.md). Corrected only the
+stale `const/limits.py` provenance comment: the library carries the same
+40.0-64.0 V maintainer guard since b8. Numeric limits, routing, keeper
+ownership and evidence grades are unchanged; no new hardware evidence exists.
+
+### ingest | Persist group consumption authority across restart (#661)
+
+Rechecked section 4.3.2 at `b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a`.
+The earlier runtime-only marker did not protect the first poll after reload.
+Entry-owned registry group roles now retain CT authority while MID discovery is
+missing; legacy unclassified groups in known-GridBOSS entries remain unknown.
+Documented confirmed inverter groups, explicit removal/reset, and software
+regressions across three connection modes without asserting discovery freshness.
+
+### ingest | GridBOSS consumption source continuity (#661)
+
+Updated data-semantics section 4.3.2 against `ac4174d772c67004a8104ae62c42ffb7f430ac0d`.
+The shared overlay no longer substitutes zero for absent CT components or retains
+an inverter balance through a gap. HTTP failure and temporary MID discovery loss
+are covered alongside LOCAL; prior stale-source guidance described the old code.
+Evidence is coordinator regression coverage, not a hardware outage capture.
+
+### ingest | Retain known GridBOSS startup topology (#664)
+
+Updated data-semantics section 4.3.1 against `d889f82feb88e75d4518fd09d5efc8224e8618ad`.
+Existing HA registry ownership now seeds the exclusion before first publication;
+partial cloud startup no longer prunes that evidence. Documented the explicit
+reset via guarded device deletion/reload or LOCAL configuration removal. The
+previous entity-lifetime-only explanation left the restart window unresolved.
+
+### ingest | GridBOSS threshold effectiveness remains unproven
+
+Review of PR #639 removed `is_effective` and `active_control_mode` from the
+port threshold entities: inverter H179 does not establish the GridBOSS's
+active regime, and the reported portal behavior disagreed with that inference.
+[Issue #670](https://github.com/joyfulhouse/eg4_web_monitor/issues/670) tracks
+the required hardware evidence. The configured control options remain display preferences. The evidence
+needed to resolve this now belongs to
+[open hardware questions](40-hardware/open-questions.md). No hardware grade
+was promoted. The 2026-09-30 entry's "every kind" wording describes the
+representative Smart Load tests listed in `const/midbox.py`; it does not
+establish a write test for every AC Couple or voltage field.
+
+The same review reproduced a long-running option-read failure overflowing
+the exponential backoff before its cap was applied. The retry calculation
+now stops doubling at the configured interval, retaining successful blocks
+when another block remains unsupported. Regression tests cover both findings.
+
+## 2026-10-14
+
+### ingest | #629 guidance meets the smart port Smart Load Enable switch
+
+Upstream's #629 guard (beta.18/19) told users the integration does not expose
+the per-port Smart Load Enable flag and sent recovery to the portal. The smart
+port options change (#639) exposes that flag as a switch for a GridBOSS with a
+configured local transport. Updated the #629 postmortem pointer in
+`60-history/bug-postmortems.md` (was "follow-up work in #638") and added a
+GB-H229 cross-reference to the #629 section of `40-hardware/gridboss.md`. No
+grade changed: nothing captures an Unused write clearing GB-H229, so the #629
+side effect stays `asserted-unverified`. Both pins note that the new sentences
+are verified against the #639 branch, not a merged commit. The user-facing
+recovery steps (`docs/CONFIGURATION.md`) and the Unused error text in
+`select.py` now name the switch when it exists and the portal otherwise.
+
+### ingest | Landed consumption and listener evidence for beta.19
+
+Re-verified data-semantics sections 4.3.1-4.3.2 at mainline `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`
+for PR #665: effective consumption state class, entry-lifetime latch, first
+GridBOSS recognition dispatch, and the separately tracked group CT fallback.
+The cited source and lifecycle regression definitions exist at that pin; its
+production and test trees equal the independently reviewed combined candidate
+`84b39c4`. Only these sections receive the new pin and verification date; other
+scoped claims retain their pins. Prior log content is unchanged.
+
+## 2026-10-13
+
+### ingest | Landed select protection and restore evidence for beta.19
+
+Rechecked PR #662's select guard/status/regression claims at mainline
+`8289d6f4558e1aa8779a0a49e6c21816f337ee29`, and PR #663's restore eligibility,
+regressions and inheritance at `0708cc52d101dfcaff7e1f813c14d51ce6dae717`.
+Updated those scoped citations and the consumption upgrade-guidance link to the
+beta.19 changelog heading. The GridBOSS reported-side-effect section, its
+postmortem link and catalog ownership row were also rechecked; their reporter
+and firmware/portal evidence grades are unchanged. Restored the older page-wide
+pins beneath explicit scoped verification comments, avoiding an unsupported
+claim that unrelated firmware, catalog or historical entries were reverified.
+PR #665's final mainline repin remains pending its merge.
+
+### ingest | Consumption evidence after rebasing PR #665
+
+Re-verified the scoped consumption and listener claims at `7b597aa0592665aad2e54f94dd764849f25315c4`
+and `363580713692385c5c730da15824d3f1395e5753` after rebasing onto merged PR #663.
+The production tree and tests match the independently reviewed combined candidate
+`84b39c4`; conflicts preserved both changelog entries and append-only wiki
+histories. Updated the owner page to reachable branch pins without modifying
+prior log entries.
+
+### ingest | GridBOSS recognition dispatches unchanged inverter listeners (#665)
+
+Updated [data semantics §4.3.1](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648)
+against implementation commit `a339e7a`, scoped to the listener-dispatch claim;
+other sections keep their prior pins. The previous mocked-coordinator test did
+not prove that real scoped dispatch reached unchanged inverters on GridBOSS
+arrival. The real coordinator/HA regression now covers arrival, type recognition,
+published metadata, disappearance and a subsequent energy drop for both
+consumption keys, and checks ordinary notifications remain scoped. The sensor
+latch remains entity-local; restart persistence stays separate in #664.
+
+### ingest | Startup topology window in consumption exclusion (#664)
+
+Kimi K3 review of #648 confirmed that the exclusion latch is entity-local and
+not persisted. Rechecked the state-class property and LOCAL static startup data
+at `883f403`: explicitly configured GridBOSS devices are recognized immediately,
+while a missing/unidentified device can delay the exclusion after restart.
+Filed #664 with a clear evidence limit: the metadata transition is code-verified,
+but production miscount in this exact startup window was not captured. Recorded
+this scope in data-semantics rather than presenting late discovery as persistence.
+
+### ingest | Missing GridBOSS CT consumption overlay fallback (#661)
+
+The #648 adversarial review identified a separate group-source fallback.
+Rechecked the group balance computation, conditional CT overlay and HTTP
+MID-processing catch at `883f403`, then reproduced the helper/entity boundary:
+missing CT data leaves approximately 19 -> 17 kWh published as
+`total_increasing`. Filed #661 for the coordinator failure-path fix and recorded
+the limitation in the owning data-semantics page. This is source-selection
+evidence, not a hardware proof or a claim that CT counters normally decrease.
+
+### ingest | GridBOSS per-inverter consumption statistics (#648)
+
+Read issue #648 and the balance implementation, then recorded the metadata fix
+at `883f403` in [data-semantics](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648).
+A difference of monotonic component counters need not be monotonic. Inverter
+daily/lifetime consumption therefore loses statistics eligibility after GridBOSS
+discovery, with a latch through missing polls and the effective class passed to
+the entity guard. Group and CT meters retain their metadata. The production scan
+is issue-reported evidence; the missing AC-coupled term stays unproven. The
+existing contested lifetime-source narrative is not resolved by this change.
+
+### ingest | Restore fix evidence after rebasing PR #663
+
+Re-verified the scoped restore eligibility and inheritance claims against
+`a63b5328c8d527b857322d8b185b9d8d4f87b7d2` after rebasing onto merged PR #662.
+The restore source and tests are unchanged from `3727ff0`; the rebase only adds
+the reviewed select guard and preserves both append-only wiki histories.
+Updated the two owning pages to the reachable branch code pin; prior log entries
+remain unchanged as history.
+
+### ingest | Daily restore eligibility rejects fresh nonnumeric states
+
+Re-verified the restore implementation and actual HA remove/re-add lifecycle tests
+at `3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a` and updated only
+[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649).
+A same-day `last_updated` alone was insufficient: an unavailable publication after
+midnight retained yesterday's numeric native payload and incorrectly clamped the
+reloaded daily sensor. Daily restoration now also requires a finite numeric display
+state as eligibility, while the native payload remains the baseline and lifetime
+restoration is unchanged. Recorded the conservative loss of same-day daily dip
+protection after a nonnumeric shutdown and linked separate running-entity issue
+#666. Lifecycle tests cover all three guarded classes on HA 2026.1.0 and 2026.9.4.
+Grade: `verified-against-code`; other page sections retain their existing pins.
+
+### ingest | Restore the energy dip guard across HA restarts (#649)
+
+Read the shared sensor bases, HA native restore lifecycle and sensor mappings.
+The original bases discarded their comparison baseline on entity recreation;
+first-publication regression tests fail on `5f42769` for all three sensor classes.
+Recorded the fix at `447e5ef5d5ed0e24496aa423325a51406905679c` in
+[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649),
+with the new multiple-inheritance edge in
+[entities-identity-availability.md §1](10-integration/entities-identity-availability.md#1-inheritance-graph).
+The owner page explains native-unit validation, daily local-date eligibility and
+why restoration must seed only the guard rather than publish stale live data.
+
+### ingest | #629 GridBOSS mode write and independent enable state
+
+Read issue #629, integration write/status paths, and the public pinned
+pylxpweb control helper. Filed the reported Unused side effect in
+[GridBOSS](40-hardware/gridboss.md), graded `asserted-unverified`: no raw
+before/after pair supports a hardware-grade promotion. Recorded the software
+root cause and pre-write rejection at `c79b772` in
+[bug postmortems](60-history/bug-postmortems.md). Updated the index ownership
+row and checked mode/Unused claims across the wiki; the existing packing
+grades remain unchanged. Mode readback had concealed an independent disabled
+flag, so the fix blocks the destructive trigger rather than inferring that
+mode convergence proves load enablement. Recovery remains explicit; broader
+per-port settings are tracked by #638. Historical postmortem table checks
+retain their explicit old pins; the new section has its own newer scope.
+
+### ingest | Assign the smart-port registry-authority rule to its owner
+
+Filed the current rule in [architecture section 4.2](10-integration/architecture.md#42-smart-port-read-identity-and-registry-authority),
+beside the registry hygiene passes, and extended its `canonical-for:` and index row.
+The earlier 2026-10-13 entry "Superseded cloud records cannot authorize smart-port registry changes" records the defect and fix history; the architecture page owns
+the current behavior at mainline `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`.
+Explicitly retained the separate provisional-adoption fallback: an unvalidated
+record is barred from validated-mode decisions, not from that existing fallback.
+
+Authority still requires complete, valid port statuses in the filter at that pin;
+a distinct accepted cloud record alone does not bypass those existing checks.
+
+### ingest | Superseded cloud records cannot authorize smart-port registry changes
+
+PR #642 landed at `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`. Its final review
+reproduced a registry deletion with pinned `pylxpweb==0.10.0b10`: after local
+port data superseded a cloud record, link-down and a failed cloud fallback
+could validate the older record and remove an aggregate entity still in use.
+Removing the missing-read timestamp update alone did not fix the defect.
+
+Re-read `coordinator_mixins.py` at the landed commit: `_SmartPortRead` separates
+cloud identity from the last served read and its registry authority;
+`_smart_port_read_stamp` remembers even an unobserved startup cloud baseline;
+`_smart_port_cloud_read_superseded` withholds validation from superseded cloud
+replays. A newly accepted distinct cloud record restores authority. Missing
+local statuses remain unstamped for the existing unvalidated-adoption fallback.
+These claims are `verified-against-code` at the mainline commit above, including
+`tests/test_smart_port_devices.py` ->
+`TestIssue641.test_superseded_cloud_cannot_authorize_registry_changes`, which
+exercises real device refreshes, migration, and the deferred cleanup callback.
+The prerelease changelog describes the registry protection. Earlier log entries
+remain historical accounts of the preceding implementations.
+
+### ingest | PR #657 post-merge verification completed
+
+Completed the REQUIRED POST-MERGE ACTION recorded on 2026-10-13: re-read the
+landed implementation with `git show b6644539588d189e4a2fc671b3730609555037e8:<path>`.
+Updated [architecture §3.2](10-integration/architecture.md) for
+`ParameterManagementMixin.async_wait_for_missing_parameters`;
+[controls and writes §9](10-integration/controls-and-writes.md) for
+`control_capability_signature`, `setup_control_entity_discovery` / `_rediscover_controls`,
+`_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity`, and the number/switch
+route signatures; and [entity lifecycle §6](10-integration/entities-identity-availability.md)
+for `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`, and the bounded wait.
+The immutable mainline commit `b6644539588d189e4a2fc671b3730609555037e8` now licenses
+only these claims in scoped front-matter notes and inline citations; PR #657 remains
+provenance. Refreshed `last-verified: 2026-10-13` with explicit scope, preserving
+all unrelated verification pins and dates. No wholesale reverification is claimed.
+All earlier log entries remain unchanged.
+
+### lint | PR #657 verification-source notes and release-cut re-pin tracking
+
+Re-verified the added parameter-wait method and setup behavior, and the control-discovery
+section, against PR #657 head `63dd93a`. The inline PR citations identified the in-flight
+source, but the front matter did not distinguish those claims from the older page pins.
+Added scoped verification-source comments to
+[`architecture.md`](10-integration/architecture.md),
+[`controls-and-writes.md`](10-integration/controls-and-writes.md), and
+[`entities-identity-availability.md`](10-integration/entities-identity-availability.md).
+Existing pins continue to license the older claims; the inline PR #657 citations license
+only the added claims, following the #559 / #600 precedent.
+
+**REQUIRED POST-MERGE ACTION (release cut):** re-verify the PR #657 change-set claims
+in those three pages against the mainline merge SHA and re-pin their front matter
+accordingly, refreshing `last-verified:` without implying that unrelated older claims
+were re-verified. This entry tracks the pending action; merge has not occurred.
+
+## 2026-10-12
+
+### ingest | Smart-port devices: issue #641 follow-ups (LOCAL poll test, cloud read identity, rename hint)
+
+The three non-blocking findings left open by the #632/#640 reviews. (1) The LOCAL forced GridBOSS
+poll (`coordinator_local.py` → `_async_update_local_data`, `or serial in awaiting_port_mode`) had
+no test: deleting the line kept the suite green. It now has one that drives the real method with
+no transport interval elapsed. (2) The read stamp `SMART_PORT_READ_KEY` came from the MID device's
+`_last_refresh`, which pylxpweb advances on every accepted cloud refresh, including one answered
+by the client's `midbox_runtime` response cache. So one portal payload could count as both reads
+`PortSensorEnablement.REQUIRED_READS` asks for. On the cloud path (no transport, or
+`transport_link_down` with the cloud fallback serving) an accepted refresh whose payload
+(`MidboxRuntime.midboxData`) equals the one already counted keeps its stamp
+(`coordinator_mixins.py` → `_smart_port_read_stamp`, `_cloud_payload`, state held per MID device
+object); a cloud reading counts again only when the portal returns a new record. Complete local
+transport reads still use `_last_refresh`. A healthy transport refresh with any missing port
+status falls back to the prior cloud status in pylxpweb and emits no read stamp. The held cloud
+payload identity is refreshed, while the validation authority marker stays unset so every
+unstamped unvalidated cycle can count toward the existing adoption fallback. Why the
+earlier entry was wrong: [2026-09-28] called the stamp "the MID device's last successful refresh"
+and treated that as a read, which holds for a register read and not for a cached HTTP response.
+Two things issue #641 states did not survive a check against the code. The cache lifetime is not
+pylxpweb's 20 s default: `coordinator_http.py` → `_align_client_cache_with_http_interval` sets it
+to the HTTP polling interval, and HTTP-only mode ticks at that same interval, so "Cloud sensor
+interval below the TTL" is not the trigger. The exposure is HYBRID with a cloud-served GridBOSS
+(the coordinator ticks at the local rate) and any extra refresh inside the interval. And the
+issue's suggested key, the server timestamp, is unsafe as an identity: whether a midbox payload's
+`serverTime` is the request time or the record's time is not established here (no portal capture
+pair was taken), so the rule compares the whole payload and does not depend on it. Blind spot:
+while the portal serves the same record (dongle offline, `lost`), cloud reads stop being counted,
+so the sync does not act on a frozen mirror. (3) A port with a single legacy power/current entry
+adopts it whatever the port's mode, so its entity ID can name the other mode. Behaviour unchanged;
+the adoption logs a rename hint at info when a validated read already names the mode, and otherwise
+marks the entry (`smart_port_named_for`) so the registry sync's first validated active mode logs it
+(`smart_port_devices.py` → `_settle_rename_hint`). LOCAL always takes the second route: it adopts
+on its static first refresh, before any port status is read. `docs/CONFIGURATION.md` documents it.
+No wiki page stated the stamp's source, so no page changed.
+
+### ingest | Durable PR citations and foreign control ownership without legacy entries
+
+Re-verified [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation.
+The earlier `e804788` and `9ebd2b8` implementation pins were superseded by a branch rebase;
+main also uses rebase merges, so another branch SHA would not provide durable provenance.
+Updated [controls and writes §9](10-integration/controls-and-writes.md),
+[architecture §3.2](10-integration/architecture.md) and
+[entity lifecycle §6](10-integration/entities-identity-availability.md) to cite the durable
+PR artifact and explicitly use its own implementation as the verification target.
+Preserved the pages' older verification metadata and all previous log entries.
+The foreign stable-ID ownership check now precedes the no-legacy early exit: the
+conflicted control is skipped and warned once even on an entry with no legacy matches,
+without writing either entry's registry records. Number/time regression cases also
+check ordinary no-legacy setup offers all controls without registry writes.
+
+### ingest | Keep stable controls; restore page provenance and pin the added wait method
+
+Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) at
+`9ebd2b8a567753125631c2e756fdfd931e7e7e6b`. Corrected [controls and writes §9](10-integration/controls-and-writes.md):
+an existing same-entry stable control is always kept untouched; only unloaded legacy entries
+are removed, with WARNING logs naming both IDs. The prior plain-stable replacement rule
+could remove the working control and promote a user-disabled legacy entry, changing the
+target used by automations and losing settings the predicate did not inspect. That policy
+is withdrawn; the previous log entry remains as append-only history. No-stable selection
+and foreign-entry conflict handling retain their existing rules. Restored both owner pages'
+pre-existing page-level verification pins, dates and provenance comments; the re-verified
+§9 and [entity lifecycle §6](10-integration/entities-identity-availability.md) claims cite
+this implementation pin inline. Added the missing immutable method citation to
+[architecture §3.2](10-integration/architecture.md), leaving its older page pin intact.
+Confirmed the cited symbols with `git show` at the implementation commit.
+
+### ingest | Control migration ownership and preservation; durable setup evidence
+
+Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation at
+`e804788d73ed779c13a90fde5d4a4c824bbe2e4f`. Updated [controls and writes §9](10-integration/controls-and-writes.md)
+for foreign config-entry conflicts, promotion of plain stable duplicates, preservation of
+customised or loaded stable entries, deterministic creation-time ties, and WARNING removal logs.
+The earlier rule treated a stable ID anywhere in the registry as this entry's survivor and
+could delete its legacy controls; blindly keeping a plain third entry also discarded the
+original entity ID. Updated [entity lifecycle §6](10-integration/entities-identity-availability.md)
+for measured INFO timeout logging. The prior mutable-branch citations could not verify the
+new claims at the pages' declared pins; replaced them with this immutable implementation pin
+and checked each cited symbol via `git show`. Refreshed verification metadata while preserving
+older sections' historical pins. The 2026-10-05 entry remains as append-only history;
+this entry corrects its branch-based provenance and incomplete migration rule.
+
+## 2026-10-05
+
+### ingest | Control setup waits for parameters; legacy control IDs collapse (#656)
+
+Branch `fix/control-setup-order-656`. Two code changes, filed where they are owned:
+`10-integration/entities-identity-availability.md` (control platforms are forwarded after a
+bounded wait for the first parameter read) and `10-integration/controls-and-writes.md` §9
+(the model-prefix migration now keeps one legacy entry and removes the rest);
+`10-integration/architecture.md` lists the new mixin method. Wrong before: the §9 row said
+ambiguous legacy entries were "left untouched", which on a HYBRID install whose model was
+reported two ways meant three entities per control, two of them permanently unavailable
+(#656, 80 warnings in the reporter's log). The wait is grounded in #653's recorder data
+(37 controls unavailable for 1–20 s at startup after #652), not in a log of the mechanism.
+
+## 2026-10-04
+
+### ingest | Correction: the manifest pins plain pylxpweb, not the modbus-connection extra
+
+The earlier 2026-10-03 entry says the manifest pins `pylxpweb[modbus-connection]==0.10.0b10`. That
+was true at e75acca and is no longer: since 401b3b6 the manifest pins plain
+`pylxpweb==0.10.0b10`. The extra requires `serialx>=1.8.2`, and Home Assistant's
+`package_constraints.txt` pins `serialx==1.7.0` on 2026.5.0 and `serialx==1.8.0` on 2026.6.0, so
+the integration's requirements could not install there (the hacs.json floor is 2026.1.0). `modbus`
+stays in `after_dependencies`: from 2026.9.0, core's `modbus` manifest pins
+`modbus-connection[tmodbus]==4.10.0` and `tmodbus==0.6.2` (serialx arrives transitively), so
+`esphome://` serial ports and the shared `async_get_unit` path need Home Assistant 2026.9 or newer.
+CI job `bronze-requirements-resolve` resolves the manifest's requirements under each HA minor's
+constraints from 2026.1.0. No other `llmwiki/` page claimed the extra pin.
+
+## 2026-10-03
+
+### ingest | pylxpweb 0.10.0b10 Modbus backend seam wired into the integration
+
+The manifest now pins `pylxpweb[modbus-connection]==0.10.0b10` and lists `modbus` under
+`after_dependencies`. A stored per-transport `backend` key (absent or null means `auto`) reaches
+`TransportConfig.backend`, feature-detected like the read block size (#254). The new
+`ha_modbus.py` gives each coordinator a raw-transport factory that injects Home Assistant's
+`async_get_unit` (core 2026.9+, feature-detected by import, not version) only when the backend
+resolves to `modbus_connection` — `auto` on TCP or a local serial path stays on pymodbus and the
+owned link, so the Waveshare transaction-ID workaround still applies there. Units are memoised per
+link params and unit ID because every `async_get_unit` call adds a hold released only at entry
+unload (`homeassistant/components/modbus/connection.py` at 2026.9.4). Discovery keeps the owned
+path: core's config-flow variant is an async context manager and the discovery capability is
+created synchronously. Not yet ingested into
+[transports](20-pylxpweb/transports.md), which is still verified against `pylxpweb@204b95d`;
+its backend/`unit=` rows need a re-verification pass against `v0.10.0b10`, not a local edit.
+
+## 2026-10-02
+
+### ingest | Smart-port devices: cloud current, provisional fallback, foreign targets
+
+Follow-up to PR #632, merged with three review findings still open; fixed by the maintainer.
+(5) The PR treated per-port current as Modbus-only, but the cloud carries it: the portal's
+`smartLoad{N}L{1,2}RmsCurr` (÷10) maps to pylxpweb `smart_port_N_lX_current` (`transports/data.py`
+at `v0.10.0b9`), which `_process_mid_device_object` puts into `smart_load{N}_current_l{1,2}`. So
+HTTP-only installs would have had their current entities orphaned. Current sensors are now created
+with a local transport or once the data has a per-port current key (`reports_port_currents`), and
+adopted regardless of transport. (6) The #195/#248 fallback picked Smart Load whenever both key
+families were present, and on that path they always are: pylxpweb's `_get_ac_couple_power` returns
+the Smart Load registers as AC Couple power when the status is unreadable, so the readings cannot
+separate the modes. A fallback adoption is now marked, and the registry sync's first validated
+active mode settles it, swapping the two legacy entries back if it disagrees. (7) The migration
+skipped a target held by another config entry but did not report it, so late registration created
+an entity with that unique ID, and HA's `async_get_or_create` moved the other entry's registry
+entry to this one; such targets are now returned as not-to-create. Why the earlier entries were
+wrong: "Modbus-only" came from a code comment, not from the library; and "adoption is final"
+assumed the fallback rule was evidence, when on the skip path it is a tie-break. Updated
+[architecture §4.1](10-integration/architecture.md) and
+[entities §5](10-integration/entities-identity-availability.md).
+
+## 2026-10-01
+
+### ingest | Smart-port devices: review fixes to adoption and the registry sync
+
+Maintainer review of PR #632 found four defects, all confirmed against the code and fixed.
+(1) The deferred-adoption listener treated "not in the migration's returned deferred set" as
+"adopted", but the migration skips a GridBOSS absent from `coordinator.data`, so one update
+without it created the contested sensor fresh and stranded the legacy entry. Port sensors are now
+added by one listener (`sensor.py` → `_async_register_port_sensors`) only for a GridBOSS present in
+that update and already registered as a device. (2) On #195/#248 firmware no read is ever
+validated, so a contested sensor was deferred for good; `serials_resolving_unvalidated` now lets
+`resolve_port_mode`'s key-presence rule decide after `UNVALIDATED_READS_BEFORE_FALLBACK` reads and
+`UNVALIDATED_SECONDS_BEFORE_FALLBACK`, and `SMART_PORT_READ_KEY` is stamped on unvalidated reads
+too so they can be counted. (3) A GridBOSS first reported as `type: gridboss` after setup (LOCAL
+config without the flag, or absent) never got port sensors; the same listener adopts and adds them.
+(4) The registry sync looked unique IDs up registry-wide and could flip another config entry's
+entities; `_apply` now checks the owner. An adversarial review of those fixes then found a setup
+race (the first real LOCAL read landing between entry setup's migration and the sensor platform's
+setup — the platform now reruns the idempotent migration against the data it builds from), that a
+count-only fallback could mis-adopt on a normal unit with three status-less reads (hence the time
+bound; adoption is final), a registry scan on every update while a contested port stays unused
+(now once per changed read), and the migration superseding this entry's legacy entry when another
+config entry held the target. Why the earlier entry was wrong: it said contested power/current "is
+now decided only by a validated read", which is exactly what lost those sensors on firmware that
+never validates. Updated [architecture §4.1](10-integration/architecture.md) and
+[entities §5](10-integration/entities-identity-availability.md) (rows footnoted to this change).
+
+## 2026-09-30
+
+### ingest | Smart port options — live write test (port 4)
+
+Wrote every kind of smart port option from Home Assistant (build `+smartports.11`) on port 4,
+set to Smart Load for the test and back to Unused after. Each write read back over the dongle as
+expected and was reverted, and the full 20 / 229-317 / 2099-2104 set matched the pre-test read
+afterwards. Raw pairs are in the `const/midbox.py` docstring. GB-H229 b15 (port 4 shedding) moves
+from `inferred` to `portal-correlated`: our write set it and the portal showed port 4's shedding
+enabled. Not `hardware-toggle-proven`, because the change came from our write rather than a vendor
+control. New open question: with the FlexBOSS21 reporting voltage control (register 179), the
+portal still greyed port 4's Smart Load voltage fields. So the portal's SOC-vs-voltage greying
+isn't driven by the inverter regime, and the entities' `is_effective` attribute (which reads
+register 179) is unproven as a statement of what the GridBOSS applies. Recorded in
+`const/midbox.py`, `docs/CONFIGURATION.md` and `docs/DATA_MAPPING.md`.
+
+## 2026-09-29
+
+### ingest | GridBOSS 2101 b4 pinned — port 4 "based on"
+
+Resolved the open GB-H2101 b4 row with a portal round trip on the live GridBOSS: port 4 set to
+Smart Load, based on SOC/Volt → Time cleared only b4 (2101 0x3e → 0x2e), and the revert restored
+0x3e with port 4 back to Unused. Graded `hardware-toggle-proven`; the ambiguity came from the
+mobile app, whose port 3 "Time+SOC/Volt" choice had also set b4 — the app writing port 4's bit,
+consistent with its earlier unreliable readback. The `UNPINNED_BASED_ON_PORTS` guard from the earlier
+review-corrections entry is removed; port 4 gets its Based On select like ports 1-3.
+
+### ingest | Smart port options — adversarial review corrections
+
+Two adversarial reviews of the smart port options change found defects the earlier entry "GridBOSS smart port option registers (229-317, 2101)"
+recorded as fine. Code: HYBRID writes all failed (`get_local_transport` never searches
+`station.all_mid_devices`; the tests mocked that lookup); the verify read came before the
+GridBOSS's sub-second revert window, and the write seed's 30 s settle window then hid a revert
+or portal change. Evidence: the `hardware-toggle-proven` row cited `const/midbox.py`, which then
+held prose, not the raw before/after pair the grade requires — the docstring now records every
+raw pair, and the step that changed several ports at once is marked not attributable bit by
+bit. Ledger counts were wrong (b13 double-graded in the b0-b14 row; 230-269 counted 36).
+Port 4's based-on bit (2101 b4, `inferred`/unresolved) is no longer read or written at all
+(`UNPINNED_BASED_ON_PORTS`), rather than shipped with a doc caveat: a wrong-bit write would
+read back as written (#476), so no verify could catch it.
+
+### ingest | GridBOSS smart port option registers (229-317, 2101)
+
+Pinned the per-port smart port settings (enables, "based on", SOC / voltage thresholds,
+shedding, time windows) on a live GridBOSS (fw IAAB-1300) by making one portal or app change
+at a time and diffing dongle reads of 229-317 and 2099-2104. The cloud range read already names
+every register, which fixes register → field; the diffs pinned byte order (low byte = start SOC,
+= window hour), scales, and bit positions. Only the port 2 shedding / based-on round trip was
+restored, so only it meets `hardware-toggle-proven`; the rest is `portal-correlated` or
+`inferred`. The mobile app over local WiFi was not a reliable readback (showed port 3 shedding off
+while register and portal had it on), so the portal was the reference. Open: port 4's based-on
+bit (2101 b4) collides with a mobile-app "Time+SOC/Volt" write on port 3, and the bit positions of
+the cloud's `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` are unknown. Added the
+[GridBOSS ledger rows](40-hardware/registers.md#gridboss-register-ledger) (footnoted to this
+change's `const/midbox.py`, not the page pin); `docs/DATA_MAPPING.md` §5 and
+`docs/CONFIGURATION.md` "Smart port settings" describe the shipped entities.
+
+### ingest | Current-HA fixtures and fail-closed required CI summaries
+
+Read `c94b18c` / `d320f5d` and their regression tests. Updated
+[quality-gates](50-operations/quality-gates.md): registry fixtures now respect
+config-entry-scoped identity, offline Modbus failures are explicit, and the
+negative wall-clock test restores time before HA teardown. Required summaries
+run even after dependency failure and reject every result other than success;
+previously skipped required summaries allowed a merge despite failed coverage.
+No socket or timer-cleanup checks were weakened.
+
+Also re-verified the HA-stop row in [architecture](10-integration/architecture.md)
+at `a79b8eb`. The first shared-teardown fix entered both the public unload wrapper
+and the outer HA-stop wrapper, closing the client twice; the existing session
+ordering test caught it. The corrected path calls the inner teardown and keeps
+one outer session owner. This corrects the call-site description, not the
+terminal-debouncer contract or the previous targeted regression results.
+
+### ingest | HA stop terminally shuts down the refresh producer
+
+Read `d1392ab` and its failing-before/passing-after debouncer regression. Filed
+the HA-stop lifecycle in [architecture](10-integration/architecture.md): the
+previous handler cancelled the current timer, but a cancelled in-flight refresh
+could create another in its `finally` block because the base coordinator and
+debouncer had not been marked shut down. HA stop now uses the full unload
+teardown. The regression and cancellation tests passed on minimum and current
+HA; no hardware claim is involved. Only this lifecycle row was re-verified.
+
+### ingest | Explicit minimum/latest HA CI matrix
+
+Read the CI implementation at `7b0a237` and updated the Python/HA matrix owned by
+[quality-gates.md](50-operations/quality-gates.md), plus the setup link/example in
+[dev-environment.md](50-operations/dev-environment.md). The former Python 3.13-only
+gate could resolve an older HA through the test plugin's exact HA dependency and
+skip modern-registry tests. CI now has explicit paired core/plugin constraints,
+blocking minimum/latest full-suite and mypy gates, and latest auxiliary jobs.
+Mypy follows the interpreter; requirements permit HA's pycares 5.x dependency.
+Only these subsections were re-verified; the rest retains its historical pins.
+The CI change remains a draft until existing latest-HA failures are resolved;
+this entry records the implementation, not a claim that the new gates pass.
+
+## 2026-09-28
+
+### ingest | GridBOSS smart ports become their own devices (breaking)
+
+Each GridBOSS smart port is now a device `(DOMAIN, f"{serial}_smart_port_{n}")` under the
+GridBOSS (#630), holding the port's Mode select, mode-neutral power/current sensors that read the
+port's current mode, and one energy pair per mode (a single energy entity switching firmware
+counters would corrupt HA's long-term statistics: the recorder reads the jump as consumption, a
+negative delta, or a meter reset). Entities that don't serve the port's mode are
+integration-disabled, only on two consecutive validated reads, and only entities the sync itself
+disabled are re-enabled (marked in registry entity options). Setup adopts the old per-mode
+registry entries by rewriting unique IDs, before the #217 cleanup (now limited to the cross-port
+totals); superseded entries are disabled, never deleted. Agreed with the maintainer as a breaking
+change with no opt-out. An opt-in option and a one-time entity-ID rename action were built and
+live-tested first, then removed: HA's device page offers ⋮ → "Recreate entity IDs"
+(frontend `ha-config-device-page.ts` → `reset_entity_ids` → `regenerateEntityIds`, present in both
+the 2026.1 and 2026.9 frontends; renaming a device does not regenerate IDs). Two adversarial
+reviews found defects fixed here: energy statistics, adoption deleting or guessing the live entry
+(contested power/current is now decided only by a validated read, deferred until then; LOCAL's
+first load never has one, and `created_at` is restored on re-created entries and epoch 0 on
+migrated registries), cleanup ordering, the #195/#248 skip path, and a sync debounce that counted
+coordinator updates instead of GridBOSS reads (reads now carry `SMART_PORT_READ_KEY`, the MID
+device's last successful refresh). After a Mode-select write the coordinator reads the GridBOSS
+every cycle until a read confirms the mode, and the sync acts on that one confirming read. Live-tested earlier builds
+on a HYBRID GridBOSS: adoption of 28 entries, Unused → disable, mode → enable + ~30 s reload.
+Updated [entities §5–§6](10-integration/entities-identity-availability.md) and
+[architecture §4.1](10-integration/architecture.md) (rows footnoted to this change, not the page
+pins), and `docs/DATA_MAPPING.md` §11. Rebased onto `main` after #631 merged (squash `4683d58`);
+the §6 parent-link footnote now cites that commit instead of the `fix/via-device-id` branch.
+
+### ingest | via_device → via_device_id parent links (HA 2026.8+)
+
+`DeviceInfoMixin.via_device_link` now links child devices (batteries, battery bank,
+parallel-group members) with `via_device_id` on HA ≥ 2026.8.0b0 and keeps `via_device` on
+older HA, feature-detected on `device_registry.async_get_device_id_by_identifier`. Found live:
+an entity-ID rename from the UI on HA 2026.9 raised on the legacy `via_device` (core-attributed
+add) and the entity stayed stateless until reload. Version facts were checked against PyPI
+wheels 2026.2.0–2026.9.4, not docs: the helper and `via_device_id` both first appear in
+2026.8.0b0 (which also removed `DEVICE_INFO_KEYS`); the raising deprecation first appears in
+2026.9.0. Updated [entities §6](10-integration/entities-identity-availability.md) (column was
+`via_device`, now "Parent device" plus a version paragraph; cites moved from line numbers to
+symbols), [what-this-project-is](00-orientation/what-this-project-is.md) and
+[architecture](10-integration/architecture.md), which both said `via_device` unconditionally.
+
+## 2026-09-04
+
+### ingest | v3.5.1-beta.16 release cut — #574 and pylxpweb 0.10.0b9
+
+The release cut includes the #574 standalone-battery discovery fix from `c411499`
+and its mainline documentation at `1d09823`. The pylxpweb
+[v0.10.0b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b9) tag is
+`f3ced1a` and carries [PR #330](https://github.com/joyfulhouse/pylxpweb/pull/330)
+for issue [#329](https://github.com/joyfulhouse/pylxpweb/issues/329). The
+[registers keeper](40-hardware/registers.md) is re-pinned to both release inputs;
+the pylxpweb delta from `80e8221` to `f3ced1a` changes transport and release files
+but no register definitions, so no register claim or evidence grade changed.
+
+### ingest | #574 — holding-only batteries get an explicit discovery error
+
+Source: [#574](https://github.com/joyfulhouse/eg4_web_monitor/issues/574), including
+the reporter's EG4 master/slave H0–H41 captures and the failed inverter input-register
+serial request. Filed the resulting behavior on
+[config-flow](10-integration/config-flow.md): after the inverter serial probe fails,
+Modbus TCP discovery checks a complete, plausibility-gated holding-register block using
+pylxpweb's battery protocol classifier. A match now tells the user the device is a
+battery and points to #176; a non-match preserves the original error. The integration
+behavior and both flow mappings are `verified-against-code` at `c411499`; the issue's
+hardware observations remain `asserted-unverified` and were not promoted.
+
+## 2026-09-02
+
+### ingest | v3.5.1-beta.15 release cut — #608 and pylxpweb 0.10.0b8
+
+PR [#608](https://github.com/joyfulhouse/eg4_web_monitor/pull/608) merged as
+`5092b5b`; companion pylxpweb [#327](https://github.com/joyfulhouse/pylxpweb/pull/327)
+merged as `80e8221` and shipped in 0.10.0b8. The
+[registers keeper](40-hardware/registers.md) is re-pinned to both commits. The
+library delta gives H208/H219 the same 40.0–64.0 V bounds as the integration
+(`verified-against-code` at the pinned
+[`src/pylxpweb/registers/inverter_holding.py` H208 row](https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1534-L1544)
+and [H219 row](https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1572-L1582)).
+Those rows themselves state the bounds are a maintainer-chosen guard with no
+firmware/portal bound captured, so the grade attests only that the code carries
+the bounds, not that the window is hardware-correct. The peak-shaving register
+semantics remain `portal-correlated`, and no evidence grade changed.
+
+### ingest | #592 — the daily Grid Peak Shaving set: five router entities, one local frame
+
+Source: [#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592) and the
+pinned pylxpweb `c78ab7e` (0.10.0b7) tables — `REGISTER_TO_PARAM_KEYS` names
+H207/H208/H218/H219/H232 and `LOCAL_PARAM_SCALE_DIV10` covers the three
+deci-unit names. The integration exposed 6 of the 11 daily keys; the five
+missing ones are now `PeakShavingNumber` spec rows on the router (a local named
+write on a positively resolved non-off-grid family, cloud holdParam + readback
+otherwise, cloud-only on off-grid/unresolved via `_offgrid_cloud_only_reason`).
+Filed on [controls-and-writes](10-integration/controls-and-writes.md): a §0.4
+inventory row, the §1 protected-set list extended with 207/208/218/219/232, a
+§6 exception for the two voltage rows, and landmine #10 — a DIV_10-scaled name
+must be handed engineering units on both paths, because the transport does the
+×10 (pre-scaling would land raw ×100) and the cloud readback must compare as a
+float (the int-truncating compare read 4 for a 4.5 kW write). Local reads
+become one `(206, 7)` frame plus `(218, 2)` and `(232, 1)`, hybrid-gated
+(219-221 is the LSP-bypass bitmap on the SNA probe). **No grade moved**: the
+[registers keeper](40-hardware/registers.md) already carries all five at
+`portal-correlated` and this change set adds no hardware evidence, so the
+keeper is untouched. Also corrected: `docs/DATA_MAPPING.md` claimed register
+231 holds the peak-shaving power (H231 is unknown; PS1 is H206) — that claim
+was already refuted on the keeper and had rotted only in the docs copy.
+
+### repin | Release-cut re-pin — PR #605 merged as 041032f
+
+The #603 fix (two H105 keeper rows, reg 227 floor, contract tests) merged to
+mainline as `041032f`; the [registers keeper](40-hardware/registers.md) is re-pinned
+to it with `last-verified: 2026-09-02` (its pylxpweb pin moved to `c78ab7e` in the
+earlier #603 ingest). Performed in the v3.5.1-beta.14 release change set (pylxpweb
+pin 0.10.0b7).
+
+## 2026-09-01
+
+### ingest | #603 — H105 ceiling is 100, not 90; the entity read window must not be tighter than the writers
+
+Source: [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter
+diagnostics (LXP-LB-US 10K, hybrid) showing `HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`
+stored after a portal-typed value, plus the reporter's statement that 101 is
+rejected by the inverter (96–100 were never individually written). The 10–90 range PR #600 round 2 propagated into the
+On-Grid SOC Cut-Off entity (advertised, write-validated AND read-windowed) was the
+portal's arrow-button hint copied into pylxpweb's canonical H105 definition and
+`set_battery_soc_limits`; it blanked the stored 95 to unknown and refused writes
+above 90. Filed on [the registers keeper](40-hardware/registers.md) as two H105 rows: the stored-95 observation
+(`portal-correlated`, reporter unit only) and the exact 10–100 bound (`inferred`;
+both ends unproven). Accounting 346 → 348 claims, 41 proven; keeper pylxpweb pin moved ab87902 → c78ab7e (0.10.0b7; holding-definition deltas in between are H105 (this ingest) plus the PR #273 H66/H160 range fixes the keeper already carried per claim). Library fix widens both
+pylxpweb writers and the definition to 100; the entity read window is now the
+tolerant 0–100 while the write bounds track the writers. Same-class audit: reg 227
+(System Charge SOC Limit) carried an evidence-free 10 floor against a 0–101
+library/keeper range — floor set to 0; reg 160's hybrid-side 90 write cap is the
+same evidence tier and is now annotated as such in the entity docstring, not
+changed. Rule recorded: a read plausibility window must never be tighter than the
+widest bound any writer accepts.
+
+## 2026-08-30
+
+### repin | Release-cut re-pin — PR #600 merged as d8e2027
+
+The REQUIRED POST-MERGE ACTION from the #570 sweep rounds is discharged:
+PR #600 squash-merged to mainline as `d8e2027` (closes #570). The four pages
+carrying per-claim PR #600 citations (README keeper cache, registers keeper,
+controls-and-writes, data-semantics) are re-pinned to `d8e2027` with
+`last-verified: 2026-08-30`; the inline PR/issue citations remain as
+provenance. Performed in the v3.5.1-beta.13 release change set (which bumps
+the pylxpweb pin to 0.10.0b5).
+
+### lint | Review round 13 — two stale routing docstrings, two inert regression tests, one missing writeTime routing pin
+
+Five LOW corrections, no behavior changes (Codex gpt-5.6-sol). (1)
+`_read_quick_charge_status`'s docstring still described the pre-r5 gate ("EG4_OFFGRID +
+HYBRID", H233 "firmware-rejected" family-wide); it now states the fail-closed
+unresolved-inclusive predicate (`_quick_charge_prefers_cloud`) and the CEAA-scoped H233
+rejection (CCAA implements the register with unproven semantics). (2) `number.py`'s
+H160 `verify_register` rationale called grid-tied cloud writes "otherwise untested" —
+stale since the #570 live sweep hardware-toggle-proved the named cloud path on
+FlexBOSS21 and 18kPV (raw 5→6→5, scope limited to the tested units); the readback
+stays justified by sibling H161's acknowledged-but-inert signature on the same units.
+(3+4) Two regression tests had gone INERT when round 5's fail-closed routing landed:
+their featureless scaffolds resolve as UNKNOWN family, which takes the blocked-local
+cloud route, so the mocked local failure / link-down short-circuit they claimed to pin
+was never exercised. Both re-scaffolded on EG4_HYBRID and MUTATION-VERIFIED: neutering
+the cloud fallback and the link-down short-circuit in
+`utils.py::async_write_with_cloud_fallback` turns exactly these tests RED. Lesson: a
+routing change that adds an earlier branch can silently strand downstream tests on the
+new branch — passing green while pinning nothing. (5) The off-grid schedule routing
+class only pinned the classic (ac_charge) cloud leg; a gen_charge case now pins the
+writeTime leg — no local FC06 to H256, the atomic `write_time_parameter` call, and no
+classic per-field writes — and the class docstring drops the same "classic cloud field
+writes" overstatement r10 corrected elsewhere. Citations: PR #600 (issue #570).
+
+## 2026-08-29
+
+### lint | Review round 12 — a fired recheck must stay coordinator-owned
+
+One MED (Codex gpt-5.6-sol; kimi quota-died again). The fired settle-recheck callback
+popped its only coordinator-owned cancel handle and then awaited the targeted refresh
+unowned — a timer firing just before reload/shutdown left parameter I/O running against
+detached transports or a closing cloud session, racing the replacement coordinator. Two
+changes, both inside `_schedule_seed_settle_recheck`: the fired callback re-checks the
+round-11 closed latch (plus `_background_scheduling_stopped`) AFTER the fire and before
+starting any I/O, and the refresh itself now runs through the existing
+`BackgroundTaskMixin` ownership convention (`hass.async_create_task` +
+`_background_tasks` + `_remove_task_from_set`/`_log_task_exception` done callbacks), so
+`_cancel_background_tasks` — which both teardown paths already run AFTER the latch is
+set — cancels and awaits it. Two RED-verified tests: a shutdown starting while the
+fired refresh is blocked in flight cancels and awaits it (CancelledError observed, task
+set drained), and a fired callback that outraces teardown's cancel starts nothing once
+the latch is set. Citations: PR #600 (issue #570).
+
+### lint | Review round 11 — teardown latch for the settle recheck; a false name-map rationale corrected against the wheel
+
+Two LOW corrections (Codex gpt-5.6-sol; grok unavailable this round). (1) Both teardown
+paths cancel the settle-recheck timers BEFORE awaiting the base-class teardown and
+`_schedule_seed_settle_recheck` had no shutdown guard, so an in-flight reconciliation
+completing during that await could re-arm a timer whose refresh would then run against
+closed transports/cloud session. `_cancel_seed_settle_rechecks()` now also latches
+scheduling closed one-way (`_parameter_seed_recheck_closed`; both callers are terminal
+for the instance), pinned by a RED-verified test that re-arms mid-`async_shutdown` and
+asserts no timer survives and no refresh fires. (2) `number.py`'s H206 cloud-branch
+seeding comment justified the kW seed unit with "the local name map never carries this
+key" — falsified against the pinned wheel: `constants/registers.py` maps
+`206: ["_12K_HOLD_GRID_PEAK_SHAVING_POWER"]` and the transport decode divides by 10
+(`LOCAL_PARAM_SCALE_DIV10`), so a local read surfaces kW, same as the cloud string. The
+seed VALUE was already correct — kW is what the cache carries on every path — but the
+false rationale could have motivated a "fix" seeding raw deci-kW, a 10× state defect.
+The comment now states the actual mapping/decode and why kW is the invariant unit. No
+wiki page repeated the falsehood (`40-hardware/registers.md` H206 rows already say
+0.1 kW raw); no wiki content change this round. Citations: PR #600 (issue #570).
+
+### lint | Review round 10 — earliest-deadline recheck dedup; two stale comment claims corrected against the code they sit beside
+
+Four corrections from the round-10 adversarial pass (Codex gpt-5.6-sol; grok crashed,
+kimi pending). (1) The round-9 settle-recheck dedup keyed on the serial alone and kept
+whichever deadline scheduled FIRST — so when a later-expiring key's disagreement
+scheduled before an earlier-expiring key's, the earlier key's retained seed masked a
+genuine external change until the later window ran out. The dedup now keeps the
+EARLIEST per-key deadline (`_parameter_seed_recheck_at`; a later-deadline pending
+recheck is cancelled and pulled forward), pinned by a staggered-two-key deferred-timer
+test. Test-construction note recorded there: patching `time.monotonic` warps asyncio's
+loop clock too, so the test backdates the write stamps instead of warping "now".
+(2) The HA stop path (`_async_handle_shutdown`) never cancelled the recheck timers —
+only `async_shutdown` did — so a pending recheck could fire its targeted refresh after
+the transports and cloud session shut down; both teardown paths now share
+`_cancel_seed_settle_rechecks()`. (3) The `time.py` local-block routing comment and
+this wiki's schedule-write routing row (`40-hardware/registers.md`) both said
+off-grid/unresolved schedule writes route through "the classic cloud field writes" —
+false for the writeTime families (Generator/Off-Grid/Peak Shaving, which is exactly
+what an off-grid inverter's Generator Charge schedule uses): those take the atomic
+`write_time_parameter` portal call, and only the classic families (AC Charge/First,
+Forced Charge/Discharge) take the per-field hour/minute writes. Both statements now
+describe the per-schedule routing. (4) `const/modbus.py`'s H206 keeper comment still
+called the raw encoding "presumed deci-kW but unverified … cloud-write-only",
+contradicting the family-scoped split the same change set ships (transport-first raw
+H206 — hybrid-verified deci-kW, pylxpweb#158 — on resolved non-off-grid families;
+cloud-named-parameter-only on off-grid/unresolved). The comment now states the split;
+the "never via the local transport name map" clause survives — that part was and is
+true (the old name map pointed at reg 231). Citations: PR #600 (issue #570).
+
+### lint | Review round 9 — settle recheck; the compound pin violated the schema it tried to satisfy
+
+Three corrections. (1) A disagreeing post-write read retained the seed but scheduled NO
+follow-up read, so a never-propagating cloud write (or an immediate external change)
+showed the seeded value until the default HOURLY parameter poll. The retained
+disagreement now schedules a one-shot targeted per-device refresh at that key's settle
+expiry (`_schedule_seed_settle_recheck` — deduplicated per serial, reusing the existing
+targeted refresh, cancelled on shutdown, no new polling loop); the refresh's own
+authoritative observation resolves the seed to device truth within ~one settle window,
+pinned by a deferred-timer test with no manual reconciliation calls. (2) The
+round-8 compound `verified-against:` value ("SHA + PR #600 …") violated
+`_conventions.md`'s commit-only front-matter form — machine tooling passes the pin to
+`git show` — a fix for a citation defect that itself broke the citation schema. The
+four pages' pins are back to bare pre-PR commits; the in-flight change-set claims are
+licensed PER CLAIM by their inline PR #600 / issue #570 citations (the r7 form, which
+`_conventions.md` permits), and the front-matter comments say exactly that. The
+release-cut re-pin stays tracked by the round-7 REQUIRED POST-MERGE ACTION. (3) The
+canonical parameter-seeding section (`data-semantics.md` §7) now documents the settle
+window, the per-key stamps/confirmation, the settle-expiry recheck, and the
+params-first override for active seeds — the convergence contract had lived only in
+code comments and the log.
+
+### lint | Review round 8 — settle window keyed per parameter; the pin defect was in the front matter too
+
+Two corrections. (1) The round-7 settle window used the serial-wide NEWEST-write stamp:
+writing H102 re-armed H101's stale-read protection, masking a fresh external H101 change,
+and repeated sibling writes could extend the mask indefinitely. Each seeded key now runs
+on its OWN write stamp, retires on its OWN confirmation (an agreeing observation ends the
+protection, so a confirmed key's later external changes stay visible even mid-sibling-
+writes), and expires on its own 30 s window — pinned by two new tests (sibling-write
+masking and window-extension) alongside the r7 convergence pins, all green. (2) The r7
+durable-pin fix landed only in the front-matter COMMENTS while the `verified-against:`
+values still named pre-PR commits — the exact citation-does-not-support-claim defect,
+one level up. The four edited pages' `verified-against:` values now carry the compound
+pin ("<pre-PR SHA> + PR #600 (change-set claims; re-pin to the merge SHA at the release
+cut)"), so the machine-read pin itself licenses the PR-#600 claims; the release re-pin
+remains tracked by the earlier round-7 entry.
+
+### lint | Review round 7 — cloud-routed writes must CONVERGE, not just route
+
+Three MEDs were one class: every write this PR re-routed through the cloud races the
+post-write refresh against portal→dongle→register propagation, and three gaps let the
+stale register win — (1) `_reconcile_parameter_read` "confirmed" a seeded key at a
+disagreeing fresh observation, so the successful refresh retired the seed at the
+PRE-write value and cleared optimism onto it (schedules and every seeded number
+reverted for a poll cycle); (2) the number platform's default inverter-first read order
+let the pylxpweb attribute (refreshed from the same stale register) shadow the seeded
+cache value entirely (the H101/H102/H105/H125 snap-back); (3)
+`GridPeakShavingPowerNumber`'s round-6 cloud-named branch never seeded convergence at
+all. Fixed as one mechanism, not spot fixes: a new
+`PARAMETER_WRITE_SEED_SETTLE` window in the coordinator keeps a seed over a
+DISAGREEING fresh observation (agreement still confirms immediately; past the window
+fresh reads are authoritative again — pinned RED→GREEN on the real coordinator);
+`_read_param_value` now behaves params-first for any key with an active seed
+(`has_active_parameter_write_seed`, strict-True so auto-mocked scaffolds keep their
+declared order); the H206 cloud branch seeds its acknowledged kW value. The routing
+tests now assert `native_value` AFTER every cloud-routed write (grok's point: routing
+tests passed without convergence), against an emission-faithful mock that replays the
+coordinator contract. The whole rerouted set was swept against the mechanism:
+66/74/101/102/105/125/158/159/160/161/169/100/22/202/227/228 and the r5 additions
+67/82/83/103/116 ride the router's `local_values` seeding; H206 seeds at its entity;
+schedule times seed their alias keys; H117 and QuickChargeDuration write nothing
+cloud-side to converge.
+
+Also: H158's advertised off-grid floor is now 39 V (advertising the firmware's 38.4 V
+on a whole-volt entity made HA accept a boundary the validation then rejected — every
+advertised boundary is writable as-is, boundary-tested both ends for
+H66/H158/H159/H160/H161); the last H234 read/write-symmetry comment was corrected
+(`_read_quick_charge_status`), completing the r4 sweep; and the change-set pin
+comments now cite **PR #600** as the durable artifact (a deleted branch keeps the PR
+diff; branch-head language was not durable).
+
+**REQUIRED POST-MERGE ACTION (release cut):** re-pin the PR #600 change-set claims in
+`40-hardware/registers.md`, `10-integration/controls-and-writes.md`,
+`10-integration/data-semantics.md` and `README.md` front matter to the mainline merge
+SHA (#559 precedent). This entry is the tracking record for that action.
+
+### lint | Review round 6 — a "needs no gate" claim must be wheel-verified, not docstring-trusted
+
+The round-5 derivation classified H206 as "cloud-only by construction" by reading the
+ENTITY's docstring ("cloud-write-only ... local transport name-writes are never used"),
+which the pinned pylxpweb wheel falsifies: `set_grid_peak_shaving_power` is
+TRANSPORT-FIRST onto raw H206 (deci-kW) whenever a transport is attached — this wiki's
+own README partial inventory had recorded exactly that ("pylxpweb drives
+set_grid_peak_shaving_power local-first") while the derivation trusted the code comment
+instead. The classic failure: a claim's citation (the entity docstring) did not support
+it, and the primary source (the wheel) was one grep away. Fixed by gating the entity
+(off-grid/unresolved write the cloud named parameter directly; resolved non-off-grid
+keeps the hybrid-verified transport-first method), and the round re-verified EVERY cloud
+path the number/time gates rely on against the wheel: `set_battery_soc_limits`, both
+battery-current setters, every `_write_named_parameter` consumer (66/74/67/82/83/202),
+`set_feed_in_grid_power_kw` and `set_system_charge_soc_limit` go straight to
+`client.api.control` — H206's method was the only transport-first one.
+
+Also landed this round: the cloud-routed schedule write now seeds the local-raw cache
+under the register's alias keys (without it the post-write refresh re-read the stale
+packed register and visibly reverted the entity); firmware bounds reached the remaining
+entities family-scoped (H158 38.4–57.0 V, H159 48.0–59.0 V, H161 floor 20 on
+off-grid/unresolved; resolved non-off-grid keeps the shipped ranges — cross-register
+constraints H158≤H159 and H161≥H160 stay firmware-enforced only, because validating
+against a stale cached sibling would produce false rejections); the H117 error no longer
+promises a cloud route that does not exist (it names family resolution as the remedy);
+and the change-set pin comments switched to branch-head language after two successive
+pinned SHAs staled within the review train.
+
+### lint | Review round 5 — one derivation pass over every fail-open `is_offgrid_family` site
+
+Rounds 4 and 5 found the same defect class three times (switch write gate, coordinator
+status gate, fail-open creation branch), so this round ran ONE derivation pass over every
+`is_offgrid_family(` call site instead of fixing the reported instances alone. Result,
+landed in the PR #600 branch:
+
+- **Creation/suppression gates stay fail-open by design** (`number.py`, `switch.py`,
+  `time.py` gate table, Repairs flags, off-grid read blocks, off-grid-only
+  sensors/buttons): suppression needs positive identification (#259/#219), and the
+  off-grid-only surfaces are conservative when they fail open (absence, or read-only).
+- **Every write or routing decision now fails closed on
+  `is_positively_non_offgrid_family`**: the coordinator's `_quick_charge_prefers_cloud`
+  (Grok MED — round 4 moved unresolved-family WRITES to the cloud while the READ side
+  still sent the next status poll to the local H233/H234 detail read, reintroducing the
+  #296 invisibility bug on exactly the protected population); the fail-open-CREATED
+  grid-tied number setters reachable in the first-run window before family resolution
+  (Codex MED — H67/H82/H83/H103/H116 route cloud-only, and the RAW H117 write, having no
+  cloud path, is refused outright); and the schedule time entities' packed
+  `write_register` path (found by the pass, not by a reviewer — the clear-schedule
+  button had already declared local off-grid schedule writes unsanctioned while the
+  entities still wrote local-first).
+- Pages updated: the keeper's schedule-write-boundary row, README's H117 cells,
+  controls-and-writes router-parameter row, data-semantics gate table and limits note.
+- The remaining fail-open-adjacent write surfaces are the bit-level switch/select
+  writes and direct library calls — recorded in `_offgrid_cloud_only_reason`'s
+  docstring and C7, deliberately not converted (per-bit mappings, different mechanism,
+  tracked risk).
+
+### lint | Review round 4 — quick-charge switch fails closed on unresolved families; firmware bounds reach the entities
+
+Corrections from PR #600 adversarial round 4 (Codex 3 MED + 2 LOW, Grok corroborating):
+
+- **Quick Charge switch, unresolved families**: `_prefers_cloud_control` gated on
+  *positive off-grid identification*, so an UNKNOWN/missing family with cloud + local
+  transport still ran pylxpweb's local-first paired H233/H234 write. #569's recorded
+  rationale ("the fallback works") predates the CCAA firmware verdict: on CCAA the H233
+  write is silently ACCEPTED with unproven bit-0 semantics, and a silent ACK never
+  triggers a fallback — the #476 mechanism. The predicate now fails closed
+  (`not is_positively_non_offgrid_family(...) and has_http_api()`); resolved non-off-grid
+  families keep local-first. Keeper H233 boundary row, data-semantics and
+  controls-and-writes §2.4 updated to the new routing.
+- **Firmware-proven bounds now reach the entities, family-scoped because the evidence
+  is**: AC Charge Power (H66) advertises/accepts at most 10 kW on off-grid/unresolved
+  (CEAA/CCAA writer rejects raw >100 — the 15 kW ceiling survives only on positively
+  resolved non-off-grid families, where it is shipped status quo without firmware proof
+  either way); AC Charge Start SOC (H160) floors at 1 on off-grid/unresolved (0 →
+  exception 03 — resolved non-off-grid keeps the shipped 0 floor, unverified but not
+  disproven). Read windows track the same bounds so out-of-window values read unknown
+  instead of tripping HA's out-of-range state error. Boundary tests added both sides.
+- **Docstring falsifications**: the QuickChargeDuration class docstring still described
+  an unqualified LOCAL/HYBRID live reg-234 adjust, and
+  `_read_offgrid_quick_charge_minute` still said the setter "writes reg 234 whenever a
+  local transport is configured" — the exact sentence a future "restore read/write
+  symmetry" fix would cite to reopen the gated write. Both now state the fail-closed
+  family gate explicitly, and the mirror-read helper carries a do-not-restore-symmetry
+  warning naming what the symmetry claim would reopen.
+
+### lint | Review round 2 — H22 ledger gap closed, H105 range mismatch, stale evidence claims, change-set pins
+
+Corrections from PR #600 adversarial round 2 (Codex + Grok), all landed in the PR branch
+commit `1f39ad1`:
+
+- **H22 was a shipped control with no keeper row** — a violation of the every-claim-graded
+  rule that the sweep's own frame derivation used ("no ledger row at all") without filing
+  the row it implied. Added the H22 row (`portal-correlated`: canonical pylxpweb definition
+  at `ab87902` + the PR #359 verified named-volts cloud route; the reg-22-carries-LSP-bits
+  note and the 140 V firmware floor recorded `asserted-unverified`). Accounting 345→346
+  counted claims, 41 proven (11.8%). The README partial-inventory line and the code/test
+  comments that said "no ledger row" were updated — that phrasing was a fact about a gap,
+  not a permanent property.
+- **H105 range mismatch surfaced by the sweep routing**: the entity advertised 0–100 while
+  the canonical H105 definition and pylxpweb's `set_battery_soc_limits` enforce 10–90, so
+  the new off-grid cloud-only route raised a raw ValueError at the boundaries. The entity
+  (the outlier) now advertises/validates/reads 10–90; H125 is 0–100 everywhere and
+  unchanged. The keeper needed no change — the canonical definition was already right.
+- **Stale evidence claims**: `_offgrid_cloud_only_reason`'s rationale still carried the
+  pre-sweep H158/H159/H66 wording this same change set's keeper rows had superseded;
+  README's write-surface worked example still said pure-LOCAL off-grid drives the local
+  H233 path (closed by PR #569); controls-and-writes §1.3 still described the
+  QuickChargeDuration error contract without the family gate. All updated — same defect
+  class as the round-1 finding: a page or docstring asserting what a sibling document said
+  before the same change set falsified it.
+- **Change-set pins**: claims describing this PR's own routing were pinned only to
+  pre-PR commits. Following the #559 precedent, the affected pages' front matter now
+  names the PR #600 branch commit `1f39ad1` for those claims, to be re-pinned to the
+  mainline merge SHA at the release cut.
+
+### lint | QuickChargeDuration blind-spot rationale corrected — reg-234 local write was reachable on off-grid
+
+The earlier "#570 off-grid write-evidence sweep" entry (and the `_offgrid_cloud_only_reason` docstring it described) claimed the
+QuickChargeDuration live reg-234 adjust could not run on off-grid because it is "gated on a
+live local H233 b0 read, which the recorded off-grid boundary itself rejects." A PR #600
+adversarial-review finding (Kimi, MED) exposed that as wrong, and code adjudication confirmed
+it — wrong twice: (1) on EG4_OFFGRID + HYBRID the active check is **cloud-routed**
+(`coordinator_mixins.py` → `_quick_charge_prefers_cloud`, the #296 mitigation), so a
+cloud-started charge reports active without any local H233 read standing in the way; (2) the
+H233 rejection is CEAA-scoped anyway — the keeper's own CCAA row in this same change set says
+the address is implemented there. The local reg-234 write on off-grid HYBRID was therefore
+reachable **by design** ("#296 round 2":
+`coordinator_mixins.py` → `_read_offgrid_quick_charge_minute` deliberately mirrors reg 234
+locally so the number's read and write sides agree), on a register with no off-grid write
+evidence (H234 `portal-correlated`). The failure mechanism was the classic one: a
+lineage-scoped negative claim quietly generalized to the family.
+
+Fix (same change set): the live-adjust branch now requires
+`is_positively_non_offgrid_family`; off-grid/unresolved families take the CLOUD-branch
+behavior (store the start preference, applied as the next cloud start's `minute` parameter).
+Regression tests in `tests/test_offgrid_write_routing.py`
+(`TestQuickChargeDurationOffgridLiveAdjust`). Pages updated: the keeper's H234 row,
+[`10-integration/data-semantics.md`](10-integration/data-semantics.md) gate-limits note, and
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) router
+parameter row. The local reg-234 **read** (off-grid HYBRID mirroring) is unchanged — reads
+carry no wrong-write hazard.
+
+### ingest | #570 off-grid write-evidence sweep — grades, H161 anomaly, protected-set derivation
+
+Ingested the issue #570 evidence artifacts into the keeper
+([`40-hardware/registers.md`](40-hardware/registers.md)): the `fw-verify-offgrid-writes`
+firmware verdicts (2026-08-12, CEAA 12000XP + CCAA 6000XP ARM+DSP images — H158–H161
+mapping/range checks `firmware-proven`; H66 writable 0..100 but semantics NOT verifiable;
+H21 b7 `firmware-proven` inert; H233 CEAA rejection `firmware-proven`, CCAA partial) and
+the 2026-08-13 live cloud toggle/restore sweep (FlexBOSS21 + 18kPV: H158/H159/H160
+`hardware-toggle-proven` on the tested units; H161 write-inert on a second grid-tied unit
+— resolved as the pre-documented family quirk, strengthening C6, not a write-path fault).
+Accounting moved 336→345 counted claims, 32→41 proven. Recorded both pylxpweb range
+conflicts (H160 min 1 not 0; H66 raw ≤100) as filed (#271/#272) and fixed (pylxpweb PR
+#273, merged). Grade rules honored: the toggle proofs are scoped to the tested units
+(firmware unrecorded); the firmware proofs are mapping/range proofs and did NOT promote
+H66's semantic row or license a local-write upgrade for H158–H161 (recorded as a
+version-gated candidate on #570 only).
+
+Falsification sweep: PR #569's shipped cloud-only routing had invalidated the pre-#569
+"local-first, ungated" narratives in
+[`10-integration/data-semantics.md`](10-integration/data-semantics.md),
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) §1/§2.4,
+the keeper's H233 boundary and H227 shipped-path notes, README's keeper cache, and
+[C7](60-history/open-contradictions.md) ("not routed cloud-only") — all updated to the
+shipped fail-closed routing, with the pre-#569 exposure preserved as history. C6/C7 stay
+open pending a live off-grid H161 write.
+
+Code half of the audit (same change set, tracked on #570): the protected set is now
+derived, not enumerated — every scalar holding register the number platform writes through
+the local-first router lacks a local off-grid delta-test, so all of them (74, 101, 102,
+105, 125, 202, 227, 228, 169, 100, 22, joining 66/158–161) route cloud-only on
+EG4_OFFGRID/unresolved families. Blind spots recorded in `_offgrid_cloud_only_reason`'s
+docstring: bit-level switch/select writes, schedule `write_register` calls, direct library
+calls, and the QuickChargeDuration live-adjust remain outside the gate, with per-bit risk
+held by the keeper and C7.
+
+## 2026-08-21
+
+### lint | Single-maintainer release approval policy corrected
+
+Corrected [`50-operations/release-process.md`](50-operations/release-process.md), which still
+required a PyPI environment reviewer other than the dispatcher. That rule was stale after
+pylxpweb PR #306 and is impossible in a repository with one human maintainer. The current
+contract intentionally requires zero reviewers and locks that decision with
+`test_binding_releases_merged_pr_with_zero_reviews`; release safety remains enforced by CI,
+tag-bound protected environments, disabled admin bypass, OIDC scoping and terminal artifact
+verification. GitHub branch protection and environments already required zero approvals, so no
+repository setting was weakened.
+
+## 2026-08-14
+
+### lint | Maintainer gateway returned to scrub scope
+
+Corrected the vendor-infrastructure boundary: the deployment's UDM gateway is maintainer
+infrastructure, not a generic example. Removed its shell default and documentation literals,
+restored its dotted and integer digests, and extended the operational-default regression
+check to quoted IP assignments in shell scripts.
+
+### lint | Synthetic script fixtures exempted from identity defaults
+
+The PR merge check exposed that the operational-default rule treated explicitly named
+`SYNTHETIC_*` and `DOCUMENTATION_*` constants as live defaults. Narrowed that rule to keep
+those safe fixtures while continuing to reject ordinary script identity defaults; the
+digest-backed repository scan remains authoritative for audited deployment values.
+
+### lint | Vendor infrastructure excluded from deployment audit
+
+Corrected the prior entry's worktree-reader claim: the guard now reads index blobs so it
+audits the exact bytes a commit would contain. Local gitignored vectors prove the committed
+digests against the deployment values without republishing them. Vendor cloud hosts, public
+cloud addresses, MAC OUIs and generic private gateways remain actionable documentation;
+only audited full MACs and deployment-owned identifiers are blocked.
+
+### lint | Identifier scrub restricted to deployment-owned data
+
+Reworked PR #575's regression guard so every audited address, encoded address, serial,
+plant, cloud-host and physical-location value is represented only by a SHA-256 digest.
+Synthetic mutation fixtures now prove dotted and bare-integer address detection, serial
+matching in prose and entity IDs, camel-case plant fields, location matching, worktree
+reads, exact path exclusions and the RFC1918 scan-default boundary. Restored generic
+private-network examples and public vendor ingestion endpoints, and repaired the probe,
+monitor and firmware-capture helper regressions identified by tribunal review.
+
+### lint | Identifier guard narrowed to audited deployment values
+
+Corrected PR #575's overbroad private-address rule: generic RFC1918 examples and the
+network-scan fallback are operational fixtures, not deployment identities. The guard now
+matches the audited private addresses by integer encoding and the audited plant/cloud
+identifiers by digest, with mutation checks proving both the false-positive boundary and
+continued detection.
+
+## 2026-08-13
+
+### ingest | Dongle emulation limited to direct local transports
+
+The owner clarified that emulation is available only when a qualifying direct local
+transport exists: derived `local` and `hybrid` entries may qualify, while cloud-only,
+legacy-unmigrated, empty-local and `wifi_dongle`-only entries do not. Updated
+[`40-hardware/dongle-emulation.md`](40-hardware/dongle-emulation.md) with mechanical
+configuration/setup checks and HYBRID anti-loopback rules covering second polling, cloud
+echo re-ingestion, parsed-value reserialization, duplicate identity and listener feedback.
+
+Port-8000 emulation is now permanently out of scope rather than a deferred phase. C12 remains
+an unresolved fact about physical-dongle listener capacity, but is no longer a product gate
+for this emulator. Planning item 1 and PR #577's offline-sanitizer scope are unchanged.
+
+### lint | Deployment identities removed from the tracked wiki frame
+
+Replaced deployment-specific identifiers in the affected integration and hardware pages
+with stable synthetic identities. The repository guard now derives its text frame from
+Git-tracked files and reports only path and category, so future findings cannot disclose
+the matched value. Issue `eg4-jhto` and draft PR #575 own the remediation record.
+
+### lint | Dongle-emulation requirements made executable
+
+The first cross-vendor requirements review found that the new dongle-emulation contract
+described exclusive bus ownership as a convention, prohibited the synthetic identities its
+own tests require, left parser/queue/reconnect/baseline/cutover limits unnamed, and kept the
+listener-capacity question outside the contradiction register. Replaced the convention with
+a sole raw-transport registry/factory plus static/runtime bypass tests; added explicit
+internal policy defaults and boundary behavior; scoped the secret ban to production data;
+time-boxed cutover and unknown-write rollback; made performance and capture windows
+reproducible; strengthened the affirmative authorization gate; and added C12 to
+[`60-history/open-contradictions.md`](60-history/open-contradictions.md).
+
+A primary-source recheck then narrowed C12: pylxpweb enforces and documents conservative
+one-client access, while V1.1 firmware is configured for two listener clients. Those may
+coexist, so the entry now separates verified client policy, an unverified hardware-limit
+claim and firmware-proven configuration, and names the two-independent-client experiment
+needed for adjudication.
+
+The convergence review also required a durable sanitized capture summary. Added it and the
+complete live-use unresolved set to issue `eg4-asjv`; removed an issue citation that only
+contained an early single-client hypothesis; and made parser memory, queue policy,
+session-expiry observation, local-only soak and per-field portal parity numerically
+testable.
+
+### ingest | Home Assistant-hosted dongle-emulation contract
+
+Added [`40-hardware/dongle-emulation.md`](40-hardware/dongle-emulation.md) as the
+canonical phased specification for replacing a physical WLAN dongle with a single-owner
+local bus plus optional protocol emitters. Repository, firmware, capture and homelab
+investigations supported the bus-owner and offline-engine foundation; a two-vendor design
+debate disagreed on whether the first useful surface should be cloud emission or a local
+listener. The contract preserves that dissent by separating the single-owner foundation,
+live cloud participation, controls and port-8000 compatibility into independently gated
+phases. It forbids production identities in repository artifacts and records admission,
+duplicate-identity, TLS, legal/ToS, write-semantics and rollback evidence as live-use
+blockers rather than assumptions. Issue `eg4-asjv` owns the research record.
+
+### query | WLAN dongle serial-number source
+
+Answered where the dongle gets its serial and filed the durable distinction in
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md). The application contains the
+parameter schema and default `0000000000`, while the unit-specific ten-character value is
+read from NVS namespace `device_param`, key `device_sn`, at parameter index 9. It is
+separate from both the eFuse MAC and the inverter serial. The application-only listener
+patch therefore preserved it. Issue `eg4-vypa` records the evidence without publishing
+credential-bearing NVS contents; the exact factory provisioning tool remains unknown.
+
+### ingest | V1.2 Ethernet-listener patch flashed and read back
+
+Reviewed the local-listener patch as a two-byte functional jump change plus regenerated
+ESP checksum/hash, then wrote it only to the second dongle's factory application partition.
+The pre-write readback matched official `V1.2`; esptool's write verification passed; and an
+independent post-write readback matched patched SHA-256 `ab67fc31…922551` byte-for-byte.
+Recorded the result and its boundary in
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the adapter could not reset the
+unit out of the ROM stub, so boot and port-8000 behavior remain unproven pending a physical
+power cycle and live probe. Issue `eg4-vr06` preserves the operation record.
+
+### ingest | Second WLAN dongle factory V1.2 identity
+
+Dumped a second ESP32-D0WD-V3 WLAN dongle read-only and added the specimen to
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md). Its sole factory application
+is `V1.2`; both OTA slots are erased. The 947,680-byte application is byte-identical to
+the previously downloaded official `WL_LINK_V1_2.bin` (SHA-256 `325e12b0…fec0f`) and is
+not the local-listener-patched artifact. Issue `eg4-gzol` preserves the hardware and
+comparison record. The full 8 MiB flash remains uncommitted because its NVS may contain
+network credentials.
+
+### ingest | Physical WLAN dongle dump and Ethernet local-listener omission
+
+Dumped an attached ESP32-D0WD-V3 WLAN dongle read-only and decompiled its sole
+factory application (`V1.1`, app SHA-256 `bf557329…ae1cc18`). Filed the result in
+[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the plaintext port-8000
+server and `C1`–`C4` response dispatcher are intact, but only Wi-Fi startup calls the
+server initializer; Ethernet creates `eth_task` and returns. Compared it with official
+`WL_LINK_V1_2`, which repeats the omission while changing the server to TLS-PSK, and
+recorded the existing one-jump local-listener patch as untested on hardware. Issue
+`eg4-x00j` preserves the evidence record. The full flash was not committed because NVS
+may contain network credentials.
+
+## 2026-08-12
+
+### lint | §2.4 QuickCharge row + ≤10% guard + update.py:54
+
+Tribunal round 2 on #571 (codex MEDIUM/LOW, kimi LOW). (1) §2.4's completeness
+claim omitted `EG4QuickChargeSwitch` while the §2 frame already counted it as
+contract-changing — added the row at `switch.py:525` (`_offgrid_without_cloud`
+gate) and reconciled the frame's "§2.4 plus …" hedge so the table alone owns
+the 8 contract-changers. (2) `_guard_total_increasing` suppresses dips
+`new_val >= 0.9 * last` including exactly 10% — reworded "smaller than 10%" to
+"≤10%" with the boundary test cite. (3) Inheritance-tree `EG4FirmwareUpdateEntity`
+anchor `update.py:55` → `:54` (class keyword at pin `e42ed86`).
+
+### lint | entities-identity pin e42ed86 — §4 past-tense + page-wide re-cite
+
+Tribunal round 1 on #571: bumping the page pin to a PR-branch SHA (`7641b96`)
+falsified §4's present-tense "17 `_attr_entity_id` assignments" claim (grep is
+0 since #566) and left in-body `verified-against-code` pins at `9f6d6e2` that
+the front matter no longer carried. Re-pinned `verified-against.eg4_web_monitor`
+to main-reachable `e42ed86` (`origin/main` at this correction). Rewrote §4 to
+past tense for the #566 removals; stated `generate_entity_id` /
+`clean_model_name` as **orphans still defined at `e42ed86`**, with deletion
+verified at the PR #571 head and landing as the #571 squash. Re-grepped the
+whole page and re-numbered drifted cites (inheritance graph, availability
+table + 21→22 `def available` frame including `EG4QuickChargeSwitch`, §2.4
+overrides, §3 pipeline, §5 unique_id / `generate_unique_id` `:722-738`, §6
+DeviceInfo, §7 enabled_default). Rule paid: a pin move is never a local edit.
+
+### lint | generate_entity_id citation after #571 deletion
+
+`10-integration/entities-identity-availability.md` §4.1 still cited
+`utils.generate_entity_id` (`utils.py:649-674`) as `verified-against-code` after
+PR #571 removed that helper (and its sole feeder `clean_model_name`) as dead code
+left from the #550/#566 `_attr_entity_id` cleanup. Reworded to past tense
+(removed in #571), re-pinned `verified-against.eg4_web_monitor` `9f6d6e2` →
+`7641b96`, refreshed `last-verified` to 2026-08-12, and re-numbered the live
+`generate_unique_id` cite (`utils.py:677-693` → `:675-691`). Grep across
+`llmwiki/` found no other references; left
+`docs/claude/DEVICE_OBJECTS_REFACTOR_PLAN.md` alone (historical).
+
+### lint | registers.md eg4 pin also moved to e146d91 (tribunal blocker)
+
+The earlier release-cut entry re-pinned `registers.md` for pylxpweb only; its
+`verified-against.eg4_web_monitor` stayed `9f6d6e2` — pre-#562, where Grid
+Always On is cloud-only, contradicting the page's own H179 b15 row. Re-pinned
+to `e146d91` and re-checked every eg4 line citation on the page: drifted
+anchors re-numbered (`switch.py` L280→282, L477→478, L605→606, L789→799,
+L958→959, L1196→1197; `device_types.py` L48→55, tightened from the comment to
+the constant), and `number.py` L697/L815, `utils.py` L165/L185,
+`base_entity.py` L1543 confirmed unchanged. Claim text of the affected rows
+(H110 b14 append-before-gate, H179 b11 ACK contract and routing,
+H233 `_prefers_cloud_control` boundary) re-read against the files at
+`e146d91`. Stale pre-promotion grade comments in code/tests were also
+corrected in the same commit (comment-only): `const/modbus.py`,
+`const/working_modes.py`, `switch.py` `_WORKING_MODE_PARAMETERS`, and the
+contract harness's `_CONTROL_REGISTER_CONTRACT` entry.
+
+### ingest | H179 b15 promoted to hardware-toggle-proven; #559 pins moved to mainline
+
+Release cut for v3.5.1-beta.11 (pylxpweb 0.9.39b11 on PyPI). Two operations:
+
+1. **Grade promotion.** 2026-08-12 live evidence met the `hardware-toggle-proven`
+   minimum: portal named toggle of Grid Always On flipped the local raw reg-179
+   read 0x1048 → 0x9048 (single-bit XOR exactly 0x8000 = bit 15), and the restore
+   returned 0x1048, verified via both cloud and local reads, on FlexBOSS21
+   SYNTH00003. `40-hardware/registers.md` H179 b15 re-graded
+   `app-write-path-proven` → `hardware-toggle-proven`, scoped to the tested unit
+   (component firmware unrecorded); the app-resolver lineage is retained in the
+   row as history and still carries the family-wide extension. Accounting ledger
+   re-derived: 27 firmware-proven + 5 hardware-toggle-proven = 32 proven of 336
+   (awk reproduction run and matched). `10-integration/controls-and-writes.md`
+   §ladder row updated to match. The legend's `app-write-path-proven` rung stays
+   defined in README.md (count now 0; other rows may use it later).
+
+2. **Re-pin to mainline.** The #559 pages carried PR-branch SHAs that became
+   non-mainline on squash-merge, as their own frontmatter comments predicted.
+   `registers.md`: pylxpweb `aafc4e3` → `ab87902` (0.9.39b11 release commit;
+   #270 merged as `9c10a07`). `controls-and-writes.md`: eg4 `0e2366f` →
+   `e146d91` (PR #562 merge), pylxpweb `aafc4e3` → `ab87902`. Claims re-verified
+   at the new pins: `FUNC_ON_GRID_ALWAYS_ON` at reg-179 index 15 confirmed at
+   `ab87902` (registers.py:935); between the eg4 pins only
+   `coordinator_mappings.py`/`coordinator_mixins.py` changed (the #560 merge),
+   shifting `_perform_dst_sync` 4563 → 4559 — re-numbered; every other cited
+   line re-checked unchanged.
+
+## 2026-08-11
+
+### lint | H179 b15 re-graded `app-write-path-proven` (new legend grade)
+
+The earlier erratum downgraded the Grid Always On name→bit binding to
+`portal-correlated`, but that grade's definition ("exposes it, and it agrees
+with our reading") undersells what the evidence is: a binding recovered from
+the decompiled **write path** of the official EG4 mobile app
+(`Local12KSetFragment.getBitByFunction`), validated 4-for-4 against
+independently confirmed anchor bits on the same register, each
+`portal-correlated` or better — b3 `hardware-toggle-proven` (#135), b7
+`portal-correlated`, b9/b10 `portal-correlated` (#48). The legend had no rung for that class, so the erratum's
+grade was the least-wrong available — a legend gap, not an evidence change.
+Extended `README.md`'s Proof grades with `app-write-path-proven` (below
+`firmware-proven`, above `portal-correlated`; minimum proof: decompiled
+official-client write-path binding + ≥3 independently confirmed same-register
+anchors (`portal-correlated` or better), naming each anchor and its grade;
+explicitly NOT proof the firmware honors the write — wrong-bit writes ACK,
+#476) and placed the class at annotation-ladder rung 2 (reads; writes only
+with a gate). Re-graded `40-hardware/registers.md` H179 b15 and
+`10-integration/controls-and-writes.md` landmine #2 accordingly; accounting
+header/table re-derived from the audit command (336 counted claims — the
+earlier ingest entry had added the b15 row without updating the 335 total).
+Still **not** `hardware-toggle-proven`; #476 caveat unchanged. Durable cites:
+#559 / pylxpweb PR #270.
+
+### lint | Erratum: H179 b15 grade was overstated as firmware-proven
+
+The prior ingest entry graded the Grid Always On name→bit binding
+`firmware-proven`. That grade requires disassembly of a shipped **inverter
+firmware** image. The evidence is the EG4 **mobile app** write-path resolver
+(`Local12KSetFragment.getBitByFunction`), which the legend grades
+`portal-correlated` ("portal or mobile app exposes it, and it agrees with our
+reading"). Corrected `40-hardware/registers.md` and
+`10-integration/controls-and-writes.md` landmine #2. Still explicitly **not**
+`hardware-toggle-proven`; #476 wrong-bit ACK caveat unchanged. Scratchpad smali
+path dropped as a durable source (conventions: working artifacts are not
+sources); durable cites are #559 / pylxpweb PR #270.
+
+### ingest | H179 b15 = FUNC_ON_GRID_ALWAYS_ON (GH #559)
+
+Pinned Grid Always On to holding register 179 bit 15 from the EG4 mobile app
+`Local12KSetFragment.getBitByFunction` smali resolver (app write-path evidence,
+graded `firmware-proven` for the name→bit binding; explicitly **not**
+`hardware-toggle-proven`). Validated 4-for-4 against confirmed H179 anchors
+b3/b7/b9/b10. Updated `40-hardware/registers.md` (split former b12-b15 unknown
+row) and `10-integration/controls-and-writes.md` landmine #2 (local write now
+allowed once pylxpweb PR #270 maps the bit). #476 wrong-bit ACK caveat retained.
+
+## 2026-08-09
+
+### lint | Erratum: this log overstated its own review
+
+The earlier review entry was published claiming **"Eight-round adversarial review across three
+blocking engines"** — that every page was reviewed by three independent engines over eight
+rounds, and that "seven of the eight produced at least one BLOCKER". Three claims, all wrong,
+all in the flattering direction:
+
+| Claimed | Actual |
+|---|---|
+| eight rounds | **ten** |
+| three independent engines throughout | three genuine engines in **four** rounds; a substituted third in two; **two engines** in four |
+| "seven of the eight produced at least one BLOCKER" | a ratio computed on the wrong denominator, and no sourced per-round severity split was ever held |
+
+The entry has been corrected in place rather than left standing with a later retraction —
+a deliberate departure from this log's append-never-rewrite rule, taken because the false
+version was a **provenance claim**, and a reader who stops at the entry would have carried
+away the inflated one. This erratum is the compensating record: it preserves what the entry
+said and why it was wrong, which is what that rule exists to protect.
+
+**How it was caught, and why that matters more than the numbers.** Not by re-reading the
+entry. The docs-corrections author opened this log to verify an unrelated fact, and found the
+round count disagreed with the maintainer's. Peer review of the log worked exactly as
+intended — the log was treated as a claim, not as a record.
+
+**Why this is the worst page in the wiki to over-claim on.** The entire thesis here is that
+unearned confidence is the defect: every structural finding in this log is some version of a
+statement asserting more coverage than it has. An inflated review count in the wiki's own
+provenance entry is that same defect, applied to the wiki's own credibility, and it is the
+one page where the over-claim refutes the document making it. Six of the ten rounds ran with
+a measurably weaker net; a reader taking the old entry at its word believed every page got
+three independent reviews.
+
+**The rule this earns:** claims about *our own process* get graded like claims about the
+hardware. This entry is now `asserted-unverified` and says plainly that its detailed record
+is not in the repo — because it is not, and the previous version's confident tone was doing
+work that no reader-openable source supported.
+
+### lint | The derivation's step-5 discriminator deleted — wrong at two of three call sites
+
+Step 5 of the write-surface derivation told a reader to classify `_execute_switch_action`
+callers by the **type** of their `enable_method` argument: a bound callable meant
+cloud-routed, a plain string meant a library method the transport may drive local-first.
+Checked against the code at `9f6d6e2`, the rule misclassifies two of the three call sites:
+
+- `base_entity.py:1766` passes a plain **string** (`cloud_enable_method: str | None`,
+  docstring "Inverter method **name**"), and is the router's own **cloud** leg — cloud by
+  construction. The owning page's derivation says to discard this site outright.
+- `switch.py:1511` passes a plain **string** from `_WORKING_MODE_METHODS`, on the branch
+  guarded `has_http_api() and methods` — the explicitly cloud-only route.
+- `switch.py:627` (quick charge) matches the rule. It is the site the rule was read off,
+  generalized into a law.
+
+Same root cause as the round's other corrections: **an eg4-side surface feature standing in
+for a routing decision that lives entirely inside pylxpweb.** A string/callable split that
+separates correctly at one of three sites is exactly the "right by luck" that the same
+page's trap table warns about. The rule also contradicted its canonical owner,
+[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) § 2.1
+("You cannot predict whether a switch-action write goes local by reading eg4. Read the
+pylxpweb method."), which is correct — and it contradicted the surrounding text of
+[`README.md`](README.md) itself, leaving a reader with two irreconcilable procedures.
+
+Step 5 is now a **pointer** to that page's § 2.3 instead of a second, divergent procedure.
+No replacement rule was written: the owner already carries three correct discriminators
+(site identity, branch guard, pylxpweb routing policy), and a fourth one living on this
+page is what produced the defect.
+
+**Open item — ownership of the runtime-subclass fact.** `20-pylxpweb/write-paths.md` is the
+natural long-term owner of "dispatch resolves against the runtime subclass, so
+`HybridInverter` can override a base-class routing policy" — currently the third blind spot
+in [`README.md`](README.md). Deliberately not moved in this shipping pass: that chapter has
+drawn no findings for four consecutive rounds, and reopening it to relocate one fact buys
+nothing now. The blind-spot row keeps citing pylxpweb `hybrid.py` directly until a
+maintenance session makes the move.
+
+### build | Added `index.md` and `log.md`
+
+Added the two navigation files: [`index.md`](index.md) as the content-oriented catalog an
+agent reads first, and this log as the chronological record. [`README.md`](README.md)
+remains the owner of conventions and the legend and now points at the index for
+navigation, so the catalog is not duplicated.
+
+Seeded the log with the earlier build history, because that history is itself knowledge: it
+records which *kinds* of claim have failed here, which is what a future maintainer needs in
+order to not repeat them.
+
+### lint | Three frame corrections to the write-path derivation
+
+The most instructive failure of the build. Three consecutive rounds each found a way a
+device gets written that the previous round's method **structurally could not see** — not
+missing entries within a frame, but a missing frame.
+
+1. A curated list of write paths was replaced by a derivation procedure, after the list
+   went wrong three times. Critically, the lists were not *stale*: at the unchanged commit
+   they were written against, they were already incomplete. The method was wrong, not the
+   upkeep.
+2. A grep over the coordinator's write primitives was found blind to writes mediated by the
+   library — `_execute_switch_action` resolves a pylxpweb method by name and awaits it,
+   touching no coordinator primitive.
+3. That, in turn, was blind to entities calling `inverter.<method>()` **directly**, with
+   neither the router nor the switch-action helper in the chain; and to background writes
+   with no entity at all, such as the hourly DST station-setting sync; and to dispatch
+   resolving against a **runtime subclass**, so that verifying a method against the base
+   class checks code that never runs.
+
+Two blocking engines independently confirmed an exhaustive count during this arc, and both
+were right *within a frame that was itself too narrow*. An exhaustive count over an
+incomplete frame reads as rigour and is not.
+
+**Consequence, and the reason this entry matters more than the fixes:** the wiki stopped
+claiming to enumerate this surface. [`README.md`](README.md) now publishes the derivation
+method and its four proven blind spots, plus a dated inventory labelled incomplete by
+default. The blind spots are the durable content; the inventory will rot.
+
+### lint | Register proof ratio recomputed four times: 45 → 27 → 33 → 30 → 31
+
+The share of register claims backed by hardware proof was published, challenged,
+recomputed and republished four times. Each move followed a tightened standard rather than
+new evidence:
+
+- **45** — the original figure, which counted claims whose only support was a code comment
+  or a `# verified` annotation.
+- **27** — after excluding source code, READMEs and comments as hardware evidence.
+- **33** — after restoring rows whose durable record genuinely contained a named action,
+  raw before/after values and restoration, which the previous pass had over-corrected away.
+- **30** — after requiring that a "raw pair" mean actual integer register words. Scaled
+  engineering values read through a display conversion are evidence, but they are not raw
+  captures.
+- **31** — after a single row's evidence was found in a durable issue-tracker artifact
+  rather than the code comment that repeated it.
+
+The direction of travel is the point: every move was toward a more defensible number, and
+none was a defence of the previous one. Per-row grades are owned by
+[`40-hardware/registers.md`](40-hardware/registers.md).
+
+### lint | Ten-round adversarial review — a full three-engine tribunal for four of them
 
 Grade: `asserted-unverified`. The round-by-round record is a host-local orchestrator ledger
 that is **not published in this repo**, so a reader cannot open it and this entry is not
@@ -105,1884 +2047,17 @@ regrowing in new places after each local fix.
 - **Completeness claims** ("every X", "only these three") proved false in every instance
   where the set was derived by code rather than maintained by hand.
 
-## [2026-08-09] lint | Register proof ratio recomputed four times: 45 → 27 → 33 → 30 → 31
-
-The share of register claims backed by hardware proof was published, challenged,
-recomputed and republished four times. Each move followed a tightened standard rather than
-new evidence:
-
-- **45** — the original figure, which counted claims whose only support was a code comment
-  or a `# verified` annotation.
-- **27** — after excluding source code, READMEs and comments as hardware evidence.
-- **33** — after restoring rows whose durable record genuinely contained a named action,
-  raw before/after values and restoration, which the previous pass had over-corrected away.
-- **30** — after requiring that a "raw pair" mean actual integer register words. Scaled
-  engineering values read through a display conversion are evidence, but they are not raw
-  captures.
-- **31** — after a single row's evidence was found in a durable issue-tracker artifact
-  rather than the code comment that repeated it.
-
-The direction of travel is the point: every move was toward a more defensible number, and
-none was a defence of the previous one. Per-row grades are owned by
-[`40-hardware/registers.md`](40-hardware/registers.md).
-
-## [2026-08-09] lint | Three frame corrections to the write-path derivation
-
-The most instructive failure of the build. Three consecutive rounds each found a way a
-device gets written that the previous round's method **structurally could not see** — not
-missing entries within a frame, but a missing frame.
-
-1. A curated list of write paths was replaced by a derivation procedure, after the list
-   went wrong three times. Critically, the lists were not *stale*: at the unchanged commit
-   they were written against, they were already incomplete. The method was wrong, not the
-   upkeep.
-2. A grep over the coordinator's write primitives was found blind to writes mediated by the
-   library — `_execute_switch_action` resolves a pylxpweb method by name and awaits it,
-   touching no coordinator primitive.
-3. That, in turn, was blind to entities calling `inverter.<method>()` **directly**, with
-   neither the router nor the switch-action helper in the chain; and to background writes
-   with no entity at all, such as the hourly DST station-setting sync; and to dispatch
-   resolving against a **runtime subclass**, so that verifying a method against the base
-   class checks code that never runs.
-
-Two blocking engines independently confirmed an exhaustive count during this arc, and both
-were right *within a frame that was itself too narrow*. An exhaustive count over an
-incomplete frame reads as rigour and is not.
-
-**Consequence, and the reason this entry matters more than the fixes:** the wiki stopped
-claiming to enumerate this surface. [`README.md`](README.md) now publishes the derivation
-method and its four proven blind spots, plus a dated inventory labelled incomplete by
-default. The blind spots are the durable content; the inventory will rot.
-
-## [2026-08-09] build | Added `index.md` and `log.md`
-
-Added the two navigation files: [`index.md`](index.md) as the content-oriented catalog an
-agent reads first, and this log as the chronological record. [`README.md`](README.md)
-remains the owner of conventions and the legend and now points at the index for
-navigation, so the catalog is not duplicated.
-
-Seeded the log with the build history above, because that history is itself knowledge: it
-records which *kinds* of claim have failed here, which is what a future maintainer needs in
-order to not repeat them.
-
-## [2026-08-09] lint | The derivation's step-5 discriminator deleted — wrong at two of three call sites
-
-Step 5 of the write-surface derivation told a reader to classify `_execute_switch_action`
-callers by the **type** of their `enable_method` argument: a bound callable meant
-cloud-routed, a plain string meant a library method the transport may drive local-first.
-Checked against the code at `9f6d6e2`, the rule misclassifies two of the three call sites:
-
-- `base_entity.py:1766` passes a plain **string** (`cloud_enable_method: str | None`,
-  docstring "Inverter method **name**"), and is the router's own **cloud** leg — cloud by
-  construction. The owning page's derivation says to discard this site outright.
-- `switch.py:1511` passes a plain **string** from `_WORKING_MODE_METHODS`, on the branch
-  guarded `has_http_api() and methods` — the explicitly cloud-only route.
-- `switch.py:627` (quick charge) matches the rule. It is the site the rule was read off,
-  generalized into a law.
-
-Same root cause as the round's other corrections: **an eg4-side surface feature standing in
-for a routing decision that lives entirely inside pylxpweb.** A string/callable split that
-separates correctly at one of three sites is exactly the "right by luck" that the same
-page's trap table warns about. The rule also contradicted its canonical owner,
-[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) § 2.1
-("You cannot predict whether a switch-action write goes local by reading eg4. Read the
-pylxpweb method."), which is correct — and it contradicted the surrounding text of
-[`README.md`](README.md) itself, leaving a reader with two irreconcilable procedures.
-
-Step 5 is now a **pointer** to that page's § 2.3 instead of a second, divergent procedure.
-No replacement rule was written: the owner already carries three correct discriminators
-(site identity, branch guard, pylxpweb routing policy), and a fourth one living on this
-page is what produced the defect.
-
-**Open item — ownership of the runtime-subclass fact.** `20-pylxpweb/write-paths.md` is the
-natural long-term owner of "dispatch resolves against the runtime subclass, so
-`HybridInverter` can override a base-class routing policy" — currently the third blind spot
-in [`README.md`](README.md). Deliberately not moved in this shipping pass: that chapter has
-drawn no findings for four consecutive rounds, and reopening it to relocate one fact buys
-nothing now. The blind-spot row keeps citing pylxpweb `hybrid.py` directly until a
-maintenance session makes the move.
-
-## [2026-08-09] lint | Erratum: this log overstated its own review
-
-The review entry above was published claiming **"Eight-round adversarial review across three
-blocking engines"** — that every page was reviewed by three independent engines over eight
-rounds, and that "seven of the eight produced at least one BLOCKER". Three claims, all wrong,
-all in the flattering direction:
-
-| Claimed | Actual |
-|---|---|
-| eight rounds | **ten** |
-| three independent engines throughout | three genuine engines in **four** rounds; a substituted third in two; **two engines** in four |
-| "seven of the eight produced at least one BLOCKER" | a ratio computed on the wrong denominator, and no sourced per-round severity split was ever held |
-
-The entry has been corrected in place rather than left standing with a later retraction —
-a deliberate departure from this log's append-never-rewrite rule, taken because the false
-version was a **provenance claim**, and a reader who stops at the entry would have carried
-away the inflated one. This erratum is the compensating record: it preserves what the entry
-said and why it was wrong, which is what that rule exists to protect.
-
-**How it was caught, and why that matters more than the numbers.** Not by re-reading the
-entry. The docs-corrections author opened this log to verify an unrelated fact, and found the
-round count disagreed with the maintainer's. Peer review of the log worked exactly as
-intended — the log was treated as a claim, not as a record.
-
-**Why this is the worst page in the wiki to over-claim on.** The entire thesis here is that
-unearned confidence is the defect: every structural finding above is some version of a
-statement asserting more coverage than it has. An inflated review count in the wiki's own
-provenance entry is that same defect, applied to the wiki's own credibility, and it is the
-one page where the over-claim refutes the document making it. Six of the ten rounds ran with
-a measurably weaker net; a reader taking the old entry at its word believed every page got
-three independent reviews.
-
-**The rule this earns:** claims about *our own process* get graded like claims about the
-hardware. This entry is now `asserted-unverified` and says plainly that its detailed record
-is not in the repo — because it is not, and the previous version's confident tone was doing
-work that no reader-openable source supported.
-
-## [2026-08-11] ingest | H179 b15 = FUNC_ON_GRID_ALWAYS_ON (GH #559)
-
-Pinned Grid Always On to holding register 179 bit 15 from the EG4 mobile app
-`Local12KSetFragment.getBitByFunction` smali resolver (app write-path evidence,
-graded `firmware-proven` for the name→bit binding; explicitly **not**
-`hardware-toggle-proven`). Validated 4-for-4 against confirmed H179 anchors
-b3/b7/b9/b10. Updated `40-hardware/registers.md` (split former b12-b15 unknown
-row) and `10-integration/controls-and-writes.md` landmine #2 (local write now
-allowed once pylxpweb PR #270 maps the bit). #476 wrong-bit ACK caveat retained.
-
-## [2026-08-11] lint | Erratum: H179 b15 grade was overstated as firmware-proven
-
-The prior ingest entry graded the Grid Always On name→bit binding
-`firmware-proven`. That grade requires disassembly of a shipped **inverter
-firmware** image. The evidence is the EG4 **mobile app** write-path resolver
-(`Local12KSetFragment.getBitByFunction`), which the legend grades
-`portal-correlated` ("portal or mobile app exposes it, and it agrees with our
-reading"). Corrected `40-hardware/registers.md` and
-`10-integration/controls-and-writes.md` landmine #2. Still explicitly **not**
-`hardware-toggle-proven`; #476 wrong-bit ACK caveat unchanged. Scratchpad smali
-path dropped as a durable source (conventions: working artifacts are not
-sources); durable cites are #559 / pylxpweb PR #270.
-
-## [2026-08-11] lint | H179 b15 re-graded `app-write-path-proven` (new legend grade)
-
-The erratum above downgraded the Grid Always On name→bit binding to
-`portal-correlated`, but that grade's definition ("exposes it, and it agrees
-with our reading") undersells what the evidence is: a binding recovered from
-the decompiled **write path** of the official EG4 mobile app
-(`Local12KSetFragment.getBitByFunction`), validated 4-for-4 against
-independently confirmed anchor bits on the same register, each
-`portal-correlated` or better — b3 `hardware-toggle-proven` (#135), b7
-`portal-correlated`, b9/b10 `portal-correlated` (#48). The legend had no rung for that class, so the erratum's
-grade was the least-wrong available — a legend gap, not an evidence change.
-Extended `README.md`'s Proof grades with `app-write-path-proven` (below
-`firmware-proven`, above `portal-correlated`; minimum proof: decompiled
-official-client write-path binding + ≥3 independently confirmed same-register
-anchors (`portal-correlated` or better), naming each anchor and its grade;
-explicitly NOT proof the firmware honors the write — wrong-bit writes ACK,
-#476) and placed the class at annotation-ladder rung 2 (reads; writes only
-with a gate). Re-graded `40-hardware/registers.md` H179 b15 and
-`10-integration/controls-and-writes.md` landmine #2 accordingly; accounting
-header/table re-derived from the audit command (336 counted claims — the
-ingest entry above had added the b15 row without updating the 335 total).
-Still **not** `hardware-toggle-proven`; #476 caveat unchanged. Durable cites:
-#559 / pylxpweb PR #270.
-
-## [2026-08-12] ingest | H179 b15 promoted to hardware-toggle-proven; #559 pins moved to mainline
-
-Release cut for v3.5.1-beta.11 (pylxpweb 0.9.39b11 on PyPI). Two operations:
-
-1. **Grade promotion.** 2026-08-12 live evidence met the `hardware-toggle-proven`
-   minimum: portal named toggle of Grid Always On flipped the local raw reg-179
-   read 0x1048 → 0x9048 (single-bit XOR exactly 0x8000 = bit 15), and the restore
-   returned 0x1048, verified via both cloud and local reads, on FlexBOSS21
-   SYNTH00003. `40-hardware/registers.md` H179 b15 re-graded
-   `app-write-path-proven` → `hardware-toggle-proven`, scoped to the tested unit
-   (component firmware unrecorded); the app-resolver lineage is retained in the
-   row as history and still carries the family-wide extension. Accounting ledger
-   re-derived: 27 firmware-proven + 5 hardware-toggle-proven = 32 proven of 336
-   (awk reproduction run and matched). `10-integration/controls-and-writes.md`
-   §ladder row updated to match. The legend's `app-write-path-proven` rung stays
-   defined in README.md (count now 0; other rows may use it later).
-
-2. **Re-pin to mainline.** The #559 pages carried PR-branch SHAs that became
-   non-mainline on squash-merge, as their own frontmatter comments predicted.
-   `registers.md`: pylxpweb `aafc4e3` → `ab87902` (0.9.39b11 release commit;
-   #270 merged as `9c10a07`). `controls-and-writes.md`: eg4 `0e2366f` →
-   `e146d91` (PR #562 merge), pylxpweb `aafc4e3` → `ab87902`. Claims re-verified
-   at the new pins: `FUNC_ON_GRID_ALWAYS_ON` at reg-179 index 15 confirmed at
-   `ab87902` (registers.py:935); between the eg4 pins only
-   `coordinator_mappings.py`/`coordinator_mixins.py` changed (the #560 merge),
-   shifting `_perform_dst_sync` 4563 → 4559 — re-numbered; every other cited
-   line re-checked unchanged.
-
-## [2026-08-12] lint | registers.md eg4 pin also moved to e146d91 (tribunal blocker)
-
-The release-cut entry above re-pinned `registers.md` for pylxpweb only; its
-`verified-against.eg4_web_monitor` stayed `9f6d6e2` — pre-#562, where Grid
-Always On is cloud-only, contradicting the page's own H179 b15 row. Re-pinned
-to `e146d91` and re-checked every eg4 line citation on the page: drifted
-anchors re-numbered (`switch.py` L280→282, L477→478, L605→606, L789→799,
-L958→959, L1196→1197; `device_types.py` L48→55, tightened from the comment to
-the constant), and `number.py` L697/L815, `utils.py` L165/L185,
-`base_entity.py` L1543 confirmed unchanged. Claim text of the affected rows
-(H110 b14 append-before-gate, H179 b11 ACK contract and routing,
-H233 `_prefers_cloud_control` boundary) re-read against the files at
-`e146d91`. Stale pre-promotion grade comments in code/tests were also
-corrected in the same commit (comment-only): `const/modbus.py`,
-`const/working_modes.py`, `switch.py` `_WORKING_MODE_PARAMETERS`, and the
-contract harness's `_CONTROL_REGISTER_CONTRACT` entry.
-
-## [2026-08-12] lint | generate_entity_id citation after #571 deletion
-
-`10-integration/entities-identity-availability.md` §4.1 still cited
-`utils.generate_entity_id` (`utils.py:649-674`) as `verified-against-code` after
-PR #571 removed that helper (and its sole feeder `clean_model_name`) as dead code
-left from the #550/#566 `_attr_entity_id` cleanup. Reworded to past tense
-(removed in #571), re-pinned `verified-against.eg4_web_monitor` `9f6d6e2` →
-`7641b96`, refreshed `last-verified` to 2026-08-12, and re-numbered the live
-`generate_unique_id` cite (`utils.py:677-693` → `:675-691`). Grep across
-`llmwiki/` found no other references; left
-`docs/claude/DEVICE_OBJECTS_REFACTOR_PLAN.md` alone (historical).
-
-## [2026-08-12] lint | entities-identity pin e42ed86 — §4 past-tense + page-wide re-cite
-
-Tribunal round 1 on #571: bumping the page pin to a PR-branch SHA (`7641b96`)
-falsified §4's present-tense "17 `_attr_entity_id` assignments" claim (grep is
-0 since #566) and left in-body `verified-against-code` pins at `9f6d6e2` that
-the front matter no longer carried. Re-pinned `verified-against.eg4_web_monitor`
-to main-reachable `e42ed86` (`origin/main` at this correction). Rewrote §4 to
-past tense for the #566 removals; stated `generate_entity_id` /
-`clean_model_name` as **orphans still defined at `e42ed86`**, with deletion
-verified at the PR #571 head and landing as the #571 squash. Re-grepped the
-whole page and re-numbered drifted cites (inheritance graph, availability
-table + 21→22 `def available` frame including `EG4QuickChargeSwitch`, §2.4
-overrides, §3 pipeline, §5 unique_id / `generate_unique_id` `:722-738`, §6
-DeviceInfo, §7 enabled_default). Rule paid: a pin move is never a local edit.
-
-## [2026-08-12] lint | §2.4 QuickCharge row + ≤10% guard + update.py:54
-
-Tribunal round 2 on #571 (codex MEDIUM/LOW, kimi LOW). (1) §2.4's completeness
-claim omitted `EG4QuickChargeSwitch` while the §2 frame already counted it as
-contract-changing — added the row at `switch.py:525` (`_offgrid_without_cloud`
-gate) and reconciled the frame's "§2.4 plus …" hedge so the table alone owns
-the 8 contract-changers. (2) `_guard_total_increasing` suppresses dips
-`new_val >= 0.9 * last` including exactly 10% — reworded "smaller than 10%" to
-"≤10%" with the boundary test cite. (3) Inheritance-tree `EG4FirmwareUpdateEntity`
-anchor `update.py:55` → `:54` (class keyword at pin `e42ed86`).
-
-## [2026-08-13] ingest | Physical WLAN dongle dump and Ethernet local-listener omission
-
-Dumped an attached ESP32-D0WD-V3 WLAN dongle read-only and decompiled its sole
-factory application (`V1.1`, app SHA-256 `bf557329…ae1cc18`). Filed the result in
-[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the plaintext port-8000
-server and `C1`–`C4` response dispatcher are intact, but only Wi-Fi startup calls the
-server initializer; Ethernet creates `eth_task` and returns. Compared it with official
-`WL_LINK_V1_2`, which repeats the omission while changing the server to TLS-PSK, and
-recorded the existing one-jump local-listener patch as untested on hardware. Issue
-`eg4-x00j` preserves the evidence record. The full flash was not committed because NVS
-may contain network credentials.
-
-## [2026-08-13] ingest | Second WLAN dongle factory V1.2 identity
-
-Dumped a second ESP32-D0WD-V3 WLAN dongle read-only and added the specimen to
-[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md). Its sole factory application
-is `V1.2`; both OTA slots are erased. The 947,680-byte application is byte-identical to
-the previously downloaded official `WL_LINK_V1_2.bin` (SHA-256 `325e12b0…fec0f`) and is
-not the local-listener-patched artifact. Issue `eg4-gzol` preserves the hardware and
-comparison record. The full 8 MiB flash remains uncommitted because its NVS may contain
-network credentials.
-
-## [2026-08-13] ingest | V1.2 Ethernet-listener patch flashed and read back
-
-Reviewed the local-listener patch as a two-byte functional jump change plus regenerated
-ESP checksum/hash, then wrote it only to the second dongle's factory application partition.
-The pre-write readback matched official `V1.2`; esptool's write verification passed; and an
-independent post-write readback matched patched SHA-256 `ab67fc31…922551` byte-for-byte.
-Recorded the result and its boundary in
-[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md): the adapter could not reset the
-unit out of the ROM stub, so boot and port-8000 behavior remain unproven pending a physical
-power cycle and live probe. Issue `eg4-vr06` preserves the operation record.
-
-## [2026-08-13] query | WLAN dongle serial-number source
-
-Answered where the dongle gets its serial and filed the durable distinction in
-[`40-hardware/firmware-re.md`](40-hardware/firmware-re.md). The application contains the
-parameter schema and default `0000000000`, while the unit-specific ten-character value is
-read from NVS namespace `device_param`, key `device_sn`, at parameter index 9. It is
-separate from both the eFuse MAC and the inverter serial. The application-only listener
-patch therefore preserved it. Issue `eg4-vypa` records the evidence without publishing
-credential-bearing NVS contents; the exact factory provisioning tool remains unknown.
-
-## [2026-08-13] ingest | Home Assistant-hosted dongle-emulation contract
-
-Added [`40-hardware/dongle-emulation.md`](40-hardware/dongle-emulation.md) as the
-canonical phased specification for replacing a physical WLAN dongle with a single-owner
-local bus plus optional protocol emitters. Repository, firmware, capture and homelab
-investigations supported the bus-owner and offline-engine foundation; a two-vendor design
-debate disagreed on whether the first useful surface should be cloud emission or a local
-listener. The contract preserves that dissent by separating the single-owner foundation,
-live cloud participation, controls and port-8000 compatibility into independently gated
-phases. It forbids production identities in repository artifacts and records admission,
-duplicate-identity, TLS, legal/ToS, write-semantics and rollback evidence as live-use
-blockers rather than assumptions. Issue `eg4-asjv` owns the research record.
-
-## [2026-08-13] lint | Dongle-emulation requirements made executable
-
-The first cross-vendor requirements review found that the new dongle-emulation contract
-described exclusive bus ownership as a convention, prohibited the synthetic identities its
-own tests require, left parser/queue/reconnect/baseline/cutover limits unnamed, and kept the
-listener-capacity question outside the contradiction register. Replaced the convention with
-a sole raw-transport registry/factory plus static/runtime bypass tests; added explicit
-internal policy defaults and boundary behavior; scoped the secret ban to production data;
-time-boxed cutover and unknown-write rollback; made performance and capture windows
-reproducible; strengthened the affirmative authorization gate; and added C12 to
-[`60-history/open-contradictions.md`](60-history/open-contradictions.md).
-
-A primary-source recheck then narrowed C12: pylxpweb enforces and documents conservative
-one-client access, while V1.1 firmware is configured for two listener clients. Those may
-coexist, so the entry now separates verified client policy, an unverified hardware-limit
-claim and firmware-proven configuration, and names the two-independent-client experiment
-needed for adjudication.
-
-The convergence review also required a durable sanitized capture summary. Added it and the
-complete live-use unresolved set to issue `eg4-asjv`; removed an issue citation that only
-contained an early single-client hypothesis; and made parser memory, queue policy,
-session-expiry observation, local-only soak and per-field portal parity numerically
-testable.
-
-## [2026-08-13] lint | Deployment identities removed from the tracked wiki frame
-
-Replaced deployment-specific identifiers in the affected integration and hardware pages
-with stable synthetic identities. The repository guard now derives its text frame from
-Git-tracked files and reports only path and category, so future findings cannot disclose
-the matched value. Issue `eg4-jhto` and draft PR #575 own the remediation record.
-
-## [2026-08-13] ingest | Dongle emulation limited to direct local transports
-
-The owner clarified that emulation is available only when a qualifying direct local
-transport exists: derived `local` and `hybrid` entries may qualify, while cloud-only,
-legacy-unmigrated, empty-local and `wifi_dongle`-only entries do not. Updated
-[`40-hardware/dongle-emulation.md`](40-hardware/dongle-emulation.md) with mechanical
-configuration/setup checks and HYBRID anti-loopback rules covering second polling, cloud
-echo re-ingestion, parsed-value reserialization, duplicate identity and listener feedback.
-
-Port-8000 emulation is now permanently out of scope rather than a deferred phase. C12 remains
-an unresolved fact about physical-dongle listener capacity, but is no longer a product gate
-for this emulator. Planning item 1 and PR #577's offline-sanitizer scope are unchanged.
-
-## [2026-08-14] lint | Identifier guard narrowed to audited deployment values
-
-Corrected PR #575's overbroad private-address rule: generic RFC1918 examples and the
-network-scan fallback are operational fixtures, not deployment identities. The guard now
-matches the audited private addresses by integer encoding and the audited plant/cloud
-identifiers by digest, with mutation checks proving both the false-positive boundary and
-continued detection.
-
-## [2026-08-14] lint | Identifier scrub restricted to deployment-owned data
-
-Reworked PR #575's regression guard so every audited address, encoded address, serial,
-plant, cloud-host and physical-location value is represented only by a SHA-256 digest.
-Synthetic mutation fixtures now prove dotted and bare-integer address detection, serial
-matching in prose and entity IDs, camel-case plant fields, location matching, worktree
-reads, exact path exclusions and the RFC1918 scan-default boundary. Restored generic
-private-network examples and public vendor ingestion endpoints, and repaired the probe,
-monitor and firmware-capture helper regressions identified by tribunal review.
-
-## [2026-08-14] lint | Vendor infrastructure excluded from deployment audit
-
-Corrected the prior entry's worktree-reader claim: the guard now reads index blobs so it
-audits the exact bytes a commit would contain. Local gitignored vectors prove the committed
-digests against the deployment values without republishing them. Vendor cloud hosts, public
-cloud addresses, MAC OUIs and generic private gateways remain actionable documentation;
-only audited full MACs and deployment-owned identifiers are blocked.
-
-## [2026-08-14] lint | Synthetic script fixtures exempted from identity defaults
-
-The PR merge check exposed that the operational-default rule treated explicitly named
-`SYNTHETIC_*` and `DOCUMENTATION_*` constants as live defaults. Narrowed that rule to keep
-those safe fixtures while continuing to reject ordinary script identity defaults; the
-digest-backed repository scan remains authoritative for audited deployment values.
-
-## [2026-08-14] lint | Maintainer gateway returned to scrub scope
-
-Corrected the vendor-infrastructure boundary: the deployment's UDM gateway is maintainer
-infrastructure, not a generic example. Removed its shell default and documentation literals,
-restored its dotted and integer digests, and extended the operational-default regression
-check to quoted IP assignments in shell scripts.
-
-## [2026-08-21] lint | Single-maintainer release approval policy corrected
-
-Corrected [`50-operations/release-process.md`](50-operations/release-process.md), which still
-required a PyPI environment reviewer other than the dispatcher. That rule was stale after
-pylxpweb PR #306 and is impossible in a repository with one human maintainer. The current
-contract intentionally requires zero reviewers and locks that decision with
-`test_binding_releases_merged_pr_with_zero_reviews`; release safety remains enforced by CI,
-tag-bound protected environments, disabled admin bypass, OIDC scoping and terminal artifact
-verification. GitHub branch protection and environments already required zero approvals, so no
-repository setting was weakened.
-
-## [2026-08-29] ingest | #570 off-grid write-evidence sweep — grades, H161 anomaly, protected-set derivation
-
-Ingested the issue #570 evidence artifacts into the keeper
-([`40-hardware/registers.md`](40-hardware/registers.md)): the `fw-verify-offgrid-writes`
-firmware verdicts (2026-08-12, CEAA 12000XP + CCAA 6000XP ARM+DSP images — H158–H161
-mapping/range checks `firmware-proven`; H66 writable 0..100 but semantics NOT verifiable;
-H21 b7 `firmware-proven` inert; H233 CEAA rejection `firmware-proven`, CCAA partial) and
-the 2026-08-13 live cloud toggle/restore sweep (FlexBOSS21 + 18kPV: H158/H159/H160
-`hardware-toggle-proven` on the tested units; H161 write-inert on a second grid-tied unit
-— resolved as the pre-documented family quirk, strengthening C6, not a write-path fault).
-Accounting moved 336→345 counted claims, 32→41 proven. Recorded both pylxpweb range
-conflicts (H160 min 1 not 0; H66 raw ≤100) as filed (#271/#272) and fixed (pylxpweb PR
-#273, merged). Grade rules honored: the toggle proofs are scoped to the tested units
-(firmware unrecorded); the firmware proofs are mapping/range proofs and did NOT promote
-H66's semantic row or license a local-write upgrade for H158–H161 (recorded as a
-version-gated candidate on #570 only).
-
-Falsification sweep: PR #569's shipped cloud-only routing had invalidated the pre-#569
-"local-first, ungated" narratives in
-[`10-integration/data-semantics.md`](10-integration/data-semantics.md),
-[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) §1/§2.4,
-the keeper's H233 boundary and H227 shipped-path notes, README's keeper cache, and
-[C7](60-history/open-contradictions.md) ("not routed cloud-only") — all updated to the
-shipped fail-closed routing, with the pre-#569 exposure preserved as history. C6/C7 stay
-open pending a live off-grid H161 write.
-
-Code half of the audit (same change set, tracked on #570): the protected set is now
-derived, not enumerated — every scalar holding register the number platform writes through
-the local-first router lacks a local off-grid delta-test, so all of them (74, 101, 102,
-105, 125, 202, 227, 228, 169, 100, 22, joining 66/158–161) route cloud-only on
-EG4_OFFGRID/unresolved families. Blind spots recorded in `_offgrid_cloud_only_reason`'s
-docstring: bit-level switch/select writes, schedule `write_register` calls, direct library
-calls, and the QuickChargeDuration live-adjust remain outside the gate, with per-bit risk
-held by the keeper and C7.
-
-## [2026-08-29] lint | QuickChargeDuration blind-spot rationale corrected — reg-234 local write was reachable on off-grid
-
-The previous entry (and the `_offgrid_cloud_only_reason` docstring it described) claimed the
-QuickChargeDuration live reg-234 adjust could not run on off-grid because it is "gated on a
-live local H233 b0 read, which the recorded off-grid boundary itself rejects." A PR #600
-adversarial-review finding (Kimi, MED) exposed that as wrong, and code adjudication confirmed
-it — wrong twice: (1) on EG4_OFFGRID + HYBRID the active check is **cloud-routed**
-(`coordinator_mixins.py` → `_quick_charge_prefers_cloud`, the #296 mitigation), so a
-cloud-started charge reports active without any local H233 read standing in the way; (2) the
-H233 rejection is CEAA-scoped anyway — the keeper's own CCAA row in this same change set says
-the address is implemented there. The local reg-234 write on off-grid HYBRID was therefore
-reachable **by design** ("#296 round 2":
-`coordinator_mixins.py` → `_read_offgrid_quick_charge_minute` deliberately mirrors reg 234
-locally so the number's read and write sides agree), on a register with no off-grid write
-evidence (H234 `portal-correlated`). The failure mechanism was the classic one: a
-lineage-scoped negative claim quietly generalized to the family.
-
-Fix (same change set): the live-adjust branch now requires
-`is_positively_non_offgrid_family`; off-grid/unresolved families take the CLOUD-branch
-behavior (store the start preference, applied as the next cloud start's `minute` parameter).
-Regression tests in `tests/test_offgrid_write_routing.py`
-(`TestQuickChargeDurationOffgridLiveAdjust`). Pages updated: the keeper's H234 row,
-[`10-integration/data-semantics.md`](10-integration/data-semantics.md) gate-limits note, and
-[`10-integration/controls-and-writes.md`](10-integration/controls-and-writes.md) router
-parameter row. The local reg-234 **read** (off-grid HYBRID mirroring) is unchanged — reads
-carry no wrong-write hazard.
-
-## [2026-08-29] lint | Review round 2 — H22 ledger gap closed, H105 range mismatch, stale evidence claims, change-set pins
-
-Corrections from PR #600 adversarial round 2 (Codex + Grok), all landed in the PR branch
-commit `1f39ad1`:
-
-- **H22 was a shipped control with no keeper row** — a violation of the every-claim-graded
-  rule that the sweep's own frame derivation used ("no ledger row at all") without filing
-  the row it implied. Added the H22 row (`portal-correlated`: canonical pylxpweb definition
-  at `ab87902` + the PR #359 verified named-volts cloud route; the reg-22-carries-LSP-bits
-  note and the 140 V firmware floor recorded `asserted-unverified`). Accounting 345→346
-  counted claims, 41 proven (11.8%). The README partial-inventory line and the code/test
-  comments that said "no ledger row" were updated — that phrasing was a fact about a gap,
-  not a permanent property.
-- **H105 range mismatch surfaced by the sweep routing**: the entity advertised 0–100 while
-  the canonical H105 definition and pylxpweb's `set_battery_soc_limits` enforce 10–90, so
-  the new off-grid cloud-only route raised a raw ValueError at the boundaries. The entity
-  (the outlier) now advertises/validates/reads 10–90; H125 is 0–100 everywhere and
-  unchanged. The keeper needed no change — the canonical definition was already right.
-- **Stale evidence claims**: `_offgrid_cloud_only_reason`'s rationale still carried the
-  pre-sweep H158/H159/H66 wording this same change set's keeper rows had superseded;
-  README's write-surface worked example still said pure-LOCAL off-grid drives the local
-  H233 path (closed by PR #569); controls-and-writes §1.3 still described the
-  QuickChargeDuration error contract without the family gate. All updated — same defect
-  class as the round-1 finding: a page or docstring asserting what a sibling document said
-  before the same change set falsified it.
-- **Change-set pins**: claims describing this PR's own routing were pinned only to
-  pre-PR commits. Following the #559 precedent, the affected pages' front matter now
-  names the PR #600 branch commit `1f39ad1` for those claims, to be re-pinned to the
-  mainline merge SHA at the release cut.
-
-## [2026-08-29] lint | Review round 4 — quick-charge switch fails closed on unresolved families; firmware bounds reach the entities
-
-Corrections from PR #600 adversarial round 4 (Codex 3 MED + 2 LOW, Grok corroborating):
-
-- **Quick Charge switch, unresolved families**: `_prefers_cloud_control` gated on
-  *positive off-grid identification*, so an UNKNOWN/missing family with cloud + local
-  transport still ran pylxpweb's local-first paired H233/H234 write. #569's recorded
-  rationale ("the fallback works") predates the CCAA firmware verdict: on CCAA the H233
-  write is silently ACCEPTED with unproven bit-0 semantics, and a silent ACK never
-  triggers a fallback — the #476 mechanism. The predicate now fails closed
-  (`not is_positively_non_offgrid_family(...) and has_http_api()`); resolved non-off-grid
-  families keep local-first. Keeper H233 boundary row, data-semantics and
-  controls-and-writes §2.4 updated to the new routing.
-- **Firmware-proven bounds now reach the entities, family-scoped because the evidence
-  is**: AC Charge Power (H66) advertises/accepts at most 10 kW on off-grid/unresolved
-  (CEAA/CCAA writer rejects raw >100 — the 15 kW ceiling survives only on positively
-  resolved non-off-grid families, where it is shipped status quo without firmware proof
-  either way); AC Charge Start SOC (H160) floors at 1 on off-grid/unresolved (0 →
-  exception 03 — resolved non-off-grid keeps the shipped 0 floor, unverified but not
-  disproven). Read windows track the same bounds so out-of-window values read unknown
-  instead of tripping HA's out-of-range state error. Boundary tests added both sides.
-- **Docstring falsifications**: the QuickChargeDuration class docstring still described
-  an unqualified LOCAL/HYBRID live reg-234 adjust, and
-  `_read_offgrid_quick_charge_minute` still said the setter "writes reg 234 whenever a
-  local transport is configured" — the exact sentence a future "restore read/write
-  symmetry" fix would cite to reopen the gated write. Both now state the fail-closed
-  family gate explicitly, and the mirror-read helper carries a do-not-restore-symmetry
-  warning naming what the symmetry claim would reopen.
-
-## [2026-08-29] lint | Review round 5 — one derivation pass over every fail-open `is_offgrid_family` site
-
-Rounds 4 and 5 found the same defect class three times (switch write gate, coordinator
-status gate, fail-open creation branch), so this round ran ONE derivation pass over every
-`is_offgrid_family(` call site instead of fixing the reported instances alone. Result,
-landed in the PR #600 branch:
-
-- **Creation/suppression gates stay fail-open by design** (`number.py`, `switch.py`,
-  `time.py` gate table, Repairs flags, off-grid read blocks, off-grid-only
-  sensors/buttons): suppression needs positive identification (#259/#219), and the
-  off-grid-only surfaces are conservative when they fail open (absence, or read-only).
-- **Every write or routing decision now fails closed on
-  `is_positively_non_offgrid_family`**: the coordinator's `_quick_charge_prefers_cloud`
-  (Grok MED — round 4 moved unresolved-family WRITES to the cloud while the READ side
-  still sent the next status poll to the local H233/H234 detail read, reintroducing the
-  #296 invisibility bug on exactly the protected population); the fail-open-CREATED
-  grid-tied number setters reachable in the first-run window before family resolution
-  (Codex MED — H67/H82/H83/H103/H116 route cloud-only, and the RAW H117 write, having no
-  cloud path, is refused outright); and the schedule time entities' packed
-  `write_register` path (found by the pass, not by a reviewer — the clear-schedule
-  button had already declared local off-grid schedule writes unsanctioned while the
-  entities still wrote local-first).
-- Pages updated: the keeper's schedule-write-boundary row, README's H117 cells,
-  controls-and-writes router-parameter row, data-semantics gate table and limits note.
-- The remaining fail-open-adjacent write surfaces are the bit-level switch/select
-  writes and direct library calls — recorded in `_offgrid_cloud_only_reason`'s
-  docstring and C7, deliberately not converted (per-bit mappings, different mechanism,
-  tracked risk).
-
-## [2026-08-29] lint | Review round 6 — a "needs no gate" claim must be wheel-verified, not docstring-trusted
-
-The round-5 derivation classified H206 as "cloud-only by construction" by reading the
-ENTITY's docstring ("cloud-write-only ... local transport name-writes are never used"),
-which the pinned pylxpweb wheel falsifies: `set_grid_peak_shaving_power` is
-TRANSPORT-FIRST onto raw H206 (deci-kW) whenever a transport is attached — this wiki's
-own README partial inventory had recorded exactly that ("pylxpweb drives
-set_grid_peak_shaving_power local-first") while the derivation trusted the code comment
-instead. The classic failure: a claim's citation (the entity docstring) did not support
-it, and the primary source (the wheel) was one grep away. Fixed by gating the entity
-(off-grid/unresolved write the cloud named parameter directly; resolved non-off-grid
-keeps the hybrid-verified transport-first method), and the round re-verified EVERY cloud
-path the number/time gates rely on against the wheel: `set_battery_soc_limits`, both
-battery-current setters, every `_write_named_parameter` consumer (66/74/67/82/83/202),
-`set_feed_in_grid_power_kw` and `set_system_charge_soc_limit` go straight to
-`client.api.control` — H206's method was the only transport-first one.
-
-Also landed this round: the cloud-routed schedule write now seeds the local-raw cache
-under the register's alias keys (without it the post-write refresh re-read the stale
-packed register and visibly reverted the entity); firmware bounds reached the remaining
-entities family-scoped (H158 38.4–57.0 V, H159 48.0–59.0 V, H161 floor 20 on
-off-grid/unresolved; resolved non-off-grid keeps the shipped ranges — cross-register
-constraints H158≤H159 and H161≥H160 stay firmware-enforced only, because validating
-against a stale cached sibling would produce false rejections); the H117 error no longer
-promises a cloud route that does not exist (it names family resolution as the remedy);
-and the change-set pin comments switched to branch-head language after two successive
-pinned SHAs staled within the review train.
-
-## [2026-08-29] lint | Review round 7 — cloud-routed writes must CONVERGE, not just route
-
-Three MEDs were one class: every write this PR re-routed through the cloud races the
-post-write refresh against portal→dongle→register propagation, and three gaps let the
-stale register win — (1) `_reconcile_parameter_read` "confirmed" a seeded key at a
-disagreeing fresh observation, so the successful refresh retired the seed at the
-PRE-write value and cleared optimism onto it (schedules and every seeded number
-reverted for a poll cycle); (2) the number platform's default inverter-first read order
-let the pylxpweb attribute (refreshed from the same stale register) shadow the seeded
-cache value entirely (the H101/H102/H105/H125 snap-back); (3)
-`GridPeakShavingPowerNumber`'s round-6 cloud-named branch never seeded convergence at
-all. Fixed as one mechanism, not spot fixes: a new
-`PARAMETER_WRITE_SEED_SETTLE` window in the coordinator keeps a seed over a
-DISAGREEING fresh observation (agreement still confirms immediately; past the window
-fresh reads are authoritative again — pinned RED→GREEN on the real coordinator);
-`_read_param_value` now behaves params-first for any key with an active seed
-(`has_active_parameter_write_seed`, strict-True so auto-mocked scaffolds keep their
-declared order); the H206 cloud branch seeds its acknowledged kW value. The routing
-tests now assert `native_value` AFTER every cloud-routed write (grok's point: routing
-tests passed without convergence), against an emission-faithful mock that replays the
-coordinator contract. The whole rerouted set was swept against the mechanism:
-66/74/101/102/105/125/158/159/160/161/169/100/22/202/227/228 and the r5 additions
-67/82/83/103/116 ride the router's `local_values` seeding; H206 seeds at its entity;
-schedule times seed their alias keys; H117 and QuickChargeDuration write nothing
-cloud-side to converge.
-
-Also: H158's advertised off-grid floor is now 39 V (advertising the firmware's 38.4 V
-on a whole-volt entity made HA accept a boundary the validation then rejected — every
-advertised boundary is writable as-is, boundary-tested both ends for
-H66/H158/H159/H160/H161); the last H234 read/write-symmetry comment was corrected
-(`_read_quick_charge_status`), completing the r4 sweep; and the change-set pin
-comments now cite **PR #600** as the durable artifact (a deleted branch keeps the PR
-diff; branch-head language was not durable).
-
-**REQUIRED POST-MERGE ACTION (release cut):** re-pin the PR #600 change-set claims in
-`40-hardware/registers.md`, `10-integration/controls-and-writes.md`,
-`10-integration/data-semantics.md` and `README.md` front matter to the mainline merge
-SHA (#559 precedent). This entry is the tracking record for that action.
-
-## [2026-08-29] lint | Review round 8 — settle window keyed per parameter; the pin defect was in the front matter too
-
-Two corrections. (1) The round-7 settle window used the serial-wide NEWEST-write stamp:
-writing H102 re-armed H101's stale-read protection, masking a fresh external H101 change,
-and repeated sibling writes could extend the mask indefinitely. Each seeded key now runs
-on its OWN write stamp, retires on its OWN confirmation (an agreeing observation ends the
-protection, so a confirmed key's later external changes stay visible even mid-sibling-
-writes), and expires on its own 30 s window — pinned by two new tests (sibling-write
-masking and window-extension) alongside the r7 convergence pins, all green. (2) The r7
-durable-pin fix landed only in the front-matter COMMENTS while the `verified-against:`
-values still named pre-PR commits — the exact citation-does-not-support-claim defect,
-one level up. The four edited pages' `verified-against:` values now carry the compound
-pin ("<pre-PR SHA> + PR #600 (change-set claims; re-pin to the merge SHA at the release
-cut)"), so the machine-read pin itself licenses the PR-#600 claims; the release re-pin
-remains tracked by the round-7 entry above.
-
-## [2026-08-29] lint | Review round 9 — settle recheck; the compound pin violated the schema it tried to satisfy
-
-Three corrections. (1) A disagreeing post-write read retained the seed but scheduled NO
-follow-up read, so a never-propagating cloud write (or an immediate external change)
-showed the seeded value until the default HOURLY parameter poll. The retained
-disagreement now schedules a one-shot targeted per-device refresh at that key's settle
-expiry (`_schedule_seed_settle_recheck` — deduplicated per serial, reusing the existing
-targeted refresh, cancelled on shutdown, no new polling loop); the refresh's own
-authoritative observation resolves the seed to device truth within ~one settle window,
-pinned by a deferred-timer test with no manual reconciliation calls. (2) The
-round-8 compound `verified-against:` value ("SHA + PR #600 …") violated
-`_conventions.md`'s commit-only front-matter form — machine tooling passes the pin to
-`git show` — a fix for a citation defect that itself broke the citation schema. The
-four pages' pins are back to bare pre-PR commits; the in-flight change-set claims are
-licensed PER CLAIM by their inline PR #600 / issue #570 citations (the r7 form, which
-`_conventions.md` permits), and the front-matter comments say exactly that. The
-release-cut re-pin stays tracked by the round-7 REQUIRED POST-MERGE ACTION. (3) The
-canonical parameter-seeding section (`data-semantics.md` §7) now documents the settle
-window, the per-key stamps/confirmation, the settle-expiry recheck, and the
-params-first override for active seeds — the convergence contract had lived only in
-code comments and the log.
-
-## [2026-08-29] lint | Review round 10 — earliest-deadline recheck dedup; two stale comment claims corrected against the code they sit beside
-
-Four corrections from the round-10 adversarial pass (Codex gpt-5.6-sol; grok crashed,
-kimi pending). (1) The round-9 settle-recheck dedup keyed on the serial alone and kept
-whichever deadline scheduled FIRST — so when a later-expiring key's disagreement
-scheduled before an earlier-expiring key's, the earlier key's retained seed masked a
-genuine external change until the later window ran out. The dedup now keeps the
-EARLIEST per-key deadline (`_parameter_seed_recheck_at`; a later-deadline pending
-recheck is cancelled and pulled forward), pinned by a staggered-two-key deferred-timer
-test. Test-construction note recorded there: patching `time.monotonic` warps asyncio's
-loop clock too, so the test backdates the write stamps instead of warping "now".
-(2) The HA stop path (`_async_handle_shutdown`) never cancelled the recheck timers —
-only `async_shutdown` did — so a pending recheck could fire its targeted refresh after
-the transports and cloud session shut down; both teardown paths now share
-`_cancel_seed_settle_rechecks()`. (3) The `time.py` local-block routing comment and
-this wiki's schedule-write routing row (`40-hardware/registers.md`) both said
-off-grid/unresolved schedule writes route through "the classic cloud field writes" —
-false for the writeTime families (Generator/Off-Grid/Peak Shaving, which is exactly
-what an off-grid inverter's Generator Charge schedule uses): those take the atomic
-`write_time_parameter` portal call, and only the classic families (AC Charge/First,
-Forced Charge/Discharge) take the per-field hour/minute writes. Both statements now
-describe the per-schedule routing. (4) `const/modbus.py`'s H206 keeper comment still
-called the raw encoding "presumed deci-kW but unverified … cloud-write-only",
-contradicting the family-scoped split the same change set ships (transport-first raw
-H206 — hybrid-verified deci-kW, pylxpweb#158 — on resolved non-off-grid families;
-cloud-named-parameter-only on off-grid/unresolved). The comment now states the split;
-the "never via the local transport name map" clause survives — that part was and is
-true (the old name map pointed at reg 231). Citations: PR #600 (issue #570).
-
-## [2026-08-29] lint | Review round 11 — teardown latch for the settle recheck; a false name-map rationale corrected against the wheel
-
-Two LOW corrections (Codex gpt-5.6-sol; grok unavailable this round). (1) Both teardown
-paths cancel the settle-recheck timers BEFORE awaiting the base-class teardown and
-`_schedule_seed_settle_recheck` had no shutdown guard, so an in-flight reconciliation
-completing during that await could re-arm a timer whose refresh would then run against
-closed transports/cloud session. `_cancel_seed_settle_rechecks()` now also latches
-scheduling closed one-way (`_parameter_seed_recheck_closed`; both callers are terminal
-for the instance), pinned by a RED-verified test that re-arms mid-`async_shutdown` and
-asserts no timer survives and no refresh fires. (2) `number.py`'s H206 cloud-branch
-seeding comment justified the kW seed unit with "the local name map never carries this
-key" — falsified against the pinned wheel: `constants/registers.py` maps
-`206: ["_12K_HOLD_GRID_PEAK_SHAVING_POWER"]` and the transport decode divides by 10
-(`LOCAL_PARAM_SCALE_DIV10`), so a local read surfaces kW, same as the cloud string. The
-seed VALUE was already correct — kW is what the cache carries on every path — but the
-false rationale could have motivated a "fix" seeding raw deci-kW, a 10× state defect.
-The comment now states the actual mapping/decode and why kW is the invariant unit. No
-wiki page repeated the falsehood (`40-hardware/registers.md` H206 rows already say
-0.1 kW raw); no wiki content change this round. Citations: PR #600 (issue #570).
-
-## [2026-08-29] lint | Review round 12 — a fired recheck must stay coordinator-owned
-
-One MED (Codex gpt-5.6-sol; kimi quota-died again). The fired settle-recheck callback
-popped its only coordinator-owned cancel handle and then awaited the targeted refresh
-unowned — a timer firing just before reload/shutdown left parameter I/O running against
-detached transports or a closing cloud session, racing the replacement coordinator. Two
-changes, both inside `_schedule_seed_settle_recheck`: the fired callback re-checks the
-round-11 closed latch (plus `_background_scheduling_stopped`) AFTER the fire and before
-starting any I/O, and the refresh itself now runs through the existing
-`BackgroundTaskMixin` ownership convention (`hass.async_create_task` +
-`_background_tasks` + `_remove_task_from_set`/`_log_task_exception` done callbacks), so
-`_cancel_background_tasks` — which both teardown paths already run AFTER the latch is
-set — cancels and awaits it. Two RED-verified tests: a shutdown starting while the
-fired refresh is blocked in flight cancels and awaits it (CancelledError observed, task
-set drained), and a fired callback that outraces teardown's cancel starts nothing once
-the latch is set. Citations: PR #600 (issue #570).
-
-## [2026-08-30] lint | Review round 13 — two stale routing docstrings, two inert regression tests, one missing writeTime routing pin
-
-Five LOW corrections, no behavior changes (Codex gpt-5.6-sol). (1)
-`_read_quick_charge_status`'s docstring still described the pre-r5 gate ("EG4_OFFGRID +
-HYBRID", H233 "firmware-rejected" family-wide); it now states the fail-closed
-unresolved-inclusive predicate (`_quick_charge_prefers_cloud`) and the CEAA-scoped H233
-rejection (CCAA implements the register with unproven semantics). (2) `number.py`'s
-H160 `verify_register` rationale called grid-tied cloud writes "otherwise untested" —
-stale since the #570 live sweep hardware-toggle-proved the named cloud path on
-FlexBOSS21 and 18kPV (raw 5→6→5, scope limited to the tested units); the readback
-stays justified by sibling H161's acknowledged-but-inert signature on the same units.
-(3+4) Two regression tests had gone INERT when round 5's fail-closed routing landed:
-their featureless scaffolds resolve as UNKNOWN family, which takes the blocked-local
-cloud route, so the mocked local failure / link-down short-circuit they claimed to pin
-was never exercised. Both re-scaffolded on EG4_HYBRID and MUTATION-VERIFIED: neutering
-the cloud fallback and the link-down short-circuit in
-`utils.py::async_write_with_cloud_fallback` turns exactly these tests RED. Lesson: a
-routing change that adds an earlier branch can silently strand downstream tests on the
-new branch — passing green while pinning nothing. (5) The off-grid schedule routing
-class only pinned the classic (ac_charge) cloud leg; a gen_charge case now pins the
-writeTime leg — no local FC06 to H256, the atomic `write_time_parameter` call, and no
-classic per-field writes — and the class docstring drops the same "classic cloud field
-writes" overstatement r10 corrected elsewhere. Citations: PR #600 (issue #570).
-
-## [2026-08-30] repin | Release-cut re-pin — PR #600 merged as d8e2027
-
-The REQUIRED POST-MERGE ACTION from the #570 sweep rounds is discharged:
-PR #600 squash-merged to mainline as `d8e2027` (closes #570). The four pages
-carrying per-claim PR #600 citations (README keeper cache, registers keeper,
-controls-and-writes, data-semantics) are re-pinned to `d8e2027` with
-`last-verified: 2026-08-30`; the inline PR/issue citations remain as
-provenance. Performed in the v3.5.1-beta.13 release change set (which bumps
-the pylxpweb pin to 0.10.0b5).
-
-## [2026-09-01] ingest | #603 — H105 ceiling is 100, not 90; the entity read window must not be tighter than the writers
-
-Source: [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter
-diagnostics (LXP-LB-US 10K, hybrid) showing `HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`
-stored after a portal-typed value, plus the reporter's statement that 101 is
-rejected by the inverter (96–100 were never individually written). The 10–90 range PR #600 round 2 propagated into the
-On-Grid SOC Cut-Off entity (advertised, write-validated AND read-windowed) was the
-portal's arrow-button hint copied into pylxpweb's canonical H105 definition and
-`set_battery_soc_limits`; it blanked the stored 95 to unknown and refused writes
-above 90. Filed on [the registers keeper](40-hardware/registers.md) as two H105 rows: the stored-95 observation
-(`portal-correlated`, reporter unit only) and the exact 10–100 bound (`inferred`;
-both ends unproven). Accounting 346 → 348 claims, 41 proven; keeper pylxpweb pin moved ab87902 → c78ab7e (0.10.0b7; holding-definition deltas in between are H105 (this ingest) plus the PR #273 H66/H160 range fixes the keeper already carried per claim). Library fix widens both
-pylxpweb writers and the definition to 100; the entity read window is now the
-tolerant 0–100 while the write bounds track the writers. Same-class audit: reg 227
-(System Charge SOC Limit) carried an evidence-free 10 floor against a 0–101
-library/keeper range — floor set to 0; reg 160's hybrid-side 90 write cap is the
-same evidence tier and is now annotated as such in the entity docstring, not
-changed. Rule recorded: a read plausibility window must never be tighter than the
-widest bound any writer accepts.
-
-## [2026-09-02] repin | Release-cut re-pin — PR #605 merged as 041032f
-
-The #603 fix (two H105 keeper rows, reg 227 floor, contract tests) merged to
-mainline as `041032f`; the [registers keeper](40-hardware/registers.md) is re-pinned
-to it with `last-verified: 2026-09-02` (its pylxpweb pin moved to `c78ab7e` in the
-#603 ingest above). Performed in the v3.5.1-beta.14 release change set (pylxpweb
-pin 0.10.0b7).
-
-## [2026-09-02] ingest | #592 — the daily Grid Peak Shaving set: five router entities, one local frame
-
-Source: [#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592) and the
-pinned pylxpweb `c78ab7e` (0.10.0b7) tables — `REGISTER_TO_PARAM_KEYS` names
-H207/H208/H218/H219/H232 and `LOCAL_PARAM_SCALE_DIV10` covers the three
-deci-unit names. The integration exposed 6 of the 11 daily keys; the five
-missing ones are now `PeakShavingNumber` spec rows on the router (a local named
-write on a positively resolved non-off-grid family, cloud holdParam + readback
-otherwise, cloud-only on off-grid/unresolved via `_offgrid_cloud_only_reason`).
-Filed on [controls-and-writes](10-integration/controls-and-writes.md): a §0.4
-inventory row, the §1 protected-set list extended with 207/208/218/219/232, a
-§6 exception for the two voltage rows, and landmine #10 — a DIV_10-scaled name
-must be handed engineering units on both paths, because the transport does the
-×10 (pre-scaling would land raw ×100) and the cloud readback must compare as a
-float (the int-truncating compare read 4 for a 4.5 kW write). Local reads
-become one `(206, 7)` frame plus `(218, 2)` and `(232, 1)`, hybrid-gated
-(219-221 is the LSP-bypass bitmap on the SNA probe). **No grade moved**: the
-[registers keeper](40-hardware/registers.md) already carries all five at
-`portal-correlated` and this change set adds no hardware evidence, so the
-keeper is untouched. Also corrected: `docs/DATA_MAPPING.md` claimed register
-231 holds the peak-shaving power (H231 is unknown; PS1 is H206) — that claim
-was already refuted on the keeper and had rotted only in the docs copy.
-
-## [2026-09-02] ingest | v3.5.1-beta.15 release cut — #608 and pylxpweb 0.10.0b8
-
-PR [#608](https://github.com/joyfulhouse/eg4_web_monitor/pull/608) merged as
-`5092b5b`; companion pylxpweb [#327](https://github.com/joyfulhouse/pylxpweb/pull/327)
-merged as `80e8221` and shipped in 0.10.0b8. The
-[registers keeper](40-hardware/registers.md) is re-pinned to both commits. The
-library delta gives H208/H219 the same 40.0–64.0 V bounds as the integration
-(`verified-against-code` at the pinned
-[`src/pylxpweb/registers/inverter_holding.py` H208 row](https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1534-L1544)
-and [H219 row](https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1572-L1582)).
-Those rows themselves state the bounds are a maintainer-chosen guard with no
-firmware/portal bound captured, so the grade attests only that the code carries
-the bounds, not that the window is hardware-correct. The peak-shaving register
-semantics remain `portal-correlated`, and no evidence grade changed.
-
-## [2026-09-04] ingest | #574 — holding-only batteries get an explicit discovery error
-
-Source: [#574](https://github.com/joyfulhouse/eg4_web_monitor/issues/574), including
-the reporter's EG4 master/slave H0–H41 captures and the failed inverter input-register
-serial request. Filed the resulting behavior on
-[config-flow](10-integration/config-flow.md): after the inverter serial probe fails,
-Modbus TCP discovery checks a complete, plausibility-gated holding-register block using
-pylxpweb's battery protocol classifier. A match now tells the user the device is a
-battery and points to #176; a non-match preserves the original error. The integration
-behavior and both flow mappings are `verified-against-code` at `c411499`; the issue's
-hardware observations remain `asserted-unverified` and were not promoted.
-
-## [2026-09-04] ingest | v3.5.1-beta.16 release cut — #574 and pylxpweb 0.10.0b9
-
-The release cut includes the #574 standalone-battery discovery fix from `c411499`
-and its mainline documentation at `1d09823`. The pylxpweb
-[v0.10.0b9](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b9) tag is
-`f3ced1a` and carries [PR #330](https://github.com/joyfulhouse/pylxpweb/pull/330)
-for issue [#329](https://github.com/joyfulhouse/pylxpweb/issues/329). The
-[registers keeper](40-hardware/registers.md) is re-pinned to both release inputs;
-the pylxpweb delta from `80e8221` to `f3ced1a` changes transport and release files
-but no register definitions, so no register claim or evidence grade changed.
-
-## [2026-09-28] ingest | via_device → via_device_id parent links (HA 2026.8+)
-
-`DeviceInfoMixin.via_device_link` now links child devices (batteries, battery bank,
-parallel-group members) with `via_device_id` on HA ≥ 2026.8.0b0 and keeps `via_device` on
-older HA, feature-detected on `device_registry.async_get_device_id_by_identifier`. Found live:
-an entity-ID rename from the UI on HA 2026.9 raised on the legacy `via_device` (core-attributed
-add) and the entity stayed stateless until reload. Version facts were checked against PyPI
-wheels 2026.2.0–2026.9.4, not docs: the helper and `via_device_id` both first appear in
-2026.8.0b0 (which also removed `DEVICE_INFO_KEYS`); the raising deprecation first appears in
-2026.9.0. Updated [entities §6](10-integration/entities-identity-availability.md) (column was
-`via_device`, now "Parent device" plus a version paragraph; cites moved from line numbers to
-symbols), [what-this-project-is](00-orientation/what-this-project-is.md) and
-[architecture](10-integration/architecture.md), which both said `via_device` unconditionally.
-
-## [2026-09-29] ingest | Explicit minimum/latest HA CI matrix
-
-Read the CI implementation at `7b0a237` and updated the Python/HA matrix owned by
-[quality-gates.md](50-operations/quality-gates.md), plus the setup link/example in
-[dev-environment.md](50-operations/dev-environment.md). The former Python 3.13-only
-gate could resolve an older HA through the test plugin's exact HA dependency and
-skip modern-registry tests. CI now has explicit paired core/plugin constraints,
-blocking minimum/latest full-suite and mypy gates, and latest auxiliary jobs.
-Mypy follows the interpreter; requirements permit HA's pycares 5.x dependency.
-Only these subsections were re-verified; the rest retains its historical pins.
-The CI change remains a draft until existing latest-HA failures are resolved;
-this entry records the implementation, not a claim that the new gates pass.
-
-## [2026-09-29] ingest | HA stop terminally shuts down the refresh producer
-
-Read `d1392ab` and its failing-before/passing-after debouncer regression. Filed
-the HA-stop lifecycle in [architecture](10-integration/architecture.md): the
-previous handler cancelled the current timer, but a cancelled in-flight refresh
-could create another in its `finally` block because the base coordinator and
-debouncer had not been marked shut down. HA stop now uses the full unload
-teardown. The regression and cancellation tests passed on minimum and current
-HA; no hardware claim is involved. Only this lifecycle row was re-verified.
-
-## [2026-09-29] ingest | Current-HA fixtures and fail-closed required CI summaries
-
-Read `c94b18c` / `d320f5d` and their regression tests. Updated
-[quality-gates](50-operations/quality-gates.md): registry fixtures now respect
-config-entry-scoped identity, offline Modbus failures are explicit, and the
-negative wall-clock test restores time before HA teardown. Required summaries
-run even after dependency failure and reject every result other than success;
-previously skipped required summaries allowed a merge despite failed coverage.
-No socket or timer-cleanup checks were weakened.
-
-Also re-verified the HA-stop row in [architecture](10-integration/architecture.md)
-at `a79b8eb`. The first shared-teardown fix entered both the public unload wrapper
-and the outer HA-stop wrapper, closing the client twice; the existing session
-ordering test caught it. The corrected path calls the inner teardown and keeps
-one outer session owner. This corrects the call-site description, not the
-terminal-debouncer contract or the previous targeted regression results.
-
-## [2026-09-28] ingest | GridBOSS smart ports become their own devices (breaking)
-
-Each GridBOSS smart port is now a device `(DOMAIN, f"{serial}_smart_port_{n}")` under the
-GridBOSS (#630), holding the port's Mode select, mode-neutral power/current sensors that read the
-port's current mode, and one energy pair per mode (a single energy entity switching firmware
-counters would corrupt HA's long-term statistics: the recorder reads the jump as consumption, a
-negative delta, or a meter reset). Entities that don't serve the port's mode are
-integration-disabled, only on two consecutive validated reads, and only entities the sync itself
-disabled are re-enabled (marked in registry entity options). Setup adopts the old per-mode
-registry entries by rewriting unique IDs, before the #217 cleanup (now limited to the cross-port
-totals); superseded entries are disabled, never deleted. Agreed with the maintainer as a breaking
-change with no opt-out. An opt-in option and a one-time entity-ID rename action were built and
-live-tested first, then removed: HA's device page offers ⋮ → "Recreate entity IDs"
-(frontend `ha-config-device-page.ts` → `reset_entity_ids` → `regenerateEntityIds`, present in both
-the 2026.1 and 2026.9 frontends; renaming a device does not regenerate IDs). Two adversarial
-reviews found defects fixed here: energy statistics, adoption deleting or guessing the live entry
-(contested power/current is now decided only by a validated read, deferred until then; LOCAL's
-first load never has one, and `created_at` is restored on re-created entries and epoch 0 on
-migrated registries), cleanup ordering, the #195/#248 skip path, and a sync debounce that counted
-coordinator updates instead of GridBOSS reads (reads now carry `SMART_PORT_READ_KEY`, the MID
-device's last successful refresh). After a Mode-select write the coordinator reads the GridBOSS
-every cycle until a read confirms the mode, and the sync acts on that one confirming read. Live-tested earlier builds
-on a HYBRID GridBOSS: adoption of 28 entries, Unused → disable, mode → enable + ~30 s reload.
-Updated [entities §5–§6](10-integration/entities-identity-availability.md) and
-[architecture §4.1](10-integration/architecture.md) (rows footnoted to this change, not the page
-pins), and `docs/DATA_MAPPING.md` §11. Rebased onto `main` after #631 merged (squash `4683d58`);
-the §6 parent-link footnote now cites that commit instead of the `fix/via-device-id` branch.
-
-## [2026-10-01] ingest | Smart-port devices: review fixes to adoption and the registry sync
-
-Maintainer review of PR #632 found four defects, all confirmed against the code and fixed.
-(1) The deferred-adoption listener treated "not in the migration's returned deferred set" as
-"adopted", but the migration skips a GridBOSS absent from `coordinator.data`, so one update
-without it created the contested sensor fresh and stranded the legacy entry. Port sensors are now
-added by one listener (`sensor.py` → `_async_register_port_sensors`) only for a GridBOSS present in
-that update and already registered as a device. (2) On #195/#248 firmware no read is ever
-validated, so a contested sensor was deferred for good; `serials_resolving_unvalidated` now lets
-`resolve_port_mode`'s key-presence rule decide after `UNVALIDATED_READS_BEFORE_FALLBACK` reads and
-`UNVALIDATED_SECONDS_BEFORE_FALLBACK`, and `SMART_PORT_READ_KEY` is stamped on unvalidated reads
-too so they can be counted. (3) A GridBOSS first reported as `type: gridboss` after setup (LOCAL
-config without the flag, or absent) never got port sensors; the same listener adopts and adds them.
-(4) The registry sync looked unique IDs up registry-wide and could flip another config entry's
-entities; `_apply` now checks the owner. An adversarial review of those fixes then found a setup
-race (the first real LOCAL read landing between entry setup's migration and the sensor platform's
-setup — the platform now reruns the idempotent migration against the data it builds from), that a
-count-only fallback could mis-adopt on a normal unit with three status-less reads (hence the time
-bound; adoption is final), a registry scan on every update while a contested port stays unused
-(now once per changed read), and the migration superseding this entry's legacy entry when another
-config entry held the target. Why the earlier entry was wrong: it said contested power/current "is
-now decided only by a validated read", which is exactly what lost those sensors on firmware that
-never validates. Updated [architecture §4.1](10-integration/architecture.md) and
-[entities §5](10-integration/entities-identity-availability.md) (rows footnoted to this change).
-
-## [2026-10-02] ingest | Smart-port devices: cloud current, provisional fallback, foreign targets
-
-Follow-up to PR #632, merged with three review findings still open; fixed by the maintainer.
-(5) The PR treated per-port current as Modbus-only, but the cloud carries it: the portal's
-`smartLoad{N}L{1,2}RmsCurr` (÷10) maps to pylxpweb `smart_port_N_lX_current` (`transports/data.py`
-at `v0.10.0b9`), which `_process_mid_device_object` puts into `smart_load{N}_current_l{1,2}`. So
-HTTP-only installs would have had their current entities orphaned. Current sensors are now created
-with a local transport or once the data has a per-port current key (`reports_port_currents`), and
-adopted regardless of transport. (6) The #195/#248 fallback picked Smart Load whenever both key
-families were present, and on that path they always are: pylxpweb's `_get_ac_couple_power` returns
-the Smart Load registers as AC Couple power when the status is unreadable, so the readings cannot
-separate the modes. A fallback adoption is now marked, and the registry sync's first validated
-active mode settles it, swapping the two legacy entries back if it disagrees. (7) The migration
-skipped a target held by another config entry but did not report it, so late registration created
-an entity with that unique ID, and HA's `async_get_or_create` moved the other entry's registry
-entry to this one; such targets are now returned as not-to-create. Why the earlier entries were
-wrong: "Modbus-only" came from a code comment, not from the library; and "adoption is final"
-assumed the fallback rule was evidence, when on the skip path it is a tie-break. Updated
-[architecture §4.1](10-integration/architecture.md) and
-[entities §5](10-integration/entities-identity-availability.md).
-
-## [2026-10-03] ingest | pylxpweb 0.10.0b10 Modbus backend seam wired into the integration
-
-The manifest now pins `pylxpweb[modbus-connection]==0.10.0b10` and lists `modbus` under
-`after_dependencies`. A stored per-transport `backend` key (absent or null means `auto`) reaches
-`TransportConfig.backend`, feature-detected like the read block size (#254). The new
-`ha_modbus.py` gives each coordinator a raw-transport factory that injects Home Assistant's
-`async_get_unit` (core 2026.9+, feature-detected by import, not version) only when the backend
-resolves to `modbus_connection` — `auto` on TCP or a local serial path stays on pymodbus and the
-owned link, so the Waveshare transaction-ID workaround still applies there. Units are memoised per
-link params and unit ID because every `async_get_unit` call adds a hold released only at entry
-unload (`homeassistant/components/modbus/connection.py` at 2026.9.4). Discovery keeps the owned
-path: core's config-flow variant is an async context manager and the discovery capability is
-created synchronously. Not yet ingested into
-[transports](20-pylxpweb/transports.md), which is still verified against `pylxpweb@204b95d`;
-its backend/`unit=` rows need a re-verification pass against `v0.10.0b10`, not a local edit.
-
-## [2026-10-04] ingest | Correction: the manifest pins plain pylxpweb, not the modbus-connection extra
-
-The 2026-10-03 entry above says the manifest pins `pylxpweb[modbus-connection]==0.10.0b10`. That
-was true at e75acca and is no longer: since 401b3b6 the manifest pins plain
-`pylxpweb==0.10.0b10`. The extra requires `serialx>=1.8.2`, and Home Assistant's
-`package_constraints.txt` pins `serialx==1.7.0` on 2026.5.0 and `serialx==1.8.0` on 2026.6.0, so
-the integration's requirements could not install there (the hacs.json floor is 2026.1.0). `modbus`
-stays in `after_dependencies`: from 2026.9.0, core's `modbus` manifest pins
-`modbus-connection[tmodbus]==4.10.0` and `tmodbus==0.6.2` (serialx arrives transitively), so
-`esphome://` serial ports and the shared `async_get_unit` path need Home Assistant 2026.9 or newer.
-CI job `bronze-requirements-resolve` resolves the manifest's requirements under each HA minor's
-constraints from 2026.1.0. No other `llmwiki/` page claimed the extra pin.
-
-## [2026-10-05] ingest | Control setup waits for parameters; legacy control IDs collapse (#656)
-
-Branch `fix/control-setup-order-656`. Two code changes, filed where they are owned:
-`10-integration/entities-identity-availability.md` (control platforms are forwarded after a
-bounded wait for the first parameter read) and `10-integration/controls-and-writes.md` §9
-(the model-prefix migration now keeps one legacy entry and removes the rest);
-`10-integration/architecture.md` lists the new mixin method. Wrong before: the §9 row said
-ambiguous legacy entries were "left untouched", which on a HYBRID install whose model was
-reported two ways meant three entities per control, two of them permanently unavailable
-(#656, 80 warnings in the reporter's log). The wait is grounded in #653's recorder data
-(37 controls unavailable for 1–20 s at startup after #652), not in a log of the mechanism.
-
-
-## [2026-10-12] ingest | Control migration ownership and preservation; durable setup evidence
-
-Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation at
-`e804788d73ed779c13a90fde5d4a4c824bbe2e4f`. Updated [controls and writes §9](10-integration/controls-and-writes.md)
-for foreign config-entry conflicts, promotion of plain stable duplicates, preservation of
-customised or loaded stable entries, deterministic creation-time ties, and WARNING removal logs.
-The earlier rule treated a stable ID anywhere in the registry as this entry's survivor and
-could delete its legacy controls; blindly keeping a plain third entry also discarded the
-original entity ID. Updated [entity lifecycle §6](10-integration/entities-identity-availability.md)
-for measured INFO timeout logging. The prior mutable-branch citations could not verify the
-new claims at the pages' declared pins; replaced them with this immutable implementation pin
-and checked each cited symbol via `git show`. Refreshed verification metadata while preserving
-older sections' historical pins. The 2026-10-05 entry remains as append-only history;
-this entry corrects its branch-based provenance and incomplete migration rule.
-
-## [2026-10-12] ingest | Keep stable controls; restore page provenance and pin the added wait method
-
-Re-read [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657) at
-`9ebd2b8a567753125631c2e756fdfd931e7e7e6b`. Corrected [controls and writes §9](10-integration/controls-and-writes.md):
-an existing same-entry stable control is always kept untouched; only unloaded legacy entries
-are removed, with WARNING logs naming both IDs. The prior plain-stable replacement rule
-could remove the working control and promote a user-disabled legacy entry, changing the
-target used by automations and losing settings the predicate did not inspect. That policy
-is withdrawn; the previous log entry remains as append-only history. No-stable selection
-and foreign-entry conflict handling retain their existing rules. Restored both owner pages'
-pre-existing page-level verification pins, dates and provenance comments; the re-verified
-§9 and [entity lifecycle §6](10-integration/entities-identity-availability.md) claims cite
-this implementation pin inline. Added the missing immutable method citation to
-[architecture §3.2](10-integration/architecture.md), leaving its older page pin intact.
-Confirmed the cited symbols with `git show` at the implementation commit.
-
-## [2026-10-12] ingest | Durable PR citations and foreign control ownership without legacy entries
-
-Re-verified [PR #657](https://github.com/joyfulhouse/eg4_web_monitor/pull/657)'s implementation.
-The earlier `e804788` and `9ebd2b8` implementation pins were superseded by a branch rebase;
-main also uses rebase merges, so another branch SHA would not provide durable provenance.
-Updated [controls and writes §9](10-integration/controls-and-writes.md),
-[architecture §3.2](10-integration/architecture.md) and
-[entity lifecycle §6](10-integration/entities-identity-availability.md) to cite the durable
-PR artifact and explicitly use its own implementation as the verification target.
-Preserved the pages' older verification metadata and all previous log entries.
-The foreign stable-ID ownership check now precedes the no-legacy early exit: the
-conflicted control is skipped and warned once even on an entry with no legacy matches,
-without writing either entry's registry records. Number/time regression cases also
-check ordinary no-legacy setup offers all controls without registry writes.
-
-## [2026-10-13] lint | PR #657 verification-source notes and release-cut re-pin tracking
-
-Re-verified the added parameter-wait method and setup behavior, and the control-discovery
-section, against PR #657 head `63dd93a`. The inline PR citations identified the in-flight
-source, but the front matter did not distinguish those claims from the older page pins.
-Added scoped verification-source comments to
-[`architecture.md`](10-integration/architecture.md),
-[`controls-and-writes.md`](10-integration/controls-and-writes.md), and
-[`entities-identity-availability.md`](10-integration/entities-identity-availability.md).
-Existing pins continue to license the older claims; the inline PR #657 citations license
-only the added claims, following the #559 / #600 precedent.
-
-**REQUIRED POST-MERGE ACTION (release cut):** re-verify the PR #657 change-set claims
-in those three pages against the mainline merge SHA and re-pin their front matter
-accordingly, refreshing `last-verified:` without implying that unrelated older claims
-were re-verified. This entry tracks the pending action; merge has not occurred.
-
-## [2026-10-12] ingest | Smart-port devices: issue #641 follow-ups (LOCAL poll test, cloud read identity, rename hint)
-
-The three non-blocking findings left open by the #632/#640 reviews. (1) The LOCAL forced GridBOSS
-poll (`coordinator_local.py` → `_async_update_local_data`, `or serial in awaiting_port_mode`) had
-no test: deleting the line kept the suite green. It now has one that drives the real method with
-no transport interval elapsed. (2) The read stamp `SMART_PORT_READ_KEY` came from the MID device's
-`_last_refresh`, which pylxpweb advances on every accepted cloud refresh, including one answered
-by the client's `midbox_runtime` response cache. So one portal payload could count as both reads
-`PortSensorEnablement.REQUIRED_READS` asks for. On the cloud path (no transport, or
-`transport_link_down` with the cloud fallback serving) an accepted refresh whose payload
-(`MidboxRuntime.midboxData`) equals the one already counted keeps its stamp
-(`coordinator_mixins.py` → `_smart_port_read_stamp`, `_cloud_payload`, state held per MID device
-object); a cloud reading counts again only when the portal returns a new record. Complete local
-transport reads still use `_last_refresh`. A healthy transport refresh with any missing port
-status falls back to the prior cloud status in pylxpweb and emits no read stamp. The held cloud
-payload identity is refreshed, while the validation authority marker stays unset so every
-unstamped unvalidated cycle can count toward the existing adoption fallback. Why the
-earlier entry was wrong: [2026-09-28] called the stamp "the MID device's last successful refresh"
-and treated that as a read, which holds for a register read and not for a cached HTTP response.
-Two things issue #641 states did not survive a check against the code. The cache lifetime is not
-pylxpweb's 20 s default: `coordinator_http.py` → `_align_client_cache_with_http_interval` sets it
-to the HTTP polling interval, and HTTP-only mode ticks at that same interval, so "Cloud sensor
-interval below the TTL" is not the trigger. The exposure is HYBRID with a cloud-served GridBOSS
-(the coordinator ticks at the local rate) and any extra refresh inside the interval. And the
-issue's suggested key, the server timestamp, is unsafe as an identity: whether a midbox payload's
-`serverTime` is the request time or the record's time is not established here (no portal capture
-pair was taken), so the rule compares the whole payload and does not depend on it. Blind spot:
-while the portal serves the same record (dongle offline, `lost`), cloud reads stop being counted,
-so the sync does not act on a frozen mirror. (3) A port with a single legacy power/current entry
-adopts it whatever the port's mode, so its entity ID can name the other mode. Behaviour unchanged;
-the adoption logs a rename hint at info when a validated read already names the mode, and otherwise
-marks the entry (`smart_port_named_for`) so the registry sync's first validated active mode logs it
-(`smart_port_devices.py` → `_settle_rename_hint`). LOCAL always takes the second route: it adopts
-on its static first refresh, before any port status is read. `docs/CONFIGURATION.md` documents it.
-No wiki page stated the stamp's source, so no page changed.
-
-## [2026-10-13] ingest | PR #657 post-merge verification completed
-
-Completed the REQUIRED POST-MERGE ACTION recorded on 2026-10-13: re-read the
-landed implementation with `git show b6644539588d189e4a2fc671b3730609555037e8:<path>`.
-Updated [architecture §3.2](10-integration/architecture.md) for
-`ParameterManagementMixin.async_wait_for_missing_parameters`;
-[controls and writes §9](10-integration/controls-and-writes.md) for
-`control_capability_signature`, `setup_control_entity_discovery` / `_rediscover_controls`,
-`_migrate_model_prefixed_unique_ids`, `_backs_loaded_entity`, and the number/switch
-route signatures; and [entity lifecycle §6](10-integration/entities-identity-availability.md)
-for `_async_setup_entry`, `_INITIAL_PARAMETER_WAIT_SECONDS`, and the bounded wait.
-The immutable mainline commit `b6644539588d189e4a2fc671b3730609555037e8` now licenses
-only these claims in scoped front-matter notes and inline citations; PR #657 remains
-provenance. Refreshed `last-verified: 2026-10-13` with explicit scope, preserving
-all unrelated verification pins and dates. No wholesale reverification is claimed.
-All earlier log entries remain unchanged.
-
-## [2026-10-13] ingest | Superseded cloud records cannot authorize smart-port registry changes
-
-PR #642 landed at `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`. Its final review
-reproduced a registry deletion with pinned `pylxpweb==0.10.0b10`: after local
-port data superseded a cloud record, link-down and a failed cloud fallback
-could validate the older record and remove an aggregate entity still in use.
-Removing the missing-read timestamp update alone did not fix the defect.
-
-Re-read `coordinator_mixins.py` at the landed commit: `_SmartPortRead` separates
-cloud identity from the last served read and its registry authority;
-`_smart_port_read_stamp` remembers even an unobserved startup cloud baseline;
-`_smart_port_cloud_read_superseded` withholds validation from superseded cloud
-replays. A newly accepted distinct cloud record restores authority. Missing
-local statuses remain unstamped for the existing unvalidated-adoption fallback.
-These claims are `verified-against-code` at the mainline commit above, including
-`tests/test_smart_port_devices.py` ->
-`TestIssue641.test_superseded_cloud_cannot_authorize_registry_changes`, which
-exercises real device refreshes, migration, and the deferred cleanup callback.
-The prerelease changelog describes the registry protection. Earlier log entries
-remain historical accounts of the preceding implementations.
-
-## [2026-10-13] ingest | Assign the smart-port registry-authority rule to its owner
-
-Filed the current rule in [architecture section 4.2](10-integration/architecture.md#42-smart-port-read-identity-and-registry-authority),
-beside the registry hygiene passes, and extended its `canonical-for:` and index row.
-The preceding entry records the defect and fix history; the architecture page owns
-the current behavior at mainline `82bd1fbb2f360347bb68d7a448a1985c0e0e3294`.
-Explicitly retained the separate provisional-adoption fallback: an unvalidated
-record is barred from validated-mode decisions, not from that existing fallback.
-
-Authority still requires complete, valid port statuses in the filter at that pin;
-a distinct accepted cloud record alone does not bypass those existing checks.
-
-## [2026-10-13] ingest | #629 GridBOSS mode write and independent enable state
-
-Read issue #629, integration write/status paths, and the public pinned
-pylxpweb control helper. Filed the reported Unused side effect in
-[GridBOSS](40-hardware/gridboss.md), graded `asserted-unverified`: no raw
-before/after pair supports a hardware-grade promotion. Recorded the software
-root cause and pre-write rejection at `c79b772` in
-[bug postmortems](60-history/bug-postmortems.md). Updated the index ownership
-row and checked mode/Unused claims across the wiki; the existing packing
-grades remain unchanged. Mode readback had concealed an independent disabled
-flag, so the fix blocks the destructive trigger rather than inferring that
-mode convergence proves load enablement. Recovery remains explicit; broader
-per-port settings are tracked by #638. Historical postmortem table checks
-retain their explicit old pins; the new section has its own newer scope.
-
-## [2026-10-13] ingest | Restore the energy dip guard across HA restarts (#649)
-
-Read the shared sensor bases, HA native restore lifecycle and sensor mappings.
-The original bases discarded their comparison baseline on entity recreation;
-first-publication regression tests fail on `5f42769` for all three sensor classes.
-Recorded the fix at `447e5ef5d5ed0e24496aa423325a51406905679c` in
-[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649),
-with the new multiple-inheritance edge in
-[entities-identity-availability.md §1](10-integration/entities-identity-availability.md#1-inheritance-graph).
-The owner page explains native-unit validation, daily local-date eligibility and
-why restoration must seed only the guard rather than publish stale live data.
-
-## [2026-10-13] ingest | Daily restore eligibility rejects fresh nonnumeric states
-
-Re-verified the restore implementation and actual HA remove/re-add lifecycle tests
-at `3727ff07f35d02de5b059e06f3ed1ceaab9c7e2a` and updated only
-[data-semantics.md §4.2.1](10-integration/data-semantics.md#421-restart-baseline-restoration-649).
-A same-day `last_updated` alone was insufficient: an unavailable publication after
-midnight retained yesterday's numeric native payload and incorrectly clamped the
-reloaded daily sensor. Daily restoration now also requires a finite numeric display
-state as eligibility, while the native payload remains the baseline and lifetime
-restoration is unchanged. Recorded the conservative loss of same-day daily dip
-protection after a nonnumeric shutdown and linked separate running-entity issue
-#666. Lifecycle tests cover all three guarded classes on HA 2026.1.0 and 2026.9.4.
-Grade: `verified-against-code`; other page sections retain their existing pins.
-
-
-## [2026-10-13] ingest | Restore fix evidence after rebasing PR #663
-
-Re-verified the scoped restore eligibility and inheritance claims against
-`a63b5328c8d527b857322d8b185b9d8d4f87b7d2` after rebasing onto merged PR #662.
-The restore source and tests are unchanged from `3727ff0`; the rebase only adds
-the reviewed select guard and preserves both append-only wiki histories.
-Updated the two owning pages to the reachable branch code pin; prior log entries
-remain unchanged as history.
-
-## [2026-10-13] ingest | GridBOSS per-inverter consumption statistics (#648)
-
-Read issue #648 and the balance implementation, then recorded the metadata fix
-at `883f403` in [data-semantics](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648).
-A difference of monotonic component counters need not be monotonic. Inverter
-daily/lifetime consumption therefore loses statistics eligibility after GridBOSS
-discovery, with a latch through missing polls and the effective class passed to
-the entity guard. Group and CT meters retain their metadata. The production scan
-is issue-reported evidence; the missing AC-coupled term stays unproven. The
-existing contested lifetime-source narrative is not resolved by this change.
-
-## [2026-10-13] ingest | Missing GridBOSS CT consumption overlay fallback (#661)
-
-The #648 adversarial review identified a separate group-source fallback.
-Rechecked the group balance computation, conditional CT overlay and HTTP
-MID-processing catch at `883f403`, then reproduced the helper/entity boundary:
-missing CT data leaves approximately 19 -> 17 kWh published as
-`total_increasing`. Filed #661 for the coordinator failure-path fix and recorded
-the limitation in the owning data-semantics page. This is source-selection
-evidence, not a hardware proof or a claim that CT counters normally decrease.
-
-## [2026-10-13] ingest | Startup topology window in consumption exclusion (#664)
-
-Kimi K3 review of #648 confirmed that the exclusion latch is entity-local and
-not persisted. Rechecked the state-class property and LOCAL static startup data
-at `883f403`: explicitly configured GridBOSS devices are recognized immediately,
-while a missing/unidentified device can delay the exclusion after restart.
-Filed #664 with a clear evidence limit: the metadata transition is code-verified,
-but production miscount in this exact startup window was not captured. Recorded
-this scope in data-semantics rather than presenting late discovery as persistence.
-
-
-## [2026-10-13] ingest | GridBOSS recognition dispatches unchanged inverter listeners (#665)
-
-Updated [data semantics §4.3.1](10-integration/data-semantics.md#431-gridboss-per-inverter-consumption-is-not-a-resetting-meter-648)
-against implementation commit `a339e7a`, scoped to the listener-dispatch claim;
-other sections keep their prior pins. The previous mocked-coordinator test did
-not prove that real scoped dispatch reached unchanged inverters on GridBOSS
-arrival. The real coordinator/HA regression now covers arrival, type recognition,
-published metadata, disappearance and a subsequent energy drop for both
-consumption keys, and checks ordinary notifications remain scoped. The sensor
-latch remains entity-local; restart persistence stays separate in #664.
-
-
-## [2026-10-13] ingest | Consumption evidence after rebasing PR #665
-
-Re-verified the scoped consumption and listener claims at `7b597aa0592665aad2e54f94dd764849f25315c4`
-and `363580713692385c5c730da15824d3f1395e5753` after rebasing onto merged PR #663.
-The production tree and tests match the independently reviewed combined candidate
-`84b39c4`; conflicts preserved both changelog entries and append-only wiki
-histories. Updated the owner page to reachable branch pins without modifying
-prior log entries.
-
-
-## [2026-10-13] ingest | Landed select protection and restore evidence for beta.19
-
-Rechecked PR #662's select guard/status/regression claims at mainline
-`8289d6f4558e1aa8779a0a49e6c21816f337ee29`, and PR #663's restore eligibility,
-regressions and inheritance at `0708cc52d101dfcaff7e1f813c14d51ce6dae717`.
-Updated those scoped citations and the consumption upgrade-guidance link to the
-beta.19 changelog heading. The GridBOSS reported-side-effect section, its
-postmortem link and catalog ownership row were also rechecked; their reporter
-and firmware/portal evidence grades are unchanged. Restored the older page-wide
-pins beneath explicit scoped verification comments, avoiding an unsupported
-claim that unrelated firmware, catalog or historical entries were reverified.
-PR #665's final mainline repin remains pending its merge.
-
-
-## [2026-10-14] ingest | Landed consumption and listener evidence for beta.19
-
-Re-verified data-semantics sections 4.3.1-4.3.2 at mainline `89fe2957f6b2e6c4132ea1c0e979354a02bf1b1e`
-for PR #665: effective consumption state class, entry-lifetime latch, first
-GridBOSS recognition dispatch, and the separately tracked group CT fallback.
-The cited source and lifecycle regression definitions exist at that pin; its
-production and test trees equal the independently reviewed combined candidate
-`84b39c4`. Only these sections receive the new pin and verification date; other
-scoped claims retain their pins. Prior log content is unchanged.
-
-## [2026-09-29] ingest | GridBOSS smart port option registers (229-317, 2101)
-
-Pinned the per-port smart port settings (enables, "based on", SOC / voltage thresholds,
-shedding, time windows) on a live GridBOSS (fw IAAB-1300) by making one portal or app change
-at a time and diffing dongle reads of 229-317 and 2099-2104. The cloud range read already names
-every register, which fixes register → field; the diffs pinned byte order (low byte = start SOC,
-= window hour), scales, and bit positions. Only the port 2 shedding / based-on round trip was
-restored, so only it meets `hardware-toggle-proven`; the rest is `portal-correlated` or
-`inferred`. The mobile app over local WiFi was not a reliable readback (showed port 3 shedding off
-while register and portal had it on), so the portal was the reference. Open: port 4's based-on
-bit (2101 b4) collides with a mobile-app "Time+SOC/Volt" write on port 3, and the bit positions of
-the cloud's `BIT_SMART_LOAD_BASE_ON_TIME_SOC_VOLT_n` are unknown. Added the
-[GridBOSS ledger rows](40-hardware/registers.md#gridboss-register-ledger) (footnoted to this
-change's `const/midbox.py`, not the page pin); `docs/DATA_MAPPING.md` §5 and
-`docs/CONFIGURATION.md` "Smart port settings" describe the shipped entities.
-
-## [2026-09-29] ingest | Smart port options — adversarial review corrections
-
-Two adversarial reviews of the smart port options change found defects the entry above
-recorded as fine. Code: HYBRID writes all failed (`get_local_transport` never searches
-`station.all_mid_devices`; the tests mocked that lookup); the verify read came before the
-GridBOSS's sub-second revert window, and the write seed's 30 s settle window then hid a revert
-or portal change. Evidence: the `hardware-toggle-proven` row cited `const/midbox.py`, which then
-held prose, not the raw before/after pair the grade requires — the docstring now records every
-raw pair, and the step that changed several ports at once is marked not attributable bit by
-bit. Ledger counts were wrong (b13 double-graded in the b0-b14 row; 230-269 counted 36).
-Port 4's based-on bit (2101 b4, `inferred`/unresolved) is no longer read or written at all
-(`UNPINNED_BASED_ON_PORTS`), rather than shipped with a doc caveat: a wrong-bit write would
-read back as written (#476), so no verify could catch it.
-
-## [2026-09-29] ingest | GridBOSS 2101 b4 pinned — port 4 "based on"
-
-Resolved the open GB-H2101 b4 row with a portal round trip on the live GridBOSS: port 4 set to
-Smart Load, based on SOC/Volt → Time cleared only b4 (2101 0x3e → 0x2e), and the revert restored
-0x3e with port 4 back to Unused. Graded `hardware-toggle-proven`; the ambiguity came from the
-mobile app, whose port 3 "Time+SOC/Volt" choice had also set b4 — the app writing port 4's bit,
-consistent with its earlier unreliable readback. The `UNPINNED_BASED_ON_PORTS` guard from the
-review corrections above is removed; port 4 gets its Based On select like ports 1-3.
-
-## [2026-09-30] ingest | Smart port options — live write test (port 4)
-
-Wrote every kind of smart port option from Home Assistant (build `+smartports.11`) on port 4,
-set to Smart Load for the test and back to Unused after. Each write read back over the dongle as
-expected and was reverted, and the full 20 / 229-317 / 2099-2104 set matched the pre-test read
-afterwards. Raw pairs are in the `const/midbox.py` docstring. GB-H229 b15 (port 4 shedding) moves
-from `inferred` to `portal-correlated`: our write set it and the portal showed port 4's shedding
-enabled. Not `hardware-toggle-proven`, because the change came from our write rather than a vendor
-control. New open question: with the FlexBOSS21 reporting voltage control (register 179), the
-portal still greyed port 4's Smart Load voltage fields. So the portal's SOC-vs-voltage greying
-isn't driven by the inverter regime, and the entities' `is_effective` attribute (which reads
-register 179) is unproven as a statement of what the GridBOSS applies. Recorded in
-`const/midbox.py`, `docs/CONFIGURATION.md` and `docs/DATA_MAPPING.md`.
-
-## [2026-10-14] ingest | #629 guidance meets the smart port Smart Load Enable switch
-
-Upstream's #629 guard (beta.18/19) told users the integration does not expose
-the per-port Smart Load Enable flag and sent recovery to the portal. The smart
-port options change (#639) exposes that flag as a switch for a GridBOSS with a
-configured local transport. Updated the #629 postmortem pointer in
-`60-history/bug-postmortems.md` (was "follow-up work in #638") and added a
-GB-H229 cross-reference to the #629 section of `40-hardware/gridboss.md`. No
-grade changed: nothing captures an Unused write clearing GB-H229, so the #629
-side effect stays `asserted-unverified`. Both pins note that the new sentences
-are verified against the #639 branch, not a merged commit. The user-facing
-recovery steps (`docs/CONFIGURATION.md`) and the Unused error text in
-`select.py` now name the switch when it exists and the portal otherwise.
-
-
-
-## [2026-10-20] ingest | GridBOSS threshold effectiveness remains unproven
-
-Review of PR #639 removed `is_effective` and `active_control_mode` from the
-port threshold entities: inverter H179 does not establish the GridBOSS's
-active regime, and the reported portal behavior disagreed with that inference.
-[Issue #670](https://github.com/joyfulhouse/eg4_web_monitor/issues/670) tracks
-the required hardware evidence. The configured control options remain display preferences. The evidence
-needed to resolve this now belongs to
-[open hardware questions](40-hardware/open-questions.md). No hardware grade
-was promoted. The 2026-09-30 entry's "every kind" wording describes the
-representative Smart Load tests listed in `const/midbox.py`; it does not
-establish a write test for every AC Couple or voltage field.
-
-The same review reproduced a long-running option-read failure overflowing
-the exponential backoff before its cap was applied. The retry calculation
-now stops doubling at the configured interval, retaining successful blocks
-when another block remains unsupported. Regression tests cover both findings.
-
-## [2026-10-20] ingest | Retain known GridBOSS startup topology (#664)
-
-Updated data-semantics section 4.3.1 against `d889f82feb88e75d4518fd09d5efc8224e8618ad`.
-Existing HA registry ownership now seeds the exclusion before first publication;
-partial cloud startup no longer prunes that evidence. Documented the explicit
-reset via guarded device deletion/reload or LOCAL configuration removal. The
-previous entity-lifetime-only explanation left the restart window unresolved.
-
-## [2026-10-20] ingest | GridBOSS consumption source continuity (#661)
-
-Updated data-semantics section 4.3.2 against `ac4174d772c67004a8104ae62c42ffb7f430ac0d`.
-The shared overlay no longer substitutes zero for absent CT components or retains
-an inverter balance through a gap. HTTP failure and temporary MID discovery loss
-are covered alongside LOCAL; prior stale-source guidance described the old code.
-Evidence is coordinator regression coverage, not a hardware outage capture.
-
-## [2026-10-20] ingest | Persist group consumption authority across restart (#661)
-
-Rechecked section 4.3.2 at `b6cd11019110f79b9fbd60bc8fb8be2c90c67a9a`.
-The earlier runtime-only marker did not protect the first poll after reload.
-Entry-owned registry group roles now retain CT authority while MID discovery is
-missing; legacy unclassified groups in known-GridBOSS entries remain unknown.
-Documented confirmed inverter groups, explicit removal/reset, and software
-regressions across three connection modes without asserting discovery freshness.
-
-## [2026-10-20] lint | Correct stale SOC routing and peak-shaving provenance (#606, #609)
-
-Rechecked `number.py` at integration `98ae596` against the register keeper's
-H160/H161 family rows and the routing owner's fail-closed policy. Corrected
-`docs/DATA_MAPPING.md`: family floors and cloud-only off-grid/unresolved
-writes already shipped in PR #600; the old ungated-local-write warning was
-false. Firmware proof remains limited to decoded CEAA/CCAA images, and live
-cloud toggle evidence remains limited to the tested hybrid units.
-
-Rechecked pylxpweb `80e8221` H208/H219 holding definitions cited by
-[`40-hardware/registers.md`](40-hardware/registers.md). Corrected only the
-stale `const/limits.py` provenance comment: the library carries the same
-40.0-64.0 V maintainer guard since b8. Numeric limits, routing, keeper
-ownership and evidence grades are unchanged; no new hardware evidence exists.
-
-
-## [2026-10-20] ingest | Deliberate LOCAL startup measurement placeholders (#653)
-
-Rechecked the static first refresh and documented the observable initial `unknown`
-in the data-flow owner and troubleshooting guide. Entity setup must remain
-independent of a stalled read; the real-HA regression covers first refresh,
-platform forwarding, eventual measurements and a never-completing read. The
-separate HYBRID transport-only discovery delay remains explicitly unresolved.
-
-## [2026-10-20] ingest | Cloud write rejection normalization
-
-Updated [controls and writes](10-integration/controls-and-writes.md) from
-`ad79479` and the primary #668 traceback. The router previously allowed
-LuxpowerAPIError to escape into HA as an unexpected exception; known library
-cloud failures now retain their cause inside HomeAssistantError. Regression
-tests reproduce the original failure and assert rejected SOC writes publish
-4 then 100 without cache seeding. No register limits or hardware evidence
-grades change; #668 remains open for control intent and firmware evidence.
-
-## [2026-10-20] ingest | Physical-device hybrid conversion
-
-Updated [config flow](10-integration/config-flow.md) from `9ea6c83`: onboarding
-now correlates discovered serials with existing entries and offers an in-place
-hybrid conversion. Reviewed guards include both directions of partial overlap,
-concurrent target changes, identity conflicts, and retained options. The prior
-separate unique-ID namespaces alone could not prevent physical duplicate entries.
-No hardware capability or register claim changes.
-## [2026-10-20] ingest | HYBRID measurement entity startup (#653)
-
-Updated data-flow-by-mode from f6abc8c and real HA lifecycle regressions.
-Previously registered eligible inverter/bank keys are seeded unknown before
-platform setup; first local data no longer needs to create those entities.
-Both delayed and hung-read scenarios fail on the baseline and pass with the
-change. Poll timing and never-observed sensor discovery are unchanged.
-## [2026-10-20] ingest | Portal-supported start discharge zero
-
-Issue #628 supplies reporter portal evidence that the LXP start-discharge
-threshold accepts 0 W; the 50 W default is not its minimum. Updated the H116
-keeper row with that scoped evidence and widened integration validation only
-for positively identified LXP inverters. No
-new register routing or hardware-semantic proof is claimed.
-## [2026-10-20] ingest | Dedicated direct battery bridge
-
-Recorded the direct battery implementation at `6e5115c` in config-flow,
-data-semantics and entities-identity-availability. Updated obsolete discovery
-guidance. Identity is explicit entry/unit address; bank aggregate master
-fields and incomplete/unreconstructed master SOC remain unknown. Later #574
-reporter evidence resolves its earlier passive-capture gate only for the
-observed Z02T11 dedicated bus. Broader #176 acceptance remains open.
-
-## [2026-10-20] ingest | Direct battery independent-review corrections
-
-Commit `7bbb0b2` supersedes the initial master reconstruction gate: all master
-SOC/remaining capacity is withheld because the real released decoder can add
-655.36 Ah at low SOC, even with complete topology. Upstream issue
-https://github.com/joyfulhouse/pylxpweb/issues/384 records the reproducer.
-Config-flow and identity owners also record complete-poll shutdown draining,
-atomic effective polling options, changed-endpoint validation, and explicit
-address-removal policy. Regression tests and independent review cover these
-software paths; no new hardware validation is claimed.
-## [2026-10-20] ingest | Scoped LOCAL daily guard expiration (#666)
-
-Added data-semantics section 4.2.2 at `a9bab41`. Accepted LOCAL physical-counter
-snapshots now carry acquisition timestamps through mapping; daily baseline
-expiration follows sample-day changes instead of publication/access time.
-Documented the undated restore policy and kept cloud/aggregate/battery gaps
-explicit under issue #666 and library dependency #383. No hardware reset-clock
-semantics or cloud freshness claims are inferred from these software tests.
-
-## [2026-10-20] ingest | Verify LOCAL daily snapshot provenance against pinned library
-
-Rechecked the energy and MID register assembly, data conversion, and device
-acceptance paths at pylxpweb `v0.10.0b12` (unchanged in those files at
-`0ee50a84ad48a48bd8a8f3233fa98ddcf3bb5f32`). Updated data-semantics section
-4.2.2 with the absence of per-field cached energy carry-forward into fresh
-snapshots, MID subblock failure behavior, and unchanged scope limits.
-## [2026-10-20] ingest | Resolve legacy mixed groups and first-read source gaps (#661)
-
-Section 4.3.2 now pins `e4ca3f0f23254ee280669854eaafedef1c3e9f27`.
-Positive associations of every known GridBOSS elsewhere can resolve legacy
-HTTP/HYBRID groups without treating absence as topology proof. Foreign/shared
-registry roles are ignored and never overwritten by the classifier or cached
-device information. First MID discovery now persists its role before processing
-can fail. Added repeated-reload, partial-association and ownership regressions.
-## [2026-10-20] ingest | Partial parallel-group runtime availability
-
-Updated `10-integration/data-semantics.md` from commit `e5fa860` and its real
-ParallelGroup regression tests. A cloud-lost member no longer blanks live
-siblings' runtime measurements. Energy keeps fixed membership and remains
-unknown during a partial outage; #619 remains open for that continuity work.
-
-## [2026-10-20] ingest | Partial-group observability and independent CT authority
-
-The group sensor state now exposes total and available member counts plus the
-lost-member flag. Real station-pipeline regressions cover outage and recovery
-with and without complete independent GridBOSS CT energy: paired CT totals
-remain authoritative at20kWh today/2000kWh lifetime while inverter-derived
-counters stay unknown during the outage. This does not solve missing-member
-cumulative-energy continuity for groups without complete independent CT data.
-
-## [2026-10-20] ingest | Entry-scoped GridBOSS registry compatibility
-
-PR #678 full-matrix validation exposed HA2026.9.4 entry-scoped device identities,
-while minimumHA2026.1 retains global/shared records. Updated the data-semantics
-owner with the capability-selected topology lookup and matching DeviceInfo guard.
-Regressions preserve legacy foreign/shared protection and assert independent
-markers for newer per-entry identities. This is software ownership evidence.
-
-## [2026-10-20] ingest | Home Assistant support starts at 2026.10.0
-
-At `5e3752e`, HACS and test requirements now require HA 2026.10.0, with
-minimum/latest core and plugin pairs for 2026.10.0/2026.10.2 on Python 3.14.
-Updated the quality-gates matrix and release-process HACS row; historical
-validation records remain historical. Published integration beta.20 keeps
-its original requirements. The library follows the new HA compatibility
-matrix while retaining standalone Python 3.13 support.
-
-## [2026-10-20] ingest | October schema and device ownership migration
-
-PR #682 testing exposed October HA schema typing changes and deprecated device
-ownership access. Source commit `9ae5cde` migrates forms/services to `probatio`
-and uses singular config-entry ownership for topology and registry cleanup.
-Updated [config flow](10-integration/config-flow.md) and
-[architecture](10-integration/architecture.md): the old Voluptuous and shared-row
-cleanup descriptions no longer describe the supported minimum. Invalid-input
-regressions and cross-entry cleanup/topology tests verify software behavior;
-no hardware claim is made.
-
-## [2026-10-22] ingest | #658 GridBOSS generator-energy evidence boundary
-
-Read the issue body, all three comments, and the October 21 PNG. Recorded the
-four zero-valued candidate fields and the reported Day/Total selector in
-[the portal schema owner](30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658).
-The earlier audit lacked these field names; the new screenshot still cannot
-establish electrical-leg aggregation, scaling, or lifetime semantics. Checked
-`MidboxData`, `MIDRuntimePropertiesMixin`, the analytics Total request and the
-integration GridBOSS mapping at the section's exact pins. Narrowed the older
-energy-scaling table to modeled fields so it does not silently license a divisor
-for the new candidates. Linked the existing hardware question and catalog;
-recorded precise capture requirements. No runtime change or evidence-grade
-promotion; #658 remains open for acceptance evidence.
-
-## [2026-10-22] ingest | Library transport maintenance triggers
-
-Read all current comments on library #189, #344, #345, #350 and #363 and the
-upstream release/source evidence. Added a scoped current snapshot to
-[transports](20-pylxpweb/transports.md), separating the historical pymodbus-only
-description from the released backend and shared-unit seams. Independently
-compared the three production connection/pacing/adapter modules in the 4.12.5
-and 4.12.6 wheels; byte equality is source evidence, not runtime validation.
-The upstream shim/lifecycle release triggers and host/shared-consumer acceptance
-remain open. No transport behavior or dependency pin changes.
-
-## [2026-10-22] lint | Transport audit ownership and claim scope
-
-Independent Astra review separated the constructor/API fact from unsupported
-integration-release testimony and corrected the inherited connect citation.
-Moved release versions, upstream state and acceptance tracking to
-[the dated history owner](60-history/maintenance-2026-10-22.md), retaining stable
-backend/ownership contracts in [transports](20-pylxpweb/transports.md). Added the
-catalog entry. This corrects the location described in the earlier ingest entry.
-
-## [2026-10-22] ingest | #668 LXP AC-charge start/stop evidence
-
-Read the original log, diagnostics, all comments and screenshots, including the
-October 21 clarification. Updated the register keeper with the exact model and
-firmware, rejected H67=4 with start SOC=5, distinct H161/AC-couple/H227 values,
-and the difference between reporter testimony and write proof. Recorded the
-missing LXP H160 exposure and remaining acceptance evidence in open-questions.
-Added rejection-specific vendor-app guidance to the control error owner; #673
-already owns error normalization/rollback. No hardware grade promotion, register
-rerouting, new writable control, sentinel coercion or universal inequality.
-
-## [2026-10-22] ingest | Battery cell precision and remaining #574/#176/#384 acceptance
-
-Read the issue bodies, comments and original attachments, including the October 21
-#574 clarification that the battery card retained cell decimals. Updated
-[the direct battery semantics owner](10-integration/data-semantics.md#direct-battery-projection)
-with the HA presentation fix and regression evidence; native voltage scaling stays
-unchanged. The tests exercise existing registry precision, all cell channels,
-minimum/maximum values and a user display override. These are software checks,
-not new hardware validation. Recorded the balance-field contract gap and the
-separate serial/CAN join requirement without promoting attachment table labels
-into proven semantics or requesting another dedicated-bus capture.
-
-As of this entry, published [pylxpweb b13](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b13)
-and [integration beta.20](https://github.com/joyfulhouse/eg4_web_monitor/releases/tag/v3.5.1-beta.20)
-meet #384's publication/dependency-update prerequisites. The integration still withholds
-master SOC/remaining capacity pending deliberate complete-physical-inventory
-opt-in and consumer validation; responding configured units do not prove that
-inventory. Other master aggregate fields need separate per-pack evidence.
-#574/#176/#384 remain open for unresolved acceptance. No release or hardware
-write was performed in this maintenance change.
-
-## [2026-10-22] ingest | #612 and #659 released family recognition acceptance
-
-Updated only the family-recognition section of
-[data semantics](10-integration/data-semantics.md#211-released-recognition-acceptance-612-recognition-only-for-659)
-after reading both full issues/comments and pylxpweb PR #382's released sources.
-The installed public dependency now contains the exact code-20 LXP and code-2102
-EG4_OFFGRID recognition; earlier b12 blocker comments describe an older pin.
-Consumer regressions at `e24fc95` use real installed library detection and local discovery,
-the integration feature mapper, and number/switch/select setup, including late
-discovery and existing off-grid exclusions. This establishes software discovery
-behavior, not hardware control semantics or reporter confirmation. No mapping,
-write route, battery/energy implementation, historical statistic, or #659
-consumption claim changes.
-
-## [2026-10-22] ingest | #666 released provenance consumer adoption
-
-Rechecked the full issue/comments against integration cb7b6c8 and released
-pylxpweb v0.10.0b13; comments describing b12 are historical. Updated only the
-[daily-energy subsection](10-integration/data-semantics.md#422-daily-baselines-follow-conservative-per-field-local-provenance-666)
-for the per-field adapter and its conservative acceptance boundary. Entirely
-LOCAL, same-HA-day lineage supplies its earliest acquisition; receipt-only,
-unknown, missing and mixed-day evidence cannot expire a guard. Numeric and
-lifetime handling remain unchanged. Real-library and HA lifecycle regressions
-provide software evidence; device reset timezone and cloud/battery/chart
-counter-day uncertainty remain on #666.
-
-Implementation verified at `c3c444392de0fb57baef1fa1be1762d6a97c06b7` on base `b95119b`; full-suite coverage, strict typing and tier gates passed.
-
-## [2026-10-22] ingest | #658 unused-generator follow-up
-
-Read the new reporter comment posted during maintenance: the generator has not
-been used yet, which the reporter offers as the likely explanation for the zero
-values. Added the cited operating-history testimony to the existing
-[schema evidence owner](30-portal-api/schemas-and-scaling.md#gridboss-generator-energy-658).
-It supplies no nonzero measurement and changes no scaling, leg-aggregation or
-lifetime acceptance boundary. No runtime change or hardware operation.
-
-## [2026-10-22] ingest | #176 master-field offer and beta.21 release preparation
-
-Read the new Wall Mount master-data offer on #176 and rechecked the released b13
-master decoder and integration projection. Recorded the testimony in the direct
-battery semantics owner without claiming universal firmware absence. Known bank
-aggregates are distinct from per-pack readings; SOC/capacity withholding is a
-separate conservative consumer policy. No duplicate hardware capture is required.
-Prepared integration beta.21 metadata and moved the Unreleased changelog, with
-HA 2026.10.0 minimum explicit and the published b13 pin unchanged. Publication
-will follow exact-head independent review, required checks, and merge.
-
-## [2026-10-23] ingest | Authorized beta.21 production smoke test and diagnostics blocking I/O
-
-Recorded the authorized beta.20-to-beta.21 upgrade, unchanged registry/config
-identity and settled availability, recurring baseline warnings, and untested
-acceptance in [the dated report](60-history/production-beta21-2026-10-23.md).
-Added sanitized evidence under `docs/production/`; credentials, raw diagnostics,
-serials, and private endpoints remain outside Git. The diagnostics download
-exposed synchronous package-metadata I/O; updated
-[the owning page](10-integration/diagnostics-repairs.md) with the executor fix
-and a thread-identity regression test. The diagnostics source was identical
-on beta.20, so this finding is not a newly established beta.21 regression.
-No test hardware writes, PR merge, patch deployment, or release publication.
-
-## [2026-10-23] ingest | Diagnostics review corrections
-
-Independent review of #690 found an alias-map race across the new executor
-await. Metadata lookup now precedes coordinator capture and alias collection;
-a refresh-during-lookup regression protects newly appearing device and battery
-identifiers. Removed household security/presence detail from the dated public
-evidence; the record retains only that operational preconditions were checked.
-
-
-## [2026-10-23] ingest | Final-release defects and acceptance boundaries
-
-Reproduced #692's generic/specialized countdown duplication at startup and late
-discovery. The [entity owner](10-integration/entities-identity-availability.md)
-records one status-backed producer with stable identity. Also replaced the
-shared-Modbus conflict fallback with a transport error preserving HA ownership;
-the [transport owner](20-pylxpweb/transports.md) retains #350's independent-connection
-scheduling boundary. Both fixes have before/after regressions and real HA
-lifecycle/ownership coverage.
-
-Updated the [diagnostics owner](10-integration/diagnostics-repairs.md) to identify
-#690 as merged source, and appended the released-dependency compatibility result
-to the [maintenance record](60-history/maintenance-2026-10-22.md). The
-[readiness report](60-history/final-release-readiness-2026-10-23.md) owns validation
-and issue classifications; the linked deployment plan remains unexecuted.
-Independent review tightened observation thresholds and disabled/eligible entity
-acceptance. Production authentication was unavailable, so no historical smoke-test
-count was promoted to current live health, and no deployment, restart, hardware
-write or release publication occurred.
-
-## [2026-10-25] ingest | Release preflight after merged countdown fix
-
-Reconciled the handoff with upstream #695 and retained #692's permitted software
-acceptance as resolved. The [readiness owner](60-history/final-release-readiness-2026-10-23.md)
-now links fresh authenticated read-only production evidence, with HA version and
-installed-source verification, non-known state classifications, recurring dongle
-connection failures and retrospective natural-midnight recorder observations.
-Numeric resets do not establish acquisition provenance or device reset timezone.
-The [diagnostics owner](10-integration/diagnostics-repairs.md) records why datetime
-placeholders cannot fill that evidence gap. The proposed scope still holds final
-publication for #691/#693/#694/#666 acceptance.
-
-Prepared the exact existing-main runtime archive and recorded its digest in the
-unexecuted deployment plan. Updated the latest HA/plugin validation pair together.
-No deployment, restart, hardware write, clock change, master reconstruction or
-release publication was performed.
-
-## [2026-10-25] ingest | Authorized candidate staged; operational gate pending
-
-The user authorized the exact prepared candidate, a fresh private backup, one
-Core restart and conditional rollback with one additional restart. Created and
-verified the fresh backup and staged all 81 candidate files, preserving ownership
-and permissions. The operational gate did not pass, so the active component and
-running HA process were left untouched. The [readiness owner](60-history/final-release-readiness-2026-10-23.md)
-and linked execution record distinguish authorization and completed preparation
-from activation and acceptance. Authorization remains valid; recheck the baseline
-and operational preconditions before continuing. No acceptance issue was closed.
-
-## [2026-10-25] ingest | Candidate deployed; full-download redaction gap retained
-
-The preceding staging checkpoint used a preliminary check broader than the site's
-documented operational inputs. Rechecked the canonical inputs before activation;
-the operational preconditions passed. Deployed the exact approved candidate with
-one restart and verified all 81 installed files, raw EG4 configuration, registry
-identity and initial availability. Inactive countdowns now report zero without
-duplicate-ID startup warnings; no new metadata blocking warnings accompanied the
-post-restart diagnostics request.
-
-The [diagnostics owner](10-integration/diagnostics-repairs.md) records pre-existing
-nested-host and outer-wrapper repair-ID exposure found in both private captures.
-Filed #697 with sanitized paths only; no private values were published. The
-[readiness owner](60-history/final-release-readiness-2026-10-23.md) retains complete
-diagnostics acceptance and the longer-soak/provenance gates. No rollback or final
-release publication occurred.
-
-## [2026-10-25] ingest | Separate metadata issue acceptance from new redaction gate
-
-Re-read #691's original acceptance rather than inferring it from the broader
-deployment checklist. It requires independent review, green CI and an authorized
-download without metadata blocking warnings; those conditions are met. The
-[readiness owner](60-history/final-release-readiness-2026-10-23.md) now separates
-that resolved scope from #697's pre-existing full-download redaction exposure.
-Closing #691 must not imply that #697 or final-release acceptance is complete.
-
-## [2026-10-25] ingest | Partial candidate soak preserves acceptance gaps
-
-Added the sanitized [partial-soak record](../docs/production/candidate-soak-progress-2026-10-25.json)
-and updated the [release-readiness owner](60-history/final-release-readiness-2026-10-23.md).
-The observed event prefix supports published availability stability, while recurring
-warnings and discarded acquisition timestamps leave transport recovery and contributor
-provenance unresolved. The natural midnight and full observation deadline remain
-future at the recorded checkpoint; no issue is closed on elapsed-time inference.
-
-## [2026-10-25] ingest | Long-outage probe overflow fix and delivery boundary
-
-Updated [transports](20-pylxpweb/transports.md) from the primary merged library
-source at `a35cf5f6228363cc5f652420e8d288e35ac92e8a`. Bounding the exponent
-preserves probe cadence while preventing arithmetic from permanently blocking
-recovery. The [release-readiness owner](60-history/final-release-readiness-2026-10-23.md)
-separates the resolved source issue from delivery: the integration and production
-still use b13, so an authorized library artifact and reviewed dependency update
-remain necessary. The fix does not diagnose the recurring production warnings.
-
-## [2026-10-25] ingest | Diagnostics privacy includes HA's Repairs wrapper
-
-Updated the [diagnostics owner](10-integration/diagnostics-repairs.md) against
-`c006150eeef0486db30e2c986dba9415b7e0e644` and linked the
-[validation record](../docs/production/diagnostics-privacy-validation-2026-10-25.json)
-from release readiness. Payload-only aliasing could not reach HA's earlier
-Repairs snapshot. Initialization now migrates stable pseudonymous identities and
-nonpersistent serialization omits sensitive UI metadata, while history and
-recovery survive. Collision-order and numeric battery-serial regressions exposed
-additional defects during implementation and now pass. Supported HA matrix and
-quality gates pass; authorized private production acceptance remains separate.
-
-## [2026-10-25] ingest | Preserve daily acquisition evidence without asserting production acceptance
-
-Source `ca2bbf0bbf086f2b0d798d5d84dbb451845f5b21` adds detached per-value
-daily lineage and aware timestamp serialization. Updated [data semantics](10-integration/data-semantics.md) with
-the numeric-source/cache/CT contract and diagnostic-only eligibility limits;
-updated [diagnostics](10-integration/diagnostics-repairs.md) with capture versus
-acquisition time, alias-safe datetime ordering and the remaining unknown-object
-boundary. The prior `<datetime>` observation remains true for its deployed pin
-and recorded captures. [Readiness](60-history/final-release-readiness-2026-10-23.md)
-retains #693/#694/#666 and separate #697 production gates. No existing capture is
-promoted into provenance acceptance, and no deployment or publication is claimed.
-
-## [2026-10-25] ingest | Authorized b14 publication and bounded dongle investigation
-
-Recorded [b14 publication and verification](../docs/production/pylxpweb-b14-publication-2026-10-25.json)
-after the user authorized the required immutable version-tag rule and prerelease.
-The sealed wheel/sdist match both indexes and their source/build attestations;
-clean offline installed-wheel recovery passes without network attempts. Integration
-source `c336cb58ef6be127c03bd3a4b7ac369c06280192` moves both exact pins after
-that gate, with both supported HA suites and quality checks passing.
-
-The [later passive checkpoint](../docs/production/candidate-soak-progress-2026-10-25-late.json)
-links a brief GridBOSS local-link flag transition to nine local-only control
-availability transitions and their natural restoration. Independent review found
-#693's bounded investigation acceptance met with explicit evidence gaps. The
-[readiness owner](60-history/final-release-readiness-2026-10-23.md) retains the
-stricter fresh-acquisition deployment recovery gate under #694 and lineage
-acceptance under #666. Neither a warning/root-cause fix nor new production
-acceptance is inferred from software-state recovery.
-
-Refreshed the [release-process owner](50-operations/release-process.md) and
-[pin-mechanics owner](20-pylxpweb/release-and-pinning.md) against the same exact
-source pins. Their former operative manual-dispatch and minimum-floor instructions
-were historical, not the current tag-bound sealed-artifact workflow or exact pin.
-Useful provenance lessons remain explicitly historical; current guidance follows
-the primary workflow and links the dated execution record.
-
-## [2026-10-28] ingest | HYBRID counters cannot fall back to stale HTTP snapshots
-
-Updated [data semantics](10-integration/data-semantics.md), the
-[Repairs owner](10-integration/diagnostics-repairs.md), and
-[release readiness](60-history/final-release-readiness-2026-10-23.md)
-against `0b7cbb6b15efb5fce05f598bc89cf1f7304e308a`. Real released-library fetches reproduce
-#702's 16.6-to-2.6 drop: an old HTTP baseline is tested with the shared local
-change clock. The consumer now withholds energy during configured local gaps,
-including dependent group and chart/carry paths, while preserving runtime fallback
-and independent CT authority. The secondary Repairs address defect came from
-owner capabilities hiding connection attributes; UI context now uses configuration.
-The [validation record](../docs/production/hybrid-energy-fallback-validation-2026-10-28.json)
-keeps software evidence separate from production acceptance. Library #396 remains
-open for validation history/publication and MID behavior; no hardware test or
-statistics rewrite occurred. Data-flow documentation links to the source-rule owner.
-
-## [2026-10-28] ingest | Pin Hassfest across the pyserial core transition
-
-Updated the [quality-gates owner](50-operations/quality-gates.md) and
-[readiness classification](60-history/final-release-readiness-2026-10-23.md)
-for #704. The moving development validator rejected a dependency absent from
-our supported stable floor but required for serial enumeration. The workflow
-at `9cd541907108bfc28437be44696340f39821fbf0` retains the last successful official
-image by immutable digest and its normal rules. Supported HA matrix coverage
-remains required; this is not a development-HA compatibility claim. Independent
-review approved the bounded approach, with candidate CI still required.
-
-## [2026-10-29] ingest | Follow up on serial discovery and Hassfest validation
-
-Updated the [quality-gates owner](50-operations/quality-gates.md) against
-`b66e04d` and PR #708: serial discovery now uses HA's USB API, pyserial remains
-for pymodbus transport until the supported floor moves, and the weekly moving
-Hassfest canary is advisory. The canary was added to the workflow table; the #704
-section and workflow table were scoped-reverified at `b66e04d`.
-
-## [2026-10-30] ingest | Record #704 validation follow-ups
-
-Updated the [quality-gates owner](50-operations/quality-gates.md) for the #704
-follow-up: removed its duplicate workflow source, documented the HACS digest and
-comment setting, and recorded the USB constraint drift guard and its scoped
-verification pins.
+### build | Wiki created — 33 pages across seven sections
+
+Initial construction of `llmwiki/` as a durable knowledge base for the EG4 Web Monitor
+integration and its two-repo system, written for an agent that must not guess.
+
+The motivating defect was **duplication**: an accuracy pass over the repo's own
+documentation catalogued dozens of software-accuracy defects, and the dominant cause was
+one fact living in three or four documents, being corrected in one, and rotting in the
+rest. The wiki's answer is the canonical-source policy — one fact, one owner, everyone else
+links. Corrections to the source documents themselves ship separately as PR #557.
+
+Sections: `00-orientation`, `10-integration`, `20-pylxpweb`, `30-portal-api`,
+`40-hardware`, `50-operations`, `60-history`, plus [`README.md`](README.md) (legend and
+rules) and [`_conventions.md`](_conventions.md) (page template).

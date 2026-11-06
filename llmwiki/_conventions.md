@@ -1,10 +1,15 @@
 ---
+type: Convention
+title: "Conventions"
+description: "The page template every writer follows: front-matter schema, durable-source rules, writing rules, anti-patterns."
 canonical-for:
   - "llmwiki page template and front-matter schema"
+  - "llmwiki OKF v0.2 conformance: index.md and log.md formats, concept types, validation"
   - "Writing rules for llmwiki pages"
 sources:
-  - llmwiki/README.md
-  - PR #557 (documentation-defect corrections)
+  - resource: llmwiki/README.md
+  - resource: PR #557 (documentation-defect corrections)
+  - resource: https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 ---
@@ -18,10 +23,13 @@ are defined in [README.md](README.md); this page defines the mechanics.
 
 ````markdown
 ---
+type: Reference
+title: "Page title"
+description: "One sentence: what this page is for. The chapter index entry repeats it."
 canonical-for:
   - "One line per fact-set this page owns"
 sources:
-  - path/or/url/of/each/source
+  - resource: path/or/url/of/each/source
 verified-against: 9f6d6e2
 last-verified: 2026-08-08
 see-also:
@@ -43,19 +51,58 @@ One or two sentences: what this page is for and who reads it.
 
 | Field | Required | Meaning |
 |---|---|---|
+| `type` | yes | OKF concept type, the only key OKF itself requires. Use one from the type table below. |
+| `title` | yes | The page's `# ` heading, verbatim. |
+| `description` | yes | One sentence saying what the page is for. The page's entry in its chapter `index.md` must contain this text, and `okf validate --drift` checks that it does. |
 | `canonical-for` | yes | The facts this page owns. Another page must not restate them. Be specific: "per-base-class availability semantics", not "entities". |
-| `sources` | yes | Everything the page was written from — **durable artifacts only** (see below). |
+| `sources` | yes | Everything the page was written from — **durable artifacts only** (see below). OKF form: a list of `- resource: <path, URL, issue or PR>` entries. The optional OKF keys `id`, `title` and `last_modified` (YYYY-MM-DD) may be added. |
 | `verified-against` | yes | The commit(s) the code-citations were checked at — see the two forms below. Use `9f6d6e2` for `eg4_web_monitor` unless you re-verified at a newer one. |
 | `last-verified` | yes | ISO date of the last time someone actually re-checked the page, not the last time it was edited. |
 | `see-also` | no | Sibling pages a reader will want next. Links, not restatements. |
 | `runbook-status` | runbooks only | Whether the procedure on the page has been executed as written. `untested-as-written` until an authorized run says otherwise. |
 | `last-executed` | runbooks only | ISO date of the last authorized execution, or `never`. |
 
-Front matter is a fenced YAML block delimited by `---`. Keep it to these fields: the five
-above the line are the schema for every page; `runbook-status` and `last-executed` are
+Front matter is a fenced YAML block delimited by `---`. Keep it to these fields. Every page
+carries all the fields marked required; `runbook-status` and `last-executed` are
 optional and belong only on a page that gives an executable procedure
 (`40-hardware/probing-playbook.md` is the current case). A runbook that omits them reads
 as rehearsed when it is not, which is the failure they exist to prevent.
+
+#### OKF trust and lifecycle keys
+
+OKF also defines `generated: { by, at }`, `verified: [{ by, at }]`, `status`
+(`draft` | `stable` | `deprecated`, default `stable`) and `stale_after`. They are optional
+here, and **this wiki's trust record remains `verified-against:` plus `last-verified:` and
+the per-claim grades in [README.md](README.md)**. OKF tiers are coarser and do not replace
+them. If you add one:
+
+- `generated.by` / `verified[].by` must name the real actor: `<agent>/<version>` for an
+  agent (for example `claude-code/<model-id>`), `human:<github-login>` for a person. Never
+  write a `human:` actor unless that person actually reviewed the page. OKF reads `human:`
+  as human-reviewed, so an invented one forges provenance.
+- `at` is an ISO 8601 timestamp with an explicit offset (`2026-11-06T00:00:00Z`).
+- `status: deprecated` marks a page kept for history. Prefer moving the content to
+  `60-history/`.
+
+No page carries `generated:` or `verified:` yet, because neither was recorded when the
+pages were written (see the 2026-11-06 `build` entry in [log.md](log.md)).
+
+#### Concept types
+
+OKF requires `type` but fixes no vocabulary. This wiki uses a closed set. Add a type here
+before using it.
+
+| `type` | For |
+|---|---|
+| `Overview` | The cold-start entry page |
+| `Reference` | Knowledge about how the system is built and behaves (the default) |
+| `Glossary` | Definitions only |
+| `Design` | A forward-looking contract or design not yet fully implemented |
+| `Research` | Open questions and the evidence that would resolve them |
+| `Playbook` | An executable procedure (also carries `runbook-status` / `last-executed`) |
+| `Process` | How work is done: dev setup, gates, release, issues |
+| `History` | Dated records, postmortems, contradictions, superseded claims |
+| `Convention` | Rules for the wiki itself (`README.md`, this page) |
 
 #### The two forms of `verified-against:`
 
@@ -96,6 +143,42 @@ an ungraded row because it looks sourced. When the underlying evidence is a work
 artifact, name the durable thing behind it: the memory file it distilled, the issue it
 came from, or the code it was checked against — or write the claim as
 `asserted-unverified` naming the person or issue that asserted it.
+
+## Index, log and validation (OKF v0.2)
+
+`llmwiki/` is an OKF v0.2 bundle rooted at `llmwiki/`. `index.md` and `log.md` are reserved
+names at every depth and are never concept pages.
+
+| File | Format |
+|---|---|
+| `llmwiki/index.md` | Front matter holds only `okf_version: "0.2"`. Lists the root concepts and one entry per chapter: `* [NN-name/](NN-name/index.md) - <what the chapter owns>.` |
+| `llmwiki/<chapter>/index.md` | No front matter. One entry per page in that chapter: `* [<title>](<file>.md) - <description> Owns: <the page's canonical-for, in prose>.` |
+| `llmwiki/log.md` | No front matter. `## YYYY-MM-DD` date groups, newest first. Each entry is `### <op> \| <subject>` plus prose. Its header owns the `<op>` vocabulary and the entry rules. |
+
+**Adding or moving a page** means updating its chapter `index.md` in the same change:
+add the entry and keep its description identical to the page's `description:`. A new
+chapter also needs an entry in the root `index.md`.
+
+**Links.** Link to other wiki pages with relative paths. Links to repo files outside the
+bundle (`../../docs/DATA_MAPPING.md`) are allowed and expected. OKF tooling reports them as
+broken concept links because they leave the bundle, and the spec says consumers must
+tolerate that. Do not convert them to URLs to silence the report.
+
+**Validation.** `tests/test_llmwiki_okf.py` runs in the normal pytest suite and enforces
+conformance without extra tooling: every page has front matter with the required keys and
+a known `type`, every page is listed in its chapter index with a matching description,
+index and log formats are as above, and every relative link resolves to a file. The
+optional [`okf` CLI](https://github.com/okf-memory/okf-agent-memory) (setup in
+`AGENTS.md`) gives the same conformance check plus search:
+
+```bash
+okf validate llmwiki            # OKF conformance; must report "Conformant"
+okf validate llmwiki --drift    # also index-description drift and parent-index coverage
+okf search "smart port" llmwiki # BM25 search across pages
+```
+
+Do not gate on `okf validate --strict`. It also fails on the out-of-bundle links above and
+on `index.md` / `log.md` links, which the spec permits.
 
 ## The grading rule
 

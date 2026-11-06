@@ -1,17 +1,20 @@
 ---
+type: Process
+title: "Dev environment"
+description: "Local setup, the HA container, four-mode testing and its hazards."
 canonical-for: local development setup, HA docker bind mounts, four-mode testing, mode switch hazards
 sources:
-  - docs/DEVELOPMENT.md
-  - CHANGELOG.md
-  - prek.toml
-  - tests/requirements-test.txt
-  - scripts/probe_gridboss_nbu_regs.py
-  - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
-  - the parent workspace containing this repo — its docker-compose.yaml and
-    scripts/ (unversioned; see "The parent workspace cannot be pinned")
-  - memory/prod-is-hybrid-dev-contends-modbus.md
-  - memory/dev-container-pylxpweb-pin-bump-gotcha.md
-  - memory/dev-container-deletes-pylxpweb-src.md
+  - resource: docs/DEVELOPMENT.md
+  - resource: CHANGELOG.md
+  - resource: prek.toml
+  - resource: tests/requirements-test.txt
+  - resource: scripts/probe_gridboss_nbu_regs.py
+  - resource: docs/reference/firmware/HYBRID_EPS_REGISTERS.md
+  - resource: the parent workspace containing this repo — its docker-compose.yaml and
+      scripts/ (unversioned; see "The parent workspace cannot be pinned")
+  - resource: memory/prod-is-hybrid-dev-contends-modbus.md
+  - resource: memory/dev-container-pylxpweb-pin-bump-gotcha.md
+  - resource: memory/dev-container-deletes-pylxpweb-src.md
 verified-against: 9f6d6e2
 # Python setup paragraph re-verified at 7b0a237; other sections retain this pin.
 last-verified: 2026-09-29

@@ -1,14 +1,17 @@
 ---
+type: History
+title: "Bug postmortems"
+description: "Symptom, true root cause, fix, and the generalizable lesson for each shipped bug."
 canonical-for:
   - "Postmortem catalogue: symptom, true root cause, fix, generalizable lesson"
 sources:
-  - memory/issue-*.md (one file per issue, named per row)
-  - docs/audits/2026-08-02-register-race-performance-audit.md
-  - custom_components/eg4_web_monitor/ (fix-symbol presence only)
-  - pylxpweb src/pylxpweb/transports/data.py (fix-symbol presence only)
-  - docs/audits/2026-10-13-gridboss-unused-mode-629.md
-  - custom_components/eg4_web_monitor/select.py
-  - tests/test_select_entities.py
+  - resource: memory/issue-*.md (one file per issue, named per row)
+  - resource: docs/audits/2026-08-02-register-race-performance-audit.md
+  - resource: custom_components/eg4_web_monitor/ (fix-symbol presence only)
+  - resource: pylxpweb src/pylxpweb/transports/data.py (fix-symbol presence only)
+  - resource: docs/audits/2026-10-13-gridboss-unused-mode-629.md
+  - resource: custom_components/eg4_web_monitor/select.py
+  - resource: tests/test_select_entities.py
 verified-against:
   eg4_web_monitor: 9f6d6e2
   # Only the #629 guard/status/regression claims are re-verified at

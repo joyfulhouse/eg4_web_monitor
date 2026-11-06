@@ -1333,8 +1333,8 @@ def test_gridboss_unsurfaced_canonical_keys_are_documented() -> None:
 
 # name -> (holding register address, bit position | None)
 # Sources: pylxpweb canonical holding table (verified entries) + the
-# integration's own const/modbus.py documentation.  NOTE: the CLAUDE.md
-# overview table still says "Off-Grid SOC Cutoff = reg 106"; the canonical,
+# integration's own const/modbus.py documentation.  NOTE: an earlier CLAUDE.md
+# overview table said "Off-Grid SOC Cutoff = reg 106"; the canonical,
 # live-verified address for HOLD_SOC_LOW_LIMIT_EPS_DISCHG is 125.
 _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     PARAM_FUNC_EPS_EN: (21, 0),
@@ -1432,8 +1432,8 @@ _CONTROL_REGISTER_CONTRACT: dict[str, tuple[int, int | None]] = {
     # spelling; the live cloud API spells the same register
     # HOLD_P_TO_USER_START_DISCHG (see _CLOUD_ONLY_FUNCTION_PARAMS).
     PARAM_HOLD_PTOUSER_START_DISCHARGE: (116, None),
-    # Canonical + live-verified: reg 125 (CLAUDE.md's overview table is stale
-    # at 106).
+    # Canonical + live-verified: reg 125 (an earlier CLAUDE.md overview table
+    # said 106).
     PARAM_HOLD_OFFGRID_DISCHG_SOC: (125, None),
     PARAM_HOLD_AC_CHARGE_START_VOLTAGE: (158, None),
     PARAM_HOLD_AC_CHARGE_END_VOLTAGE: (159, None),

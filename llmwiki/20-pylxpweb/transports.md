@@ -1,18 +1,21 @@
 ---
+type: Reference
+title: "Local transports"
+description: "Modbus TCP and WiFi dongle behaviour."
 canonical-for: pylxpweb local Modbus TCP and WiFi dongle transport behavior
 sources:
-  - custom_components/eg4_web_monitor/ha_modbus.py
-  - tests/test_ha_modbus.py
-  - pylxpweb@204b95d:src/pylxpweb/transports/
-  - pylxpweb@204b95d:src/pylxpweb/registers/battery.py
-  - pylxpweb@204b95d:tests/unit/transports/
-  - https://github.com/joyfulhouse/pylxpweb/issues/344
-  - https://github.com/joyfulhouse/pylxpweb/issues/345
-  - https://github.com/joyfulhouse/pylxpweb/issues/350
-  - https://github.com/joyfulhouse/pylxpweb/issues/363
-  - https://github.com/joyfulhouse/pylxpweb/issues/189
-  - https://github.com/joyfulhouse/pylxpweb/pull/390
-  - pylxpweb/src/pylxpweb/devices/base.py
+  - resource: custom_components/eg4_web_monitor/ha_modbus.py
+  - resource: tests/test_ha_modbus.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/
+  - resource: pylxpweb@204b95d:src/pylxpweb/registers/battery.py
+  - resource: pylxpweb@204b95d:tests/unit/transports/
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/344
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/345
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/350
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/363
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/189
+  - resource: https://github.com/joyfulhouse/pylxpweb/pull/390
+  - resource: pylxpweb/src/pylxpweb/devices/base.py
 verified-against:
   eg4_web_monitor: af613d779035a19412c84a1bcf300b210f2adf32
   pylxpweb: a35cf5f6228363cc5f652420e8d288e35ac92e8a

@@ -171,7 +171,7 @@ def test_collision_script_import_ignores_pytest_arguments() -> None:
 def test_documented_validation_scripts_exist() -> None:
     """Every validation command documented in maintained guidance is runnable."""
     sources = [
-        REPO_ROOT / "CLAUDE.md",
+        REPO_ROOT / "AGENTS.md",
         REPO_ROOT / "docs" / "DEVELOPMENT.md",
         REPO_ROOT / ".github" / "WORKFLOWS.md",
         REPO_ROOT / "tests" / "validate_platinum_tier.py",

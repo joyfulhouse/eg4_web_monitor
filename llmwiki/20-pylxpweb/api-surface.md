@@ -1,10 +1,13 @@
 ---
+type: Reference
+title: "API surface"
+description: "The seams the integration actually uses."
 canonical-for: pylxpweb public client, device-factory, and transport-factory seams
 sources:
-  - pylxpweb@204b95d:src/pylxpweb/client.py
-  - pylxpweb@204b95d:src/pylxpweb/api_namespace.py
-  - pylxpweb@204b95d:src/pylxpweb/devices/
-  - pylxpweb@204b95d:src/pylxpweb/transports/
+  - resource: pylxpweb@204b95d:src/pylxpweb/client.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/api_namespace.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/devices/
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/
 verified-against:
   pylxpweb: 204b95d
 last-verified: 2026-08-08
