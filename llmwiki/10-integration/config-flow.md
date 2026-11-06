@@ -1,4 +1,7 @@
 ---
+type: Reference
+title: "Config flow"
+description: "The `_config_flow` package, real step names, connection-type derivation."
 canonical-for:
   - the _config_flow package layout and the config_flow.py shim
   - real config-flow step names (onboarding, reauth, reconfigure, options)
@@ -6,18 +9,18 @@ canonical-for:
   - Modbus discovery error classification
   - unique-id construction, conflict detection, entry migration
 sources:
-  - custom_components/eg4_web_monitor/battery_bus.py
-  - tests/test_battery_bus.py
-  - custom_components/eg4_web_monitor/_config_flow/__init__.py
-  - custom_components/eg4_web_monitor/_config_flow/helpers.py
-  - custom_components/eg4_web_monitor/_config_flow/options.py
-  - custom_components/eg4_web_monitor/config_flow.py
-  - custom_components/eg4_web_monitor/__init__.py
-  - tests/conftest.py
-  - tests/test_config_flow.py
-  - tests/test_config_flow_scan.py
-  - eg4_web_monitor issue #275
-  - eg4_web_monitor issue #574
+  - resource: custom_components/eg4_web_monitor/battery_bus.py
+  - resource: tests/test_battery_bus.py
+  - resource: custom_components/eg4_web_monitor/_config_flow/__init__.py
+  - resource: custom_components/eg4_web_monitor/_config_flow/helpers.py
+  - resource: custom_components/eg4_web_monitor/_config_flow/options.py
+  - resource: custom_components/eg4_web_monitor/config_flow.py
+  - resource: custom_components/eg4_web_monitor/__init__.py
+  - resource: tests/conftest.py
+  - resource: tests/test_config_flow.py
+  - resource: tests/test_config_flow_scan.py
+  - resource: eg4_web_monitor issue #275
+  - resource: eg4_web_monitor issue #574
 verified-against: c411499
 # Physical-device conversion subsection reverified at 9ea6c83.
 # Direct battery sections verified against 7bbb0b2 on 2026-10-20.

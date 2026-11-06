@@ -1,17 +1,20 @@
 ---
+type: History
+title: "Superseded claims"
+description: "Claims documented with confidence, acted upon, and false — and the mechanism by which each became load-bearing."
 canonical-for:
   - "Claims that were confidently documented, believed, acted upon, and are false"
   - "The mechanism by which each false claim became load-bearing"
 sources:
-  - memory/queue-cleanup-2026-07-26.md
-  - memory/issue-476-green-mode-bit14.md
-  - memory/firmware-re-framing-and-word-order.md
-  - memory/issue-258-battery-rr-reg96-unreliable.md
-  - memory/maintainability-findings-and-live-bugs.md
-  - docs/audits/2026-08-02-register-race-performance-audit.md
-  - PR #557 (documentation-defect corrections)
-  - git ls-files / diff at 9f6d6e2
-  - pylxpweb src/pylxpweb/constants/registers.py (register-110 bit map and its history)
+  - resource: memory/queue-cleanup-2026-07-26.md
+  - resource: memory/issue-476-green-mode-bit14.md
+  - resource: memory/firmware-re-framing-and-word-order.md
+  - resource: memory/issue-258-battery-rr-reg96-unreliable.md
+  - resource: memory/maintainability-findings-and-live-bugs.md
+  - resource: docs/audits/2026-08-02-register-race-performance-audit.md
+  - resource: PR #557 (documentation-defect corrections)
+  - resource: git ls-files / diff at 9f6d6e2
+  - resource: pylxpweb src/pylxpweb/constants/registers.py (register-110 bit map and its history)
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

@@ -1,14 +1,17 @@
 ---
+type: Glossary
+title: "Glossary"
+description: "Definitions only — topology, connectivity, registers, data handling, process."
 canonical-for:
   - "Vocabulary used across llmwiki and the codebase"
 sources:
-  - custom_components/eg4_web_monitor/const/config_keys.py
-  - custom_components/eg4_web_monitor/base_entity.py
-  - pylxpweb src/pylxpweb/devices/inverters/_features.py
-  - pylxpweb src/pylxpweb/transports/data.py
-  - pylxpweb src/pylxpweb/transports/protocol.py
-  - pylxpweb src/pylxpweb/constants/registers.py
-  - llmwiki/README.md
+  - resource: custom_components/eg4_web_monitor/const/config_keys.py
+  - resource: custom_components/eg4_web_monitor/base_entity.py
+  - resource: pylxpweb src/pylxpweb/devices/inverters/_features.py
+  - resource: pylxpweb src/pylxpweb/transports/data.py
+  - resource: pylxpweb src/pylxpweb/transports/protocol.py
+  - resource: pylxpweb src/pylxpweb/constants/registers.py
+  - resource: llmwiki/README.md
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

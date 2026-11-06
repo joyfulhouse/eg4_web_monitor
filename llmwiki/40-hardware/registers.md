@@ -1,43 +1,46 @@
 ---
+type: Reference
+title: "Register ground truth"
+description: "The register keeper. Per-row evidence grades for every inverter and GridBOSS register. Authoritative for any register question."
 canonical-for: inverter-and-gridboss-register-ground-truth
 sources:
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/668
-  - docs/DATA_MAPPING.md
-  - "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
-  - "pylxpweb PR #322 / c78ab7e (0.10.0b7): H105 canonical ceiling 100"
-  - "pylxpweb PR #327 / 80e8221 (0.10.0b8): H207/H208/H218/H219 constants, five peak-shaving entity keys, and H208/H219 bounds"
-  - "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H208 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1534-L1544"
-  - "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H219 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1572-L1582"
-  - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
-  - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
-  - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
-  - docs/audits/2026-08-02-register-race-performance-audit.md
-  - custom_components/eg4_web_monitor/base_entity.py
-  - custom_components/eg4_web_monitor/const/device_types.py
-  - custom_components/eg4_web_monitor/number.py
-  - custom_components/eg4_web_monitor/switch.py
-  - custom_components/eg4_web_monitor/utils.py
-  - memory/issue-476-green-mode-bit14.md
-  - memory/live-write-window-findings.md
-  - memory/issue-258-battery-rr-reg96-unreliable.md
-  - memory/soc-charge-limit-101-top-balance.md
-  - memory/cloud-raw-register-write-broken.md
-  - memory/voltage-param-scaling-cloud-vs-local.md
-  - memory/quick-charge-local-control-registers.md
-  - pylxpweb@204b95d:src/pylxpweb/devices/inverters/base.py
-  - pylxpweb@204b95d:src/pylxpweb/transports/data.py
-  - pylxpweb@204b95d:src/pylxpweb/transports/dongle.py
-  - pylxpweb@204b95d:src/pylxpweb/transports/_canonical_reader.py
-  - pylxpweb@204b95d:src/pylxpweb/registers/__init__.py
-  - pylxpweb@204b95d:src/pylxpweb/constants/registers.py
-  - https://github.com/joyfulhouse/pylxpweb/issues/242
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/559
-  - https://github.com/joyfulhouse/pylxpweb/pull/270
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
-  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
-  - https://github.com/joyfulhouse/pylxpweb/issues/271
-  - https://github.com/joyfulhouse/pylxpweb/issues/272
-  - https://github.com/joyfulhouse/pylxpweb/pull/273
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/668
+  - resource: docs/DATA_MAPPING.md
+  - resource: "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
+  - resource: "pylxpweb PR #322 / c78ab7e (0.10.0b7): H105 canonical ceiling 100"
+  - resource: "pylxpweb PR #327 / 80e8221 (0.10.0b8): H207/H208/H218/H219 constants, five peak-shaving entity keys, and H208/H219 bounds"
+  - resource: "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H208 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1534-L1544"
+  - resource: "pylxpweb@80e8221:src/pylxpweb/registers/inverter_holding.py H219 row: https://github.com/joyfulhouse/pylxpweb/blob/80e82214f72bdcbf3669ad60cf8826883fe9842d/src/pylxpweb/registers/inverter_holding.py#L1572-L1582"
+  - resource: docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
+  - resource: docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
+  - resource: docs/reference/firmware/HYBRID_EPS_REGISTERS.md
+  - resource: docs/audits/2026-08-02-register-race-performance-audit.md
+  - resource: custom_components/eg4_web_monitor/base_entity.py
+  - resource: custom_components/eg4_web_monitor/const/device_types.py
+  - resource: custom_components/eg4_web_monitor/number.py
+  - resource: custom_components/eg4_web_monitor/switch.py
+  - resource: custom_components/eg4_web_monitor/utils.py
+  - resource: memory/issue-476-green-mode-bit14.md
+  - resource: memory/live-write-window-findings.md
+  - resource: memory/issue-258-battery-rr-reg96-unreliable.md
+  - resource: memory/soc-charge-limit-101-top-balance.md
+  - resource: memory/cloud-raw-register-write-broken.md
+  - resource: memory/voltage-param-scaling-cloud-vs-local.md
+  - resource: memory/quick-charge-local-control-registers.md
+  - resource: pylxpweb@204b95d:src/pylxpweb/devices/inverters/base.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/data.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/dongle.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/_canonical_reader.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/registers/__init__.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/constants/registers.py
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/242
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/559
+  - resource: https://github.com/joyfulhouse/pylxpweb/pull/270
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/569
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/271
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/272
+  - resource: https://github.com/joyfulhouse/pylxpweb/pull/273
 verified-against:
   # Re-pinned at the 2026-09-04 beta.16 release cut: eg4_web_monitor main
   # is 1d09823 and pylxpweb tag v0.10.0b9 is f3ced1a. The pylxpweb delta

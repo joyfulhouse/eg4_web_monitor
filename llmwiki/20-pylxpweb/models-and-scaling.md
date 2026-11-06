@@ -1,11 +1,14 @@
 ---
+type: Reference
+title: "Models and scaling"
+description: "Portal models, normalized local data, enums, scaling."
 canonical-for: pylxpweb portal models, local normalized data, missing values, enums, and scaling
 sources:
-  - pylxpweb@204b95d:src/pylxpweb/models.py
-  - pylxpweb@204b95d:src/pylxpweb/endpoints/devices.py
-  - pylxpweb@204b95d:src/pylxpweb/registers/
-  - pylxpweb@204b95d:src/pylxpweb/transports/
-  - pylxpweb@204b95d:tests/unit/test_models.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/models.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/endpoints/devices.py
+  - resource: pylxpweb@204b95d:src/pylxpweb/registers/
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/
+  - resource: pylxpweb@204b95d:tests/unit/test_models.py
 verified-against:
   pylxpweb: 204b95d
 last-verified: 2026-08-08

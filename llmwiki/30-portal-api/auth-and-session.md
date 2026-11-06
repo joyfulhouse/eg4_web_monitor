@@ -1,22 +1,25 @@
 ---
+type: Reference
+title: "Authentication and session lifecycle"
+description: "Login, session lifetime, reauthentication."
 canonical-for:
   - EG4 portal authentication
   - JSESSIONID session lifecycle
   - pylxpweb reauthentication and request encoding
 sources:
-  - docs/api/openapi.yaml
-  - docs/api/README.md
-  - custom_components/eg4_web_monitor/__init__.py
-  - custom_components/eg4_web_monitor/_config_flow/__init__.py
-  - custom_components/eg4_web_monitor/cloud_requests.py
-  - custom_components/eg4_web_monitor/cloud_session.py
-  - custom_components/eg4_web_monitor/coordinator.py
-  - custom_components/eg4_web_monitor/coordinator_http.py
-  - custom_components/eg4_web_monitor/diagnostics.py
-  - joyfulhouse/pylxpweb/.gitignore
-  - joyfulhouse/pylxpweb/src/pylxpweb/client.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/constants/api.py
-  - joyfulhouse/pylxpweb/tests/integration/conftest.py
+  - resource: docs/api/openapi.yaml
+  - resource: docs/api/README.md
+  - resource: custom_components/eg4_web_monitor/__init__.py
+  - resource: custom_components/eg4_web_monitor/_config_flow/__init__.py
+  - resource: custom_components/eg4_web_monitor/cloud_requests.py
+  - resource: custom_components/eg4_web_monitor/cloud_session.py
+  - resource: custom_components/eg4_web_monitor/coordinator.py
+  - resource: custom_components/eg4_web_monitor/coordinator_http.py
+  - resource: custom_components/eg4_web_monitor/diagnostics.py
+  - resource: joyfulhouse/pylxpweb/.gitignore
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/client.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/constants/api.py
+  - resource: joyfulhouse/pylxpweb/tests/integration/conftest.py
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

@@ -1,12 +1,15 @@
 ---
+type: Reference
+title: "Repo map"
+description: "Where code actually lives, and the paths older docs get wrong."
 canonical-for:
   - "Where code and documentation actually live in this repo"
   - "Path traps: _config_flow/, const/ package, the two firmware RE trees"
 sources:
-  - git ls-files at 9f6d6e2
-  - pylxpweb git ls-tree at 204b95d
-  - PR #557 (documentation-defect corrections)
-  - issue #549
+  - resource: git ls-files at 9f6d6e2
+  - resource: pylxpweb git ls-tree at 204b95d
+  - resource: PR #557 (documentation-defect corrections)
+  - resource: issue #549
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
@@ -25,7 +28,7 @@ Rows that name a weaker grade mean it — see "Outside this repo", where two of 
 sources cannot be pinned at all.
 
 **Several widely-copied paths in the older docs are wrong.** Read the traps section
-before trusting any path you find in `CLAUDE.md`, `docs/ARCHITECTURE.md`, or a sprint
+before trusting any path you find in `AGENTS.md`, `docs/ARCHITECTURE.md`, or a sprint
 command file.
 
 ## Path traps

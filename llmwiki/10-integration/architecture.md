@@ -1,16 +1,19 @@
 ---
+type: Reference
+title: "Integration architecture"
+description: "Module inventory by layer, coordinator mixin composition, setup/unload sequence."
 canonical-for:
   - "Module inventory by layer for custom_components/eg4_web_monitor"
   - "EG4DataUpdateCoordinator mixin composition and MRO ordering constraints"
   - "Config-entry setup, unload and removal sequence"
   - "GridBOSS smart-port read identity and registry authority"
 sources:
-  - custom_components/eg4_web_monitor/coordinator.py
-  - custom_components/eg4_web_monitor/coordinator_mixins.py
-  - custom_components/eg4_web_monitor/coordinator_local.py
-  - custom_components/eg4_web_monitor/coordinator_http.py
-  - custom_components/eg4_web_monitor/__init__.py
-  - memory/architecture-patterns.md
+  - resource: custom_components/eg4_web_monitor/coordinator.py
+  - resource: custom_components/eg4_web_monitor/coordinator_mixins.py
+  - resource: custom_components/eg4_web_monitor/coordinator_local.py
+  - resource: custom_components/eg4_web_monitor/coordinator_http.py
+  - resource: custom_components/eg4_web_monitor/__init__.py
+  - resource: memory/architecture-patterns.md
 verified-against: 9f6d6e2
 # HA-stop lifecycle row below re-verified at a79b8eb; other sections retain this pin.
 # PR #657 mainline verification: b6644539588d189e4a2fc671b3730609555037e8.

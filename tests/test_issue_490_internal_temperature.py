@@ -691,8 +691,8 @@ async def test_purge_matches_the_device_namespace_only(
 
     Two device forms are purged: the bare ``{serial}_{key}`` — the ONLY shape
     this code is known to have ever emitted — and ``{serial}_runtime_{key}``.
-    The latter is a DOCUMENTATION ARTIFACT, not an observed shape: it appears
-    in CLAUDE.md and in ``test_conditional_cleanup_by_family``'s fixture, but
+    The latter is a DOCUMENTATION ARTIFACT, not an observed shape: it appeared
+    in an earlier CLAUDE.md and appears in ``test_conditional_cleanup_by_family``'s fixture, but
     no Python in this repo's history produces it.  It is covered defensively
     so a future data-type scheme cannot silently bypass the guard.
 

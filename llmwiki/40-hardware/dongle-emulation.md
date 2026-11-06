@@ -1,20 +1,23 @@
 ---
+type: Design
+title: "Dongle emulation"
+description: "Local-transport-only phased contract for replacing a physical WLAN dongle; every eligible mode is single-path and HYBRID adds cloud-echo controls; no port-8000 listener."
 canonical-for:
   - "Home Assistant-hosted EG4 dongle-emulation product boundary and phased delivery contract"
   - "Single-owner RS485 arbitration and snapshot requirements for dongle replacement"
   - "Dongle-emulation mode eligibility, single-path and anti-loopback requirements"
   - "Dongle-emulation security, rollout, rollback and success criteria"
 sources:
-  - llmwiki/10-integration/data-flow-by-mode.md
-  - llmwiki/10-integration/diagnostics-repairs.md
-  - llmwiki/20-pylxpweb/transports.md
-  - llmwiki/20-pylxpweb/write-paths.md
-  - llmwiki/40-hardware/firmware-re.md
-  - llmwiki/40-hardware/registers.md
-  - docs/audits/2026-08-02-register-race-performance-audit.md
-  - docs/reference/FIRMWARE_OTA_PROTOCOL.md
-  - scripts/decode_cloud_frames.py
-  - issue eg4-asjv
+  - resource: llmwiki/10-integration/data-flow-by-mode.md
+  - resource: llmwiki/10-integration/diagnostics-repairs.md
+  - resource: llmwiki/20-pylxpweb/transports.md
+  - resource: llmwiki/20-pylxpweb/write-paths.md
+  - resource: llmwiki/40-hardware/firmware-re.md
+  - resource: llmwiki/40-hardware/registers.md
+  - resource: docs/audits/2026-08-02-register-race-performance-audit.md
+  - resource: docs/reference/FIRMWARE_OTA_PROTOCOL.md
+  - resource: scripts/decode_cloud_frames.py
+  - resource: issue eg4-asjv
 verified-against:
   eg4_web_monitor: 8ccc734
   pylxpweb: 204b95d

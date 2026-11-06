@@ -1,4 +1,7 @@
 ---
+type: Reference
+title: "Controls and writes"
+description: "How a control write reaches a device, and how to derive each mechanism's population."
 canonical-for:
   - the known control-write shapes, the derivation, and its proven blind spots
   - async_write_with_cloud_fallback write routing
@@ -8,21 +11,21 @@ canonical-for:
   - post-write refresh judged by data-object identity
   - control write error surfacing
 sources:
-  - custom_components/eg4_web_monitor/utils.py
-  - custom_components/eg4_web_monitor/base_entity.py
-  - custom_components/eg4_web_monitor/coordinator.py
-  - custom_components/eg4_web_monitor/number.py
-  - custom_components/eg4_web_monitor/switch.py
-  - custom_components/eg4_web_monitor/time.py
-  - custom_components/eg4_web_monitor/update.py
-  - custom_components/eg4_web_monitor/control_discovery.py
-  - memory/cloud-raw-register-write-broken.md
-  - memory/issue-476-green-mode-bit14.md
-  - memory/battery-control-mode-soc-vs-voltage.md
-  - eg4_web_monitor issues #310, #328, #362, #476, #485
-  - https://github.com/joyfulhouse/eg4_web_monitor/pull/657
-  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - resource: custom_components/eg4_web_monitor/utils.py
+  - resource: custom_components/eg4_web_monitor/base_entity.py
+  - resource: custom_components/eg4_web_monitor/coordinator.py
+  - resource: custom_components/eg4_web_monitor/number.py
+  - resource: custom_components/eg4_web_monitor/switch.py
+  - resource: custom_components/eg4_web_monitor/time.py
+  - resource: custom_components/eg4_web_monitor/update.py
+  - resource: custom_components/eg4_web_monitor/control_discovery.py
+  - resource: memory/cloud-raw-register-write-broken.md
+  - resource: memory/issue-476-green-mode-bit14.md
+  - resource: memory/battery-control-mode-soc-vs-voltage.md
+  - resource: eg4_web_monitor issues #310, #328, #362, #476, #485
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/657
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/569
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against:
   # Mainline SHAs, re-pinned at the 2026-08-12 release cut from the #559
   # PR-branch heads (eg4 PR #562 branch 0e2366f → merged as e146d91;

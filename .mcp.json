@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "okf-memory": {
+      "type": "stdio",
+      "command": "okf",
+      "args": ["mcp", "llmwiki"]
+    }
+  }
+}

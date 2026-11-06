@@ -1,20 +1,23 @@
 ---
+type: Reference
+title: "Errors, retries, rate control and readback limits"
+description: "Error envelopes, retries, throttling."
 canonical-for:
   - EG4 portal error envelopes
   - pylxpweb retry and backoff behavior
   - EG4 cloud request throttling and cache policy
 sources:
-  - docs/api/openapi.yaml
-  - docs/api/README.md
-  - CHANGELOG.md
-  - custom_components/eg4_web_monitor/cloud_requests.py
-  - custom_components/eg4_web_monitor/coordinator.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/client.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/constants/api.py
-  - joyfulhouse/pylxpweb/src/pylxpweb/exceptions.py
-  - joyfulhouse/pylxpweb/tests/integration/test_control_operations.py
-  - joyfulhouse/pylxpweb/tests/integration/test_get_operations.py
-  - joyfulhouse/pylxpweb/tests/unit/test_transient_error_retry.py
+  - resource: docs/api/openapi.yaml
+  - resource: docs/api/README.md
+  - resource: CHANGELOG.md
+  - resource: custom_components/eg4_web_monitor/cloud_requests.py
+  - resource: custom_components/eg4_web_monitor/coordinator.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/client.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/constants/api.py
+  - resource: joyfulhouse/pylxpweb/src/pylxpweb/exceptions.py
+  - resource: joyfulhouse/pylxpweb/tests/integration/test_control_operations.py
+  - resource: joyfulhouse/pylxpweb/tests/integration/test_get_operations.py
+  - resource: joyfulhouse/pylxpweb/tests/unit/test_transient_error_retry.py
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

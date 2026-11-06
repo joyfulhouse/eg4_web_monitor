@@ -1,24 +1,27 @@
 ---
+type: Process
+title: "Quality gates"
+description: "What must pass before a commit, and what only advises."
 canonical-for: lint, format, typecheck, tests, coverage, quality-scale tier validators, CI blocking vs advisory
 sources:
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/704
-  - .github/workflows/home-assistant-validation.yml
-  - PR #712 (GHCR registry lookup for HACS action tags)
-  - https://github.com/hacs/action/blob/d556e736723344f83838d08488c983a15381059a/action.yml
-  - https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/action/action.py
-  - https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/custom_components/hacs/validate/manager.py
-  - .github/workflows/hassfest-canary.yml
-  - custom_components/eg4_web_monitor/_config_flow/serial_ports.py
-  - docs/DEVELOPMENT.md
-  - tests/requirements-test.txt
-  - tests/mypy.ini
-  - prek.toml
-  - .github/workflows/quality-validation.yml
-  - tests/constraints-ha-minimum.txt
-  - tests/constraints-ha-latest.txt
-  - tests/test_ci_homeassistant_versions.py
-  - scripts/check_ci_dependencies.py
-  - tests/test_ci_summary_gates.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/704
+  - resource: .github/workflows/home-assistant-validation.yml
+  - resource: PR #712 (GHCR registry lookup for HACS action tags)
+  - resource: https://github.com/hacs/action/blob/d556e736723344f83838d08488c983a15381059a/action.yml
+  - resource: https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/action/action.py
+  - resource: https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/custom_components/hacs/validate/manager.py
+  - resource: .github/workflows/hassfest-canary.yml
+  - resource: custom_components/eg4_web_monitor/_config_flow/serial_ports.py
+  - resource: docs/DEVELOPMENT.md
+  - resource: tests/requirements-test.txt
+  - resource: tests/mypy.ini
+  - resource: prek.toml
+  - resource: .github/workflows/quality-validation.yml
+  - resource: tests/constraints-ha-minimum.txt
+  - resource: tests/constraints-ha-latest.txt
+  - resource: tests/test_ci_homeassistant_versions.py
+  - resource: scripts/check_ci_dependencies.py
+  - resource: tests/test_ci_summary_gates.py
 verified-against:
   # Python/HA matrix and workflow inventory re-verified against this PR's base `5bceb57` (PR #711 squash merge); other sections retain this pin.
   # HACS digest and USB drift-guard additions re-verified at 17668da.

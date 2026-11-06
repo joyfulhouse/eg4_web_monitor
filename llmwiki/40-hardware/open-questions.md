@@ -1,14 +1,17 @@
 ---
+type: Research
+title: "Open hardware and firmware questions"
+description: "What evidence would resolve each open hardware question."
 canonical-for: evidence-needed-to-resolve-open-hardware-and-firmware-questions
 sources:
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/668
-  - docs/reference/firmware/FIRMWARE_ACQUISITION.md
-  - docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
-  - docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
-  - docs/reference/firmware/HYBRID_EPS_REGISTERS.md
-  - docs/DATA_MAPPING.md
-  - docs/audits/2026-08-02-register-race-performance-audit.md
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/670
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/668
+  - resource: docs/reference/firmware/FIRMWARE_ACQUISITION.md
+  - resource: docs/reference/firmware/OFFGRID_GENERATOR_REGISTERS.md
+  - resource: docs/reference/firmware/OFFGRID_EPS_REGISTERS.md
+  - resource: docs/reference/firmware/HYBRID_EPS_REGISTERS.md
+  - resource: docs/DATA_MAPPING.md
+  - resource: docs/audits/2026-08-02-register-race-performance-audit.md
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/670
 verified-against: 9f6d6e2
 # GridBOSS threshold-regime row reviewed against PR #639 on 2026-10-20;
 # unrelated rows retain the pin above.

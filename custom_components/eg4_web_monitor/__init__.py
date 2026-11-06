@@ -824,8 +824,8 @@ def _migrate_parallel_group_registry_entries(
 # ``base_entity`` builds a bare ``{serial}_{sensor_key}`` today and did at
 # v3.2.0 as well, and ``generate_unique_id`` is never called with a data-type
 # argument.  The remaining entries are DEFENSIVE, NOT OBSERVED: a
-# ``{serial}_{data_type}_{sensor_key}`` shape is described in CLAUDE.md and
-# seeded by ``test_conditional_cleanup_by_family``, but no Python in this
+# ``{serial}_{data_type}_{sensor_key}`` shape was described in an earlier
+# CLAUDE.md and is seeded by ``test_conditional_cleanup_by_family``, but no Python in this
 # repository's history has ever produced it — ``git log --all -S`` finds that
 # shape only in markdown and in that test's fixture.  They are kept so that
 # introducing a data-type scheme later cannot silently turn this guard into a

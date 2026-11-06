@@ -1,12 +1,15 @@
 ---
+type: Playbook
+title: "Register probing playbook"
+description: "The safe procedure for dumping and verifying registers on live hardware. Runbook — read before touching a device."
 canonical-for: safe-register-dumping-and-live-verification
 sources:
-  - docs/DATA_MAPPING.md
-  - docs/CONFIGURATION.md
-  - scripts/probe_all_registers.py
-  - scripts/probe_gridboss_nbu_regs.py
-  - llmwiki/00-orientation/glossary.md
-  - pylxpweb@204b95d:src/pylxpweb/transports/protocol.py
+  - resource: docs/DATA_MAPPING.md
+  - resource: docs/CONFIGURATION.md
+  - resource: scripts/probe_all_registers.py
+  - resource: scripts/probe_gridboss_nbu_regs.py
+  - resource: llmwiki/00-orientation/glossary.md
+  - resource: pylxpweb@204b95d:src/pylxpweb/transports/protocol.py
 verified-against:
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d

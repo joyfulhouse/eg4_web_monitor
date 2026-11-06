@@ -1,16 +1,19 @@
 ---
+type: Process
+title: "Release process"
+description: "Two-repo release ordering and the pin-move gate."
 canonical-for: two-repo release ordering, artifact-trust gate before a pin move, version scheme, manifest pin coupling, HACS zip publish
 sources:
-  - pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:.github/workflows/release.yml
-  - pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:.github/WORKFLOWS.md
-  - pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:pyproject.toml
-  - pylxpweb@204b95d:.github/workflows/release.yml
-  - custom_components/eg4_web_monitor/manifest.json
-  - tests/requirements-test.txt
-  - .github/workflows/release.yml
-  - hacs.json
-  - CHANGELOG.md
-  - docs/production/pylxpweb-b14-publication-2026-10-25.json
+  - resource: pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:.github/workflows/release.yml
+  - resource: pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:.github/WORKFLOWS.md
+  - resource: pylxpweb@cac7a9f498aa20528577a08ce1541fdb59f77481:pyproject.toml
+  - resource: pylxpweb@204b95d:.github/workflows/release.yml
+  - resource: custom_components/eg4_web_monitor/manifest.json
+  - resource: tests/requirements-test.txt
+  - resource: .github/workflows/release.yml
+  - resource: hacs.json
+  - resource: CHANGELOG.md
+  - resource: docs/production/pylxpweb-b14-publication-2026-10-25.json
 verified-against:
   pylxpweb: cac7a9f498aa20528577a08ce1541fdb59f77481
   eg4_web_monitor: c336cb58ef6be127c03bd3a4b7ac369c06280192

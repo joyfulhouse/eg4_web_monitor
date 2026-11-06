@@ -1,4 +1,7 @@
 ---
+type: Reference
+title: "Data semantics — the rules behind this project's repeated regressions"
+description: "What values mean and the traps in interpreting them."
 canonical-for:
   - staleness, carry-forward and eviction rules
   - daily-energy diagnostic lineage and eligibility evidence
@@ -11,58 +14,58 @@ canonical-for:
   - parameter cache seeding after writes
   - the time.monotonic() fresh-boot throttle trap
 sources:
-  - tests/test_hybrid_energy_fallback.py
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/702
-  - https://github.com/joyfulhouse/pylxpweb/issues/396
-  - custom_components/eg4_web_monitor/energy_evidence.py
-  - custom_components/eg4_web_monitor/energy_provenance.py
-  - tests/test_daily_energy_evidence.py
-  - custom_components/eg4_web_monitor/battery_bus.py
-  - tests/test_battery_bus.py
-  - pylxpweb src/pylxpweb/transports/battery_modbus.py
-  - pylxpweb src/pylxpweb/battery_protocols/eg4_master.py
-  - pylxpweb src/pylxpweb/battery_protocols/eg4_slave.py
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/574
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/176
-  - https://github.com/joyfulhouse/pylxpweb/issues/384
-  - https://github.com/joyfulhouse/pylxpweb/pull/386
-  - custom_components/eg4_web_monitor/utils.py
-  - custom_components/eg4_web_monitor/sensor.py
-  - custom_components/eg4_web_monitor/const/device_types.py
-  - custom_components/eg4_web_monitor/coordinator.py
-  - custom_components/eg4_web_monitor/coordinator_local.py
-  - custom_components/eg4_web_monitor/coordinator_http.py
-  - custom_components/eg4_web_monitor/coordinator_mixins.py
-  - custom_components/eg4_web_monitor/base_entity.py
-  - custom_components/eg4_web_monitor/const/sensors/inverter.py
-  - tests/test_energy_guard_restore.py
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/649
-  - pylxpweb src/pylxpweb/transports/data.py
-  - memory/issue-227-consumption-no-reset-local-clamp.md
-  - memory/issue-258-battery-rr-reg96-unreliable.md
-  - memory/issue-258-beta18-carry-forward.md
-  - memory/issue-259-control-gate-family-aware.md
-  - memory/issue-346-daily-energy-float-boundary.md
-  - memory/issue-348-one-inverter-all-unknown.md
-  - memory/issue-479-cloud-lost-freeze.md
-  - memory/issue-514-capacity-percent-fake-zero.md
-  - memory/issue-544-generator-power-offgrid.md
-  - memory/voltage-param-scaling-cloud-vs-local.md
-  - memory/consumption-energy-sources.md
-  - memory/queue-cleanup-2026-07-26.md
-  - eg4_web_monitor issues #170, #256, #258, #261, #300, #367, #378, #380, #490, #511, #516
-  - https://github.com/joyfulhouse/eg4_web_monitor/pull/569
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/648
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/661
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/664
-  - tests/test_base_entity.py
-  - tests/test_gridboss_listener_lifecycle.py
-  - https://github.com/joyfulhouse/eg4_web_monitor/pull/665
-  - tests/test_released_family_discovery.py
-  - https://github.com/joyfulhouse/pylxpweb/pull/382
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/612
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/659
+  - resource: tests/test_hybrid_energy_fallback.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/702
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/396
+  - resource: custom_components/eg4_web_monitor/energy_evidence.py
+  - resource: custom_components/eg4_web_monitor/energy_provenance.py
+  - resource: tests/test_daily_energy_evidence.py
+  - resource: custom_components/eg4_web_monitor/battery_bus.py
+  - resource: tests/test_battery_bus.py
+  - resource: pylxpweb src/pylxpweb/transports/battery_modbus.py
+  - resource: pylxpweb src/pylxpweb/battery_protocols/eg4_master.py
+  - resource: pylxpweb src/pylxpweb/battery_protocols/eg4_slave.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/574
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/176
+  - resource: https://github.com/joyfulhouse/pylxpweb/issues/384
+  - resource: https://github.com/joyfulhouse/pylxpweb/pull/386
+  - resource: custom_components/eg4_web_monitor/utils.py
+  - resource: custom_components/eg4_web_monitor/sensor.py
+  - resource: custom_components/eg4_web_monitor/const/device_types.py
+  - resource: custom_components/eg4_web_monitor/coordinator.py
+  - resource: custom_components/eg4_web_monitor/coordinator_local.py
+  - resource: custom_components/eg4_web_monitor/coordinator_http.py
+  - resource: custom_components/eg4_web_monitor/coordinator_mixins.py
+  - resource: custom_components/eg4_web_monitor/base_entity.py
+  - resource: custom_components/eg4_web_monitor/const/sensors/inverter.py
+  - resource: tests/test_energy_guard_restore.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/649
+  - resource: pylxpweb src/pylxpweb/transports/data.py
+  - resource: memory/issue-227-consumption-no-reset-local-clamp.md
+  - resource: memory/issue-258-battery-rr-reg96-unreliable.md
+  - resource: memory/issue-258-beta18-carry-forward.md
+  - resource: memory/issue-259-control-gate-family-aware.md
+  - resource: memory/issue-346-daily-energy-float-boundary.md
+  - resource: memory/issue-348-one-inverter-all-unknown.md
+  - resource: memory/issue-479-cloud-lost-freeze.md
+  - resource: memory/issue-514-capacity-percent-fake-zero.md
+  - resource: memory/issue-544-generator-power-offgrid.md
+  - resource: memory/voltage-param-scaling-cloud-vs-local.md
+  - resource: memory/consumption-energy-sources.md
+  - resource: memory/queue-cleanup-2026-07-26.md
+  - resource: eg4_web_monitor issues #170, #256, #258, #261, #300, #367, #378, #380, #490, #511, #516
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/569
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/648
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/661
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/664
+  - resource: tests/test_base_entity.py
+  - resource: tests/test_gridboss_listener_lifecycle.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/665
+  - resource: tests/test_released_family_discovery.py
+  - resource: https://github.com/joyfulhouse/pylxpweb/pull/382
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/612
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/659
 verified-against:
   # Section 2.1.1 regression verified at e24fc95; consumer code at cb7b6c8;
   # library source at

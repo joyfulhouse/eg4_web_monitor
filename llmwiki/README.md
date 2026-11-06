@@ -1,17 +1,20 @@
 ---
+type: Convention
+title: "llmwiki"
+description: "The legend and the rules. Evidence grades, the canonical-source policy, the register-annotation ladder, freshness discipline."
 canonical-for:
   - "What llmwiki is and how to navigate it"
   - "Canonical-source policy"
   - "Evidence-grade legend and grading rules"
   - "Freshness discipline"
 sources:
-  - CLAUDE.md
-  - docs/ARCHITECTURE.md
-  - docs/CONFIGURATION.md
-  - PR #557 (documentation-defect corrections)
-  - issue #549
-  - memory/issue-476-green-mode-bit14.md
-  - https://github.com/joyfulhouse/eg4_web_monitor/issues/570
+  - resource: CLAUDE.md
+  - resource: docs/ARCHITECTURE.md
+  - resource: docs/CONFIGURATION.md
+  - resource: PR #557 (documentation-defect corrections)
+  - resource: issue #549
+  - resource: memory/issue-476-green-mode-bit14.md
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/570
 verified-against: d8e2027
 # The hand-maintained keeper cache in "Registers the keeper marks unresolved"
 # was reconciled 2026-08-29 for the #570 sweep. Re-pinned at the 2026-08-30
@@ -47,24 +50,15 @@ lived in three or four documents, was corrected in one, and rotted in the rest.
 
 ## Navigation
 
-**[`index.md`](index.md) is the catalog — start there.** It lists every page with a
-one-line summary and the facts it owns, so you can find the right pages without scanning
-the tree. This README owns the conventions those pages follow: the evidence-grade legend,
-the canonical-source policy and the freshness rules. [`log.md`](log.md) records what has
-been done to the wiki and why.
-
-The directory-level map:
-
-| Directory | Owns |
-|---|---|
-| `00-orientation/` | What the system is, where code lives, vocabulary |
-| `10-integration/` | HA integration internals: architecture, data flow by mode, entity identity/availability, controls and writes, config flow, diagnostics, data semantics |
-| `20-pylxpweb/` | The `pylxpweb` library: API surface, transports, models and scaling, write paths, release and pinning |
-| `30-portal-api/` | EG4 cloud portal API: auth/session, endpoint table, schemas and scaling, errors |
-| `40-hardware/` | Registers (with per-claim evidence grades), firmware reverse engineering, GridBOSS, probing playbook |
-| `50-operations/` | Dev environment, quality gates, release process, issue pipeline |
-| `60-history/` | Bug postmortems, open contradictions, superseded claims |
-| `_conventions.md` | The page template every writer follows |
+**[`index.md`](index.md) is the catalog. Start there.** `llmwiki/` is an
+[Open Knowledge Format (OKF) v0.2](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+bundle. The root `index.md` lists the root concepts and the chapters. Each chapter's
+`index.md` lists every page in that chapter with a one-line summary and the facts it owns,
+so you can find the right pages without scanning the tree. This README owns the conventions
+those pages follow: the evidence-grade legend, the canonical-source policy and the freshness
+rules. [`_conventions.md`](_conventions.md) owns the page template, the front-matter schema,
+and the index and log formats. [`log.md`](log.md) records what has been done to the wiki and
+why, newest first.
 
 ### Cold-start reading order
 
@@ -73,6 +67,18 @@ The directory-level map:
 3. `_conventions.md` — before writing any page.
 4. `60-history/superseded-claims.md` — before trusting anything you read elsewhere.
 5. The `10-`…`50-` directory covering your task.
+
+### Where to start, by task
+
+| Task | Read |
+|---|---|
+| New to the system | `what-this-project-is.md`, then `repo-map.md`, then `_conventions.md` |
+| About to touch a register | `40-hardware/registers.md` (the keeper), then this README's ladder, then `probing-playbook.md` |
+| About to write to a device | This README § the write-access rule and its blind spots, then `10-integration/controls-and-writes.md` |
+| Debugging wrong or missing values | `10-integration/data-semantics.md`, then `data-flow-by-mode.md`, then `60-history/bug-postmortems.md` |
+| Debugging an entity that vanished or went unavailable | `10-integration/entities-identity-availability.md` |
+| Adding a page or editing one | `_conventions.md`, then this README's legend |
+| Doubting something you read in the repo | `60-history/superseded-claims.md`, then `open-contradictions.md` |
 
 ## Canonical-source policy
 
