@@ -3049,6 +3049,60 @@
         "qualifying_exercises": 0,
         "observation": "Rollback not exercised."
       }
+    },
+    {
+      "criterion": "#619 cumulative-energy continuity",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "Cumulative-energy continuity.",
+      "actual": {
+        "qualifying_exercises": 0,
+        "observation": "Owned by #619; not exercised by this read-only observation. No acceptance is established."
+      }
+    },
+    {
+      "criterion": "#612 reporter recognition acceptance",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "Reporter recognition acceptance.",
+      "actual": {
+        "qualifying_exercises": 0,
+        "observation": "Owned by #612; not exercised by this read-only observation. No acceptance is established."
+      }
+    },
+    {
+      "criterion": "#617/#626 vendor parameter semantics",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "Vendor parameter semantics.",
+      "actual": {
+        "qualifying_exercises": 0,
+        "observation": "Owned by #617/#626; not exercised by this read-only observation. No acceptance is established."
+      }
+    },
+    {
+      "criterion": "#623 shortcut equivalence",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "Shortcut equivalence.",
+      "actual": {
+        "qualifying_exercises": 0,
+        "observation": "Owned by #623; not exercised by this read-only observation. No acceptance is established."
+      }
+    },
+    {
+      "criterion": "#670 GridBOSS threshold-regime evidence",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "GridBOSS threshold-regime evidence.",
+      "actual": {
+        "qualifying_exercises": 0,
+        "observation": "Owned by #670; not exercised by this read-only observation. No acceptance is established."
+      }
+    },
+    {
+      "criterion": "conditional library work and future consumer/policy requirements",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "pylxpweb #189/#344/#345 remain conditional upstream dependency work; #350 requires host ownership/scheduling policy across independent connections, and #363 needs a shared-battery consumer.",
+      "actual": {
+        "qualifying_exercises": 0,
+        "observation": "Owned by pylxpweb #189/#344/#345, #350 and #363; not exercised by this read-only observation. These remain conditional/future work; no acceptance is established."
+      }
     }
   ]
 }

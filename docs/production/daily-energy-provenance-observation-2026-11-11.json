@@ -63,6 +63,16 @@
       "condition": "Use this next window only if observability is deployed first; otherwise use the first HA-local midnight after such a deployment, with re-check after that plus/minus 60-minute window."
     },
     {
+      "criterion": "missed-reset guard behaviour (running sensor survives midnight, misses low/reset samples, first next-day reading must publish rather than yesterday's baseline)",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "The legitimate next-day reading is published and the stale baseline expires only on nonempty entirely-LOCAL single-HA-day lineage.",
+      "actual": {
+        "qualifying_production_observations": 0,
+        "induced_outage": false,
+        "observation": "No qualifying production observation and no induced outage. An ordinary natural-midnight lineage capture does NOT establish this case; it remains covered only by offline regressions."
+      }
+    },
+    {
       "criterion": "cloud/battery/chart counter-day semantics",
       "outcome": "UNTESTED-RETAINED",
       "expected": "Establish source-specific device counter-day semantics without inferring them from publication timestamps.",
