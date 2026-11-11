@@ -1,7 +1,6 @@
-# Latest stable HA verified on 2026-10-25; update both pins together.
-# The test plugin pins Home Assistant itself.
-homeassistant==2026.10.4
-pytest-homeassistant-custom-component==0.13.375
+# Latest stable HA verified against PyPI on 2026-11-11; update both pins together.
+homeassistant==2026.11.1
+pytest-homeassistant==2026.11.1
 # Keep USB requirements aligned with this HA release.
 aiousbwatcher==1.1.2
-serialx==1.11.0
+serialx==1.15.1

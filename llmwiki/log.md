@@ -24,6 +24,18 @@ subject, never as "above" or "below". Record what changed and *why it was wrong 
 The reasoning is the durable part, and several entries exist only because a plausible
 answer turned out to be unsound. Keep entries short and link the pages that changed.
 
+## 2026-11-11
+
+### ingest | Require HA 2026.11 and remove the Hassfest workaround
+
+Issue #704 raises the floor to HA 2026.11.0, whose core supplies pyserial.
+Updated the [quality-gates owner](50-operations/quality-gates.md) and
+[orientation](00-orientation/what-this-project-is.md): the manifest drops that
+core dependency, daily validation uses current Hassfest, and the redundant
+weekly canary is removed. The official `pytest-homeassistant` replaces the
+retired custom-component plugin with matching minimum/latest HA pins.
+Historical observations in this log remain dated evidence.
+
 ## 2026-11-06
 
 ### build | Converted llmwiki to an OKF v0.2 bundle

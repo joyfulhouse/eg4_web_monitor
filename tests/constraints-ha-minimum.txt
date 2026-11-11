@@ -1,6 +1,7 @@
-# Minimum supported HA for future releases; keep core/plugin pins paired.
-homeassistant==2026.10.0
-pytest-homeassistant-custom-component==0.13.371
+# Minimum supported HA; keep core/plugin pins paired.
+# Intentionally tests the floor rather than the latest patch.
+homeassistant==2026.11.0
+pytest-homeassistant==2026.11.0
 # Keep USB requirements aligned with this HA release.
 aiousbwatcher==1.1.2
-serialx==1.11.0
+serialx==1.15.1

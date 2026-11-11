@@ -55,8 +55,8 @@ Gold Tier (5 jobs)
 **Home Assistant compatibility:** Gold's full test/coverage gate and Platinum's
 strict mypy gate each run a blocking minimum/latest matrix. Both use Python 3.14: the minimum uses
 `tests/constraints-ha-minimum.txt` and the latest uses
-`tests/constraints-ha-latest.txt`. Home Assistant 2026.10.0 is the support floor. Both constraints files pin Home Assistant
-and its matching test plugin because the plugin itself pins HA. Update the two
+`tests/constraints-ha-latest.txt`. Home Assistant 2026.11.0 is the support floor. Both constraints files pin Home Assistant
+and its matching official `pytest-homeassistant` plugin because the plugin itself pins HA. Update the two
 latest pins together when adopting a new stable release. Matrix fail-fast is
 disabled so both environments report their results.
 
@@ -80,7 +80,6 @@ uv pip install --python .venv/bin/python -r tests/requirements-test.txt -c tests
 ### Other Active Workflows
 
 - `home-assistant-validation.yml` — Hassfest and HACS validation (PRs, daily schedule)
-- `hassfest-canary.yml` — weekly schedule + manual dispatch; failures surface without blocking PRs
 - `issue-log-validation.yml` — enforces the bug-report debug-log requirement (auto-close/reopen)
 - `issue-triage.yml` — automated triage of newly opened issues
 - `release.yml` — attaches the integration zip to published releases

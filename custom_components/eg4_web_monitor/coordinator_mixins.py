@@ -4581,12 +4581,12 @@ class DeviceInfoMixin(_MixinBase):
         station_data = self.data["station"]
         station_name = station_data.get("name", f"Station {self.plant_id}")
 
-        device_info: DeviceInfo = {
-            "identifiers": {(DOMAIN, f"station_{self.plant_id}")},
-            "name": f"Station {station_name}",
-            "manufacturer": MANUFACTURER,
-            "model": "Station",
-        }
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"station_{self.plant_id}")},
+            name=f"Station {station_name}",
+            manufacturer=MANUFACTURER,
+            model="Station",
+        )
 
         # Add configuration URL if HTTP client is available
         if self.client is not None:

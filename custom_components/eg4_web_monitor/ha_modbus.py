@@ -12,9 +12,9 @@ The unit is injected only when the transport's backend resolves to
 explicit stored ``backend``). ``auto`` on a TCP gateway or a local serial
 device stays on pymodbus exactly as before: the shared unit would silently
 swap the wire library under existing installs and drop pylxpweb's gateway
-transaction-ID workaround. Older Home Assistant (no ``async_get_unit``), a
-pylxpweb without the ``unit=`` seam, or a missing ``modbus_connection``
-package all fall back to the default factory, where pylxpweb owns the link.
+transaction-ID workaround. A pylxpweb without the ``unit=`` seam or a missing
+``modbus_connection`` package falls back to the default factory, where
+pylxpweb owns the link.
 Conflicting shared-link settings fail acquisition rather than opening an
 independent connection to the same device.
 """
@@ -47,10 +47,9 @@ _STOPBITS: dict[int, Literal[1, 2]] = {1: 1, 2: 2}
 def _detect_async_get_unit() -> AsyncGetUnit | None:
     """Return Home Assistant's ``async_get_unit``, or None where it is absent.
 
-    Feature-detected, not version-compared: the helper exists from Home
-    Assistant 2026.9; earlier cores (the hacs.json floor is 2026.1) lack it,
-    and importing the modbus component there must not fail setup. It also
-    needs the ``modbus_connection`` package, which ``unit_params`` imports.
+    Supported Home Assistant versions include the helper (added in 2026.9).
+    The optional ``modbus_connection`` package is still needed by
+    ``unit_params``; importing must not fail setup when it is absent.
     Runs at module import, which Home Assistant performs in its import
     executor, so no import happens on the event loop.
     """
@@ -59,8 +58,7 @@ def _detect_async_get_unit() -> AsyncGetUnit | None:
         importlib.import_module("modbus_connection")
     except ImportError:
         return None
-    get_unit = getattr(module, "async_get_unit", None)
-    return cast(AsyncGetUnit, get_unit) if callable(get_unit) else None
+    return cast(AsyncGetUnit, module.async_get_unit)
 
 
 _ASYNC_GET_UNIT = _detect_async_get_unit()
