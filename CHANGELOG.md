@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow local writes to Grid Peak Shaving Power on LOCAL connections for non-off-grid models; off-grid and unresolved-family inverters remain cloud-only. Pure-LOCAL users whose entity was disabled by the integration must enable it manually after upgrading (#707, thanks @ufodone).
 - Allow On-Grid SOC Cut-Off values from 0-100% instead of enforcing a 10% minimum (#713).
 - Use Home Assistant's USB integration scan for config-flow serial ports without blocking the event loop, and declare the `usb` dependency (#704).
 - Keep locally configured HYBRID inverter energy counters unknown when their local energy snapshot is missing, preventing an older cloud value from being published as a counter reset. Apply the same rule to dependent group energy; independent complete GridBOSS CT consumption and runtime cloud fallback remain available (#702).

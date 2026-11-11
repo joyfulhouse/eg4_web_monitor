@@ -837,7 +837,7 @@
         "name": "併網售電功率"
       },
       "grid_peak_shaving_power": {
-        "name": "電網削峰功率 1"
+        "name": "電網削峰功率"
       },
       "grid_peak_shaving_power_2": {
         "name": "電網削峰功率 2"

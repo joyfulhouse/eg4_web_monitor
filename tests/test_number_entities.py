@@ -4226,7 +4226,7 @@ def _hybrid(coordinator, serial: str = "1234567890") -> None:
 
 
 class TestPeakShavingSpecTable:
-    """The five-row spec table and the entity attributes it drives."""
+    """The six-row spec table and the entity attributes it drives."""
 
     def test_table_covers_the_five_missing_keys(self):
         rows = {spec.key: spec for spec in PEAK_SHAVING_NUMBER_SPECS}
@@ -4301,8 +4301,10 @@ class TestPeakShavingSpecTable:
         assert entity.unique_id == f"1234567890_{key}"
         assert entity.translation_key == key
         assert entity.has_entity_name is True
-        # Names come from strings.json — never a hard-coded _attr_name.
-        assert not hasattr(entity, "_attr_name")
+        if key == "grid_peak_shaving_power":
+            assert entity.name == "Grid Peak Shaving Power"
+        else:
+            assert not hasattr(entity, "_attr_name")
         assert entity.native_unit_of_measurement == unit
         assert (entity.native_min_value, entity.native_max_value) == bounds
         assert entity.native_step == step
@@ -4557,8 +4559,7 @@ class TestPeakShavingLocalWrites:
 
     @pytest.mark.asyncio
     async def test_never_uses_ps1_library_setter(self):
-        """The new keys are not PS1: pylxpweb's set_grid_peak_shaving_power
-        targets H206 and must never be reached for them."""
+        """All six rows use named writes instead of the PS1 library setter."""
         coordinator = _mock_coordinator(has_local=True, has_http=True)
         _cloud_client(coordinator)
         _hybrid(coordinator)
@@ -4769,7 +4770,7 @@ class TestPeakShavingCloudWrites:
 
 
 class TestPeakShavingModePrecheck:
-    """Verify-then-block on FUNC_GRID_PEAK_SHAVING — PS2 power only (A4)."""
+    """Verify-then-block on FUNC_GRID_PEAK_SHAVING for both power rows."""
 
     @staticmethod
     def _live_read(coordinator, parameters) -> AsyncMock:
@@ -4823,7 +4824,9 @@ class TestPeakShavingModePrecheck:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("live", ["raises", "absent"])
-    @pytest.mark.parametrize("key", ["grid_peak_shaving_power", "grid_peak_shaving_power_2"])
+    @pytest.mark.parametrize(
+        "key", ["grid_peak_shaving_power", "grid_peak_shaving_power_2"]
+    )
     async def test_power_cached_off_live_uncertain_fails_open(self, live, key):
         coordinator = _mock_coordinator(
             has_local=True,

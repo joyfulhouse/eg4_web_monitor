@@ -837,7 +837,7 @@
         "name": "Potência de venda à rede"
       },
       "grid_peak_shaving_power": {
-        "name": "Potência de Corte de Pico da Rede 1"
+        "name": "Potência de Corte de Pico da Rede"
       },
       "grid_peak_shaving_power_2": {
         "name": "Potência de Corte de Pico da Rede 2"

@@ -26,6 +26,16 @@ answer turned out to be unsound. Keep entries short and link the pages that chan
 
 ## 2026-11-11
 
+### ingest | Unified peak-shaving number routing (#707)
+
+Updated [controls and writes](10-integration/controls-and-writes.md) and
+[registry defaults](10-integration/entities-identity-availability.md) against
+`ecb783a0543ea0126565f0e699b537614beb4ecb` (`number.py` → `PeakShavingNumber`).
+The removed separate PS1 class no longer calls the library setter or disables
+the power entity on pure-LOCAL connections. All six rows use the named-parameter
+router, with off-grid/unresolved families restricted to cloud writes. Historical
+verification pins remain in place for unrelated claims.
+
 ### ingest | #713 — H105 portal-stored 5% disproves the 10% floor
 
 Updated the [register keeper](40-hardware/registers.md) from issue #713: a
