@@ -4315,7 +4315,7 @@ class TestPeakShavingSpecTable:
         "key", ["grid_peak_shaving_power", "grid_peak_shaving_power_2"]
     )
     def test_power_not_disabled_in_local_only(self, key):
-        """The new rows write PS1 and PS2 locally by name, so pure-LOCAL must NOT register them disabled."""
+        """Both power controls are enabled by default in pure-LOCAL mode."""
         coordinator = _mock_coordinator(has_local=True, has_http=False, local_only=True)
         entity = _peak_shaving_entity(coordinator, key)
         assert entity.entity_registry_enabled_default is True
@@ -4463,17 +4463,10 @@ class TestPeakShavingReads:
     def test_out_of_window_power_and_soc_read_unknown(self):
         coordinator = _mock_coordinator(
             parameters={
-                PARAM_HOLD_GRID_PEAK_SHAVING_POWER: "40",
                 PARAM_HOLD_GRID_PEAK_SHAVING_POWER_2: "30",
                 PARAM_HOLD_GRID_PEAK_SHAVING_SOC: "101",
             }
         )
-        """
-        assert (
-            _peak_shaving_entity(coordinator, "grid_peak_shaving_power").native_value
-            is None
-        )
-        """
         assert (
             _peak_shaving_entity(coordinator, "grid_peak_shaving_power_2").native_value
             is None
