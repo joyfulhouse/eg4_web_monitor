@@ -837,7 +837,7 @@
         "name": "Potenza di vendita alla rete"
       },
       "grid_peak_shaving_power": {
-        "name": "Potenza Peak Shaving Rete 1"
+        "name": "Potenza Peak Shaving Rete"
       },
       "grid_peak_shaving_power_2": {
         "name": "Potenza Peak Shaving Rete 2"

@@ -658,16 +658,17 @@ if reg1 & 0x100:
 > (reg 179 bit 7) with verify-then-block, because the firmware NAKs writes and
 > zeroes the setpoint while the mode is off. **Grid-tied families only.**
 
-> **Daily peak-shaving set — regs 207/208/218/219/232**
-> ([#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592)): Grid
+> **Daily peak-shaving set — regs 206/207/208/218/219/232**
+> ([#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592),
+> [#707](https://github.com/joyfulhouse/eg4_web_monitor/pull/707)): Grid
 > Peak Shaving SOC 1/2 (whole percent, raw 1:1), Voltage 1/2 (decivolts) and
-> Power 2 (deci-kW). Created in the same grid-tied branch as PS1 and
-> spec-driven (`PeakShavingNumber`). Unlike PS1 they write through the shared
+> Power 1/2 (deci-kW). Created in the grid-tied branch and
+> spec-driven (`PeakShavingNumber`). All six write through the shared
 > router: a local **named** write on a positively resolved non-off-grid family
 > (the transport scales kW / V to deci-units itself — `LOCAL_PARAM_SCALE_DIV10`
 > in pylxpweb — so the entity never pre-scales), the cloud holdParam with an
 > equality-checked readback otherwise; off-grid / unresolved families are
-> cloud-only (#558). Only Power 2 pre-checks `FUNC_GRID_PEAK_SHAVING`; whether
+> cloud-only (#558). Both power rows pre-check `FUNC_GRID_PEAK_SHAVING`; whether
 > the firmware NAKs the SOC / voltage rows with the mode off is unverified. The
 > voltage write bounds 40.0–64.0 V are shared with the pinned pylxpweb 0.10.0b9
 > rows ([pylxpweb PR #327](https://github.com/joyfulhouse/pylxpweb/pull/327));
@@ -676,7 +677,7 @@ if reg1 & 0x100:
 > value (within that window) is preserved rather than blanked — a value outside
 > it still renders unknown. LOCAL reads: one `(206, 7)` frame (PS1 + period-1 floors + both
 > schedule windows), `(218, 2)` and `(232, 1)`, all `EG4_HYBRID`-gated. Evidence
-> for all five is `portal-correlated` (`llmwiki/40-hardware/registers.md`).
+> for the SOC/voltage floors and Power 2 is `portal-correlated` (`llmwiki/40-hardware/registers.md`).
 
 > **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
 > cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via

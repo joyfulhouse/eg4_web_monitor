@@ -14,6 +14,7 @@ sources:
   - resource: custom_components/eg4_web_monitor/utils.py
   - resource: custom_components/eg4_web_monitor/base_entity.py
   - resource: custom_components/eg4_web_monitor/coordinator.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/707
   - resource: custom_components/eg4_web_monitor/number.py
   - resource: custom_components/eg4_web_monitor/switch.py
   - resource: custom_components/eg4_web_monitor/time.py
@@ -52,7 +53,9 @@ verified-against:
 # The refreshed date applies only to the scope above (no wholesale reverification).
 # Cloud error normalization below reverified at ad79479; other claims retain their pins.
 # AC charge rejection guidance verified at 57788e681b2050a70c6ecdbc43232137aac7ea5f.
-last-verified: 2026-10-22
+# PeakShavingNumber routing claims verified at ecb783a0543ea0126565f0e699b537614beb4ecb on 2026-11-11.
+# Only those claims use this inline pin; other claims retain their pins above.
+last-verified: 2026-11-11
 see-also:
   - ../40-hardware/registers.md
   - ../60-history/open-contradictions.md
@@ -151,8 +154,7 @@ as the answer.
 | `StartChargePowerNumber` | router bypass | `write_raw_parameter` (raw) | H117 |
 | `EG4QuickChargeSwitch` | switch action | `enable_quick_charge` / `disable_quick_charge` — transport-first | H233 |
 | `EG4WorkingModeSwitch` (`FUNC_PV_SELL_TO_GRID_EN`) | router; reaches the switch-action branch only via the legacy version guard (§2.2) | `BaseInverter.enable_pv_sell_to_grid` — client-first **per instance**. The `HybridInverter` transport-first override is never constructed | H179 b3 |
-| `GridPeakShavingPowerNumber` | direct library call | `set_grid_peak_shaving_power` — transport-first with internal cloud fallback. Since #570 r6 (PR #600 change set) the entity reaches it only on a positively resolved non-off-grid family; off-grid/unresolved write the cloud named parameter directly | H206 |
-| `PeakShavingNumber` (five spec rows, [#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592)) | **router** — `_write_parameter` with `local_value=` in engineering units, `cloud_write=` the named holdParam writer with readback, `local_write_blocked_reason=_offgrid_cloud_only_reason` | `write_named_parameter` (local, the transport applies ×10 for the DIV_10 rows) / `write_parameter` (cloud). Never `set_grid_peak_shaving_power`, never `_write_voltage_register` | H232 (PS2 power), H207/H218 (SOC 1/2), H208/H219 (voltage 1/2) |
+| `PeakShavingNumber` (six spec rows; `verified-against-code` at `ecb783a0543ea0126565f0e699b537614beb4ecb`, `number.py` → `PEAK_SHAVING_NUMBER_SPECS` / `async_set_native_value`, [#707](https://github.com/joyfulhouse/eg4_web_monitor/pull/707)) | **router** — `_write_parameter` with `local_value=` in engineering units, `cloud_write=` the named holdParam writer with readback, `local_write_blocked_reason=_offgrid_cloud_only_reason` | `write_named_parameter` (local, the transport applies ×10 for the DIV_10 rows) / `write_parameter` (cloud). Never `set_grid_peak_shaving_power`, never `_write_voltage_register` | H206/H232 (PS1/2 power), H207/H218 (SOC 1/2), H208/H219 (voltage 1/2) |
 | `EG4OperatingModeSelect` | direct library call | `set_operating_mode` → `set_standby_mode` | — |
 | DST reconciliation | background | `station.sync_dst_setting()` | cloud-side |
 
@@ -199,7 +201,7 @@ after a cloud write while a local transport is attached:
 | `local_write` | Coroutine factory performing the local register write |
 | `cloud_write` | Coroutine factory for the equivalent cloud write, or `None` when the action has no cloud path (raw-register-only controls) — then local errors propagate unchanged |
 | `local_values` | The written parameters **in the LOCAL-RAW representation** the attached-transport cache uses. Merged into the parameter cache when the write landed via cloud |
-| `local_write_blocked_reason` | When not `None`, routes the write CLOUD-ONLY (tree above). Supplied by `number.py` → `_offgrid_cloud_only_reason` and (r5) an equivalent inline check in `time.py`, both of which **fail closed**: EG4_OFFGRID, a missing family and UNKNOWN all block the local path; only `is_positively_non_offgrid_family` permits it. The #570 evidence sweep applies it to every scalar register the number platform can write on a possibly-off-grid unit — the off-grid-created set (66, 158–161, 74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22) plus (r5) the fail-open-created grid-tied scalars reachable before family resolution (67, 82, 83, 103, 116; raw 117 is refused outright, having no cloud path) and, since [#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592), the daily peak-shaving scalars created in the same fail-open branch (207, 208, 218, 219, 232) — and (r5) to the schedule time entities' packed `write_register` path. Derivation and blind spots live in `_offgrid_cloud_only_reason`'s docstring; per-register evidence grades are the keeper's ([`40-hardware/registers.md`](../40-hardware/registers.md)). It is a hand-maintained list: no mechanism consults ledger grades, and bit-level switch/select writes and direct library calls remain outside it. The Quick Charge Duration live reg-234 adjust is also outside this router but carries its own fail-closed `is_positively_non_offgrid_family` gate at the entity (#570 adversarial round 1 — on off-grid the live-active check is cloud-routed, so no local H233 rejection gated it) |
+| `local_write_blocked_reason` | When not `None`, routes the write CLOUD-ONLY (tree above). Supplied by `number.py` → `_offgrid_cloud_only_reason` and (r5) an equivalent inline check in `time.py`, both of which **fail closed**: EG4_OFFGRID, a missing family and UNKNOWN all block the local path; only `is_positively_non_offgrid_family` permits it. The #570 evidence sweep applies it to every scalar register the number platform can write on a possibly-off-grid unit — the off-grid-created set (66, 158–161, 74, 101, 102, 105, 125, 202, 227, 228, 169, 100, 22) plus (r5) the fail-open-created grid-tied scalars reachable before family resolution (67, 82, 83, 103, 116; raw 117 is refused outright, having no cloud path) and, since [#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592), the daily peak-shaving scalars created in the same fail-open branch (206, 207, 208, 218, 219, 232; H206 added by [#707](https://github.com/joyfulhouse/eg4_web_monitor/pull/707), `verified-against-code` at `ecb783a0543ea0126565f0e699b537614beb4ecb`, `number.py` → `PeakShavingNumber.async_set_native_value`) — and (r5) to the schedule time entities' packed `write_register` path. Derivation and blind spots live in `_offgrid_cloud_only_reason`'s docstring; per-register evidence grades are the keeper's ([`40-hardware/registers.md`](../40-hardware/registers.md)). It is a hand-maintained list: no mechanism consults ledger grades, and bit-level switch/select writes and direct library calls remain outside it. The Quick Charge Duration live reg-234 adjust is also outside this router but carries its own fail-closed `is_positively_non_offgrid_family` gate at the entity (#570 adversarial round 1 — on off-grid the live-active check is cloud-routed, so no local H233 rejection gated it) |
 
 ### 1.1 Why a known-down link skips local entirely
 
@@ -317,8 +319,9 @@ method = (getattr(inverter, method_ref, None)      # a pylxpweb method NAME
 success = await method(**(enable_kwargs or {})) if turn_on else await method()
 ```
 
-A direct library call skips even that indirection — `await inverter.set_grid_peak_shaving_power(
-power_kw=value)` (`number.py:1291`).
+A direct library call skips even that indirection — for example,
+`EG4OperatingModeSelect.async_select_option` calls `inverter.set_operating_mode`
+(`select.py:266`). Peak-shaving numbers use the shared router instead (§0.4).
 
 Either way eg4 names a method and **pylxpweb performs the write and chooses the transport.**
 `_execute_switch_action`'s body contains no call to `async_write_with_cloud_fallback`, so §1's
@@ -350,7 +353,6 @@ population as exhaustive and both were wrong (§0.3 **b** and **c**).
 |---|---|---|---|---|
 | `EG4QuickChargeSwitch._async_set_quick_charge` | `switch.py:628` | switch action | `enable_quick_charge` / `disable_quick_charge` | **Yes** — transport-first, targets **H233** (§2.4) |
 | `EG4WorkingModeSwitch._execute_working_mode` | `switch.py:1516` | switch action, on the `elif self.coordinator.has_http_api() and methods:` branch | one of `_WORKING_MODE_METHODS` | **Not through the override.** All seven resolve to `base.py` — eg4 never holds a `HybridInverter`, so its transport-first `enable_pv_sell_to_grid` never runs. The base method is client-first *per instance* and reaches H179 b3 locally only on a **clientless** inverter (below) |
-| `GridPeakShavingPowerNumber.async_set_native_value` | `number.py:1291` | direct library call | `set_grid_peak_shaving_power` | **Yes** — transport-first with internal cloud fallback, targets **H206**. Family-gated at the entity since #570 r6 (PR #600 change set): only a positively resolved non-off-grid family reaches the library method |
 | `EG4OperatingModeSelect.async_select_option` | `select.py:266` | direct library call | `set_operating_mode` → `set_standby_mode` | Read the runtime class per §2.1 |
 
 `verified-against-code` — call sites and guards at `9f6d6e2`; routing policies and the

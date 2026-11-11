@@ -837,7 +837,7 @@
         "name": "売電電力"
       },
       "grid_peak_shaving_power": {
-        "name": "グリッドピークシェービング電力 1"
+        "name": "グリッドピークシェービング電力"
       },
       "grid_peak_shaving_power_2": {
         "name": "グリッドピークシェービング電力 2"

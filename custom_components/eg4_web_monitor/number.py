@@ -357,16 +357,12 @@ class EG4BaseNumberEntity(EG4BaseNumber, NumberEntity):
         power/SOC 82/83, grid sell-back 103, start-discharge threshold
         116, the RAW start-charge threshold 117 (no cloud path — its
         write is refused outright on off-grid/unresolved), and the daily
-        peak-shaving scalars 207/208/218/219/232 (period-1/2 SOC and
-        voltage floors, PS2 power — #592, created in the same fail-open
-        branch as PS1; all ``portal-correlated``, no off-grid write
-        evidence). Grid peak-shaving PS1 (H206) is gated at its entity
-        (review round 6): an
-        earlier revision here claimed it was "cloud-only by construction",
-        which the pinned pylxpweb wheel falsifies —
-        ``set_grid_peak_shaving_power`` is TRANSPORT-FIRST onto raw H206;
-        off-grid/unresolved families now write the cloud named parameter
-        directly. Wheel-verified routing of every other cloud path this
+        peak-shaving scalars 206/207/208/218/219/232 (period-1/2 power,
+        SOC and voltage floors, created in the fail-open non-off-grid
+        branch; no off-grid write evidence). All six use the shared
+        named-parameter router: local writes on positively resolved
+        non-off-grid families, cloud-only on off-grid/unresolved families.
+        Wheel-verified routing of every other cloud path this
         platform's gates rely on (r6 sweep): ``set_battery_soc_limits``,
         the battery-current setters and every ``_write_named_parameter``
         consumer (66/74/67/82/83/202) plus ``set_feed_in_grid_power_kw``
@@ -1460,7 +1456,7 @@ class PeakShavingNumberSpec:
     div10: bool
     #: Battery-control-regime gating key (None => always shown).
     control_key: str | None
-    #: Verify-then-block on FUNC_GRID_PEAK_SHAVING before writing (PS2 only:
+    #: Verify-then-block on FUNC_GRID_PEAK_SHAVING before writing (power rows:
     #: the firmware NAKs the POWER setpoint with the mode off, #328). The SOC
     #: and voltage rows do NOT pre-check — their NAK behaviour with the mode
     #: off is unverified, so the firmware stays the arbiter.
@@ -1571,28 +1567,27 @@ PEAK_SHAVING_NUMBER_SPECS: tuple[PeakShavingNumberSpec, ...] = (
 
 
 class PeakShavingNumber(EG4BaseNumberEntity):
-    """Spec-driven number for the daily Grid Peak Shaving set beyond PS1 (#592).
+    """Spec-driven number for the daily Grid Peak Shaving power, SOC and voltage.
 
-    Modelled on the AC Charge Start/End SOC precedent, NOT on PS1: the value
-    is read ``params_first`` (no inverter attribute exists for these keys)
+    Modelled on the AC Charge Start/End SOC precedent: the value
+    is read ``params_first`` from the parameter cache
     and written through ``_write_parameter`` — a local named write on a
     positively resolved non-off-grid family, the cloud named holdParam
     (with an equality-checked readback) as the cloud path and HYBRID
     fallback. Off-grid and UNKNOWN families fail CLOSED to cloud-only via
     ``_offgrid_cloud_only_reason`` (#558): none of these registers has any
-    off-grid write evidence. Unlike PS1 the entity is NOT registered
-    disabled in pure-LOCAL mode — PS1's write needs a cloud client, these
-    write locally by name (like reg 160).
+    off-grid write evidence. The entities are enabled by default in
+    pure-LOCAL mode unless their control regime is inactive.
 
-    Scaling: the deci-unit rows (POWER_2 / VOLT / VOLT_2) hand the
+    Scaling: the deci-unit rows (POWER / POWER_2 / VOLT / VOLT_2) hand the
     engineering value (kW / V) to BOTH paths. The transport's named write
     multiplies by 10 itself (pylxpweb ``LOCAL_PARAM_SCALE_DIV10``), so
     pre-scaling here — or routing the voltage rows through
     ``_write_voltage_register``, which sends decivolts — would land raw
     ×100 in the register (52.0 V -> raw 5200).
 
-    Mode coupling: only the POWER_2 row pre-checks FUNC_GRID_PEAK_SHAVING
-    (verify-then-block shared with PS1). Whether the firmware NAKs the SOC
+    Mode coupling: both power rows pre-check FUNC_GRID_PEAK_SHAVING
+    (verify-then-block). Whether the firmware NAKs the SOC
     and voltage rows with the mode off is unverified, so they do not
     pre-check and the firmware remains the arbiter.
     """
@@ -1608,6 +1603,8 @@ class PeakShavingNumber(EG4BaseNumberEntity):
         self._control_key = spec.control_key
         super().__init__(coordinator, serial)
         self._attr_translation_key = spec.key
+        if spec.key == "grid_peak_shaving_power":
+            self._attr_name = "Grid Peak Shaving Power"
         self._attr_unique_id = self._stable_control_unique_id(spec.key)
         self._attr_native_min_value = spec.min_value
         self._attr_native_max_value = spec.max_value
