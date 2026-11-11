@@ -206,7 +206,7 @@ async def test_nonnumeric_state_after_midnight_then_reload(
     assert hass.states.get(sensor.entity_id).state == expected_state
 
     await platform.async_remove_entity(sensor.entity_id)
-    stored = async_get_restore_data(hass).last_states[sensor.entity_id]
+    stored = async_get_restore_data(hass).async_get_stored_state(sensor.entity_id)
     assert stored.state.state == expected_state
     assert stored.state.last_updated == dt_util.utcnow()
     assert stored.extra_data.native_value == (14.3 if unavailable else None)

@@ -4413,7 +4413,7 @@ class DeviceInfoMixin(_MixinBase):
             if parallel_group_serial:
                 link = self.via_device_link(parallel_group_serial)
                 device_info.update(link)
-                linked = bool(link)
+                linked = bool(link.keys())
 
         result = cast(DeviceInfo, device_info)
         if linked:
@@ -4493,7 +4493,7 @@ class DeviceInfoMixin(_MixinBase):
             battery_bank_identifier,
         )
 
-        if link:
+        if link.keys():
             cache[cache_key] = device_info
         return device_info
 
@@ -4547,7 +4547,7 @@ class DeviceInfoMixin(_MixinBase):
             serial,
         )
 
-        if link:
+        if link.keys():
             cache[serial] = device_info
         return device_info
 
