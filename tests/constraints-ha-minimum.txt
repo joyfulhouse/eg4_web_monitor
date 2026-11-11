@@ -1,5 +1,4 @@
 # Minimum supported HA; keep core/plugin pins paired.
-# Intentionally tests the floor rather than the latest patch.
 homeassistant==2026.11.0
 pytest-homeassistant==2026.11.0
 # Keep USB requirements aligned with this HA release.

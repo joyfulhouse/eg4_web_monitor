@@ -10,7 +10,7 @@ dpkt>=1.9.8  # offline-only PCAP sanitizer tests (#576)
 # Home Assistant core for testing
 homeassistant>=2026.11.0
 aiousbwatcher
-# HA's USB integration imports Hass.io; the official test plugin leaves this to consumers.
+# HA's USB integration imports Hass.io.
 aiohasupervisor==0.8.1
 
 # Integration dependencies
