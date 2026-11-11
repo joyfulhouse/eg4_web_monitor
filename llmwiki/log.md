@@ -36,6 +36,15 @@ weekly canary is removed. The official `pytest-homeassistant` replaces the
 retired custom-component plugin with matching minimum/latest HA pins.
 Historical observations in this log remain dated evidence.
 
+### ingest | #713 — H105 portal-stored 5% disproves the 10% floor
+
+Updated the [register keeper](40-hardware/registers.md) from issue #713: a
+FlexBOSS21 stores a portal-set 5% and returns it through cloud readback. The
+entity range becomes 0-100%; 0-4% remain untested. Preserved the limited evidence
+for the ceiling and recorded the October 29 #668 user report about relative
+cutoffs (equal allowed) without treating it as a verified firmware rule.
+Device/portal rejection stays authoritative; no cross-field validation is added.
+
 ## 2026-11-06
 
 ### build | Converted llmwiki to an OKF v0.2 bundle

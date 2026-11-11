@@ -4,6 +4,8 @@ title: "Register ground truth"
 description: "The register keeper. Per-row evidence grades for every inverter and GridBOSS register. Authoritative for any register question."
 canonical-for: inverter-and-gridboss-register-ground-truth
 sources:
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/713
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/668#issuecomment-6507853454
   - resource: https://github.com/joyfulhouse/eg4_web_monitor/issues/668
   - resource: docs/DATA_MAPPING.md
   - resource: "eg4_web_monitor issue #603 (reporter diagnostics, LXP-LB-US 10K): HOLD_DISCHG_CUT_OFF_SOC_EOD stored 95"
@@ -81,7 +83,9 @@ verified-against:
   pylxpweb: f3ced1a
 # H116 portal zero-bound evidence refreshed 2026-10-20 against issue #628.
 # Issue #668 subsection rechecked at cb7b6c8 on 2026-10-22; other claims retain their pins.
-last-verified: 2026-10-22
+# H105 floor evidence rechecked against #713 and the 2026-10-29 #668 comment;
+# earlier code claims retain their existing pins.
+last-verified: 2026-11-11
 ---
 
 # Register ground truth
@@ -256,7 +260,7 @@ Every row is readable via FC03 but exists in potentially writable configuration 
 | H103 | Maximum grid sell-back power, raw ×100 W / UI kW | grid-tied | `portal-correlated` | current | 1 | `DATA_MAPPING.md` raw/UI correlation; not percent. |
 | H105 | On-grid discharge SOC cutoff | grid-tied | `lineage-inferred` | current | 1 | Canonical holding definition. |
 | H105 | A portal-typed 95 is stored and read back (the 90 was the portal arrow-button hint, copied into pylxpweb and — beta.13, PR #600 round 2 — into the entity) | LXP-LB-US 10K (reporter unit, hybrid) | `portal-correlated` | current on the reported unit | 1 | [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reporter diagnostics (`HOLD_DISCHG_CUT_OFF_SOC_EOD: 95`) + portal screenshot. Readback proves storage, not semantics. |
-| H105 | Exact write ceiling is 100 (101 rejected per the reporter; 96–100 never individually written) and the 10 floor is a portal hint only | LXP-LB-US 10K; other families unconfirmed | `inferred` | current | 1 | Bound adopted by [pylxpweb `c78ab7e`](https://github.com/joyfulhouse/pylxpweb/commit/c78ab7e) (PR #322, shipped 0.10.0b7) and the entity, and retained at the page-level pylxpweb pin. The firmware exception stays the authoritative reject path. **Both ends unproven** — a delta-test at 100 and at 9 would settle it. |
+| H105 | Write range 0-100% adopted by the entity; 5% stored and read back through the EG4 portal; 0-4% untested | FlexBOSS21 (5% reporter unit); LXP-LB-US 10K (ceiling report) | `portal-correlated` (stored 5%); `inferred` (bounds) | current on reported units | 1 | [#713](https://github.com/joyfulhouse/eg4_web_monitor/issues/713) reports `HOLD_DISCHG_CUT_OFF_SOC_EOD: 5` via cloud readback. Storage does not prove semantics or a firmware floor. [#603](https://github.com/joyfulhouse/eg4_web_monitor/issues/603) reports 101 rejected; 96-100 not individually written. One LXP-LB-EU 12K user [reports](https://github.com/joyfulhouse/eg4_web_monitor/issues/668#issuecomment-6507853454) portal refusal below the off-grid cutoff, equal allowed (`asserted-unverified`, not a verified firmware rule). No client-side cross-field validation is added. Device/portal rejection remains authoritative. |
 | H110 | Shared system-function word; individual meanings below | all | `verified-against-code` | structural-only | 0 | [`constants/registers.py::REGISTER_110_PARAM_KEYS`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L642-L659) and [`REGISTER_TO_PARAM_KEYS[110]`](https://github.com/joyfulhouse/pylxpweb/blob/204b95d/src/pylxpweb/constants/registers.py#L777-L782) define the structure. Never inherit a bit’s grade to the whole word or another family. |
 | H116 | Import threshold to start discharge, W | grid-tied; CT required | `portal-correlated` | current | 1 | `DATA_MAPPING.md`; whole watts, not ×100 W. [#628](https://github.com/joyfulhouse/eg4_web_monitor/issues/628) reports the LXP portal accepting 0 W; integration lower bound includes zero only for positively identified LXP. |
 | H117 | Start-charge threshold, signed W | LOCAL/HYBRID | `asserted-unverified` | unresolved | 0 | [`DATA_MAPPING.md` H117 note](../../docs/DATA_MAPPING.md#power-control-registers); no cloud name or validated behavior. |

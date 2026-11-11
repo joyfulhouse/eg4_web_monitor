@@ -3235,18 +3235,8 @@ class StopDischargeVoltageNumber(EG4BaseNumberEntity):
 class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
     """Number entity for On-Grid SOC Cut-Off control.
 
-    Write range 10-100%: the canonical H105 definition (pylxpweb
-    ``inverter_holding.py`` address 105, min 10 / max 100) and the cloud
-    writer ``set_battery_soc_limits`` (ValueError outside 10..100) both
-    enforce it. The entity previously advertised 0-100, which the #570
-    cloud-only routing turned into a user-visible ValueError on off-grid
-    entries for 0-9/91-100 (review round 2 MED) — the entity was the
-    outlier, so its advertised range was matched to the writers. That
-    round copied a 90 ceiling that was only the portal's arrow-button
-    hint: the inverter stores a portal-typed 95 and rejects only >100
-    (#603), so the writers and this entity now cap at 100; the READ window
-    stays the tolerant 0-100 so a stored value never blanks. H125
-    (off-grid cutoff) is 0-100 everywhere and keeps SOC_LIMIT_*.
+    Write range 0-100%; device/portal rejection remains authoritative.
+    The read plausibility window remains 0-100%.
     """
 
     _control_key = "on_grid_soc_cutoff"
@@ -3267,10 +3257,8 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
     def native_value(self) -> float | None:
         """Return the current on-grid SOC cutoff (reads from battery_soc_limits dict).
 
-        The plausibility window is the full 0-100 percent range, deliberately
-        wider than the write bounds: the portal can store any value the
-        firmware accepts (a typed 95 on an LXP-LB-US 10K, #603), and a read
-        window tighter than that blanked a legal value to unknown.
+        The plausibility window remains the full 0-100 percent range so a
+        portal-stored value does not blank to unknown.
         """
         return self._read_param_value(
             param_key="HOLD_DISCHG_CUT_OFF_SOC_EOD",
@@ -3281,7 +3269,7 @@ class OnGridSOCCutoffNumber(EG4BaseNumberEntity):
         )
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set the on-grid SOC cutoff (10-100%; only >100 is firmware-rejected, #603)."""
+        """Set the on-grid SOC cutoff (0-100%)."""
         int_value = _coerce_int_in_range(
             value,
             min_v=ONGRID_SOC_CUTOFF_MIN,

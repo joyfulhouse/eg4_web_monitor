@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Allow On-Grid SOC Cut-Off values from 0-100% instead of enforcing a 10% minimum (#713).
 - Use Home Assistant's USB integration scan for config-flow serial ports without blocking the event loop, and declare the `usb` dependency (#704).
 - Keep locally configured HYBRID inverter energy counters unknown when their local energy snapshot is missing, preventing an older cloud value from being published as a counter reset. Apply the same rule to dependent group energy; independent complete GridBOSS CT consumption and runtime cloud fallback remain available (#702).
 - Show the configured connection address in local-link Repairs when the shared transport hides its address; diagnostics continue to omit the private UI placeholders (#702).
