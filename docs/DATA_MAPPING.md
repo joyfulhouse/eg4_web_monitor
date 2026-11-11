@@ -805,10 +805,18 @@ per boundary). Cloud param names take the window suffix
 |-----|---------------|-------------|------|-------|
 | 101 | `charge_current` | number | A | 0-140 |
 | 102 | `discharge_current` | number | A | 0-140 |
-| 105 | `ongrid_discharge_soc` | number | % | 10-100 |
+| 105 | `ongrid_discharge_soc` | number | % | 0-100 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
 | 160 | `ac_charge_start_battery_soc` | number | % | 1-90 off-grid/unresolved; 0-90 positively resolved non-off-grid |
 | 161 | `ac_charge_end_battery_soc` | number | % | 20-100 off-grid/unresolved; 0-100 positively resolved non-off-grid |
+
+> **On-grid SOC cutoff (reg 105):** the entity accepts 0-100%. A portal-set 5%
+> was stored and read back on a FlexBOSS21 ([#713](https://github.com/joyfulhouse/eg4_web_monitor/issues/713));
+> 0-4% are untested. One LXP-LB-EU 12K user reports that the portal refuses an
+> on-grid cutoff below the off-grid cutoff, with equal values allowed
+> ([#668, October 29](https://github.com/joyfulhouse/eg4_web_monitor/issues/668#issuecomment-6507853454)).
+> This is a user report, not a verified firmware rule. The integration adds no
+> cross-field validation; device/portal rejection remains authoritative.
 
 > **AC-charge SOC window (regs 160/161)**
 > ([#570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570),
@@ -994,7 +1002,7 @@ integration 3.4.0 / pylxpweb 0.9.36b1.
 | 228 | `HOLD_SYSTEM_CHARGE_VOLT_LIMIT` | `system_charge_volt_limit` | charge / Voltage | V | 40-64 |
 | 158 | `HOLD_AC_CHARGE_START_BATTERY_VOLTAGE` | `ac_charge_start_voltage` | charge / Voltage | V | 38-60 |
 | 159 | `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` | `ac_charge_end_voltage` | charge / Voltage | V | 38-60 |
-| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 10-100 |
+| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
 | 125 | `HOLD_SOC_LOW_LIMIT_EPS_DISCHG` | `off_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
 | 169 | `HOLD_ON_GRID_EOD_VOLTAGE` | `on_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
 | 100 | `HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT` | `off_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |

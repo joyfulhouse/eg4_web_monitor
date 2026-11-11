@@ -80,18 +80,10 @@ SOC_LIMIT_MIN = 0
 SOC_LIMIT_MAX = 100
 SOC_LIMIT_STEP = 1
 
-# On-grid discharge cutoff (reg 105) WRITE bounds. These mirror pylxpweb's
-# canonical H105 definition and set_battery_soc_limits so an off-grid
-# cloud-only route never surfaces a raw ValueError at a boundary (#570
-# review round 2). The 90 ceiling that round copied from the library was the
-# portal's arrow-button hint, not a firmware bound: a portal-typed 95 is
-# stored (reporter diagnostics, LXP-LB-US 10K, #603) and only >100 is
-# rejected by the inverter, so the ceiling is 100. The 10 floor is the same
-# kind of hint — unproven either way — and is kept as shipped. The READ
-# plausibility window is the tolerant SOC_LIMIT_* 0-100 regardless, so a
-# register value the portal stored never blanks to unknown (#603). The
-# off-grid cutoff (reg 125) is genuinely 0-100 and keeps SOC_LIMIT_*.
-ONGRID_SOC_CUTOFF_MIN = 10
+# On-grid discharge cutoff (reg 105) WRITE bounds, 0-100%.
+# Portal hints are not device bounds: 5 is stored on a FlexBOSS21 (#713),
+# but 0-4 are untested. Device/portal rejection remains authoritative.
+ONGRID_SOC_CUTOFF_MIN = 0
 ONGRID_SOC_CUTOFF_MAX = 100
 
 # AC Charge SOC Limit (reg 67). Separate from the shared SOC_LIMIT_* (used by

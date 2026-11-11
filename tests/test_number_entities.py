@@ -715,7 +715,7 @@ class TestReadParamValueDict:
 
     @pytest.mark.parametrize("stored", [95, 100, 5])
     def test_reads_portal_stored_value_outside_write_bounds(self, stored):
-        """#603: the read window is 0-100, wider than the 10-100 write bounds.
+        """The read window remains 0-100 when the write floor is lowered (#713).
 
         The portal stores any value the firmware accepts (a typed 95 on an
         LXP-LB-US 10K); the entity must display it, never blank to unknown.
