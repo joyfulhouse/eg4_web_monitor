@@ -5,7 +5,7 @@ import json
 from unittest.mock import patch
 
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator

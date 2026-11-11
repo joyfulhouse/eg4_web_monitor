@@ -7,7 +7,7 @@ import pytest
 from homeassistant import config_entries, data_entry_flow
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,

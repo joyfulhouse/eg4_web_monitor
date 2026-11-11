@@ -15,7 +15,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry, flush_store
+from pytest_homeassistant.common import MockConfigEntry, flush_store
 from tests.ha_registry import get_registry_device, registry_parent_link
 
 from custom_components.eg4_web_monitor import (

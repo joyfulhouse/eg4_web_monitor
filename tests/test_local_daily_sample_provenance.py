@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 from homeassistant.util import dt as dt_util
 from pylxpweb.provenance import EnergyProvenance
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockEntityPlatform,
 )
@@ -183,7 +183,7 @@ async def test_local_mapper_keeps_cached_snapshot_acquisition(hass, freezer):
 async def test_local_read_does_not_inherit_undated_restored_daily_baseline(hass):
     from homeassistant.components.sensor import SensorExtraStoredData
     from homeassistant.core import State
-    from pytest_homeassistant_custom_component.common import (
+    from pytest_homeassistant.common import (
         mock_restore_cache_with_extra_data,
     )
 

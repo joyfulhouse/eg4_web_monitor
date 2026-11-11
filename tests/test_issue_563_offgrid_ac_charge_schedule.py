@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor import repair_registry
 from custom_components.eg4_web_monitor.binary_sensor import (

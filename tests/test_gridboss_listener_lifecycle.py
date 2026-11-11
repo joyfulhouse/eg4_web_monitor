@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.helpers.entity_component import EntityComponent
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.coordinator import (
     STATION_LISTENER_CONTEXT,

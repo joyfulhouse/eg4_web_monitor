@@ -8,7 +8,7 @@ from homeassistant.components.sensor import SensorExtraStoredData
 from homeassistant.core import State
 from homeassistant.helpers.restore_state import async_get as async_get_restore_data
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockEntityPlatform,
     mock_restore_cache_with_extra_data,

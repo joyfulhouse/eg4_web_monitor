@@ -15,7 +15,7 @@ from pylxpweb.transports.data import (
     InverterRuntimeData,
     MidboxRuntimeData,
 )
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockEntityPlatform,
 )

@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 from pylxpweb.transports import ModbusSerialTransport, ModbusTransport
 from pylxpweb.transports.exceptions import TransportConnectionError
 import pytest
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor import ha_modbus
 from custom_components.eg4_web_monitor.const import (

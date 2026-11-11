@@ -38,7 +38,7 @@ import pytest
 from pylxpweb.devices.inverters._features import InverterFamily, InverterFeatures
 from pylxpweb.models import InverterRuntime
 from pylxpweb.transports.data import InverterRuntimeData
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
     CONF_BASE_URL,

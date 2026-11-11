@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import homeassistant.helpers.device_registry as dr
 import homeassistant.helpers.entity_registry as er
 from homeassistant.core import HomeAssistant
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 from tests.ha_registry import get_registry_device
 
 from custom_components.eg4_web_monitor import async_setup_entry
