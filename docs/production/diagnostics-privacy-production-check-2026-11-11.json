@@ -1,0 +1,111 @@
+{
+  "record_type": "diagnostics_privacy_production_check",
+  "issue": 697,
+  "review_date_utc": "2026-11-11",
+  "review_clock_utc": "2026-11-11T19:28:01.922205+00:00",
+  "captured_at_utc": "2026-11-11T16:34:27.480700+00:00",
+  "deployed_build": {
+    "home_assistant": "2026.11.1",
+    "integration_manifest": "3.5.1-beta.21",
+    "pylxpweb_pinned": "0.10.0b13",
+    "pylxpweb_installed": "0.10.0b13",
+    "config_entry_state": "loaded",
+    "latest_ha_start_utc": "2026-11-11T05:02:33Z",
+    "stock_revision_range_consistent": "ca2f635..7da5339, including 77e6c86",
+    "identification_limit": "Content matches the pre-#699/#700 revision family. Exact commit is NOT provable read-only; a mixed install cannot be excluded. Range confidence is moderate under the stock-checkout assumption.",
+    "absent_changes": "The fixes e1a5ba0 (#699) and f88e62e (#700) are NOT running in production.",
+    "installation_time": "unknown"
+  },
+  "scope": "Existing private observation only: read-only REST/WebSocket reads, recorder history/statistics queries and one diagnostics download. No deployment, restart, reload, service call, statistics adjustment, clock change, induced outage or hardware write. No production connection or collector started while preparing this record.",
+  "interpretation": [
+    "Publication timestamps are not acquisition evidence.",
+    "No inverter reset timezone is inferred.",
+    "Retrospective midnight anomalies are OBSERVATIONS on a build that predates the #702/#703 source-gating fix and the #648 state-class fix. No cause is attributed and these are not characterized as regressions.",
+    "Prior manual statistics adjustments on this instance are unknown.",
+    "Scan counts are bounded to known literals; absence of a match does not establish absence of other sensitive data."
+  ],
+  "recommendation": "Final acceptance is best performed against 3.5.1-beta.22 once cut and separately authorized for deployment. This record is a pre-deployment baseline. No release, tag or deployment is implied.",
+  "evidence_sources": [
+    "Private redacted-summary.json captured 2026-11-11; raw captures retained privately, not published.",
+    "Private final-report.md; privacy-summary.json; midnight-table.md; midnight-aggregate.json."
+  ],
+  "findings": [
+    {
+      "criterion": "source preparation",
+      "outcome": "MET",
+      "expected": "Synthetic full-wrapper and nested-host coverage recorded before production acceptance.",
+      "actual": {
+        "reviewed_record": "docs/production/diagnostics-privacy-validation-2026-10-25.json",
+        "reviewed_records": 1,
+        "tests_rerun_in_this_observation": 0
+      },
+      "interpretation": "Prior offline evidence only; not production acceptance."
+    },
+    {
+      "criterion": "whole downloaded artifact",
+      "outcome": "NOT MET",
+      "expected": "0 known/candidate sensitive literals in all keys and values, including the HA wrapper.",
+      "actual": {
+        "known_candidate_literals": 24,
+        "distinct_literals_present": 8,
+        "nested_transport_hosts": 3,
+        "nested_transport_hosts_redacted": 0,
+        "wrapper_issue_ids": 5,
+        "wrapper_issue_ids_pseudonymised": 0,
+        "wrapper_issue_ids_with_device_identity": 4,
+        "live_repairs_serial_bearing_ids": 1
+      }
+    },
+    {
+      "criterion": "production verification of updated privacy behavior",
+      "outcome": "BLOCKED-NEEDS-AUTHORIZATION",
+      "expected": "Observe a deployed revision containing e1a5ba0 and repeat whole-artifact scan.",
+      "actual": {
+        "qualifying_deployments_observed": 0
+      },
+      "required_action": "Separately authorize and deploy a revision containing e1a5ba0 using an approved backup/restart plan, then repeat one whole diagnostics download and its recursive scan."
+    }
+  ],
+  "exposure_locations": [
+    {
+      "json_path": "$.data.entry.data.local_transports[*].host",
+      "exposed_locations": 3,
+      "identifiers": "elided"
+    },
+    {
+      "json_path": "$.issues[*].issue_id",
+      "exposed_locations": 5,
+      "device_identity_bearing_locations": 4,
+      "identifiers": "elided"
+    },
+    {
+      "json_path": "$.setup_times.[entry-identifier-key]",
+      "exposed_locations": 1,
+      "identifiers": "elided",
+      "interpretation": "Additional config-entry identifier location not named in the issue. Coverage by #699 has not been established here; no assertion of coverage is made."
+    },
+    {
+      "source": "repairs/list_issues",
+      "json_path": "$.issues[*].issue_id",
+      "serial_bearing_locations": 1,
+      "identifiers": "elided"
+    }
+  ],
+  "scan_scope": [
+    "$ recursively, every key and value",
+    "$.data.entry.data",
+    "$.data.entry.options",
+    "$.data.coordinator.data.devices.[identifier]",
+    "$.custom_components",
+    "$.integration_manifest",
+    "$.setup_times",
+    "$.issues[*].issue_id"
+  ],
+  "retained_gaps": [
+    "Independent username ground truth was unavailable through the permitted listing; its literal absence cannot be certified.",
+    "Plant coverage used a registry-derived candidate, not an independent raw configuration read.",
+    "The 24-literal production exposure scan and the separate publication scan of the evidence records have different scopes.",
+    "Useful versions, model roles, counts and numeric values remain available; acquisition timestamps do not survive the deployed serializer.",
+    "No additional production operation is authorized by this evidence record."
+  ]
+}
