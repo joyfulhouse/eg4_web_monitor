@@ -41,9 +41,10 @@ verified-against:
 # The refreshed date applies only to the scope above (no wholesale reverification).
 # Countdown discovery subsection verified at af613d779035a19412c84a1bcf300b210f2adf32 on 2026-10-23.
 # Other sections retain the scoped pins above.
-# Peak-shaving registry defaults verified at ecb783a0543ea0126565f0e699b537614beb4ecb on 2026-11-11.
-# Only that claim uses this inline pin; other claims retain their pins above.
-last-verified: 2026-11-11
+# Peak-shaving registry defaults verified in the PR #707 change set on 2026-11-12.
+# Base: ce50c2509d1cb689a2e90eefc907c1a3a5ae2d7e; change provenance: https://github.com/joyfulhouse/eg4_web_monitor/pull/707.
+# Only that claim uses this change-set reference; other claims retain their pins above.
+last-verified: 2026-11-12
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -488,7 +489,7 @@ All rows: `verified-against-code`.
 
 `PeakShavingNumber` does not disable its power rows on pure-LOCAL connections;
 its SOC/voltage rows follow the regime-gated rule above.
-`verified-against-code` at `ecb783a0543ea0126565f0e699b537614beb4ecb` (`number.py` →
+`verified-against-code` in the [PR #707 change set](https://github.com/joyfulhouse/eg4_web_monitor/pull/707) (`number.py` →
 `PeakShavingNumber.__init__`, `EG4BaseNumberEntity.__init__`).
 
 ## 8. Renaming and retiring entities

@@ -24,13 +24,23 @@ subject, never as "above" or "below". Record what changed and *why it was wrong 
 The reasoning is the durable part, and several entries exist only because a plausible
 answer turned out to be unsound. Keep entries short and link the pages that changed.
 
+## 2026-11-12
+
+### repin | Use durable peak-shaving change provenance (#707)
+
+Replaced the pre-rebase branch SHA in [controls and writes](10-integration/controls-and-writes.md),
+[registry defaults](10-integration/entities-identity-availability.md), and the November 11
+#707 entry with the PR change-set reference. Re-verified the scoped claims on
+main `ce50c2509d1cb689a2e90eefc907c1a3a5ae2d7e` plus #707; unrelated pins remain unchanged.
+The PR reference survives rebasing and follows the existing pre-merge change-set citations.
+
 ## 2026-11-11
 
 ### ingest | Unified peak-shaving number routing (#707)
 
 Updated [controls and writes](10-integration/controls-and-writes.md) and
 [registry defaults](10-integration/entities-identity-availability.md) against
-`ecb783a0543ea0126565f0e699b537614beb4ecb` (`number.py` → `PeakShavingNumber`).
+the [PR #707 change set](https://github.com/joyfulhouse/eg4_web_monitor/pull/707) (`number.py` → `PeakShavingNumber`).
 The removed separate PS1 class no longer calls the library setter or disables
 the power entity on pure-LOCAL connections. All six rows use the named-parameter
 router, with off-grid/unresolved families restricted to cloud writes. Historical
