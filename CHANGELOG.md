@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.1-beta.22] - 2026-11-12
+
 ### Breaking Changes
 
 - **Home Assistant 2026.11.0 or newer is required.** 3.5.1-beta.21 is the last release supporting HA 2026.10.x. The integration no longer declares pyserial because HA core supplies it (#704).

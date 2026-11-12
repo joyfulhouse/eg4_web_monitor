@@ -12,5 +12,5 @@
   "loggers": ["eg4_web_monitor"],
   "quality_scale": "platinum",
   "requirements": ["pylxpweb==0.10.0b15", "pymodbus>=3.6.0"],
-  "version": "3.5.1-beta.21"
+  "version": "3.5.1-beta.22"
 }
