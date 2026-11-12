@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Home Assistant 2026.11.0 or newer is required.** 3.5.1-beta.21 is the last release supporting HA 2026.10.x. The integration no longer declares pyserial because HA core supplies it (#704).
 
-**Requires [pylxpweb==0.10.0b14](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b14)**
+**Requires [pylxpweb==0.10.0b15](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b15)**
 
 ### Fixed
 
