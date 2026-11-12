@@ -1402,7 +1402,7 @@ UNKNOWN_FEATURES = {"features": {"inverter_family": "UNKNOWN"}}
 
 
 class TestPeakShavingSetOffgridRouting:
-    """Regs 207/208/218/219/232 have no off-grid write evidence at all: the
+    """Regs 206/207/208/218/219/232 have no off-grid write evidence at all: the
     write is CLOUD-ONLY on EG4_OFFGRID and on an unresolved/UNKNOWN family,
     local-first only on a positively resolved non-off-grid family."""
 
@@ -1463,12 +1463,20 @@ class TestPeakShavingSetOffgridRouting:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
-    async def test_pure_local_offgrid_raises_without_local_write(self, spec):
+    @pytest.mark.parametrize(
+        "device_data",
+        [OFFGRID_FEATURES, UNKNOWN_FEATURES, {}, {"features": {"inverter_family": ""}}],
+        ids=["offgrid", "unknown-family", "no-features", "empty-family"],
+    )
+    async def test_pure_local_offgrid_raises_without_local_write(
+        self, spec, device_data
+    ):
         coordinator = _mock_coordinator(
             has_local=True,
             has_http=False,
+            local_only=True,
             model="12000XP",
-            device_data=dict(OFFGRID_FEATURES),
+            device_data=device_data,
         )
         entity = self._entity(coordinator, spec.key)
 

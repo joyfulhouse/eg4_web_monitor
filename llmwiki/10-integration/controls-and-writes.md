@@ -53,7 +53,7 @@ verified-against:
 # The refreshed date applies only to the scope above (no wholesale reverification).
 # Cloud error normalization below reverified at ad79479; other claims retain their pins.
 # AC charge rejection guidance verified at 57788e681b2050a70c6ecdbc43232137aac7ea5f.
-# PeakShavingNumber routing claims verified in the PR #707 change set on 2026-11-12.
+# PeakShavingNumber routing claims and direct-library-call examples verified in the PR #707 change set on 2026-11-12.
 # Base: ce50c2509d1cb689a2e90eefc907c1a3a5ae2d7e; change provenance: https://github.com/joyfulhouse/eg4_web_monitor/pull/707.
 # Only those claims use this change-set reference; other claims retain their pins above.
 last-verified: 2026-11-12
@@ -106,7 +106,7 @@ Accurate as descriptions; **not asserted to be all of them.**
 | **The router** | eg4 calls a coordinator primitive (`write_named_parameter` / `write_raw_parameter` / `write_register`) inside `utils.py` → `async_write_with_cloud_fallback`. Reached via `_execute_local_with_fallback` (switch), `number.py` → `_write_parameter` / `_write_voltage_register`, the select/time `local_write` closures, and the coordinator's battery-regime write | **eg4**, one policy, one place (§1) |
 | **Router bypass** | An entity calls a coordinator primitive directly, outside the router (§1.3) | eg4, ad hoc per entity |
 | **Switch action** | `base_entity.py` → `_execute_switch_action`, called **directly by an entity**: resolves `getattr(inverter, method_ref)` — a pylxpweb method *name* — or takes a pre-bound callable, and awaits it | **pylxpweb**, per method (§2) |
-| **Direct library call** | An entity awaits a pylxpweb method on the inverter object with no eg4 helper at all — e.g. `await inverter.set_grid_peak_shaving_power(...)` | **pylxpweb**, per method (§2) |
+| **Direct library call** | An entity awaits a pylxpweb method on the inverter object with no eg4 helper at all — e.g. `await inverter.set_operating_mode(mode_value)` (`select.py` → `EG4OperatingModeSelect.async_select_option`) | **pylxpweb**, per method (§2) |
 | **Background (no entity)** | Coordinator-scheduled writes with no entity involved — e.g. the hourly portal DST reconciliation | The calling code |
 
 `verified-against-code` at `9f6d6e2` — call sites cited in §1, §1.3, §2.2 and §0.3.
@@ -137,7 +137,7 @@ Every one of these produced a confident, wrong completeness claim in this chapte
 | # | Blind spot | Worked example |
 |---|---|---|
 | **a** | A coordinator-primitive grep misses **library-mediated writes** entirely, because no `coordinator.write_*` call appears in this repo for them | `EG4QuickChargeSwitch` writes **H233** through `enable_quick_charge`. Invisible to step 1 |
-| **b** | An `_execute_switch_action` grep misses **direct `inverter.<method>()` calls** | `number.py:1291` → `set_grid_peak_shaving_power` writes **H206**; `select.py:266` → `set_operating_mode`. `select.py` and `number.py` contain **zero** `_execute_switch_action` calls, so step 2 cannot see them |
+| **b** | An `_execute_switch_action` grep misses **direct `inverter.<method>()` calls** | `select.py` → `EG4OperatingModeSelect.async_select_option` calls `inverter.set_operating_mode`. `select.py` contains **zero** `_execute_switch_action` calls, so step 2 cannot see it |
 | **c** | Reading `base.py` misses **runtime subclass overrides** — resolve the class, then check something **constructs** it | `HybridInverter` overrides `enable_pv_sell_to_grid` to "deliberately remain transport-first" on **H179 b3** (pylxpweb `204b95d`, `devices/inverters/hybrid.py:1294`), and `base.py:3487` warns about the override in its own docstring. A previous revision read only `base.py`, concluded "exactly one entity", and had no basis for it. Resolving the class shows **eg4 never holds a `HybridInverter`**, so that override never runs (§2.2) — but the base method keeps a *clientless* local leg, so the class alone still does not settle where the write lands |
 | **d** | An entity-scoped search misses **background writes** | `coordinator_mixins.py:4559` → `_perform_dst_sync` calls `station.sync_dst_setting()` hourly. `dst_sync_enabled` defaults to **`True`** (`coordinator.py:408`). No entity is involved |
 
@@ -322,7 +322,7 @@ success = await method(**(enable_kwargs or {})) if turn_on else await method()
 
 A direct library call skips even that indirection — for example,
 `EG4OperatingModeSelect.async_select_option` calls `inverter.set_operating_mode`
-(`select.py:266`). Peak-shaving numbers use the shared router instead (§0.4).
+(`select.py:269`). Peak-shaving numbers use the shared router instead (§0.4).
 
 Either way eg4 names a method and **pylxpweb performs the write and chooses the transport.**
 `_execute_switch_action`'s body contains no call to `async_write_with_cloud_fallback`, so §1's
@@ -341,7 +341,7 @@ decided by the called method itself, so the log names the method, not a transpor
 > |---|---|
 > | Policies point in opposite directions | `enable_quick_charge` is **transport-first** ("With a local transport … this writes … to holding register 233 bit 0"); `enable_ac_charge_mode` is **client-first** ("cloud and HYBRID instances keep the dedicated cloud endpoint") — pylxpweb `204b95d`, `base.py:4011` and `:4359` |
 > | A subclass overrides the base — but check anything builds it | `base.py:3481` `enable_pv_sell_to_grid` is client-first; `HybridInverter` **overrides** it to "deliberately remain transport-first", writing H179 b3 via a lock-held named RMW — pylxpweb `204b95d`, `hybrid.py:1294`. Nothing constructs that class, here or in the library, so the override never runs (§2.2). **Resolve the actual class before reading a policy — then confirm it is ever instantiated** |
-> | The library has its own fallback | `set_grid_peak_shaving_power` writes H206 locally "falling back to the cloud named-parameter write when no transport is attached, the link is down, or the local write fails" — pylxpweb `204b95d`, `base.py:2996`. So "eg4 provides no fallback here" does **not** mean "this write has no fallback" |
+> | The library has its own fallback | Historically, `set_grid_peak_shaving_power` wrote H206 locally "falling back to the cloud named-parameter write when no transport is attached, the link is down, or the local write fails" — pylxpweb `204b95d`, `base.py:2996`. Since [#707](https://github.com/joyfulhouse/eg4_web_monitor/pull/707), the integration no longer calls this setter; peak-shaving numbers use the shared router (§0.4) |
 >
 > **Open the method on the runtime class.** There is no eg4-side signal for any of this.
 

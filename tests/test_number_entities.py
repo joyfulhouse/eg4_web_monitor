@@ -226,9 +226,11 @@ class TestNumberPlatformSetup:
 
     @pytest.mark.asyncio
     async def test_async_setup_entry_with_inverter(self, hass):
-        """FlexBOSS creates 28 number entities.
+        """FlexBOSS creates 33 number entities.
 
-        12 base + 6 voltage + grid sell + start discharge threshold + Quick
+        14 always-on controls + six peak-shaving rows + the
+        forced-discharge pair + AC Charge SOC Limit + grid sell + start
+        discharge threshold + Quick
         Charge Duration (HTTP-only) + the two cloud-only AC Couple SOC
         window numbers (GH #352, cloud client present, family-neutral) + the
         five cloud-only Smart Load panel numbers (GH #499, same gate). The
@@ -247,7 +249,7 @@ class TestNumberPlatformSetup:
         await repair_registry.async_initialize(hass)
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
-        # +5 (#592): the rest of the daily Grid Peak Shaving set.
+        # The total includes all six daily Grid Peak Shaving rows.
         assert len(entities) == 33
         type_names = [type(e).__name__ for e in entities]
         assert type_names.count("PeakShavingNumber") == 6
@@ -448,7 +450,7 @@ class TestNumberPlatformSetup:
         assert "BatteryChargeCurrentNumber" in type_names
         # Off-grid family still omits the grid-tied-only controls
         assert "GridSellBackPowerNumber" not in type_names
-        assert "PeakShavingNumber" not in type_names  # #592: same gate as PS1
+        assert "PeakShavingNumber" not in type_names  # Grid-tied-only set.
         assert "ForcedDischargePowerNumber" not in type_names
         assert "StartDischargePowerNumber" not in type_names
         assert "StartChargePowerNumber" not in type_names
@@ -2195,7 +2197,7 @@ class TestOffgridGridTiedNumberSuppression:
         await async_setup_entry(hass, entry, lambda e, **kw: entities.extend(e))
 
         type_names = [type(e).__name__ for e in entities]
-        assert "PeakShavingNumber" not in type_names  # #592: same gate as PS1
+        assert "PeakShavingNumber" not in type_names  # Grid-tied-only set.
         assert "ForcedDischargePowerNumber" not in type_names
         assert "ForcedDischargeSOCLimitNumber" not in type_names
         # AC Charge SOC Limit (reg 67) is family-rejected on offgrid (GH #331)
@@ -2246,13 +2248,10 @@ class TestOffgridGridTiedNumberSuppression:
         # cloud client present is enough
         assert "ACCoupleStartSOCNumber" in type_names
         assert "ACCoupleEndSOCNumber" in type_names
-        # Fail-open keeps every control except Grid Sell Back, whose own
-        # XP-model gate (GH #135) fires on the model name alone = 18, plus the
-        # HTTP-only Quick Charge Duration preference (#251), the two AC
-        # Couple SOC window numbers (GH #352) and the five Smart Load panel
-        # numbers (GH #499) = 26
-        # +6 (#592): the daily Grid Peak Shaving set is created in the same
-        # fail-open non-off-grid branch as PS1.
+        # 14 always-on + six peak-shaving rows + the forced-discharge pair
+        # + AC Charge SOC Limit + Quick Charge Duration + two AC Couple SOC
+        # + five Smart Load panel numbers = 31. The non-off-grid branch
+        # fails open; the XP-model gate omits sell-back and its thresholds.
         assert len(entities) == 31
         assert type_names.count("PeakShavingNumber") == 6
 
@@ -4228,7 +4227,7 @@ def _hybrid(coordinator, serial: str = "1234567890") -> None:
 class TestPeakShavingSpecTable:
     """The six-row spec table and the entity attributes it drives."""
 
-    def test_table_covers_the_five_missing_keys(self):
+    def test_table_covers_peak_shaving_keys(self):
         rows = {spec.key: spec for spec in PEAK_SHAVING_NUMBER_SPECS}
         assert set(rows) == {
             "grid_peak_shaving_power",
@@ -4345,7 +4344,7 @@ class TestPeakShavingSpecTable:
 
 
 class TestPeakShavingReads:
-    """params-first reads in engineering units (no inverter attribute)."""
+    """Read engineering units from parameters without an attribute fallback."""
 
     @pytest.mark.parametrize(
         ("key", "param", "raw", "expected"),
@@ -4422,10 +4421,7 @@ class TestPeakShavingReads:
 
     @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
     def test_reads_are_params_first_with_no_inverter_attribute(self, spec):
-        """No pylxpweb inverter attribute exists for these keys, so the read
-        must be wired params-first (the AC Charge Start/End SOC precedent)
-        with no inverter_attr fallback — an attribute name here would be a
-        fabrication (#592)."""
+        """All rows read parameters first without using inverter attributes."""
         coordinator = _mock_coordinator(parameters={spec.param_key: "1"})
         entity = _peak_shaving_entity(coordinator, spec.key)
         with patch.object(
