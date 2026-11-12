@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 from pylxpweb.exceptions import LuxpowerAPIError, LuxpowerConnectionError
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor import coordinator_mixins
 from custom_components.eg4_web_monitor.const import DOMAIN

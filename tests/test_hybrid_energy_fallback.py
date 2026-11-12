@@ -9,7 +9,7 @@ from pylxpweb.devices.parallel_group import ParallelGroup
 from pylxpweb.models import EnergyInfo
 from pylxpweb.provenance import EnergyProvenance
 from pylxpweb.transports.data import InverterEnergyData, InverterRuntimeData
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockEntityPlatform,
 )

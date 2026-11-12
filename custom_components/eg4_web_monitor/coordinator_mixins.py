@@ -4413,7 +4413,7 @@ class DeviceInfoMixin(_MixinBase):
             if parallel_group_serial:
                 link = self.via_device_link(parallel_group_serial)
                 device_info.update(link)
-                linked = bool(link)
+                linked = bool(link.keys())
 
         result = cast(DeviceInfo, device_info)
         if linked:
@@ -4493,7 +4493,7 @@ class DeviceInfoMixin(_MixinBase):
             battery_bank_identifier,
         )
 
-        if link:
+        if link.keys():
             cache[cache_key] = device_info
         return device_info
 
@@ -4547,7 +4547,7 @@ class DeviceInfoMixin(_MixinBase):
             serial,
         )
 
-        if link:
+        if link.keys():
             cache[serial] = device_info
         return device_info
 
@@ -4581,12 +4581,12 @@ class DeviceInfoMixin(_MixinBase):
         station_data = self.data["station"]
         station_name = station_data.get("name", f"Station {self.plant_id}")
 
-        device_info: DeviceInfo = {
-            "identifiers": {(DOMAIN, f"station_{self.plant_id}")},
-            "name": f"Station {station_name}",
-            "manufacturer": MANUFACTURER,
-            "model": "Station",
-        }
+        device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"station_{self.plant_id}")},
+            name=f"Station {station_name}",
+            manufacturer=MANUFACTURER,
+            model="Station",
+        )
 
         # Add configuration URL if HTTP client is available
         if self.client is not None:

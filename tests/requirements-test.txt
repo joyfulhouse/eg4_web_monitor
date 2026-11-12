@@ -4,12 +4,14 @@
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
-pytest-homeassistant-custom-component>=0.13.371
+pytest-homeassistant>=2026.11.0
 dpkt>=1.9.8  # offline-only PCAP sanitizer tests (#576)
 
 # Home Assistant core for testing
-homeassistant>=2026.10.0
+homeassistant>=2026.11.0
 aiousbwatcher
+# HA's USB integration imports Hass.io.
+aiohasupervisor==0.8.1
 
 # Integration dependencies
 aiohttp>=3.10.0

@@ -48,7 +48,12 @@ def test_ha_constraints_pin_core_plugin_and_usb_dependencies(target: str) -> Non
     pins = (ROOT / f"tests/constraints-ha-{target}.txt").read_text().splitlines()
     pins = [line for line in pins if line and not line.startswith("#")]
     assert pins[0].startswith("homeassistant==")
-    assert pins[1].startswith("pytest-homeassistant-custom-component==")
+    ha_version = pins[0].removeprefix("homeassistant==")
+    assert re.fullmatch(r"2026\.11\.\d+", ha_version)
+    if target == "minimum":
+        assert ha_version == "2026.11.0"
+    assert json.loads((ROOT / "hacs.json").read_text())["homeassistant"] == "2026.11.0"
+    assert pins[1] == pins[0].replace("homeassistant==", "pytest-homeassistant==")
     assert len(pins) == 4
     assert re.fullmatch(r"aiousbwatcher==\S+", pins[2])
     assert re.fullmatch(r"serialx==\S+", pins[3])

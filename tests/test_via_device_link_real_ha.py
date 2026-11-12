@@ -1,10 +1,4 @@
-"""Parent links against the REAL HA 2026.8+ device registry (skipped on older HA).
-
-tests/test_via_device_link.py covers the branching with a stand-in lookup; this
-module exercises HA's own helper, entity platform and websocket rename, which
-only exist from HA 2026.8.0b0.  Run it with an HA >= 2026.9 test environment
-(Python 3.14) to cover the production code path.
-"""
+"""Parent links against the supported Home Assistant device registry."""
 
 from __future__ import annotations
 
@@ -12,13 +6,12 @@ import logging
 from typing import Any
 
 import pytest
-from homeassistant.const import MAJOR_VERSION, MINOR_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import Entity
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockEntityPlatform,
 )
@@ -26,11 +19,6 @@ from pytest_homeassistant_custom_component.common import (
 from custom_components.eg4_web_monitor import coordinator_mixins
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.coordinator_mixins import DeviceInfoMixin
-
-pytestmark = pytest.mark.skipif(
-    not hasattr(dr, "async_get_device_id_by_identifier"),
-    reason="needs HA >= 2026.8.0b0 (via_device_id)",
-)
 
 SERIAL = "1234567890"
 
@@ -84,10 +72,6 @@ def _platform(hass: HomeAssistant, entry: MockConfigEntry) -> MockEntityPlatform
     return platform
 
 
-@pytest.mark.skipif(
-    (MAJOR_VERSION, MINOR_VERSION) < (2026, 9),
-    reason="legacy via_device rejection starts in HA 2026.9",
-)
 async def test_legacy_via_device_entity_is_dropped(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,

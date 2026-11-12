@@ -364,11 +364,8 @@ def test_load_async_get_unit_matches_installed_core() -> None:
 
 async def test_real_async_get_unit_holds_until_entry_unloads(hass: Any) -> None:
     """Against core's real helper: one hold per link, released on unload."""
-    modbus = pytest.importorskip("homeassistant.components.modbus")
-    if not hasattr(modbus, "async_get_unit"):
-        pytest.skip("Home Assistant core predates async_get_unit (2026.9)")
     from homeassistant.components.modbus.connection import DATA_MODBUS_CONNECTIONS
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     entry = MockConfigEntry(domain="eg4_web_monitor")
     entry.add_to_hass(hass)
@@ -414,12 +411,10 @@ async def test_real_shared_link_conflict_does_not_create_another_connection(
     hass: Any,
 ) -> None:
     """Core rejects incompatible framing before any second connection or dial."""
-    modbus = pytest.importorskip("homeassistant.components.modbus")
-    if not hasattr(modbus, "async_get_unit"):
-        pytest.skip("Home Assistant core predates async_get_unit (2026.9)")
+    from homeassistant.components import modbus
     from homeassistant.components.modbus import connection as core_connection
     from modbus_connection import ModbusSerialParams
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     owner = MockConfigEntry(domain="modbus")
     entry = MockConfigEntry(domain="eg4_web_monitor")
@@ -444,7 +439,11 @@ async def test_real_shared_link_conflict_does_not_create_another_connection(
             with pytest.raises(TransportConnectionError) as raised:
                 factory(config)
             assert isinstance(raised.value.__cause__, HomeAssistantError)
-            assert "different link settings" in str(raised.value.__cause__)
+            assert raised.value.__cause__.translation_key == "device_in_use"
+            assert "different link settings" in str(raised.value)
+            assert str(params.endpoint) in str(raised.value)
+            assert str(original.params) in str(raised.value)
+            assert str(params) in str(raised.value)
             create_connection.assert_not_called()
             build.assert_not_called()
             fallback.assert_not_called()
@@ -479,7 +478,7 @@ async def test_coordinator_conflict_uses_transport_failure_and_setup_retry(
     hass: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Real caller handling leaves no capability behind after failed acquisition."""
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     from custom_components.eg4_web_monitor.const import (
         CONF_CONNECTION_TYPE,
@@ -535,10 +534,7 @@ async def test_coordinator_capability_carries_shared_unit(hass: Any) -> None:
     An ``esphome://`` port under ``auto`` runs on core's shared unit; a TCP
     gateway under ``auto`` keeps the owned pymodbus link.
     """
-    modbus = pytest.importorskip("homeassistant.components.modbus")
-    if not hasattr(modbus, "async_get_unit"):
-        pytest.skip("Home Assistant core predates async_get_unit (2026.9)")
-    from pytest_homeassistant_custom_component.common import MockConfigEntry
+    from pytest_homeassistant.common import MockConfigEntry
 
     from custom_components.eg4_web_monitor.const import (
         CONF_CONNECTION_TYPE,

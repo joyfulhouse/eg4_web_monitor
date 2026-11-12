@@ -325,8 +325,8 @@ Don't cite test counts — they rot. Count them when you need one:
 `grep -rhcE '^\s*(async )?def test_' tests/ | awk '{s+=$1} END {print s}'`. The
 coverage target and the full gate definitions live in
 `llmwiki/50-operations/quality-gates.md`, which is canonical for them. Fixtures come
-from `pytest-homeassistant-custom-component`; `enable_custom_integrations` is
-auto-enabled in `tests/conftest.py`. Mock mixin methods with instance-level
+from `pytest-homeassistant`; its `hass` fixture enables custom integrations by
+default. Mock mixin methods with instance-level
 `patch.object(coordinator, ...)`; config-flow tests patch
 `custom_components.eg4_web_monitor._config_flow.LuxpowerClient` — the **package**,
 not the shim. `config_flow.py` re-exports only `EG4ConfigFlow` and `EG4OptionsFlow`, so

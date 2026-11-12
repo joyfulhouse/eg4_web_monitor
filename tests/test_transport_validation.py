@@ -262,7 +262,7 @@ class TestSensorKeyMapping:
     """Tests verifying sensor keys are mapped consistently.
 
     Note: These tests use pytest markers to properly integrate with
-    the pytest-homeassistant-custom-component test infrastructure.
+    the pytest-homeassistant test infrastructure.
     """
 
     def test_expected_sensor_keys_exist(self) -> None:

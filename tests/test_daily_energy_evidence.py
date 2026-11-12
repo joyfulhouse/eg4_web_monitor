@@ -9,7 +9,7 @@ import pytest
 from homeassistant.util import dt as dt_util
 from pylxpweb.provenance import EnergyProvenance, derived_provenance
 from pylxpweb.transports.data import InverterRuntimeData
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator

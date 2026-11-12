@@ -10,7 +10,6 @@ sources:
   - resource: https://github.com/hacs/action/blob/d556e736723344f83838d08488c983a15381059a/action.yml
   - resource: https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/action/action.py
   - resource: https://github.com/hacs/integration/blob/0704ffc6e790b9714c82384d8c564266434ff6f9/custom_components/hacs/validate/manager.py
-  - resource: .github/workflows/hassfest-canary.yml
   - resource: custom_components/eg4_web_monitor/_config_flow/serial_ports.py
   - resource: docs/DEVELOPMENT.md
   - resource: tests/requirements-test.txt
@@ -25,11 +24,11 @@ sources:
 verified-against:
   # Python/HA matrix and workflow inventory re-verified against this PR's base `5bceb57` (PR #711 squash merge); other sections retain this pin.
   # HACS digest and USB drift-guard additions re-verified at 17668da.
-  # #704 / Hassfest section and workflow table below re-verified at b66e04d.
+  # #704 floor, plugin migration and Hassfest statements re-verified for issue #704 on this branch; other claims retain their pins.
   eg4_web_monitor: 9f6d6e2
   hacs-action: d556e736
   hacs-integration: 0704ffc6
-last-verified: 2026-10-30
+last-verified: 2026-11-11
 ---
 
 # Quality gates
@@ -123,7 +122,6 @@ jobs `bronze-summary`, `silver-summary`, `gold-summary` and their dependents.
 |----------|------|----------|------|
 | Quality Tier Validation | `.github/workflows/quality-validation.yml` | **push → `develop` only**; PR → `main`,`develop`; `workflow_dispatch` | Bronze→Silver→Gold→Platinum |
 | Home Assistant Validation | `.github/workflows/home-assistant-validation.yml` | push → `develop`; PR → `main`,`develop`; daily cron; dispatch | hassfest + HACS |
-| Hassfest Latest Canary | `.github/workflows/hassfest-canary.yml` | weekly schedule; `workflow_dispatch` | Advisory moving-image check; failures do not block PRs |
 | Release | `.github/workflows/release.yml` | `release: published` | Zip + attach `eg4_web_monitor.zip` |
 | Issue Log Validation | `.github/workflows/issue-log-validation.yml` | issues opened/edited; comments | Auto-close bad debug logs |
 | Issue Triage | `.github/workflows/issue-triage.yml` | issues opened (+ dispatch) | Claude triage + rate limit |
@@ -146,8 +144,8 @@ This subsection is `verified-against-code` at `5e3752e` —
 | Gold full-suite coverage + Platinum strict mypy | Blocking minimum/latest matrix: Python 3.14 for both |
 | Auxiliary Platinum tests + tier validator | Latest constraints on Python 3.14 |
 
-Home Assistant 2026.10.0 is the minimum for future releases.
-The paired HA/test-plugin pins are owned by the two constraints files; do not
+Home Assistant 2026.11.0 is the minimum for future releases.
+The paired HA/official `pytest-homeassistant` pins are owned by the two constraints files; do not
 copy their version numbers here. The plugin pins HA itself, so a Python upgrade
 without explicit paired constraints can silently test an older HA. Both matrix
 environments must pass; `fail-fast: false` lets both report failures. Mypy infers
@@ -224,28 +222,20 @@ document is authoritative for it, including this one. Collect it:
 uv run pytest tests/ --collect-only -q | tail -1
 ```
 
-## Hassfest baseline during core dependency transition (#704)
+## Hassfest after the HA core dependency transition (#704)
 
-At `9cd541907108bfc28437be44696340f39821fbf0`, the Home Assistant validation
-workflow runs the official image pinned to
-`sha256:e5828f7e305518506d8b4e8346411357d68358531b761bd118fe6a1631feff44`,
-with its normal entrypoint and a read-only workspace mount. The validator rules
-are unchanged. Grade: `verified-against-code` (`home-assistant-validation.yml`
--> `hassfest`). Other sections retain their historical scoped pins.
+The validation workflow uses the official moving
+`ghcr.io/home-assistant/hassfest:latest` image with a read-only workspace mount,
+on pull requests, daily schedule and manual dispatch. The separate weekly canary
+is redundant and has been removed. `verified-against-code`
+(`.github/workflows/home-assistant-validation.yml` -> `hassfest`, issue #704).
 
-The prior scheduled run `40627894302` passed for unchanged integration `75aaba6`.
-The moving image `456369388b6d5bae2b76de7a5574b26e4efdf926f2d0c36453ada7c1eed54fbe`
-rejected `pyserial>=3.5` after HA development added it to core dependencies. HA
-2026.10.0, the supported minimum, does not declare pyserial. Serial-port discovery
-uses Home Assistant's `usb.async_scan_serial_ports` API, so discovery does not require
-pyserial. `verified-against-code` (`custom_components/eg4_web_monitor/_config_flow/serial_ports.py`
--> `list_serial_ports`, verified at `b66e04d`; PR #708). The manifest retains pyserial for
-the pymodbus serial transport until `hacs.json` reaches 2026.11.0, when the pinned
-Hassfest baseline can be reevaluated. These dated observations are
-`asserted-unverified`, retained in [#704](https://github.com/joyfulhouse/eg4_web_monitor/issues/704)
-and the linked successful/failing run records. The digest pin supplies a reproducible
-validator baseline; the supported runtime/type/dependency matrix supplies stable HA
-compatibility evidence. It makes no current-development compatibility claim.
+Home Assistant 2026.11.0 supplies `pyserial==3.5`; the integration no longer
+lists it in its manifest, as current Hassfest rejects custom requirements
+already supplied by core. Serial discovery continues through HA's USB API.
+`verified-against-code` (HA 2026.11.0 `requirements.txt`;
+`custom_components/eg4_web_monitor/manifest.json` -> `requirements`;
+`_config_flow/serial_ports.py` -> `list_serial_ports`, issue #704).
 
 The HACS job uses the `ghcr.io/hacs/action:main` index digest from 2026-10-30;
 the `22.5.0` tag returned 404 (`asserted-unverified`, PR #712). The workflow sets
