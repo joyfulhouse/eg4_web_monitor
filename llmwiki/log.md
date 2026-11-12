@@ -33,6 +33,8 @@ Replaced the pre-rebase branch SHA in [controls and writes](10-integration/contr
 #707 entry with the PR change-set reference. Re-verified the scoped claims on
 main `ce50c2509d1cb689a2e90eefc907c1a3a5ae2d7e` plus #707; unrelated pins remain unchanged.
 The PR reference survives rebasing and follows the existing pre-merge change-set citations.
+Corrected stale direct-library-call examples to the verified `select.py` operating-mode
+call; peak-shaving numbers use the shared router rather than the library setter.
 
 ## 2026-11-11
 
