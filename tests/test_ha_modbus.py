@@ -413,12 +413,8 @@ async def test_real_shared_link_conflict_does_not_create_another_connection(
     """Core rejects incompatible framing before any second connection or dial."""
     from homeassistant.components import modbus
     from homeassistant.components.modbus import connection as core_connection
-    from homeassistant.helpers import translation
     from modbus_connection import ModbusSerialParams
     from pytest_homeassistant.common import MockConfigEntry
-
-    hass.config.components.add("modbus")
-    await translation.async_load_integrations(hass, {"modbus"})
 
     owner = MockConfigEntry(domain="modbus")
     entry = MockConfigEntry(domain="eg4_web_monitor")
@@ -443,7 +439,11 @@ async def test_real_shared_link_conflict_does_not_create_another_connection(
             with pytest.raises(TransportConnectionError) as raised:
                 factory(config)
             assert isinstance(raised.value.__cause__, HomeAssistantError)
-            assert "different link settings" in str(raised.value.__cause__)
+            assert raised.value.__cause__.translation_key == "device_in_use"
+            assert "different link settings" in str(raised.value)
+            assert str(params.endpoint) in str(raised.value)
+            assert str(original.params) in str(raised.value)
+            assert str(params) in str(raised.value)
             create_connection.assert_not_called()
             build.assert_not_called()
             fallback.assert_not_called()

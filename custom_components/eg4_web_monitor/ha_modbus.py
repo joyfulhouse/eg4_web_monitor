@@ -230,9 +230,19 @@ def build_shared_unit_factory(
             except HomeAssistantError as err:
                 # Keep the shared owner's exclusion intact. Failed acquisition
                 # takes no hold and must remain retryable after settings change.
+                detail = str(err)
+                if (
+                    err.translation_domain == "modbus"
+                    and err.translation_key == "device_in_use"
+                    and (placeholders := err.translation_placeholders)
+                ):
+                    detail = (
+                        "Already in use with different link settings: "
+                        f"{placeholders['existing_params']} against {placeholders['params']}"
+                    )
                 raise TransportConnectionError(
                     f"Cannot acquire shared Modbus device {params.endpoint} "
-                    f"for {config.serial}: {err}"
+                    f"for {config.serial}: {detail}"
                 ) from err
             units[key] = unit
             _require_timeout(unit, config.timeout)
