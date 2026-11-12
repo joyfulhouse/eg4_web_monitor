@@ -26,6 +26,16 @@ answer turned out to be unsound. Keep entries short and link the pages that chan
 
 ## 2026-11-12
 
+### ingest | Prepare 3.5.1-beta.22 release cut
+
+Moved the existing Unreleased notes unchanged into the dated beta.22 section in
+[the changelog](../CHANGELOG.md) and advanced only the version in
+[the manifest](../custom_components/eg4_web_monitor/manifest.json). The section
+records the HA 2026.11.0 minimum and existing pylxpweb 0.10.0b15 requirement;
+beta.21 remains the last release for HA 2026.10.x. This separates the release
+candidate's notes from future Unreleased work without changing runtime behavior,
+dependency pins, or historical compatibility and production evidence.
+
 ### repin | Use durable peak-shaving change provenance (#707)
 
 Replaced the pre-rebase branch SHA in [controls and writes](10-integration/controls-and-writes.md),
