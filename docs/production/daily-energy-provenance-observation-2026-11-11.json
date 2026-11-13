@@ -1,0 +1,538 @@
+{
+  "record_type": "daily_energy_provenance_observation",
+  "issue": 666,
+  "review_date_utc": "2026-11-11",
+  "review_clock_utc": "2026-11-11T19:28:01.922205+00:00",
+  "captured_at_utc": "2026-11-11T16:34:27.480700+00:00",
+  "deployed_build": {
+    "home_assistant": "2026.11.1",
+    "integration_manifest": "3.5.1-beta.21",
+    "pylxpweb_pinned": "0.10.0b13",
+    "pylxpweb_installed": "0.10.0b13",
+    "config_entry_state": "loaded",
+    "latest_ha_start_utc": "2026-11-11T05:02:33Z",
+    "stock_revision_range_consistent": "ca2f635..7da5339, including 77e6c86",
+    "identification_limit": "Content matches the pre-#699/#700 revision family. Exact commit is NOT provable read-only; a mixed install cannot be excluded. Range confidence is moderate under the stock-checkout assumption.",
+    "absent_changes": "The fixes e1a5ba0 (#699) and f88e62e (#700) are NOT running in production.",
+    "installation_time": "unknown"
+  },
+  "scope": "Existing private observation only: read-only REST/WebSocket reads, recorder history/statistics queries and one diagnostics download. No deployment, restart, reload, service call, statistics adjustment, clock change, induced outage or hardware write. No production connection or collector started while preparing this record.",
+  "interpretation": [
+    "Publication timestamps are not acquisition evidence.",
+    "No inverter reset timezone is inferred.",
+    "Retrospective midnight anomalies are OBSERVATIONS on a build that predates the #702/#703 source-gating fix and the #648 state-class fix. No cause is attributed and these are not characterized as regressions.",
+    "Prior manual statistics adjustments on this instance are unknown.",
+    "Scan counts are bounded to known literals; absence of a match does not establish absence of other sensitive data."
+  ],
+  "recommendation": "Final acceptance is best performed against 3.5.1-beta.22 once cut and separately authorized for deployment. This record is a pre-deployment baseline. No release, tag or deployment is implied.",
+  "evidence_sources": [
+    "Private redacted-summary.json captured 2026-11-11; raw captures retained privately, not published.",
+    "Private final-report.md; privacy-summary.json; midnight-table.md; midnight-aggregate.json."
+  ],
+  "findings": [
+    {
+      "criterion": "snapshot per-field provenance acceptance",
+      "outcome": "BLOCKED-NEEDS-AUTHORIZATION",
+      "expected": "For each daily field, record source, nonempty entirely LOCAL contributor lineage, one HA-local acquisition day and acquisition age.",
+      "actual": {
+        "daily_fields": 37,
+        "by_role": {
+          "18kPV": 13,
+          "FlexBOSS21": 13,
+          "parallel group": 6,
+          "GridBOSS": 5
+        },
+        "fields_with_unknown_source_lineage_day_age": 37,
+        "energy_evidence_present": false,
+        "datetime_placeholders_in_download": 49
+      },
+      "required_action": "Separately authorize and deploy a revision containing f88e62e, then download diagnostics with per-field acquisition evidence."
+    },
+    {
+      "criterion": "natural-midnight lineage acceptance",
+      "outcome": "PENDING",
+      "expected": "Observe midnight-straddling numeric values and recursive acquisition lineage; HTTP/missing/unknown/empty/mixed-day lineage must not expire a baseline.",
+      "actual": {
+        "qualifying_midnight_lineage_windows": 0,
+        "collector_started": false
+      },
+      "earliest_recheck_utc": "2026-11-12T09:00:00Z",
+      "window_start_utc": "2026-11-12T07:00:00Z",
+      "window_end_utc": "2026-11-12T09:00:00Z",
+      "ha_local_midnight_utc": "2026-11-12T08:00:00Z",
+      "condition": "Use this next window only if observability is deployed first; otherwise use the first HA-local midnight after such a deployment, with re-check after that plus/minus 60-minute window."
+    },
+    {
+      "criterion": "missed-reset guard behaviour (running sensor survives midnight, misses low/reset samples, first next-day reading must publish rather than yesterday's baseline)",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "The legitimate next-day reading is published and the stale baseline expires only on nonempty entirely-LOCAL single-HA-day lineage.",
+      "actual": {
+        "qualifying_production_observations": 0,
+        "induced_outage": false,
+        "observation": "No qualifying production observation and no induced outage. An ordinary natural-midnight lineage capture does NOT establish this case; it remains covered only by offline regressions."
+      }
+    },
+    {
+      "criterion": "cloud/battery/chart counter-day semantics",
+      "outcome": "UNTESTED-RETAINED",
+      "expected": "Establish source-specific device counter-day semantics without inferring them from publication timestamps.",
+      "actual": {
+        "qualifying_semantic_exercises": 0,
+        "source_semantics": "unknown"
+      }
+    }
+  ],
+  "per_daily_field_provenance": [
+    {
+      "role": "18kPV",
+      "key": "ac_charge_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "charging",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "consumption",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "discharging",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "eps_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "grid_export",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "grid_import",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "inverter_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "load_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "pv1_yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "pv2_yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "pv3_yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "18kPV",
+      "key": "yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "ac_charge_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "charging",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "consumption",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "discharging",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "eps_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "grid_export",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "grid_import",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "inverter_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "load_energy",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "pv1_yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "pv2_yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "pv3_yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "FlexBOSS21",
+      "key": "yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "parallel group",
+      "key": "charging",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "parallel group",
+      "key": "consumption",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "parallel group",
+      "key": "discharging",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "parallel group",
+      "key": "grid_export",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "parallel group",
+      "key": "grid_import",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "parallel group",
+      "key": "yield",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "GridBOSS",
+      "key": "ac_couple1_today",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "GridBOSS",
+      "key": "grid_export_today",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "GridBOSS",
+      "key": "grid_import_today",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "GridBOSS",
+      "key": "load_today",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    },
+    {
+      "role": "GridBOSS",
+      "key": "ups_today",
+      "source": "unknown",
+      "nonempty_lineage": "unknown",
+      "entirely_local": "unknown",
+      "single_ha_day": "unknown",
+      "acquisition_age_seconds": null,
+      "capture_time_utc": "2026-11-11T16:34:27.480700+00:00",
+      "evidence": "No energy_evidence; legacy acquisition times are placeholders or absent.",
+      "acquisition_day": "unknown"
+    }
+  ],
+  "retained_gaps": [
+    "The deployed serializer emits <datetime> placeholders and no energy_evidence; 37/37 fields have unknown source/lineage/acquisition day and age, including nonnumeric fields.",
+    "A numeric recorder reset cannot supply missing acquisition evidence or prove missed-reset guard acceptance.",
+    "This retrospective observation cannot recover lineage discarded by the deployed serializer.",
+    "The 17-midnight role/key table and aggregate observations are retained in production-acceptance-observation-2026-11-11.json; they do not satisfy provenance acceptance.",
+    "No lifetime-counter restoration change, clock change, induced outage or hardware write was performed."
+  ]
+}
