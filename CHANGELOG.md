@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Import historical PV yield from PV string energy (`ePvDay` / `ePv1Day`..`ePv3Day`), matching EG4 Monitor Center and the live `yield` sensor. The importer previously preferred inverter output energy (`eInvDay`), which under-reported PV yield on days with heavy battery charging. Re-import affected date ranges, using `dry_run` first (#706).
+
 ## [3.5.1-beta.22] - 2026-11-12
 
 ### Breaking Changes

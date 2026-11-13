@@ -238,14 +238,14 @@ class TestServiceRegistration:
                 [
                     _day_entry(
                         1,
-                        inverter_kwh=10.0,
+                        pv_kwh=10.0,
                         import_kwh=1.5,
                         export_kwh=2.0,
                         charge_kwh=4.0,
                         discharge_kwh=3.5,
                         consumption_kwh=8.0,
                     ),
-                    _day_entry(2, inverter_kwh=12.0),
+                    _day_entry(2, pv_kwh=12.0),
                 ],
             )
         )
@@ -451,7 +451,7 @@ class TestStationAndUnits:
         mock_coordinator.station.parallel_groups[0].inverters.append(inverter2)
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
-        fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=20.0)])
+        fetch.return_value = _month_history(2025, 1, [_day_entry(1, pv_kwh=20.0)])
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
         with add_patch, load_patch, delay_patch, drain_patch:
@@ -483,7 +483,7 @@ class TestStationAndUnits:
             group.inverters.append(inverter2)
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
-        fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=1.0)])
+        fetch.return_value = _month_history(2025, 1, [_day_entry(1, pv_kwh=1.0)])
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
         with add_patch, load_patch, delay_patch, drain_patch:
@@ -506,9 +506,7 @@ class TestStationAndUnits:
         """An all-zero fetch emits a warning."""
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
-        fetch.return_value = _month_history(
-            2025, 1, [_day_entry(1, inverter_kwh=0.0, pv_kwh=0.0)]
-        )
+        fetch.return_value = _month_history(2025, 1, [_day_entry(1, pv_kwh=0.0)])
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
         with add_patch, load_patch, delay_patch, drain_patch:
@@ -535,8 +533,8 @@ class TestStationAndUnits:
             2025,
             1,
             [
-                _day_entry(1, inverter_kwh=5.0),
-                _day_entry(2, inverter_kwh=0.0, pv_kwh=0.0),
+                _day_entry(1, pv_kwh=5.0),
+                _day_entry(2, pv_kwh=0.0),
             ],
         )
 
@@ -561,9 +559,7 @@ class TestStationAndUnits:
         """A zero day alongside production is not an all-zero fetch."""
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
-        fetch.return_value = _month_history(
-            2025, 1, [_day_entry(1, inverter_kwh=0.0, pv_kwh=0.0)]
-        )
+        fetch.return_value = _month_history(2025, 1, [_day_entry(1, pv_kwh=0.0)])
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
         with add_patch, load_patch, delay_patch, drain_patch:
@@ -585,8 +581,8 @@ class TestStationAndUnits:
                 2025,
                 1,
                 [
-                    _day_entry(1, inverter_kwh=5.0),
-                    _day_entry(2, inverter_kwh=0.0, pv_kwh=0.0),
+                    _day_entry(1, pv_kwh=5.0),
+                    _day_entry(2, pv_kwh=0.0),
                 ],
             )
             await async_import_historical_data(
@@ -615,7 +611,7 @@ class TestStationAndUnits:
         group.inverters.append(inverter2)
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
-        fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=1.0)])
+        fetch.return_value = _month_history(2025, 1, [_day_entry(1, pv_kwh=1.0)])
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
         with add_patch, load_patch, delay_patch, drain_patch:
@@ -644,8 +640,8 @@ class TestStationAndUnits:
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.side_effect = [
-            _month_history(2025, 1, [_day_entry(1, inverter_kwh=10.0)]),
-            _month_history(2025, 1, [_day_entry(1, inverter_kwh=5.5)]),
+            _month_history(2025, 1, [_day_entry(1, pv_kwh=10.0)]),
+            _month_history(2025, 1, [_day_entry(1, pv_kwh=5.5)]),
         ]
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
@@ -692,9 +688,9 @@ class TestStatisticsWrites:
             2025,
             1,
             [
-                _day_entry(1, inverter_kwh=10.0),
-                _day_entry(2, inverter_kwh=0.0),
-                _day_entry(3, inverter_kwh=12.5),
+                _day_entry(1, pv_kwh=10.0),
+                _day_entry(2, pv_kwh=0.0),
+                _day_entry(3, pv_kwh=12.5),
             ],
         )
 
@@ -746,7 +742,7 @@ class TestStatisticsWrites:
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
-        fetch.return_value = _month_history(2025, 1, [_day_entry(1, inverter_kwh=9.0)])
+        fetch.return_value = _month_history(2025, 1, [_day_entry(1, pv_kwh=9.0)])
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
         with add_patch as mock_add, load_patch, delay_patch, drain_patch as mock_gi:
@@ -782,11 +778,11 @@ class TestStatisticsWrites:
             2025,
             2,
             [
-                _day_entry(9, inverter_kwh=1.0),  # before range
-                _day_entry(10, inverter_kwh=2.0),
-                _day_entry(11, inverter_kwh=3.0),
-                _day_entry(12, inverter_kwh=4.0),  # after range
-                _day_entry(30, inverter_kwh=99.0),  # Feb 30 — invalid
+                _day_entry(9, pv_kwh=1.0),  # before range
+                _day_entry(10, pv_kwh=2.0),
+                _day_entry(11, pv_kwh=3.0),
+                _day_entry(12, pv_kwh=4.0),  # after range
+                _day_entry(30, pv_kwh=99.0),  # Feb 30 — invalid
             ],
         )
 
@@ -806,15 +802,55 @@ class TestStatisticsWrites:
         assert response["series"]["yield"]["imported_days"] == 2
         assert response["series"]["yield"]["total_kwh"] == 5.0
 
-    async def test_yield_falls_back_to_pv(
+    async def test_yield_uses_pv_not_inverter_output(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
     ):
-        """Without eInvDay data the yield series uses PV string totals."""
+        """PV yield imports PV string energy, not eInvDay output (#706)."""
         await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(
-            2025, 1, [_day_entry(1, pv_kwh=11.0), _day_entry(2, pv_kwh=13.0)]
+            2026,
+            9,
+            [
+                _day_entry(
+                    16,
+                    inverter_kwh=41.6,
+                    pv_kwh=61.7,
+                    consumption_kwh=46.9,
+                    import_kwh=12.5,
+                    export_kwh=6.2,
+                    charge_kwh=36.4,
+                    discharge_kwh=15.6,
+                )
+            ],
+        )
+
+        add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
+        with add_patch, load_patch, delay_patch, drain_patch:
+            response = await async_import_historical_data(
+                hass,
+                _call(
+                    {
+                        "config_entry": "test_entry_id",
+                        "start_date": date(2026, 9, 16),
+                        "end_date": date(2026, 9, 16),
+                    }
+                ),
+            )
+
+        assert response["series"]["yield"]["source_field"] == "pv_kwh"
+        assert response["series"]["yield"]["total_kwh"] == 61.7
+
+    async def test_yield_ignores_inverter_output_without_pv(
+        self, hass: HomeAssistant, mock_config_entry, mock_coordinator
+    ):
+        """Inverter output is never imported as PV yield (#706)."""
+        await _setup_loaded_entry(hass, mock_config_entry, mock_coordinator)
+
+        fetch = mock_coordinator.client.analytics.get_month_daily_energy
+        fetch.return_value = _month_history(
+            2025, 1, [_day_entry(1, inverter_kwh=10.0, consumption_kwh=8.0)]
         )
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
@@ -825,14 +861,13 @@ class TestStatisticsWrites:
                     {
                         "config_entry": "test_entry_id",
                         "start_date": date(2025, 1, 1),
-                        "end_date": date(2025, 1, 2),
+                        "end_date": date(2025, 1, 1),
                     }
                 ),
             )
 
-        assert response["series"]["yield"]["source_field"] == "pv_kwh"
-        assert response["series"]["yield"]["total_kwh"] == 24.0
-        assert response["series"]["consumption"]["status"] == "no_data"
+        assert response["series"]["yield"]["status"] == "no_data"
+        assert response["series"]["consumption"]["total_kwh"] == 8.0
 
     async def test_negative_values_clamped(
         self, hass: HomeAssistant, mock_config_entry, mock_coordinator
@@ -842,7 +877,7 @@ class TestStatisticsWrites:
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy
         fetch.return_value = _month_history(
-            2025, 1, [_day_entry(1, consumption_kwh=-2.5, inverter_kwh=5.0)]
+            2025, 1, [_day_entry(1, consumption_kwh=-2.5, pv_kwh=5.0)]
         )
 
         add_patch, load_patch, delay_patch, drain_patch = _patch_stats()
@@ -2575,12 +2610,12 @@ class TestConcurrency:
                 return _month_history(
                     2025,
                     1,
-                    [_day_entry(1, inverter_kwh=1.0), _day_entry(2, inverter_kwh=2.0)],
+                    [_day_entry(1, pv_kwh=1.0), _day_entry(2, pv_kwh=2.0)],
                 )
             return _month_history(
                 2025,
                 2,
-                [_day_entry(1, inverter_kwh=3.0), _day_entry(2, inverter_kwh=4.0)],
+                [_day_entry(1, pv_kwh=3.0), _day_entry(2, pv_kwh=4.0)],
             )
 
         fetch = mock_coordinator.client.analytics.get_month_daily_energy

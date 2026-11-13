@@ -163,16 +163,13 @@ class SeriesSpec:
     """Human-readable name suffix for the statistic."""
 
     attr: str
-    """Primary ``DailyEnergyHistoryEntry`` kWh property."""
-
-    fallback_attr: str | None = None
-    """Fallback property used only when the primary has no data at all."""
+    """``DailyEnergyHistoryEntry`` kWh property."""
 
 
 SERIES_SPECS: tuple[SeriesSpec, ...] = (
-    # eInvDay matches the live "yield" sensor (todayYielding). If the cloud
-    # rows do not carry eInvDay, fall back to PV string totals.
-    SeriesSpec("yield", "PV yield", "inverter_kwh", "pv_kwh"),
+    # PV string energy (ePvDay / ePv1-3Day), like the live "yield" sensor
+    # (todayYielding). eInvDay is inverter output, not PV yield (#706).
+    SeriesSpec("yield", "PV yield", "pv_kwh"),
     SeriesSpec("consumption", "Consumption", "consumption_kwh"),
     SeriesSpec("grid_import", "Grid import", "import_kwh"),
     SeriesSpec("grid_export", "Grid export", "export_kwh"),
@@ -180,15 +177,8 @@ SERIES_SPECS: tuple[SeriesSpec, ...] = (
     SeriesSpec("battery_discharge", "Battery discharge", "discharge_kwh"),
 )
 
-# All entry properties that need accumulating (primary + fallback attrs).
-_ACCUMULATED_ATTRS: tuple[str, ...] = tuple(
-    dict.fromkeys(
-        attr
-        for spec in SERIES_SPECS
-        for attr in (spec.attr, spec.fallback_attr)
-        if attr is not None
-    )
-)
+# All entry properties that need accumulating.
+_ACCUMULATED_ATTRS: tuple[str, ...] = tuple(spec.attr for spec in SERIES_SPECS)
 
 
 async def async_import_historical_data(
@@ -268,10 +258,6 @@ async def async_import_historical_data(
 
         for spec in SERIES_SPECS:
             values = day_values.get(spec.attr) or {}
-            source_attr = spec.attr
-            if not values and spec.fallback_attr is not None:
-                values = day_values.get(spec.fallback_attr) or {}
-                source_attr = spec.fallback_attr
 
             statistic_id = f"{DOMAIN}:plant_{plant_slug}_{spec.key}"
 
@@ -303,7 +289,7 @@ async def async_import_historical_data(
                 "imported_days": len(values),
                 "skipped_days": requested_days - len(values),
                 "total_kwh": round(sum(values.values()), 3),
-                "source_field": source_attr,
+                "source_field": spec.attr,
                 "rows_written": 0 if dry_run else rows_written,
                 "status": "dry_run" if dry_run else "imported",
             }
