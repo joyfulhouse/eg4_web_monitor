@@ -362,6 +362,7 @@
       "modbus_timeout": "Modbus-verbinding is verlopen. Controleer het IP-adres en zorg ervoor dat de Modbus-gateway is ingeschakeld en verbonden.",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Kan geen verbinding maken met Modbus-gateway. Controleer: (1) IP-adres is correct, (2) poort 502 is niet geblokkeerd, (3) Modbus TCP is ingeschakeld op de gateway.",
+      "modbus_no_response": "Verbonden met de Modbus-gateway, maar het apparaat gaf geen geldig antwoord voor deze Unit-ID. Controleer: (1) of de Unit-ID overeenkomt met het RS485-adres van de omvormer, (2) de RS485 A/B-bedrading, (3) dat geen andere Modbus-master (bijvoorbeeld Solar Assistant) dezelfde gateway of RS485-bus uitleest.",
       "dongle_timeout": "WiFi-dongle-verbinding is verlopen. Controleer het IP-adres en zorg ervoor dat de dongle is verbonden met uw netwerk.",
       "dongle_connection_failed": "Kan geen verbinding maken met WiFi-dongle. Controleer: (1) IP-adres is correct, (2) poort 8000 is niet geblokkeerd, (3) dongle-firmware ondersteunt lokale toegang (recente updates kunnen dit blokkeren).",
       "duplicate_serial": "Een apparaat met dit serienummer is al toegevoegd aan deze installatie.",

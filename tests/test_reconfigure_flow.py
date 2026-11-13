@@ -1477,6 +1477,67 @@ class TestReconfigureDeviceManagement:
             assert result["step_id"] == "reconfigure_add_modbus"
             assert result["errors"] == {"base": "modbus_timeout"}
 
+    async def test_reconfigure_add_modbus_no_response(self, hass: HomeAssistant):
+        """A silent device behind a reachable gateway shows modbus_no_response (#719)."""
+        from pylxpweb.transports import TransportReadError
+        from unittest.mock import AsyncMock, patch
+
+        entry = MockConfigEntry(
+            version=1,
+            domain=DOMAIN,
+            title="EG4 Electronics - Single",
+            data={
+                CONF_CONNECTION_TYPE: "local",
+                CONF_LOCAL_TRANSPORTS: [
+                    {
+                        "transport_type": "modbus_tcp",
+                        "serial": "1111111111",
+                        "model": "FlexBOSS21",
+                        "host": "192.168.1.100",
+                        "port": 502,
+                    },
+                ],
+                CONF_VERIFY_SSL: True,
+                CONF_DST_SYNC: False,
+            },
+            source=config_entries.SOURCE_USER,
+            unique_id="local_single_no_response",
+        )
+        entry.add_to_hass(hass)
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(
+                side_effect=TransportReadError("No response received after 3 retries")
+            ),
+        ):
+            result = await _init_reconfigure(hass, entry)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_devices"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_device_add"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "reconfigure_add_modbus"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "modbus_host": "192.168.1.200",
+                    "modbus_port": 502,
+                    "modbus_unit_id": 1,
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "reconfigure_add_modbus"
+            assert result["errors"] == {"base": "modbus_no_response"}
+
     async def test_reconfigure_add_dongle_connection_failed(self, hass: HomeAssistant):
         """Test dongle connection failure during reconfigure shows error."""
         from unittest.mock import AsyncMock, patch

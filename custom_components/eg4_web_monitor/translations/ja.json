@@ -362,6 +362,7 @@
       "modbus_timeout": "Modbus接続がタイムアウトしました。IPアドレスを確認し、Modbusゲートウェイの電源が入っていて接続されていることを確認してください。",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Modbusゲートウェイへの接続に失敗しました。確認事項：(1) IPアドレスが正しい、(2) ポート502がブロックされていない、(3) ゲートウェイでModbus TCPが有効になっている。",
+      "modbus_no_response": "Modbusゲートウェイには接続しましたが、このユニットIDに対してデバイスから有効な応答がありませんでした。確認してください: (1) ユニットIDがインバーターのRS485アドレスと一致している、(2) RS485 A/B配線、(3) 他のModbusマスター(例: Solar Assistant)が同じゲートウェイまたはRS485バスをポーリングしていない。",
       "dongle_timeout": "WiFiドングル接続がタイムアウトしました。IPアドレスを確認し、ドングルがネットワークに接続されていることを確認してください。",
       "dongle_connection_failed": "WiFiドングルへの接続に失敗しました。確認事項：(1) IPアドレスが正しい、(2) ポート8000がブロックされていない、(3) ドングルのファームウェアがローカルアクセスをサポートしている（最近の更新でブロックされる場合があります）。",
       "duplicate_serial": "このシリアル番号のデバイスはすでにこの設備に追加されています。",

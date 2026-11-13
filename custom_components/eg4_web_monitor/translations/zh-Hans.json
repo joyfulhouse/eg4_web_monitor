@@ -362,6 +362,7 @@
       "modbus_timeout": "Modbus 连接超时。请验证 IP 地址并确保 Modbus 网关已开机并连接。",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "无法连接到 Modbus 网关。请检查：(1) IP 地址是否正确，(2) 端口 502 是否未被阻止，(3) 网关上是否已启用 Modbus TCP。",
+      "modbus_no_response": "已连接到 Modbus 网关,但设备未对此单元 ID 返回有效响应。请检查:(1) 单元 ID 与逆变器的 RS485 地址一致,(2) RS485 A/B 接线,(3) 没有其他 Modbus 主站(例如 Solar Assistant)正在轮询同一网关或 RS485 总线。",
       "dongle_timeout": "WiFi Dongle 连接超时。请验证 IP 地址并确保 Dongle 已连接到您的网络。",
       "dongle_connection_failed": "无法连接到 WiFi Dongle。请检查：(1) IP 地址是否正确，(2) 端口 8000 是否未被阻止，(3) Dongle 固件是否支持本地访问（最近的更新可能会阻止此功能）。",
       "duplicate_serial": "具有此序列号的设备已添加到此安装系统。",

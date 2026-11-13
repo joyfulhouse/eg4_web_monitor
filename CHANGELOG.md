@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Show a specific Modbus TCP setup error when the gateway accepts the connection but the device sends no valid reply for the configured Unit ID. The previous message pointed at the IP address and port. The new one points at the Unit ID, RS485 wiring, and a second Modbus master on the same bus or gateway (#719).
+
 ## [3.5.1-beta.22] - 2026-11-12
 
 ### Breaking Changes

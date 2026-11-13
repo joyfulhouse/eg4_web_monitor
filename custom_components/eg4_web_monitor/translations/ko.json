@@ -362,6 +362,7 @@
       "modbus_timeout": "Modbus 연결 시간이 초과되었습니다. IP 주소를 확인하고 Modbus 게이트웨이의 전원이 켜져 있고 연결되어 있는지 확인하세요.",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Modbus 게이트웨이에 연결하지 못했습니다. 다음을 확인하세요: (1) IP 주소가 올바른지, (2) 포트 502가 차단되지 않았는지, (3) 게이트웨이에서 Modbus TCP가 활성화되어 있는지.",
+      "modbus_no_response": "Modbus 게이트웨이에 연결되었지만 이 유닛 ID에 대해 장치가 유효한 응답을 반환하지 않았습니다. 확인하세요: (1) 유닛 ID가 인버터의 RS485 주소와 일치하는지, (2) RS485 A/B 배선, (3) 다른 Modbus 마스터(예: Solar Assistant)가 같은 게이트웨이 또는 RS485 버스를 폴링하고 있지 않은지.",
       "dongle_timeout": "WiFi 동글 연결 시간이 초과되었습니다. IP 주소를 확인하고 동글이 네트워크에 연결되어 있는지 확인하세요.",
       "dongle_connection_failed": "WiFi 동글에 연결하지 못했습니다. 다음을 확인하세요: (1) IP 주소가 올바른지, (2) 포트 8000이 차단되지 않았는지, (3) 동글 펌웨어가 로컬 액세스를 지원하는지 (최근 업데이트로 차단될 수 있음).",
       "duplicate_serial": "이 시리얼 번호를 가진 장치가 이미 이 설치에 추가되었습니다.",
