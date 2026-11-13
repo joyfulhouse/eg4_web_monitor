@@ -24,6 +24,20 @@ subject, never as "above" or "below". Record what changed and *why it was wrong 
 The reasoning is the durable part, and several entries exist only because a plausible
 answer turned out to be unsound. Keep entries short and link the pages that changed.
 
+## 2026-11-13
+
+### ingest | Historical import PV yield source (#706)
+
+A user follow-up on #706 showed imported PV yield below Monitor Center on every
+day checked while the other five series matched (2026-09-16: 41.6 vs 61.7 kWh).
+`history_import.py` read `eInvDay` (inverter output) for the yield series, with PV
+strings only as a fallback. Its comment claimed `eInvDay` matched the live
+`todayYielding` sensor, but [the data mapping](../docs/DATA_MAPPING.md) already
+records `todayYielding` as PV yield, not Einv_day. The user's own numbers balance
+only with PV energy (61.7 + 12.5 + 15.6 − 6.2 − 36.4 = 47.2 against 46.9 kWh
+consumption). Yield now imports `pv_kwh` only, and the fallback was removed so
+inverter output can never be imported under the PV yield label.
+
 ## 2026-11-12
 
 ### ingest | Prepare 3.5.1-beta.22 release cut
