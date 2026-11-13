@@ -1468,6 +1468,38 @@ class TestLocalDongleFlow:
             assert result["step_id"] == "local_modbus"
             assert result["errors"] == {"base": "modbus_connection_failed"}
 
+    async def test_modbus_read_error_maps_to_no_response(self, hass: HomeAssistant):
+        """A gateway that connects but never answers is not a connection failure (#719)."""
+        from pylxpweb.transports import TransportReadError
+
+        with patch(
+            "custom_components.eg4_web_monitor._config_flow.discover_modbus_device",
+            new=AsyncMock(
+                side_effect=TransportReadError(
+                    "Failed to read input registers at 115: Modbus Error: "
+                    "[Input/Output] No response received after 3 retries"
+                )
+            ),
+        ):
+            result = await _init_and_select_local(hass)
+
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {"next_step_id": "local_modbus"},
+            )
+            result = await hass.config_entries.flow.async_configure(
+                result["flow_id"],
+                {
+                    "modbus_host": "192.168.1.100",
+                    "modbus_port": 502,
+                    "modbus_unit_id": 1,
+                },
+            )
+
+            assert result["type"] == data_entry_flow.FlowResultType.FORM
+            assert result["step_id"] == "local_modbus"
+            assert result["errors"] == {"base": "modbus_no_response"}
+
     async def test_dongle_unknown_error(self, hass: HomeAssistant):
         """Test dongle unexpected error shows unknown error."""
         with patch(

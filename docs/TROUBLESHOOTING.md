@@ -140,6 +140,22 @@ dongle firmware blocks port 8000 — fall back to Modbus or Cloud API. For maxim
 reliability, use **Local Modbus TCP** with a Waveshare RS485 adapter: fastest
 updates (5 seconds) and fully offline.
 
+#### "Connected to the Modbus gateway, but the device did not return a valid response"
+
+The TCP connection to the RS485-to-Ethernet gateway succeeded, but no valid reply
+came back for the configured Unit ID, so the address and port are not the
+problem. Check that:
+
+1. The Unit ID matches the inverter's RS485 address (default 1).
+2. RS485 A/B are not swapped and the ground wiring is correct.
+3. No other Modbus master is polling the same gateway or RS485 bus. Modbus RTU
+   allows one master per bus. Another master, such as Solar Assistant, a second
+   integration, or a script, collides with this integration's requests. Some
+   gateways also forward that master's replies to every TCP client. With
+   pymodbus debug logging on, those replies appear as
+   `request ask for id=1 but got id=0, Skipping.` (#719). Stop the other
+   master, or give each master its own RS485 port or gateway channel.
+
 ## Frequently Asked Questions
 
 **How often does data update?** Cloud API: 30s; local Modbus/dongle/serial: 5s;

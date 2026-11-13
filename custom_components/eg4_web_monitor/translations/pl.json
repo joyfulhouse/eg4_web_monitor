@@ -362,6 +362,7 @@
       "modbus_timeout": "Przekroczono limit czasu polaczenia Modbus. Sprawdz adres IP i upewnij sie, ze bramka Modbus jest wlaczona i podlaczona.",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Nie udalo sie polaczyc z bramka Modbus. Sprawdz: (1) czy adres IP jest poprawny, (2) czy port 502 nie jest zablokowany, (3) czy Modbus TCP jest wlaczony na bramce.",
+      "modbus_no_response": "Połączono z bramką Modbus, ale urządzenie nie zwróciło prawidłowej odpowiedzi dla tego Unit ID. Sprawdź: (1) czy Unit ID odpowiada adresowi RS485 falownika, (2) okablowanie RS485 A/B, (3) czy żaden inny master Modbus (np. Solar Assistant) nie odpytuje tej samej bramki lub magistrali RS485.",
       "dongle_timeout": "Przekroczono limit czasu polaczenia z dongle WiFi. Sprawdz adres IP i upewnij sie, ze dongle jest podlaczony do sieci.",
       "dongle_connection_failed": "Nie udalo sie polaczyc z dongle WiFi. Sprawdz: (1) czy adres IP jest poprawny, (2) czy port 8000 nie jest zablokowany, (3) czy oprogramowanie dongle obsluguje lokalny dostep (ostatnie aktualizacje moga go blokowac).",
       "duplicate_serial": "Urzadzenie o tym numerze seryjnym zostalo juz dodane do tej instalacji.",

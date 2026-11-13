@@ -362,6 +362,7 @@
       "modbus_timeout": "Modbus connection timed out. Please verify the IP address and ensure the Modbus gateway is powered on and connected.",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Failed to connect to Modbus gateway. Please check: (1) IP address is correct, (2) port 502 is not blocked, (3) Modbus TCP is enabled on the gateway.",
+      "modbus_no_response": "Connected to the Modbus gateway, but the device did not return a valid response for this Unit ID. Please check: (1) the Unit ID matches the inverter's RS485 address, (2) the RS485 A/B wiring, (3) no other Modbus master (for example Solar Assistant) is polling the same gateway or RS485 bus.",
       "dongle_timeout": "WiFi dongle connection timed out. Please verify the IP address and ensure the dongle is connected to your network.",
       "dongle_connection_failed": "Failed to connect to WiFi dongle. Please check: (1) IP address is correct, (2) port 8000 is not blocked, (3) dongle firmware supports local access (recent updates may block this).",
       "duplicate_serial": "A device with this serial number has already been added to this installation.",

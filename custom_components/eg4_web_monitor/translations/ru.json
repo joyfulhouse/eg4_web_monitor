@@ -362,6 +362,7 @@
       "modbus_timeout": "Превышено время ожидания подключения Modbus. Проверьте IP-адрес и убедитесь, что шлюз Modbus включён и подключён.",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Не удалось подключиться к шлюзу Modbus. Проверьте: (1) правильность IP-адреса, (2) порт 502 не заблокирован, (3) Modbus TCP включён на шлюзе.",
+      "modbus_no_response": "Подключение к шлюзу Modbus установлено, но устройство не вернуло корректный ответ для этого Unit ID. Проверьте: (1) Unit ID совпадает с RS485-адресом инвертора, (2) подключение линий RS485 A/B, (3) никакой другой Modbus-мастер (например, Solar Assistant) не опрашивает тот же шлюз или шину RS485.",
       "dongle_timeout": "Превышено время ожидания подключения к WiFi dongle. Проверьте IP-адрес и убедитесь, что dongle подключён к сети.",
       "dongle_connection_failed": "Не удалось подключиться к WiFi dongle. Проверьте: (1) правильность IP-адреса, (2) порт 8000 не заблокирован, (3) прошивка dongle поддерживает локальный доступ (последние обновления могут блокировать его).",
       "duplicate_serial": "Устройство с таким серийным номером уже добавлено в эту установку.",

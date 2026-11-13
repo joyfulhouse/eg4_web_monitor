@@ -33,7 +33,11 @@ from pylxpweb.exceptions import (
     LuxpowerAuthError,
     LuxpowerConnectionError,
 )
-from pylxpweb.transports import TransportError, TransportTimeoutError
+from pylxpweb.transports import (
+    TransportError,
+    TransportReadError,
+    TransportTimeoutError,
+)
 
 from .discovery import (
     DiscoveredDevice,
@@ -533,6 +537,18 @@ class EG4ConfigFlow(
                     errors["base"] = "modbus_timeout"
                 except EndpointOwnerInUseError:
                     errors["base"] = "endpoint_in_use"
+                except TransportReadError as err:
+                    # The gateway accepted TCP but no valid reply came back for
+                    # this unit ID; IP/port advice would be misleading (#719).
+                    _LOGGER.warning(
+                        "Modbus gateway %s:%s connected but unit ID %s returned no "
+                        "valid response: %s",
+                        host,
+                        port,
+                        unit_id,
+                        err,
+                    )
+                    errors["base"] = "modbus_no_response"
                 except (OSError, TransportError) as err:
                     _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"
@@ -1170,6 +1186,18 @@ class EG4ConfigFlow(
                     errors["base"] = "modbus_timeout"
                 except EndpointOwnerInUseError:
                     errors["base"] = "endpoint_in_use"
+                except TransportReadError as err:
+                    # The gateway accepted TCP but no valid reply came back for
+                    # this unit ID; IP/port advice would be misleading (#719).
+                    _LOGGER.warning(
+                        "Modbus gateway %s:%s connected but unit ID %s returned no "
+                        "valid response: %s",
+                        host,
+                        port,
+                        unit_id,
+                        err,
+                    )
+                    errors["base"] = "modbus_no_response"
                 except (OSError, TransportError) as err:
                     _LOGGER.warning("Modbus discovery failed: %s", err)
                     errors["base"] = "modbus_connection_failed"

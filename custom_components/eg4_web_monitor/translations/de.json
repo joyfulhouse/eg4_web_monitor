@@ -362,6 +362,7 @@
       "modbus_timeout": "Modbus-Verbindung hat das Zeitlimit überschritten. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass das Modbus-Gateway eingeschaltet und verbunden ist.",
       "standalone_battery_not_supported": "This endpoint is a battery. Add it using Direct battery bridge on a dedicated RS485 bus instead of inverter discovery.",
       "modbus_connection_failed": "Verbindung zum Modbus-Gateway fehlgeschlagen. Bitte überprüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 502 ist nicht blockiert, (3) Modbus TCP ist am Gateway aktiviert.",
+      "modbus_no_response": "Verbindung zum Modbus-Gateway hergestellt, aber das Gerät hat für diese Unit-ID keine gültige Antwort geliefert. Bitte prüfen: (1) Die Unit-ID entspricht der RS485-Adresse des Wechselrichters, (2) die RS485-A/B-Verdrahtung, (3) kein anderer Modbus-Master (z. B. Solar Assistant) fragt dasselbe Gateway oder denselben RS485-Bus ab.",
       "dongle_timeout": "WiFi-Dongle-Verbindung hat das Zeitlimit überschritten. Bitte überprüfen Sie die IP-Adresse und stellen Sie sicher, dass der Dongle mit Ihrem Netzwerk verbunden ist.",
       "dongle_connection_failed": "Verbindung zum WiFi-Dongle fehlgeschlagen. Bitte überprüfen Sie: (1) IP-Adresse ist korrekt, (2) Port 8000 ist nicht blockiert, (3) Dongle-Firmware unterstützt lokalen Zugriff (neuere Updates können dies blockieren).",
       "duplicate_serial": "Ein Gerät mit dieser Seriennummer wurde bereits zu dieser Installation hinzugefügt.",
