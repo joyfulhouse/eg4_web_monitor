@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Home Assistant 2026.10.0 or newer. For older Home Assistant installations, remain on 3.5.1-beta.20 until Home Assistant is upgraded.
+- Home Assistant 2026.11.0 or newer. 3.5.1-beta.21 is the last release supporting HA 2026.10.x; upgrade Home Assistant before installing a newer integration release.
 - [HACS](https://hacs.xyz) installed (recommended), or filesystem access to your
   Home Assistant `config` directory (for manual installation).
 - At least one EG4 connection method: a cloud account on

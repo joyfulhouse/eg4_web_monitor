@@ -658,16 +658,17 @@ if reg1 & 0x100:
 > (reg 179 bit 7) with verify-then-block, because the firmware NAKs writes and
 > zeroes the setpoint while the mode is off. **Grid-tied families only.**
 
-> **Daily peak-shaving set — regs 207/208/218/219/232**
-> ([#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592)): Grid
+> **Daily peak-shaving set — regs 206/207/208/218/219/232**
+> ([#592](https://github.com/joyfulhouse/eg4_web_monitor/issues/592),
+> [#707](https://github.com/joyfulhouse/eg4_web_monitor/pull/707)): Grid
 > Peak Shaving SOC 1/2 (whole percent, raw 1:1), Voltage 1/2 (decivolts) and
-> Power 2 (deci-kW). Created in the same grid-tied branch as PS1 and
-> spec-driven (`PeakShavingNumber`). Unlike PS1 they write through the shared
+> Power 1/2 (deci-kW). Created in the grid-tied branch and
+> spec-driven (`PeakShavingNumber`). All six write through the shared
 > router: a local **named** write on a positively resolved non-off-grid family
 > (the transport scales kW / V to deci-units itself — `LOCAL_PARAM_SCALE_DIV10`
 > in pylxpweb — so the entity never pre-scales), the cloud holdParam with an
 > equality-checked readback otherwise; off-grid / unresolved families are
-> cloud-only (#558). Only Power 2 pre-checks `FUNC_GRID_PEAK_SHAVING`; whether
+> cloud-only (#558). Both power rows pre-check `FUNC_GRID_PEAK_SHAVING`; whether
 > the firmware NAKs the SOC / voltage rows with the mode off is unverified. The
 > voltage write bounds 40.0–64.0 V are shared with the pinned pylxpweb 0.10.0b9
 > rows ([pylxpweb PR #327](https://github.com/joyfulhouse/pylxpweb/pull/327));
@@ -676,7 +677,7 @@ if reg1 & 0x100:
 > value (within that window) is preserved rather than blanked — a value outside
 > it still renders unknown. LOCAL reads: one `(206, 7)` frame (PS1 + period-1 floors + both
 > schedule windows), `(218, 2)` and `(232, 1)`, all `EG4_HYBRID`-gated. Evidence
-> for all five is `portal-correlated` (`llmwiki/40-hardware/registers.md`).
+> for the SOC/voltage floors and Power 2 is `portal-correlated` (`llmwiki/40-hardware/registers.md`).
 
 > **`grid_sell_back_power` (reg 103)** is the maximum sell-back (feed-in) power
 > cap, cloud key `HOLD_FEED_IN_GRID_POWER_PERCENT` — register pinned via
@@ -805,10 +806,18 @@ per boundary). Cloud param names take the window suffix
 |-----|---------------|-------------|------|-------|
 | 101 | `charge_current` | number | A | 0-140 |
 | 102 | `discharge_current` | number | A | 0-140 |
-| 105 | `ongrid_discharge_soc` | number | % | 10-100 |
+| 105 | `ongrid_discharge_soc` | number | % | 0-100 |
 | 125 | `offgrid_discharge_soc` | number | % | 0-100 |
 | 160 | `ac_charge_start_battery_soc` | number | % | 1-90 off-grid/unresolved; 0-90 positively resolved non-off-grid |
 | 161 | `ac_charge_end_battery_soc` | number | % | 20-100 off-grid/unresolved; 0-100 positively resolved non-off-grid |
+
+> **On-grid SOC cutoff (reg 105):** the entity accepts 0-100%. A portal-set 5%
+> was stored and read back on a FlexBOSS21 ([#713](https://github.com/joyfulhouse/eg4_web_monitor/issues/713));
+> 0-4% are untested. One LXP-LB-EU 12K user reports that the portal refuses an
+> on-grid cutoff below the off-grid cutoff, with equal values allowed
+> ([#668, October 29](https://github.com/joyfulhouse/eg4_web_monitor/issues/668#issuecomment-6507853454)).
+> This is a user report, not a verified firmware rule. The integration adds no
+> cross-field validation; device/portal rejection remains authoritative.
 
 > **AC-charge SOC window (regs 160/161)**
 > ([#570](https://github.com/joyfulhouse/eg4_web_monitor/issues/570),
@@ -994,7 +1003,7 @@ integration 3.4.0 / pylxpweb 0.9.36b1.
 | 228 | `HOLD_SYSTEM_CHARGE_VOLT_LIMIT` | `system_charge_volt_limit` | charge / Voltage | V | 40-64 |
 | 158 | `HOLD_AC_CHARGE_START_BATTERY_VOLTAGE` | `ac_charge_start_voltage` | charge / Voltage | V | 38-60 |
 | 159 | `HOLD_AC_CHARGE_END_BATTERY_VOLTAGE` | `ac_charge_end_voltage` | charge / Voltage | V | 38-60 |
-| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 10-100 |
+| 105 | `HOLD_DISCHG_CUT_OFF_SOC_EOD` | `on_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
 | 125 | `HOLD_SOC_LOW_LIMIT_EPS_DISCHG` | `off_grid_soc_cutoff` | discharge / SOC | % | 0-100 |
 | 169 | `HOLD_ON_GRID_EOD_VOLTAGE` | `on_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |
 | 100 | `HOLD_LEAD_ACID_DISCHARGE_CUT_OFF_VOLT` | `off_grid_cutoff_voltage` | discharge / Voltage | V | 40-58 |

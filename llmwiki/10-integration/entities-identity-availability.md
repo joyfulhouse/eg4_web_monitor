@@ -10,6 +10,8 @@ canonical-for:
 sources:
   - resource: custom_components/eg4_web_monitor/battery_bus.py
   - resource: tests/test_battery_bus.py
+  - resource: https://github.com/joyfulhouse/eg4_web_monitor/pull/707
+  - resource: custom_components/eg4_web_monitor/number.py
   - resource: custom_components/eg4_web_monitor/base_entity.py
   - resource: tests/test_energy_guard_restore.py
   - resource: tests/test_sensor_entities.py
@@ -39,7 +41,10 @@ verified-against:
 # The refreshed date applies only to the scope above (no wholesale reverification).
 # Countdown discovery subsection verified at af613d779035a19412c84a1bcf300b210f2adf32 on 2026-10-23.
 # Other sections retain the scoped pins above.
-last-verified: 2026-10-23
+# Peak-shaving registry defaults verified in the PR #707 change set on 2026-11-12.
+# Base: ce50c2509d1cb689a2e90eefc907c1a3a5ae2d7e; change provenance: https://github.com/joyfulhouse/eg4_web_monitor/pull/707.
+# Only that claim uses this change-set reference; other claims retain their pins above.
+last-verified: 2026-11-12
 see-also:
   - ../60-history/open-contradictions.md
   - data-semantics.md
@@ -478,9 +483,14 @@ must stay transport-independent.
 | `SENSOR_TYPES` / `STATION_SENSOR_TYPES` rows with `"enabled_default": False` | Honored by `_apply_sensor_config` (truthiness check) | `base_entity.py:405-406`, `sensor.py:832-835`; example `const/sensors/station.py:44-50` |
 | **All** schedule time entities | Disabled by default — explicit product decision | `time.py:226` |
 | Regime-gated numbers | Default to `is_control_active(control_key, configured_charge, configured_discharge)`; the non-selected SOC/Voltage set starts disabled | `number.py:203-205` |
-| Individually pinned | `GridPeakShavingPowerNumber` (`number.py:1295`), `SmartLoadNumber` (`number.py:2020`), `StartChargePowerNumber` (`number.py:2345`), `EG4SmartLoadSwitch` (`switch.py:1086`), some `EG4WorkingModeSwitch` rows (`switch.py:1373`) | as cited |
+| Individually pinned | `SmartLoadNumber` (`number.py:2020`), `StartChargePowerNumber` (`number.py:2345`), `EG4SmartLoadSwitch` (`switch.py:1086`), some `EG4WorkingModeSwitch` rows (`switch.py:1373`) | as cited |
 
 All rows: `verified-against-code`.
+
+`PeakShavingNumber` does not disable its power rows on pure-LOCAL connections;
+its SOC/voltage rows follow the regime-gated rule above.
+`verified-against-code` in the [PR #707 change set](https://github.com/joyfulhouse/eg4_web_monitor/pull/707) (`number.py` →
+`PeakShavingNumber.__init__`, `EG4BaseNumberEntity.__init__`).
 
 ## 8. Renaming and retiring entities
 

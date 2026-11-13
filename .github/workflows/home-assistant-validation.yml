@@ -27,13 +27,10 @@ jobs:
           persist-credentials: false
 
       - name: Run Hassfest
-        # HA 2026.11 ships pyserial and hassfest rejects core dependencies in
-        # custom manifests; our 2026.10.x floor still needs it at runtime.
-        # Remove when hacs.json reaches 2026.11.0 and pyserial leaves the manifest.
         run: >-
           docker run --rm
           --mount type=bind,source="${{ github.workspace }}",target=/github/workspace,readonly
-          ghcr.io/home-assistant/hassfest@sha256:e5828f7e305518506d8b4e8346411357d68358531b761bd118fe6a1631feff44
+          ghcr.io/home-assistant/hassfest:latest
 
   # ========================================
   # HACS VALIDATION

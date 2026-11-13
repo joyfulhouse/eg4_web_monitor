@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from homeassistant.const import Platform, STATE_UNKNOWN
 from homeassistant.helpers import entity_registry as er
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor.coordinator import EG4DataUpdateCoordinator

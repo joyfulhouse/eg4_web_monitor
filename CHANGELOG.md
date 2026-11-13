@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**Requires [pylxpweb==0.10.0b14](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b14)**
+## [3.5.1-beta.22] - 2026-11-12
+
+### Breaking Changes
+
+- **Home Assistant 2026.11.0 or newer is required.** 3.5.1-beta.21 is the last release supporting HA 2026.10.x. The integration no longer declares pyserial because HA core supplies it (#704).
+
+**Requires [pylxpweb==0.10.0b15](https://github.com/joyfulhouse/pylxpweb/releases/tag/v0.10.0b15)**
 
 ### Fixed
 
+- Query an inverter member when importing historical energy for a parallel group whose designated device is a GridBOSS; querying the GridBOSS serial previously imported 0 kWh for every series. Log a warning when all imported energy values for a device and month are zero. Re-import affected date ranges, using `dry_run` first (#706).
+- Allow local writes to Grid Peak Shaving Power on LOCAL connections for non-off-grid models; off-grid and unresolved-family inverters remain cloud-only. Pure-LOCAL users whose entity was disabled by the integration must enable it manually after upgrading (#707, thanks @ufodone).
+- Allow On-Grid SOC Cut-Off values from 0-100% instead of enforcing a 10% minimum (#713).
 - Use Home Assistant's USB integration scan for config-flow serial ports without blocking the event loop, and declare the `usb` dependency (#704).
 - Keep locally configured HYBRID inverter energy counters unknown when their local energy snapshot is missing, preventing an older cloud value from being published as a counter reset. Apply the same rule to dependent group energy; independent complete GridBOSS CT consumption and runtime cloud fallback remain available (#702).
 - Show the configured connection address in local-link Repairs when the shared transport hides its address; diagnostics continue to omit the private UI placeholders (#702).

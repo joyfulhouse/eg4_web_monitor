@@ -18,8 +18,6 @@ from pylxpweb.transports.data import (
 )
 from custom_components.eg4_web_monitor.bus_eligibility import LocalBusProvenance
 
-pytest_plugins = "pytest_homeassistant_custom_component"
-
 
 class CloudRequestInTest(RuntimeError):
     """Raised when a test reaches pylxpweb's real cloud request path.
@@ -397,7 +395,7 @@ def create_mock_station(
 def pytest_configure(config):
     """Register markers and allow asyncio shutdown threads.
 
-    pytest-homeassistant-custom-component verifies no unexpected threads remain after tests.
+    pytest-homeassistant verifies no unexpected threads remain after tests.
     The asyncio event loop may create a daemon thread named '_run_safe_shutdown_loop'
     during shutdown which is expected and harmless. This configuration patches threading.enumerate
     to filter out this thread during cleanup verification.
@@ -426,10 +424,9 @@ def pytest_configure(config):
     threading.enumerate = filtered_enumerate
 
 
-# Enable custom integrations for testing
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations):
-    """Enable loading custom integrations in all tests."""
+    """Preserve the suite's per-test hass setup and cleanup lifecycle."""
     yield
 
 

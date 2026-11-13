@@ -15,9 +15,10 @@ sources:
   - resource: memory/issue-544-generator-power-offgrid.md
   - resource: memory/maintainability-findings-and-live-bugs.md
 verified-against:
+  # Manifest requirements re-verified for issue #704 on this branch; other claims retain this pin.
   eg4_web_monitor: 9f6d6e2
   pylxpweb: 204b95d
-last-verified: 2026-08-08
+last-verified: 2026-11-11
 see-also:
   - repo-map.md
   - glossary.md
@@ -47,7 +48,7 @@ the parts, not from any one of them.
 | Claim | Detail | Grade |
 |---|---|---|
 | Domain is `eg4_web_monitor`, `integration_type: device`, `iot_class: local_polling`, `quality_scale: platinum` | `manifest.json` | `verified-against-code` |
-| Runtime deps are `pylxpweb`, `pymodbus`, `pyserial` | `manifest.json` → `requirements` (exact pins live there, not here) | `verified-against-code` |
+| Declared runtime deps are `pylxpweb`, `pymodbus` | `manifest.json` → `requirements` (exact pins live there, not here) | `verified-against-code` |
 | Portal base URL `https://monitor.eg4electronics.com` | `const/brand.py` → `default_base_url`; also `diagnostics.py` | `verified-against-code` |
 | Auth is `POST /WManage/api/login` | pylxpweb `client.py` → `_request("POST", "/WManage/api/login", …)` | `verified-against-code` |
 | pylxpweb re-authenticates after a **locally assumed** 2-hour threshold | `client.py` → `self._session_expires = datetime.now() + timedelta(hours=2)`. This is a client-side refresh threshold, **not a server TTL** — the portal communicates no expiry, and real expiry is detected by other means. Session semantics are owned by [`30-portal-api/auth-and-session.md`](../30-portal-api/auth-and-session.md). | `verified-against-code` for the client threshold only |

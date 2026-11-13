@@ -21,7 +21,7 @@ import pytest
 from homeassistant.components import diagnostics as ha_diagnostics
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import DOMAIN
 from custom_components.eg4_web_monitor import async_setup

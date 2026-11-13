@@ -53,7 +53,7 @@ import homeassistant.helpers.entity_registry as er
 import pytest
 from homeassistant.core import HomeAssistant
 from pylxpweb.transports.data import InverterRuntimeData
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor import (
     _async_cleanup_deprecated_battery_discharge_power_entities,

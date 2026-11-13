@@ -52,7 +52,6 @@ from custom_components.eg4_web_monitor.number import (
     ForcedDischargePowerNumber,
     ForcedDischargeSOCLimitNumber,
     GridSellBackPowerNumber,
-    GridPeakShavingPowerNumber,
     OffGridSOCCutoffNumber,
     OnGridSOCCutoffNumber,
     PEAK_SHAVING_NUMBER_SPECS,
@@ -869,19 +868,20 @@ class TestSweepExtendedProtectedRouting:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "value", [10, 95, 100], ids=["min-10", "portal-95", "max-100"]
+        "value",
+        [0, 5, 9, 95, 100],
+        ids=["min-0", "portal-5", "below-10", "portal-95", "max-100"],
     )
     async def test_offgrid_ongrid_soc_cutoff_boundaries_write_cloud(self, value):
-        """Review round 2 MED: the entity's advertised range matches the
-        canonical H105 range (10-100, #603) that pylxpweb's
-        set_battery_soc_limits enforces — both boundary values pass
-        validation and land via the cloud writer without a ValueError."""
+        """HA accepts 0-100 and routes off-grid writes to the cloud writer."""
         coordinator = _mock_coordinator(
             has_local=True, has_http=True, device_data=dict(OFFGRID_FEATURES)
         )
         entity = OnGridSOCCutoffNumber(coordinator, SERIAL)
         _prep(entity)
 
+        assert entity.native_min_value == 0
+        assert entity.native_max_value == 100
         await entity.async_set_native_value(value)
 
         coordinator.write_named_parameter.assert_not_awaited()
@@ -889,7 +889,7 @@ class TestSweepExtendedProtectedRouting:
         inverter.set_battery_soc_limits.assert_awaited_once_with(on_grid_limit=value)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("value", [9, 101], ids=["below-min", "above-max"])
+    @pytest.mark.parametrize("value", [-1, 101], ids=["below-min", "above-max"])
     async def test_offgrid_ongrid_soc_cutoff_out_of_range_raises_clearly(self, value):
         """Out-of-range values fail at the entity with a clear
         HomeAssistantError BEFORE any writer runs — never pylxpweb's raw
@@ -900,7 +900,9 @@ class TestSweepExtendedProtectedRouting:
         entity = OnGridSOCCutoffNumber(coordinator, SERIAL)
         _prep(entity)
 
-        with pytest.raises(HomeAssistantError, match=r"10-100"):
+        with pytest.raises(
+            HomeAssistantError, match=r"^On-grid SOC cutoff must be between 0-100%"
+        ):
             await entity.async_set_native_value(value)
 
         coordinator.write_named_parameter.assert_not_awaited()
@@ -1181,60 +1183,6 @@ class TestFirstRunUnresolvedProtectedRouting:
         coordinator.write_raw_parameter.assert_not_awaited()
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "device_data",
-        [dict(FIRST_RUN), {}],
-        ids=["unknown-family", "no-features"],
-    )
-    async def test_first_run_grid_peak_shaving_goes_cloud_named_never_library(
-        self, device_data
-    ):
-        """r6 (Grok MED): pylxpweb's set_grid_peak_shaving_power is
-        TRANSPORT-FIRST onto raw H206 — an earlier derivation claim called
-        the entity 'cloud-only by construction', which the pinned wheel
-        falsifies. On off-grid/unresolved families the entity must write
-        the cloud named parameter directly and never reach the library
-        method."""
-        coordinator = _mock_coordinator(
-            has_local=True, has_http=True, model="12000XP", device_data=device_data
-        )
-        entity = GridPeakShavingPowerNumber(coordinator, SERIAL)
-        _prep(entity)
-
-        await entity.async_set_native_value(5.0)
-
-        inverter = coordinator.get_inverter_object(SERIAL)
-        inverter.set_grid_peak_shaving_power.assert_not_awaited()
-        coordinator.client.api.control.write_parameter.assert_awaited_once_with(
-            SERIAL, "_12K_HOLD_GRID_PEAK_SHAVING_POWER", "5.0"
-        )
-        # r7: the cloud-named branch seeds convergence too (it previously
-        # never called note_parameters_written at all).
-        coordinator.note_parameters_written.assert_called_once_with(
-            SERIAL, {"_12K_HOLD_GRID_PEAK_SHAVING_POWER": 5.0}
-        )
-        assert entity.native_value == pytest.approx(5.0)
-
-    @pytest.mark.asyncio
-    async def test_resolved_hybrid_grid_peak_shaving_uses_library_method(self):
-        """Regression guard: a positively resolved non-off-grid family keeps
-        pylxpweb's transport-first method (hybrid-verified deci-kW raw
-        encoding, cloud fallback inside the library)."""
-        coordinator = _mock_coordinator(
-            has_local=True,
-            has_http=True,
-            model="FlexBOSS21",
-            device_data=dict(HYBRID_FEATURES),
-        )
-        entity = GridPeakShavingPowerNumber(coordinator, SERIAL)
-        _prep(entity)
-
-        await entity.async_set_native_value(5.0)
-
-        inverter = coordinator.get_inverter_object(SERIAL)
-        inverter.set_grid_peak_shaving_power.assert_awaited_once_with(power_kw=5.0)
-
-    @pytest.mark.asyncio
     async def test_resolved_hybrid_forced_discharge_keeps_local_first(self):
         """Regression guard: a positively resolved non-off-grid family keeps
         the local-first route for the fail-open-created scalars."""
@@ -1454,7 +1402,7 @@ UNKNOWN_FEATURES = {"features": {"inverter_family": "UNKNOWN"}}
 
 
 class TestPeakShavingSetOffgridRouting:
-    """Regs 207/208/218/219/232 have no off-grid write evidence at all: the
+    """Regs 206/207/208/218/219/232 have no off-grid write evidence at all: the
     write is CLOUD-ONLY on EG4_OFFGRID and on an unresolved/UNKNOWN family,
     local-first only on a positively resolved non-off-grid family."""
 
@@ -1515,12 +1463,20 @@ class TestPeakShavingSetOffgridRouting:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("spec", PEAK_SHAVING_NUMBER_SPECS, ids=lambda s: s.key)
-    async def test_pure_local_offgrid_raises_without_local_write(self, spec):
+    @pytest.mark.parametrize(
+        "device_data",
+        [OFFGRID_FEATURES, UNKNOWN_FEATURES, {}, {"features": {"inverter_family": ""}}],
+        ids=["offgrid", "unknown-family", "no-features", "empty-family"],
+    )
+    async def test_pure_local_offgrid_raises_without_local_write(
+        self, spec, device_data
+    ):
         coordinator = _mock_coordinator(
             has_local=True,
             has_http=False,
+            local_only=True,
             model="12000XP",
-            device_data=dict(OFFGRID_FEATURES),
+            device_data=device_data,
         )
         entity = self._entity(coordinator, spec.key)
 

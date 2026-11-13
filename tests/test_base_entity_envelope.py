@@ -31,7 +31,7 @@ import pytest
 
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 
 import custom_components.eg4_web_monitor.base_entity as base_entity_module
 from custom_components.eg4_web_monitor.base_entity import (

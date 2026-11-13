@@ -172,7 +172,7 @@ manually, and the integration auto-discovers the model and serial number.
 
 #### ESPHome serial proxy
 
-Requires Home Assistant 2026.10.0 or newer. An RS485 adapter wired to an ESPHome
+Requires Home Assistant 2026.11.0 or newer. An RS485 adapter wired to an ESPHome
 device can stand in for a USB adapter. In the manual-entry step, enter the port as
 `esphome://<host>:6053`. These ports run on Home Assistant's own Modbus library
 (`modbus_connection`) rather than pymodbus, which cannot open them. Home Assistant

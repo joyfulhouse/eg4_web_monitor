@@ -24,6 +24,59 @@ subject, never as "above" or "below". Record what changed and *why it was wrong 
 The reasoning is the durable part, and several entries exist only because a plausible
 answer turned out to be unsound. Keep entries short and link the pages that changed.
 
+## 2026-11-12
+
+### ingest | Prepare 3.5.1-beta.22 release cut
+
+Moved the existing Unreleased notes unchanged into the dated beta.22 section in
+[the changelog](../CHANGELOG.md) and advanced only the version in
+[the manifest](../custom_components/eg4_web_monitor/manifest.json). The section
+records the HA 2026.11.0 minimum and existing pylxpweb 0.10.0b15 requirement;
+beta.21 remains the last release for HA 2026.10.x. This separates the release
+candidate's notes from future Unreleased work without changing runtime behavior,
+dependency pins, or historical compatibility and production evidence.
+
+### repin | Use durable peak-shaving change provenance (#707)
+
+Replaced the pre-rebase branch SHA in [controls and writes](10-integration/controls-and-writes.md),
+[registry defaults](10-integration/entities-identity-availability.md), and the November 11
+#707 entry with the PR change-set reference. Re-verified the scoped claims on
+main `ce50c2509d1cb689a2e90eefc907c1a3a5ae2d7e` plus #707; unrelated pins remain unchanged.
+The PR reference survives rebasing and follows the existing pre-merge change-set citations.
+Corrected stale direct-library-call examples to the verified `select.py` operating-mode
+call; peak-shaving numbers use the shared router rather than the library setter.
+
+## 2026-11-11
+
+### ingest | Unified peak-shaving number routing (#707)
+
+Updated [controls and writes](10-integration/controls-and-writes.md) and
+[registry defaults](10-integration/entities-identity-availability.md) against
+the [PR #707 change set](https://github.com/joyfulhouse/eg4_web_monitor/pull/707) (`number.py` → `PeakShavingNumber`).
+The removed separate PS1 class no longer calls the library setter or disables
+the power entity on pure-LOCAL connections. All six rows use the named-parameter
+router, with off-grid/unresolved families restricted to cloud writes. Historical
+verification pins remain in place for unrelated claims.
+
+### ingest | #713 — H105 portal-stored 5% disproves the 10% floor
+
+Updated the [register keeper](40-hardware/registers.md) from issue #713: a
+FlexBOSS21 stores a portal-set 5% and returns it through cloud readback. The
+entity range becomes 0-100%; 0-4% remain untested. Preserved the limited evidence
+for the ceiling and recorded the October 29 #668 user report about relative
+cutoffs (equal allowed) without treating it as a verified firmware rule.
+Device/portal rejection stays authoritative; no cross-field validation is added.
+
+### ingest | Require HA 2026.11 and remove the Hassfest workaround
+
+Issue #704 raises the floor to HA 2026.11.0, whose core supplies pyserial.
+Updated the [quality-gates owner](50-operations/quality-gates.md) and
+[orientation](00-orientation/what-this-project-is.md): the manifest drops that
+core dependency, daily validation uses current Hassfest, and the redundant
+weekly canary is removed. The official `pytest-homeassistant` replaces the
+retired custom-component plugin with matching minimum/latest HA pins.
+Historical observations in this log remain dated evidence.
+
 ## 2026-11-06
 
 ### build | Converted llmwiki to an OKF v0.2 bundle

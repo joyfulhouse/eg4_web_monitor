@@ -44,7 +44,7 @@ from custom_components.eg4_web_monitor.const import (
     DOMAIN,
 )
 from custom_components.eg4_web_monitor.time import EG4ScheduleTimeEntity
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant.common import MockConfigEntry
 from tests.conftest import wire_coordinator_write_helpers
 
 SERIAL = "1234567890"

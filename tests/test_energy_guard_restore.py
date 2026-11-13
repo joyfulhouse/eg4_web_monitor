@@ -8,7 +8,7 @@ from homeassistant.components.sensor import SensorExtraStoredData
 from homeassistant.core import State
 from homeassistant.helpers.restore_state import async_get as async_get_restore_data
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockEntityPlatform,
     mock_restore_cache_with_extra_data,
@@ -206,7 +206,7 @@ async def test_nonnumeric_state_after_midnight_then_reload(
     assert hass.states.get(sensor.entity_id).state == expected_state
 
     await platform.async_remove_entity(sensor.entity_id)
-    stored = async_get_restore_data(hass).last_states[sensor.entity_id]
+    stored = async_get_restore_data(hass).async_get_stored_state(sensor.entity_id)
     assert stored.state.state == expected_state
     assert stored.state.last_updated == dt_util.utcnow()
     assert stored.extra_data.native_value == (14.3 if unavailable else None)

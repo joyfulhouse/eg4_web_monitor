@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from homeassistant.helpers import device_registry as dr
-from pytest_homeassistant_custom_component.common import (
+from pytest_homeassistant.common import (
     MockConfigEntry,
     MockEntityPlatform,
 )

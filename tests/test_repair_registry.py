@@ -9,7 +9,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import instance_id, issue_registry as ir
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import flush_store
+from pytest_homeassistant.common import flush_store
 
 from custom_components.eg4_web_monitor import repair_registry as repairs
 from custom_components.eg4_web_monitor.const import DOMAIN
