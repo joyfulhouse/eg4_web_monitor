@@ -146,6 +146,35 @@ the stated metadata-I/O acceptance of #691. Complete download redaction remains
 the separate #697 gate. Do not attach the raw download publicly or treat payload
 aliasing as coverage of the outer wrapper.
 
+### Wrapper `setup_times` carries the config entry ID (#722)
+
+HA 2026.11.0 (the supported minimum) builds the download wrapper in
+`homeassistant/components/diagnostics/__init__.py`: `setup_times` is
+`async_get_domain_setup_times(hass, domain)` (line 221) and the integration's
+return value becomes only `payload["data"]` (line 222). The mapping's keys are
+config entry IDs, because `config_entries.py` starts setup timing with
+`group=self.entry_id` and `setup.py` stores phases under that group. The
+mapping is domain-wide, so it can include other entries of this domain. Nothing
+in the integration's diagnostics callback can redact, rename or suppress it,
+and `async_redact_data` only walks the object it is given. At the checked
+upstream `dev` the wrapper is unchanged. Grade: `verified-against-code` (HA
+core source at tag 2026.11.0; the key derivation was traced by a read-only
+exploration, the wrapper lines re-checked against the tag).
+
+Other wrapper fields outside `data`: `home_assistant`, `custom_components`
+(the whole custom-component inventory), `integration_manifest` and `issues`.
+Only `issues` is integration-influenced, and the integration already
+pseudonymises its IDs (see below). The download filename also embeds the entry
+ID. Upstream added no redaction pass and no existing report was found; PR
+#117766 introduced `setup_times` deliberately.
+
+**Decision (accepted limitation).** The entry ID is a random, stable,
+installation-unique identifier, not a host, serial or credential. No integration-side
+mitigation exists short of replacing HA's diagnostics platform, which is out of
+scope. The remedy is reporter guidance in `docs/TROUBLESHOOTING.md`; an upstream
+HA report is drafted for the owner and not filed. Grade of the sensitivity
+judgement: `asserted-unverified`.
+
 ### October 25 privacy fix
 
 At `c006150eeef0486db30e2c986dba9415b7e0e644`, nested `host`,

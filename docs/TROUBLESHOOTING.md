@@ -207,6 +207,18 @@ logger:
 
 Then check **Settings → System → Logs**.
 
+## Sharing Diagnostics Publicly
+
+Downloaded diagnostics redact hosts, serials, credentials and repair IDs inside
+the integration's `data` section. Home Assistant itself writes the outer
+wrapper, which the integration cannot redact. In particular `setup_times` is
+keyed by your config entry ID (a random, installation-unique identifier, not a
+credential), and the wrapper also lists your installed custom components and
+Home Assistant environment details. The downloaded file name contains the entry
+ID too. Before attaching a file to a public issue, open it, look through the
+wrapper sections, and remove or replace the entry ID key under `setup_times`
+(and in the file name) if you do not want it published.
+
 ## Getting Help
 
 If you are still stuck, open an issue at
