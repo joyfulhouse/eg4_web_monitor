@@ -24,6 +24,16 @@ subject, never as "above" or "below". Record what changed and *why it was wrong 
 The reasoning is the durable part, and several entries exist only because a plausible
 answer turned out to be unsound. Keep entries short and link the pages that changed.
 
+## 2026-11-14
+
+### ingest | Config entry ID in diagnostics `setup_times` (#722)
+
+Traced HA 2026.11.0's diagnostics wrapper and recorded that `setup_times` keys
+are config entry IDs written outside the integration's `data`, so the
+integration cannot redact them. Decision: accepted limitation with reporter
+guidance; upstream report drafted, not filed. No code changed. See
+[the diagnostics owner](10-integration/diagnostics-repairs.md).
+
 ## 2026-11-12
 
 ### ingest | Prepare 3.5.1-beta.22 release cut
