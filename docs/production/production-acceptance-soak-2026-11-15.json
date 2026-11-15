@@ -1,0 +1,359 @@
+{
+  "record_type": "production_acceptance_soak",
+  "issue": 694,
+  "review_date_utc": "2026-11-15",
+  "deployed_build": {
+    "integration": "3.5.1-beta.22",
+    "pylxpweb": "0.10.0b15",
+    "HA": "2026.11.1",
+    "tag_commit": "2dafa3c64d41516c511333648c747c637d47499b"
+  },
+  "evidence_sources": [
+    "Private beta22 soak-review/redacted-summary.json, final-report.md, daily-field-table.md and entity-last-change-table.md.",
+    "Private beta22 deployment verification and midnight-review/redacted-summary.json.",
+    "Owner-side read-only reachability observation at 2026-11-15T17:52Z, recorded in the binding evidence contract."
+  ],
+  "interpretation": [
+    "Prepared solely from existing private summaries; no production connection or additional deployment was performed for these records.",
+    "Sampled acquisition times are not first acquisitions. Publication timestamps are not acquisition evidence. No inverter reset timezone is inferred.",
+    "No cause is attributed for GridBOSS unreachability or unchanged values. HTTP receipt timestamps do not establish fresh device measurements.",
+    "Counter/statistics consistency is not independent physical metering. Known-literal scan counts are bounded to the supplied literals.",
+    "These records imply no release, tag, or further deployment."
+  ],
+  "window": {
+    "start": "2026-11-14T01:01:09+00:00",
+    "end": "2026-11-15T01:01:09+00:00"
+  },
+  "coverage": {
+    "diagnostics": {
+      "total": 198,
+      "in_window": 193,
+      "errors": 0,
+      "first": "2026-11-14T01:03:23.655748+00:00",
+      "last": "2026-11-15T01:00:00.489948+00:00",
+      "max_gap_seconds": 600.211022,
+      "start_gap_seconds": 134.655748,
+      "end_gap_seconds": 68.510052,
+      "before": [
+        "2026-11-14T00:53:23.652985+00:00"
+      ],
+      "after": []
+    },
+    "states": {
+      "total": 298,
+      "in_window": 288,
+      "errors": 0,
+      "first": "2026-11-14T01:03:23.850365+00:00",
+      "last": "2026-11-15T00:58:24.848191+00:00",
+      "max_gap_seconds": 300.152024,
+      "start_gap_seconds": 134.850365,
+      "end_gap_seconds": 164.151809,
+      "before": [
+        "2026-11-14T00:58:23.848073+00:00"
+      ],
+      "after": []
+    },
+    "system_log": {
+      "total": 50,
+      "in_window": 48,
+      "errors": 0,
+      "first": "2026-11-14T01:13:23.655874+00:00",
+      "last": "2026-11-15T00:43:23.847925+00:00",
+      "max_gap_seconds": 1800.102892,
+      "start_gap_seconds": 734.655874,
+      "end_gap_seconds": 1065.152075,
+      "before": [
+        "2026-11-14T00:43:23.653642+00:00"
+      ],
+      "after": []
+    }
+  },
+  "availability": {
+    "counts": {
+      "unknown": {
+        "min": 22,
+        "max": 22,
+        "final": 22
+      },
+      "unavailable": {
+        "min": 24,
+        "max": 24,
+        "final": 24
+      }
+    },
+    "transitions": [],
+    "classification": {
+      "unknown": {
+        "unsupported_or_missing_split_phase_EPS_voltage_fields": 12,
+        "transport_address_missing": 2,
+        "stateless_refresh_buttons": 6,
+        "ac_couple_end_soc_disabled_sentinel": 2
+      },
+      "unavailable": {
+        "restored_placeholders": 15,
+        "enabled_GridBOSS_smart_port_controls_with_missing_LOCAL_recovery": 9
+      },
+      "smart_port_controls": {
+        "registry_enabled": 9,
+        "restored_placeholders": 0,
+        "port_mode": "AC Couple",
+        "classification": "degraded / missing LOCAL input; not expected-disabled",
+        "domains": {
+          "number": 2,
+          "switch": 1,
+          "time": 6
+        }
+      },
+      "baseline_comparison": "22 unknown/24 unavailable unchanged; nine control failures predate this deployment, so no candidate causation established"
+    }
+  },
+  "criteria": [
+    {
+      "criterion": "post_settling_24h_window",
+      "status": "MET",
+      "expected": "24h after 01:01:09Z Nov14, with midnight +/-60min",
+      "actual": "Finite collector ends 01:01:09.025Z Nov15; 193 diagnostics, 288 states, 48 logs within window, no collector errors; sampling endpoint gaps explicit."
+    },
+    {
+      "criterion": "startup_identity_config",
+      "status": "MET",
+      "expected": "Loaded entry, preserved identity/options",
+      "actual": "Prior deployment verification: loaded; zero removed/renamed/ownership-changed entities or devices; ten added entities; common-redaction config digest equal; no setup/duplicate-ID/blocking-I/O warnings."
+    },
+    {
+      "criterion": "unknown_unavailable_classification",
+      "status": "MET",
+      "expected": "Classify current unknown/unavailable and changes",
+      "actual": "22 unknown, 24 unavailable min=max=final; no sampled transitions. Categories in availability.classification."
+    },
+    {
+      "criterion": "deployment_recovery",
+      "status": "NOT MET",
+      "expected": "Fresh local acquisitions and restored earlier baseline states",
+      "actual": "Both inverters have LOCAL evidence; no GridBOSS LOCAL recovery and nine enabled controls remain unavailable, continuing a predeployment failure."
+    },
+    {
+      "criterion": "passive_reconnect_observation",
+      "status": "PENDING",
+      "expected": "Document outcomes and fresh local recovery",
+      "actual": "Continuing GridBOSS connect/attach warnings; no observed recovery. Counts and spans are not outage durations."
+    },
+    {
+      "criterion": "natural_midnight_lineage",
+      "status": "MET",
+      "expected": "Capture 37 fields with nonempty, entirely LOCAL, single-day qualification",
+      "actual": "All 37 captured 193 times; 29 LOCAL guard-eligible; 8 HTTP never guard-eligible. Reused midnight review has 60 diagnostics plus 24 states, boundaries bracketed."
+    },
+    {
+      "criterion": "runtime_baseline_expiry",
+      "status": "UNTESTED-RETAINED",
+      "expected": "HTTP/missing/unknown/empty/mixed-day cannot expire baseline",
+      "actual": "Runtime guard baseline/expiry not exposed; diagnostic eligibility is not expiry proof."
+    },
+    {
+      "criterion": "missed_reset_case",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Natural missed low/reset samples then valid new-day value",
+      "actual": "Zero qualifying observations."
+    },
+    {
+      "criterion": "full_daily_reset_acceptance",
+      "status": "NOT MET",
+      "expected": "Observe daily reset/source continuity without stale replay",
+      "actual": "16 published fields reset including 2 consumption without statistics; prior midnight review has 14 statistics resets. Eight HTTP fields never changed (seven nonzero). No abrupt previous-day replay in reset series through end."
+    },
+    {
+      "criterion": "lifetime_monotonicity",
+      "status": "NOT MET",
+      "expected": "No backward steps, classify series",
+      "actual": "25 numeric series: 23 nondecreasing, two consumption balances decrease. Four active nonnumeric plus twelve disabled series not testable."
+    },
+    {
+      "criterion": "659_same_time_cloud_local",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Raw same-time cloud todayUsage/totalUsage and local counters",
+      "actual": "No such raw cloud response found in captures. Derived diagnostic source evidence does not substitute for it."
+    },
+    {
+      "criterion": "direct_battery_176_574",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Configured direct bridge precision/master validation",
+      "actual": "No configured direct bridge; retain accepted prior passive evidence; no master reconstruction enabled."
+    },
+    {
+      "criterion": "soc_rejection_668",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Naturally occurring firmware rejection evidence",
+      "actual": "No qualifying evidence."
+    },
+    {
+      "criterion": "generator_658",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Natural generator semantics",
+      "actual": "No qualifying generator use; sampled inverter generator flags false."
+    },
+    {
+      "criterion": "config_reconfigure_and_rollback",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Full config/reconfigure branches and restoration",
+      "actual": "Prior rendered/aborted forms remain initial evidence; full branches and rollback not exercised."
+    },
+    {
+      "criterion": "cloud_battery_chart_counter_day",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Reliable counter-day semantics",
+      "actual": "Acquisition day and publication reset do not prove device counter timezone."
+    },
+    {
+      "criterion": "697_nested_hosts_and_repairs",
+      "status": "MET",
+      "expected": "3 hosts redacted and 5 wrapper IDs pseudonymised",
+      "actual": "All 198 downloads satisfy both counts; no known device identity outside setup_times.",
+      "record": "diagnostics-privacy-production-check-2026-11-14.json"
+    },
+    {
+      "criterion": "697_whole_artifact",
+      "status": "NOT MET",
+      "expected": "No known identifying literal in entire download",
+      "actual": "One of 27 known distinct literals remains solely as wrapper setup_times key, tracked #722.",
+      "scope_note": "Whole-artifact result retained. Owner assigned wrapper residual to issue 722; issue 697 item 3 is MET for the named exposures. See diagnostics-privacy-production-check-2026-11-14.json."
+    }
+  ],
+  "acceptance_status": "NOT MET",
+  "restart_assessment": {
+    "observed_restarts": 0,
+    "evidence": "No reset of cumulative warning epochs/counts and no state availability transition across sampled soak.",
+    "limit": "No independent HA-start history series available; cannot categorically exclude a restart."
+  },
+  "gridboss": {
+    "local_recovery_observed": false,
+    "last_warning_aggregates": {
+      "time": "2026-11-15T00:43:23.847925+00:00",
+      "records": [
+        {
+          "category": "attach_failure",
+          "logger": "pylxpweb.devices.station",
+          "count": 1384,
+          "first_utc": "2026-11-14T00:10:36.782891+00:00",
+          "last_utc": "2026-11-15T00:43:13.075185+00:00",
+          "span_seconds": 88356.29229331017
+        },
+        {
+          "category": "dongle_connect",
+          "logger": "pylxpweb.transports.dongle",
+          "count": 4152,
+          "first_utc": "2026-11-14T00:10:12.823084+00:00",
+          "last_utc": "2026-11-15T00:43:13.074646+00:00",
+          "span_seconds": 88380.25156211853
+        }
+      ]
+    },
+    "warning_limit": "Cumulative warning counts span startup and soak; spans are not measured outage durations.",
+    "numeric_GridBOSS_entities_unchanged": 44,
+    "numeric_GridBOSS_last_change_range_utc": [
+      "2026-11-14T00:10:47.379Z",
+      "2026-11-14T00:11:30.552Z"
+    ],
+    "numeric_parallel_group_entities_unchanged": 17,
+    "numeric_parallel_group_entities_changing": 17,
+    "parallel_group_nonnumeric_entities": 1,
+    "numeric_smart_port_entities_unchanged": 6,
+    "publication_observation": "Unchanged GridBOSS measurements stayed numeric; no entity became unknown/unavailable in response. Unchanged zero/static fields alone do not establish stale telemetry.",
+    "http_daily_fields": {
+      "distinct_acquisition_timestamps_per_field": 137,
+      "first_sampled_acquisition_utc": "2026-11-14T01:03:02.153Z",
+      "last_sampled_acquisition_utc": "2026-11-15T00:51:02.056Z",
+      "observation": "Acquisition timestamps advanced while values remained identical. Full raw payload identity and device freshness remain unproven."
+    },
+    "unavailable_controls": {
+      "keys": [
+        "ac_couple_start_soc",
+        "ac_couple_end_soc",
+        "ac_couple_enable",
+        "ac_couple_start_time_1",
+        "ac_couple_end_time_1",
+        "ac_couple_start_time_2",
+        "ac_couple_end_time_2",
+        "ac_couple_start_time_3",
+        "ac_couple_end_time_3"
+      ],
+      "reason": "Port 1 is AC Couple; GridBOSS parameter map empty in last diagnostics. Missing required options alone fails availability. Local link gate also exists, but diagnostics does not expose its exact evaluated state. Not intentionally disabled or restored placeholders.",
+      "code": [
+        "custom_components/eg4_web_monitor/smart_port_options.py:151",
+        "custom_components/eg4_web_monitor/smart_port_options.py:165",
+        "custom_components/eg4_web_monitor/smart_port_options.py:175"
+      ]
+    },
+    "source_analysis": {
+      "revision": "v3.5.1-beta.22",
+      "cloud_lost_inverter_gate": "custom_components/eg4_web_monitor/coordinator_mixins.py:3275",
+      "hybrid_local_energy_gate": "custom_components/eg4_web_monitor/coordinator_mixins.py:3337",
+      "dependent_group_gate": "custom_components/eg4_web_monitor/coordinator_mixins.py:3768",
+      "MID_entry": "custom_components/eg4_web_monitor/coordinator_http.py:1075",
+      "MID_mapping": "custom_components/eg4_web_monitor/coordinator_mixins.py:3838",
+      "group_overlay_entry": "custom_components/eg4_web_monitor/coordinator_http.py:1048",
+      "group_overlay": "custom_components/eg4_web_monitor/coordinator_mixins.py:718",
+      "consumption_overlay": "custom_components/eg4_web_monitor/coordinator_mixins.py:733",
+      "conclusion": "Unchanged GridBOSS measurements can remain numeric while MID has_data is true. #479 gates inverter lost/runtime; #703 gates configured inverter local energy, and deliberately retains independent complete CT overlays. Observed output follows those source boundaries; missing MID stale/lost invalidation is an acceptance gap. Device-side cloud staleness cannot be proven solely from receipt timestamps/unchanged fields.",
+      "acceptance_boundary": "follows implemented boundaries; missing MID stale/lost-cloud invalidation is a freshness acceptance gap"
+    },
+    "owner_reachability_note": {
+      "observed_at_utc": "2026-11-15T17:52Z",
+      "source": "Owner workstation; existing read-only observation, not repeated while preparing this record.",
+      "GridBOSS": "Dongle answered neither ICMP nor its local TCP port.",
+      "inverters": "Both inverter gateways answered.",
+      "cause": "unknown; no network cause inferred"
+    }
+  },
+  "lifetime": {
+    "series_reviewed": 41,
+    "numeric_series": 25,
+    "nondecreasing_numeric_series": 23,
+    "disabled_series": 12,
+    "active_nonnumeric_series": 4,
+    "consumption_balances": [
+      {
+        "role": "inverter 1",
+        "key": "consumption_lifetime",
+        "backward_steps": 271,
+        "drop_magnitudes_kWh": {
+          "0.1": 263,
+          "0.2": 8
+        },
+        "total_downward_kWh": 27.9,
+        "net_gain_kWh": 28.8,
+        "state_class": null
+      },
+      {
+        "role": "inverter 2",
+        "key": "consumption_lifetime",
+        "backward_steps": 244,
+        "drop_magnitudes_kWh": {
+          "0.1": 228,
+          "0.2": 16
+        },
+        "total_downward_kWh": 26.0,
+        "net_gain_kWh": 44.4,
+        "state_class": null
+      }
+    ],
+    "state_class_evidence": "Issue 648; v3.5.1-beta.22:custom_components/eg4_web_monitor/sensor.py:931",
+    "net_assessment": {
+      "inverter_1_net_kWh": 28.8,
+      "inverter_2_net_kWh": 44.4,
+      "agrees_with_component_balance_net": true,
+      "limit": "Same-snapshot sibling publication ordering differs by 0.1 kWh at endpoints; net matches. This verifies arithmetic progression, not independent physical consumption or #659 cloud agreement."
+    }
+  },
+  "natural_midnight": {
+    "record": "daily-energy-provenance-observation-2026-11-15.json",
+    "summary": "29 LOCAL fields have observed single-day lineage across midnight; 16 active publications reset once and 14 recorder series reset. Eight HTTP fields never reset; seven nonzero. Baseline expiry is untested."
+  },
+  "limits": [
+    "Sampling cannot exclude intermediate changes.",
+    "Recorder provides publication history, not numeric acquisition lineage.",
+    "HTTP receipt timestamps do not prove fresh device measurements.",
+    "No raw cloud todayUsage/totalUsage response captured; same-time cloud/local #659 remains untested.",
+    "Baseline expiry not instrumented; missed-reset qualifying observations zero."
+  ]
+}

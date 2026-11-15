@@ -1,0 +1,2618 @@
+{
+  "record_type": "daily_energy_provenance_observation",
+  "issue": 666,
+  "review_date_utc": "2026-11-15",
+  "deployed_build": {
+    "integration": "3.5.1-beta.22",
+    "pylxpweb": "0.10.0b15",
+    "HA": "2026.11.1",
+    "tag_commit": "2dafa3c64d41516c511333648c747c637d47499b"
+  },
+  "evidence_sources": [
+    "Private beta22 redacted-summary.json and provenance-initial-table.md.",
+    "Private beta22 midnight-review/redacted-summary.json and daily-field-table.md.",
+    "Private beta22 soak-review/redacted-summary.json and daily-field-table.md."
+  ],
+  "interpretation": [
+    "Prepared solely from existing private summaries; no production connection or additional deployment was performed for these records.",
+    "Sampled acquisition times are not first acquisitions. Publication timestamps are not acquisition evidence. No inverter reset timezone is inferred.",
+    "No cause is attributed for GridBOSS unreachability or unchanged values. HTTP receipt timestamps do not establish fresh device measurements.",
+    "Counter/statistics consistency is not independent physical metering. Known-literal scan counts are bounded to the supplied literals.",
+    "These records imply no release, tag, or further deployment."
+  ],
+  "initial_snapshot": {
+    "captured_at_utc": "2026-11-14T00:21:10.143661+00:00",
+    "fields": 37,
+    "summary": "26 inverter fields plus three group fields LOCAL; three group fields plus five GridBOSS CT fields HTTP. All nonempty and single HA-local acquisition day; only LOCAL fields guard-eligible."
+  },
+  "midnight_window": {
+    "start_utc": "2026-11-14T07:00:00Z",
+    "end_utc": "2026-11-14T09:00:00Z",
+    "midnight_utc": "2026-11-14T08:00:00+00:00",
+    "coverage": {
+      "diagnostics": {
+        "window_count": 60,
+        "window_errors": 0,
+        "all_errors": 0,
+        "first": "2026-11-14T07:00:00.007551+00:00",
+        "last": "2026-11-14T08:58:00.297563+00:00",
+        "max_gap_seconds": 120.091365,
+        "bracket_before": "2026-11-14T06:53:24.035553+00:00",
+        "bracket_after": "2026-11-14T09:00:00.299633+00:00"
+      },
+      "states": {
+        "window_count": 24,
+        "window_errors": 0,
+        "all_errors": 0,
+        "first": "2026-11-14T07:03:24.253527+00:00",
+        "last": "2026-11-14T08:58:24.301801+00:00",
+        "max_gap_seconds": 300.003015,
+        "bracket_before": "2026-11-14T06:58:24.250921+00:00",
+        "bracket_after": "2026-11-14T09:03:24.304861+00:00"
+      },
+      "system_log": {
+        "window_count": 4,
+        "window_errors": 0,
+        "all_errors": 0,
+        "first": "2026-11-14T07:13:23.781095+00:00",
+        "last": "2026-11-14T08:43:23.786132+00:00",
+        "max_gap_seconds": 1800.00259,
+        "bracket_before": "2026-11-14T06:43:23.778912+00:00",
+        "bracket_after": "2026-11-14T09:13:23.787895+00:00"
+      }
+    },
+    "local_fields": 29,
+    "http_fields": 8,
+    "observations_per_field": 60,
+    "nonempty_single_day_observations": 2220,
+    "active_series_with_single_reset": 16,
+    "publication_reset_utc": "2026-11-14T08:00:16Z",
+    "previous_day_value_reappearance_observed": false,
+    "recorder_single_resets": 14,
+    "recorder_consistency": {
+      "criterion": "recorder_daily_statistics_consistency",
+      "status": "MET",
+      "scope": "23 available series / 552 five-minute rows; 14 single resets, nine unchanged series, zero mismatches above 0.11 kWh; numerical consistency with history",
+      "limits": "12 disabled daily fields have no publication/history; two daily consumption series have no state class/statistics; physical energy not independently measured"
+    },
+    "limit": "Diagnostics maximum gap is 120.091365 seconds (approximately 120 seconds). Reset timestamp is publication evidence only; last/first sampled acquisitions are not first acquisitions."
+  },
+  "full_soak": {
+    "observations_per_field": 193,
+    "LOCAL_fields": 29,
+    "HTTP_fields": 8,
+    "HTTP_fields_never_eligible": 8,
+    "HTTP_fields_unchanged_without_reset": 8,
+    "HTTP_fields_nonzero": 7,
+    "previous_day_replay": "No abrupt previous-day replay observed in reset series through end. Ordinary accumulation may reach a prior numerical value; unreset HTTP series continuously retain their former values."
+  },
+  "acceptance": [
+    {
+      "criterion": "production_acquisition_timestamps_and_lineage",
+      "outcome": "MET"
+    },
+    {
+      "criterion": "natural_midnight_LOCAL_lineage",
+      "outcome": "MET",
+      "limit": "As observed in sampled LOCAL fields."
+    },
+    {
+      "criterion": "eight_HTTP_group_CT_daily_fields",
+      "outcome": "NOT MET",
+      "reason": "No reset; eight unchanged fields, seven nonzero.",
+      "owner_question": "Is retained HTTP selection without daily reset acceptable while the GridBOSS local path is down, or is additional source/device-day evidence required?"
+    },
+    {
+      "criterion": "runtime_baseline_expiry_proof",
+      "outcome": "UNTESTED-RETAINED",
+      "reason": "Diagnostics expose eligibility, not baseline/expiry events. A violation can be neither established nor excluded."
+    },
+    {
+      "criterion": "missed_reset_case",
+      "outcome": "UNTESTED-RETAINED",
+      "qualifying_observations": 0
+    },
+    {
+      "criterion": "cloud_battery_chart_counter_day_semantics",
+      "outcome": "UNTESTED-RETAINED"
+    }
+  ],
+  "per_daily_field_provenance": [
+    {
+      "role": "inverter 1",
+      "key": "yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "grid_import",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:59:01.127350+00:00",
+          "state": "55.9",
+          "value": 55.9
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.020289+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:58:55.948572+00:00",
+          "state": "3.5",
+          "value": 3.5
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.020289+00:00",
+            "before": 55.9,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 55.9,
+              "state_after": 0.3,
+              "sum_delta": 0.2999999999992724,
+              "expected_counter_increment": 0.3,
+              "error_kWh": -7.275846591880963e-13
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 131,
+        "first_value": 36.8,
+        "last_value": 28.7,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "grid_export",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "2.5",
+          "value": 2.5
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.020383+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:00:16.020383+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.020383+00:00",
+            "before": 2.5,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 2.5,
+              "state_after": 0.0,
+              "sum_delta": 0.0,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.0
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 44,
+        "first_value": 2.4,
+        "last_value": 17.6,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "consumption",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:59:01.127593+00:00",
+          "state": "49.4",
+          "value": 49.4
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.020538+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:58:55.948852+00:00",
+          "state": "2.7",
+          "value": 2.7
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.020538+00:00",
+            "before": 49.4,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 175,
+        "first_value": 23.499999999999996,
+        "last_value": 2.799999999999997,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "charging",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:56:07.608053+00:00",
+          "state": "15.7",
+          "value": 15.7
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.020663+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:56:37.041327+00:00",
+          "state": "0.8",
+          "value": 0.8
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.020663+00:00",
+            "before": 15.7,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 15.7,
+              "state_after": 0.1,
+              "sum_delta": 0.1000000000003638,
+              "expected_counter_increment": 0.1,
+              "error_kWh": 3.6379232959404817e-13
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 103,
+        "first_value": 13.3,
+        "last_value": 10.8,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "discharging",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "11.7",
+          "value": 11.7
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.020753+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:00:16.020753+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.020753+00:00",
+            "before": 11.7,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 11.7,
+              "state_after": 0.0,
+              "sum_delta": 0.0,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.0
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 32,
+        "first_value": 2.4,
+        "last_value": 2.5,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "load_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:59:20.815793+00:00",
+          "state": "61.4",
+          "value": 61.4
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.021204+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:58:55.949431+00:00",
+          "state": "2.6",
+          "value": 2.6
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.021204+00:00",
+            "before": 61.4,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 61.4,
+              "state_after": 0.2,
+              "sum_delta": 0.2000000000007276,
+              "expected_counter_increment": 0.2,
+              "error_kWh": 7.275846591880963e-13
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 186,
+        "first_value": 36.2,
+        "last_value": 32.8,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "pv1_yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "pv2_yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "pv3_yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "inverter_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 32,
+        "first_value": 2.3,
+        "last_value": 2.4,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "ac_charge_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 102,
+        "first_value": 13.3,
+        "last_value": 10.7,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 1",
+      "key": "eps_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.573131,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.511762+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.322267+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "10.7",
+          "value": 10.7
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.028497+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:00:16.028497+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.028497+00:00",
+            "before": 10.7,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 10.7,
+              "state_after": 0.0,
+              "sum_delta": 0.0,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.0
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 58,
+        "first_value": 10.7,
+        "last_value": 20.2,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "grid_import",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:58:07.016200+00:00",
+          "state": "55.8",
+          "value": 55.8
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:03.896968+00:00",
+          "state": "55.9",
+          "value": 55.9
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:59:59.858856+00:00",
+          "state": "3.5",
+          "value": 3.5
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.028622+00:00",
+            "before": 55.9,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 55.8,
+              "state_after": 0.2,
+              "sum_delta": 0.3000000000010914,
+              "expected_counter_increment": 0.2,
+              "error_kWh": 0.10000000000109138
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 128,
+        "first_value": 36.8,
+        "last_value": 28.7,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "grid_export",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "2.5",
+          "value": 2.5
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.028713+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:00:16.028713+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.028713+00:00",
+            "before": 2.5,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 2.5,
+              "state_after": 0.0,
+              "sum_delta": 0.0,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.0
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 44,
+        "first_value": 2.4,
+        "last_value": 17.6,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "consumption",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:58:07.016455+00:00",
+          "state": "55.0",
+          "value": 55.0
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.028870+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:58:12.882554+00:00",
+          "state": "2.5",
+          "value": 2.5
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.028870+00:00",
+            "before": 55.0,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 178,
+        "first_value": 29.700000000000003,
+        "last_value": 18.9,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "charging",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:54:32.080769+00:00",
+          "state": "20.3",
+          "value": 20.3
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:03.902616+00:00",
+          "state": "20.4",
+          "value": 20.4
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:59:59.859158+00:00",
+          "state": "1.0",
+          "value": 1.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.028994+00:00",
+            "before": 20.4,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 20.3,
+              "state_after": 0.0,
+              "sum_delta": 0.1000000000003638,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.1000000000003638
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 121,
+        "first_value": 17.9,
+        "last_value": 15.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "discharging",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "11.3",
+          "value": 11.3
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.029092+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:00:16.029092+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.029092+00:00",
+            "before": 11.3,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 11.3,
+              "state_after": 0.0,
+              "sum_delta": 0.0,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.0
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 32,
+        "first_value": 2.5,
+        "last_value": 2.6,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "load_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:59:01.139051+00:00",
+          "state": "61.3",
+          "value": 61.3
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.029535+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:58:55.959968+00:00",
+          "state": "2.6",
+          "value": 2.6
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.029535+00:00",
+            "before": 61.3,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 61.3,
+              "state_after": 0.2,
+              "sum_delta": 0.2000000000007276,
+              "expected_counter_increment": 0.2,
+              "error_kWh": 7.275846591880963e-13
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 184,
+        "first_value": 36.1,
+        "last_value": 32.8,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "pv1_yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 44,
+        "first_value": 4.0,
+        "last_value": 6.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "pv2_yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 52,
+        "first_value": 6.7,
+        "last_value": 14.2,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "pv3_yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "inverter_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 66,
+        "first_value": 5.6,
+        "last_value": 13.4,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "ac_charge_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 73,
+        "first_value": 10.6,
+        "last_value": 6.3,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "inverter 2",
+      "key": "eps_energy",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.664713,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.500511+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": null,
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": false,
+          "window_rows": 0,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 193,
+        "first_acquisition": "2026-11-14T01:03:15.569694+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "parallel group",
+      "key": "yield",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "10.7",
+          "value": 10.7
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.016942+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:00:16.016942+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.016942+00:00",
+            "before": 10.7,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 10.7,
+              "state_after": 0.0,
+              "sum_delta": 0.0,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.0
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 58,
+        "first_value": 10.7,
+        "last_value": 20.2,
+        "acquisition_count": 386,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "parallel group",
+      "key": "discharging",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "23.0",
+          "value": 23.0
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:16.017066+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:00:16.017066+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.017066+00:00",
+            "before": 23.0,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 23.0,
+              "state_after": 0.0,
+              "sum_delta": 0.0,
+              "expected_counter_increment": 0.0,
+              "error_kWh": 0.0
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 32,
+        "first_value": 4.9,
+        "last_value": 5.1,
+        "acquisition_count": 386,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "parallel group",
+      "key": "charging",
+      "initial": {
+        "source": "LOCAL",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": true,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 6.573131,
+        "acquisition_age_seconds_max": 6.664713,
+        "accepted_for_daily_guard": true
+      },
+      "midnight": {
+        "source_counts": {
+          "LOCAL": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 60,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 60,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:59:19.507042+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:01:28.505303+00:00",
+        "published_before": {
+          "time": "2026-11-14T07:56:07.605087+00:00",
+          "state": "36.0",
+          "value": 36.0
+        },
+        "published_first_after": {
+          "time": "2026-11-14T08:00:03.885245+00:00",
+          "state": "36.1",
+          "value": 36.1
+        },
+        "published_last_in_window": {
+          "time": "2026-11-14T08:59:59.849242+00:00",
+          "state": "1.8",
+          "value": 1.8
+        },
+        "reset_candidates": [
+          {
+            "time": "2026-11-14T08:00:16.017163+00:00",
+            "before": 36.1,
+            "after": 0.0
+          }
+        ],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [
+            {
+              "start_utc": "2026-11-14T08:00:00+00:00",
+              "state_before": 36.0,
+              "state_after": 0.1,
+              "sum_delta": 0.19999999999708962,
+              "expected_counter_increment": 0.1,
+              "error_kWh": 0.09999999999708961
+            }
+          ],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "LOCAL": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 193,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 193
+        },
+        "distinct_values": 133,
+        "first_value": 31.2,
+        "last_value": 25.8,
+        "acquisition_count": 386,
+        "first_acquisition": "2026-11-14T01:03:15.378215+00:00",
+        "last_acquisition": "2026-11-15T00:59:54.477569+00:00"
+      }
+    },
+    {
+      "role": "parallel group",
+      "key": "grid_export",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "31.1",
+          "value": 31.1
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 31.1,
+        "last_value": 31.1,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    },
+    {
+      "role": "parallel group",
+      "key": "grid_import",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "50.5",
+          "value": 50.5
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 50.5,
+        "last_value": 50.5,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    },
+    {
+      "role": "parallel group",
+      "key": "consumption",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "61.9",
+          "value": 61.9
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 61.9,
+        "last_value": 61.9,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    },
+    {
+      "role": "GridBOSS CT overlay",
+      "key": "ups_today",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "61.9",
+          "value": 61.9
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 61.9,
+        "last_value": 61.9,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    },
+    {
+      "role": "GridBOSS CT overlay",
+      "key": "grid_export_today",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "31.1",
+          "value": 31.1
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 31.1,
+        "last_value": 31.1,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    },
+    {
+      "role": "GridBOSS CT overlay",
+      "key": "grid_import_today",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "50.5",
+          "value": 50.5
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 50.5,
+        "last_value": 50.5,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    },
+    {
+      "role": "GridBOSS CT overlay",
+      "key": "load_today",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "0.0",
+          "value": 0.0
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 0.0,
+        "last_value": 0.0,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    },
+    {
+      "role": "GridBOSS CT overlay",
+      "key": "ac_couple1_today",
+      "initial": {
+        "source": "HTTP",
+        "lineage_nonempty": true,
+        "entirely_LOCAL": false,
+        "single_HA_local_day": true,
+        "acquisition_age_seconds_min": 584.509597,
+        "acquisition_age_seconds_max": 584.509597,
+        "accepted_for_daily_guard": false
+      },
+      "midnight": {
+        "source_counts": {
+          "HTTP": 60
+        },
+        "lineage_counts": {
+          "nonempty": 60,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 60
+        },
+        "guard_eligibility_count": 0,
+        "last_sampled_old_day_acquisition_utc": "2026-11-14T07:53:19.199754+00:00",
+        "first_sampled_new_day_acquisition_utc": "2026-11-14T08:03:21.025801+00:00",
+        "published_before": {
+          "time": "2026-11-14T06:55:00+00:00",
+          "state": "47.6",
+          "value": 47.6
+        },
+        "published_first_after": null,
+        "published_last_in_window": null,
+        "reset_candidates": [],
+        "previous_day_value_reappearance": [],
+        "statistics": {
+          "available": true,
+          "window_rows": 24,
+          "reset_rows": [],
+          "mismatch_count": 0,
+          "tolerance_kWh": 0.11
+        }
+      },
+      "full_soak": {
+        "source_counts": {
+          "HTTP": 193
+        },
+        "lineage_counts": {
+          "nonempty": 193,
+          "entirely_LOCAL": 0,
+          "single_HA_day": 193,
+          "accepted_for_daily_guard": 0
+        },
+        "distinct_values": 1,
+        "first_value": 47.6,
+        "last_value": 47.6,
+        "acquisition_count": 137,
+        "first_acquisition": "2026-11-14T01:03:02.152771+00:00",
+        "last_acquisition": "2026-11-15T00:51:02.056309+00:00"
+      }
+    }
+  ],
+  "limits": [
+    "diagnostics guard eligibility is not runtime baseline-expiry telemetry",
+    "acquisition timestamp is not publication timestamp or device counter day",
+    "capture sampling cannot exclude intermediate transitions",
+    "First/last acquisition times are those observed in diagnostics; sampling may miss earlier accepted acquisitions.",
+    "No runtime baseline-expiry instrumentation: no exact expiry or violation can be established.",
+    "No independent physical energy measurement; statistics agree with numeric counter history.",
+    "Four active lifetime series are unknown; twelve requested disabled lifetime series have no history.",
+    "Current evidence cutoff: lifetime history 09:18:20Z, availability 09:18:24Z, diagnostics 09:20:00Z.",
+    "Natural recovery, device counter-day semantics, direct batteries, generator, reconfigure and rollback remain untested."
+  ]
+}

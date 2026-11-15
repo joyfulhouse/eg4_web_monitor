@@ -1,0 +1,160 @@
+{
+  "record_type": "candidate_deployment",
+  "issue": [
+    694,
+    666,
+    697
+  ],
+  "review_date_utc": "2026-11-14",
+  "deployed_build": {
+    "integration": "3.5.1-beta.22",
+    "pylxpweb": "0.10.0b15",
+    "HA": "2026.11.1",
+    "tag_commit": "2dafa3c64d41516c511333648c747c637d47499b"
+  },
+  "evidence_sources": [
+    "Private beta22 final-report.md, redacted-summary.json, post-verification.json and service-calls.jsonl; raw captures retained privately."
+  ],
+  "interpretation": [
+    "Prepared solely from existing private summaries; no production connection or additional deployment was performed for these records.",
+    "Sampled acquisition times are not first acquisitions. Publication timestamps are not acquisition evidence. No inverter reset timezone is inferred.",
+    "No cause is attributed for GridBOSS unreachability or unchanged values. HTTP receipt timestamps do not establish fresh device measurements.",
+    "Counter/statistics consistency is not independent physical metering. Known-literal scan counts are bounded to the supplied literals.",
+    "These records imply no release, tag, or further deployment."
+  ],
+  "authorization": {
+    "owner_authorized": true,
+    "scope": [
+      "One fresh backup",
+      "One install of exactly v3.5.1-beta.22",
+      "Exactly one Home Assistant Core restart; nothing else"
+    ],
+    "additional_mutations_authorized": false
+  },
+  "before": {
+    "captured_at": "2026-11-13T23:58:54.612275+00:00",
+    "ha_version": "2026.11.1",
+    "ha_state": "RUNNING",
+    "integration_version": "3.5.1-beta.21",
+    "requirements": [
+      "pylxpweb==0.10.0b13",
+      "pymodbus>=3.6.0",
+      "pyserial>=3.5"
+    ],
+    "entry_state": "loaded",
+    "entities": 934,
+    "devices": 17,
+    "states": 651,
+    "unknown": 22,
+    "unavailable": 24
+  },
+  "after": {
+    "runtime": {
+      "captured_at": "2026-11-14T00:11:44.928077+00:00",
+      "ha_version": "2026.11.1",
+      "ha_state": "RUNNING",
+      "integration_version": "3.5.1-beta.22",
+      "requirements": [
+        "pylxpweb==0.10.0b15",
+        "pymodbus>=3.6.0"
+      ],
+      "entry_state": "loaded",
+      "entities": 944,
+      "devices": 17,
+      "states": 651,
+      "unknown": 22,
+      "unavailable": 24
+    },
+    "identity": {
+      "entities_added": 10,
+      "entities_removed": 0,
+      "entities_renamed": 0,
+      "entity_device_ownership_changed": 0,
+      "entity_config_entry_changed": 0,
+      "devices_added": 0,
+      "devices_removed": 0,
+      "device_identifiers_changed": 0,
+      "newly_degraded_known_states": 0,
+      "redacted_entry_digest_equal": false,
+      "entry_metadata_digest_equal": true,
+      "common_redaction_entry_digest_equal": true
+    },
+    "log_counts": {
+      "setup_errors": 0,
+      "duplicate_id_warnings": 0,
+      "blocking_io_warnings": 0
+    }
+  },
+  "backup": {
+    "type": "partial / complete Home Assistant configuration",
+    "call_utc": "2026-11-13T23:58:55.081018+00:00",
+    "creation_utc": "2026-11-13T23:58:55.092746+00:00",
+    "size_class": ">=1 GiB",
+    "verified_listed": true,
+    "service_http_status": 504
+  },
+  "service_calls": [
+    {
+      "service": "hassio.backup_partial",
+      "utc": "2026-11-13T23:58:55.081018+00:00"
+    },
+    {
+      "service": "update.install",
+      "utc": "2026-11-14T00:07:58.670340+00:00"
+    },
+    {
+      "service": "homeassistant.check_config",
+      "utc": "2026-11-14T00:08:01.451203+00:00"
+    },
+    {
+      "service": "homeassistant.restart",
+      "utc": "2026-11-14T00:08:02.399260+00:00"
+    }
+  ],
+  "execution": {
+    "restart_count": 1,
+    "rollback_count": 0,
+    "restore_exercised": false,
+    "runtime_return_utc": "2026-11-14T00:11:09.023852+00:00",
+    "no_other_direct_production_mutations": true,
+    "prerelease_switch_changed": false
+  },
+  "update_discovery": {
+    "platform": "marketplace",
+    "hacs_present": false,
+    "installed_version": "v3.5.1-beta.20",
+    "latest_version": "v3.5.0",
+    "release_url_tag": "v3.5.0",
+    "in_progress": false,
+    "skipped_version": null,
+    "supported_features": 23,
+    "specific_version_install": true,
+    "requested_release_listed": true,
+    "prerelease_switch": "registry entry disabled; no active state; unchanged"
+  },
+  "ten_minute": {
+    "requested_at": "2026-11-14T00:21:10.212797+00:00",
+    "restart_utc": "2026-11-14T00:08:02.399260+00:00",
+    "api_running_utc": "2026-11-14T00:11:09.023852+00:00",
+    "elapsed_seconds": 787.813548,
+    "seconds_after_api_running": 601.18896,
+    "entry_states": [
+      "loaded"
+    ],
+    "unknown": 22,
+    "unavailable": 24
+  },
+  "ten_minute_log_counts": {
+    "setup_errors": 0,
+    "duplicate_id_warnings": 0,
+    "blocking_io_warnings": 0
+  },
+  "settling_deadline_utc": "2026-11-14T01:01:09.023876+00:00",
+  "limits": [
+    "All 934 existing entities and 17 devices preserved; ten disabled sensors added. No removed, renamed, or ownership-changed entities.",
+    "Config equality rests on metadata and common-redaction digests of API views. Direct redacted entry view differs at three newly redacted hosts; raw data/options equality is unproven.",
+    "The non-HACS Marketplace update entity had a stale installed-version string before install; it did not describe the actual pre-deployment manifest.",
+    "Backup HTTP 504 and restart HTTP 502 responses were followed by successful read-only verification; neither service call was retried. Backup was verified listed; restore was not exercised.",
+    "Pre-deployment last-start time remains unknown."
+  ]
+}
