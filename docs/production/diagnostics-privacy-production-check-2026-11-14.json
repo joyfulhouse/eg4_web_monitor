@@ -1,0 +1,77 @@
+{
+  "record_type": "diagnostics_privacy_production_check",
+  "issue": 697,
+  "review_date_utc": "2026-11-14",
+  "deployed_build": {
+    "integration": "3.5.1-beta.22",
+    "pylxpweb": "0.10.0b15",
+    "HA": "2026.11.1",
+    "tag_commit": "2dafa3c64d41516c511333648c747c637d47499b"
+  },
+  "evidence_sources": [
+    "Private beta22 privacy-summary.json and final-report.md; soak-review/redacted-summary.json.",
+    "Owner scope ruling on 2026-11-14, recorded in the binding evidence contract: wrapper residual assigned to issue 722."
+  ],
+  "interpretation": [
+    "Prepared solely from existing private summaries; no production connection or additional deployment was performed for these records.",
+    "Sampled acquisition times are not first acquisitions. Publication timestamps are not acquisition evidence. No inverter reset timezone is inferred.",
+    "No cause is attributed for GridBOSS unreachability or unchanged values. HTTP receipt timestamps do not establish fresh device measurements.",
+    "Counter/statistics consistency is not independent physical metering. Known-literal scan counts are bounded to the supplied literals.",
+    "These records imply no release, tag, or further deployment."
+  ],
+  "whole_artifact": {
+    "known_distinct_literals": 27,
+    "found_distinct_literals": 1,
+    "residual_paths": {
+      "$.setup_times.[key]": 1
+    },
+    "transport_hosts_redacted": 3,
+    "transport_hosts_total": 3,
+    "wrapper_eg4_issues": 5,
+    "wrapper_pseudonym_ids": 5,
+    "wrapper_device_identity_ids": 0,
+    "setup_times_entry_id_present": true,
+    "setup_times_integration_controlled": false,
+    "live_serial_bearing_eg4_repairs": 0,
+    "utility": {
+      "versions": true,
+      "roles_counts": true,
+      "captured_at": true,
+      "energy_evidence": true,
+      "aware_acquisition_timestamps": 70
+    }
+  },
+  "soak_repeat": {
+    "captures": 198,
+    "all_hosts_redacted": true,
+    "all_issue_ids_pseudonymised": true,
+    "only_known_literal_setup_times": true,
+    "last": {
+      "capture": "2026-11-15T01:00:00.489948+00:00",
+      "nested_hosts": 3,
+      "hosts_redacted": 3,
+      "wrapper_issues": 5,
+      "pseudonymised_issues": 5,
+      "known_distinct_literals_present": 1,
+      "only_known_literal_setup_times": true
+    }
+  },
+  "acceptance": [
+    {
+      "criterion": "items_1_and_2_source",
+      "outcome": "MET",
+      "evidence": "Met earlier in source by PR 699."
+    },
+    {
+      "criterion": "item_3_named_exposures",
+      "outcome": "MET",
+      "evidence": "Nested transport hosts and wrapper repair issue IDs meet the two exposures named in issue 697. Owner explicitly scoped the wrapper setup_times residual out of issue 697 on 2026-11-14 and assigned it to issue 722."
+    },
+    {
+      "criterion": "whole_artifact_clean",
+      "outcome": "NOT MET",
+      "evidence": "One of 27 known distinct literals remains as a config entry identifier key under the HA core wrapper setup_times; this is outside integration control. The whole artifact is not clean."
+    }
+  ],
+  "scope_reconciliation": "Earlier private deployment and soak reports call whole-artifact acceptance NOT MET. That observation is retained; the later owner ruling makes issue 697 item 3 MET for its named exposures while issue 722 owns the wrapper residual."
+}
