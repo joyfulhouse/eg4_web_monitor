@@ -199,6 +199,12 @@
       "actual": "Prior rendered/aborted forms remain initial evidence; full branches and rollback not exercised."
     },
     {
+      "criterion": "baseline_retained_scenarios",
+      "status": "UNTESTED-RETAINED",
+      "expected": "Carry forward #619 cumulative-energy continuity; #612 reporter recognition acceptance; #617/#626 vendor parameter semantics; #623 shortcut equivalence; #670 GridBOSS threshold-regime evidence; conditional pylxpweb #189/#344/#345 upstream dependency work; pylxpweb #350 host ownership/scheduling policy across independent connections; pylxpweb #363 shared-battery consumer.",
+      "actual": "Qualifying exercises 0 for each item. This soak observation exercised none of them and does not change their outcomes in docs/production/production-acceptance-observation-2026-11-11.json."
+    },
+    {
       "criterion": "cloud_battery_chart_counter_day",
       "status": "UNTESTED-RETAINED",
       "expected": "Reliable counter-day semantics",
@@ -289,7 +295,7 @@
       "cloud_lost_inverter_gate": "custom_components/eg4_web_monitor/coordinator_mixins.py:3275",
       "hybrid_local_energy_gate": "custom_components/eg4_web_monitor/coordinator_mixins.py:3337",
       "dependent_group_gate": "custom_components/eg4_web_monitor/coordinator_mixins.py:3768",
-      "MID_entry": "custom_components/eg4_web_monitor/coordinator_http.py:1075",
+      "MID_group_associated_entry": "custom_components/eg4_web_monitor/coordinator_http.py:1033",
       "MID_mapping": "custom_components/eg4_web_monitor/coordinator_mixins.py:3838",
       "group_overlay_entry": "custom_components/eg4_web_monitor/coordinator_http.py:1048",
       "group_overlay": "custom_components/eg4_web_monitor/coordinator_mixins.py:718",

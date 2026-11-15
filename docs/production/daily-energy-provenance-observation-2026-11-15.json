@@ -2612,7 +2612,8 @@
     "No runtime baseline-expiry instrumentation: no exact expiry or violation can be established.",
     "No independent physical energy measurement; statistics agree with numeric counter history.",
     "Four active lifetime series are unknown; twelve requested disabled lifetime series have no history.",
-    "Current evidence cutoff: lifetime history 09:18:20Z, availability 09:18:24Z, diagnostics 09:20:00Z.",
+    "Reused midnight-review evidence cutoff on 2026-11-14: lifetime history 09:18:20Z, availability 09:18:24Z, diagnostics 09:20:00Z.",
+    "Full-soak evidence cutoffs on 2026-11-15: last diagnostics capture 01:00:00.489948Z; last sampled LOCAL acquisition 00:59:54.477569Z; last state sample 00:58:24.848191Z; last log sample 00:43:23.847925Z. These are sampled cutoffs, not first acquisitions or proof of runtime baseline expiry.",
     "Natural recovery, device counter-day semantics, direct batteries, generator, reconfigure and rollback remain untested."
   ]
 }
