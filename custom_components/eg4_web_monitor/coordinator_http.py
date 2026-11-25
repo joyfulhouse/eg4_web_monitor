@@ -1051,6 +1051,7 @@ class HTTPUpdateMixin(_MixinBase):
                                 group.name,
                                 include_ac_couple=include_ac_couple,
                                 recompute_consumption=False,
+                                gridboss_lost=mid_data.get("cloud_runtime_lost", False),
                                 pg_sample_times=group_data.get("energy_sample_times"),
                                 gb_sample_times=mid_data.get("energy_sample_times", {}),
                                 pg_evidence=group_data.get("energy_evidence"),

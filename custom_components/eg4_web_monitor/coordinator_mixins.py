@@ -854,6 +854,7 @@ def apply_gridboss_to_parallel_group(
     *,
     include_ac_couple: bool,
     recompute_consumption: bool,
+    gridboss_lost: bool = False,
     pg_sample_times: dict[str, datetime] | None = None,
     gb_sample_times: dict[str, datetime] | None = None,
     pg_evidence: dict[str, Any] | None = None,
@@ -877,12 +878,15 @@ def apply_gridboss_to_parallel_group(
         include_ac_couple: Whether AC-couple PV inclusion is enabled.
         recompute_consumption: Whether to recompute consumption_power from the
             energy balance (LOCAL path); the HTTP path keeps the cloud value.
+        gridboss_lost: Blank CT-backed values rather than falling back to inverter sums.
         pg_sample_times: Qualified daily field times, replaced with the overlay.
         gb_sample_times: Qualified GridBOSS times; absent evidence clears dates.
         pg_evidence: Detached diagnostic lineage, replaced with the numeric source.
         gb_evidence: GridBOSS lineage captured with its numeric values.
     """
     apply_gridboss_overlay(pg_sensors, gb_sensors, group_name)
+    if gridboss_lost:
+        pg_sensors.update(dict.fromkeys(_GRIDBOSS_PG_OVERLAY.values()))
     if pg_evidence is not None:
         overlay_gridboss_evidence(
             pg_sensors, gb_sensors, pg_evidence, gb_evidence or {}, _GRIDBOSS_PG_OVERLAY
@@ -890,9 +894,9 @@ def apply_gridboss_to_parallel_group(
     if pg_sample_times is not None:
         gb_sample_times = gb_sample_times or {}
         for gb_key, pg_key in _GRIDBOSS_PG_OVERLAY.items():
-            if gb_sensors.get(gb_key) is not None:
+            if gridboss_lost or gb_sensors.get(gb_key) is not None:
                 pg_sample_times.pop(pg_key, None)
-                if gb_key in gb_sample_times:
+                if not gridboss_lost and gb_key in gb_sample_times:
                     pg_sample_times[pg_key] = gb_sample_times[gb_key]
         pg_sample_times.pop("consumption", None)
         stamp = same_day_sample_time(
@@ -3871,6 +3875,21 @@ class DeviceProcessingMixin(_MixinBase):
 
             self._filter_unused_smart_port_sensors(processed["sensors"], mid_device)
             self._calculate_gridboss_aggregates(processed["sensors"])
+            # Both sources populate transport_runtime; its presence alone is not a local read.
+            cloud_lost = (
+                getattr(getattr(mid_device, "_runtime", None), "lost", None) is True
+                and _cloud_payload(mid_device) is not None
+            )
+            if cloud_lost:
+                processed["cloud_runtime_lost"] = True
+                keep_keys = {
+                    "firmware_version",
+                    SMART_PORT_READ_KEY,
+                    *(f"smart_port{port}_status" for port in range(1, 5)),
+                }
+                for key in processed["sensors"]:
+                    if key not in keep_keys:
+                        processed["sensors"][key] = None
             processed["energy_sample_times"] = mapped_daily_sample_times(
                 processed["sensors"],
                 mid_device.energy_provenance,

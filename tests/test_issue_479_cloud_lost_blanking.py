@@ -11,10 +11,13 @@ present and clearly reports the outage (#256 philosophy: present-but-unknown).
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from pylxpweb.models import InverterRuntime
+from pylxpweb.devices import MIDDevice, ParallelGroup
+from pylxpweb.models import InverterRuntime, MidboxData, MidboxRuntime
+from pylxpweb.transports.data import MidboxRuntimeData
 from pytest_homeassistant.common import MockConfigEntry
 
 from custom_components.eg4_web_monitor.const import (
@@ -215,6 +218,118 @@ def _make_cloud_inverter(*, lost: bool):
     inverter.refresh = AsyncMock()
     inverter.detect_features = AsyncMock()
     return inverter
+
+
+def _mid_cloud_payload(*, lost: bool) -> MidboxRuntime:
+    midbox_data = dict.fromkeys(MidboxData.model_fields)
+    midbox_data.update(
+        provenance={},
+        serverTime="2026-11-08 12:00:00",
+        deviceTime="2026-11-08 12:00:00",
+        gridL1ActivePower=-1000,
+        gridL2ActivePower=-477,
+        smartPort1Status=1,
+        smartPort2Status=0,
+        smartPort3Status=0,
+        smartPort4Status=0,
+    )
+    return MidboxRuntime(
+        success=True,
+        serialNum="9876543210",
+        fwCode="MID-TEST",
+        lost=lost,
+        midboxData=MidboxData.model_validate(midbox_data),
+    )
+
+
+class TestProcessMidCloudLost:
+    @pytest.fixture
+    def mid_station(self, hass, mock_config_entry):
+        mock_config_entry.add_to_hass(hass)
+        coordinator = _make_coordinator(hass, mock_config_entry)
+        client = MagicMock()
+        client.api.devices.get_midbox_runtime = AsyncMock(
+            return_value=_mid_cloud_payload(lost=True)
+        )
+        mid = MIDDevice(client, "9876543210")
+        coordinator.station = SimpleNamespace(
+            id="12345",
+            name="Test Station",
+            all_inverters=[],
+            all_mid_devices=[mid],
+            standalone_mid_devices=[mid],
+            parallel_groups=[],
+        )
+        return coordinator, mid, client.api.devices.get_midbox_runtime
+
+    async def test_lost_mid_measurements_blank(self, mid_station) -> None:
+        coordinator, mid, _ = mid_station
+        await mid.refresh()
+        assert mid.has_data
+        assert mid.grid_power == -1477
+
+        result = await coordinator._process_station_data()
+        processed = result["devices"][mid.serial_number]
+        sensors = processed["sensors"]
+        assert sensors["grid_power"] is None
+        assert sensors["grid_power_l1"] is None
+        assert sensors["grid_power_l2"] is None
+        assert processed["serial"] == mid.serial_number
+        assert (
+            processed["firmware_version"] == sensors["firmware_version"] == "MID-TEST"
+        )
+        assert sensors["smart_port1_status"] == "smart_load"
+        assert sensors["midbox_last_polled"] is not None
+
+    async def test_lost_mid_parallel_group_grid_overlay(self, mid_station) -> None:
+        coordinator, mid, fetch_mid_runtime = mid_station
+        inverter = _make_cloud_inverter(lost=False)
+        group = ParallelGroup(
+            MagicMock(), MagicMock(), "Group1", inverter.serial_number
+        )
+        group.inverters = [inverter]
+        group.mid_device = mid
+        group._fetch_energy_data = AsyncMock()
+        coordinator.station.all_inverters = [inverter]
+        coordinator.station.standalone_mid_devices = []
+        coordinator.station.parallel_groups = [group]
+        coordinator.data = {"parameters": {inverter.serial_number: {}}}
+
+        fetch_mid_runtime.return_value = _mid_cloud_payload(lost=False)
+        await mid.refresh()
+        online = await coordinator._process_station_data()
+        assert (
+            online["devices"]["parallel_group_group1"]["sensors"]["grid_power"] == -1477
+        )
+
+        fetch_mid_runtime.return_value = _mid_cloud_payload(lost=True)
+        await mid.refresh()
+        offline = await coordinator._process_station_data()
+        assert (
+            offline["devices"]["parallel_group_group1"]["sensors"]["grid_power"] is None
+        )
+
+    @pytest.mark.parametrize("recover_via_local", [False, True], ids=["cloud", "local"])
+    async def test_mid_measurements_resume_on_recovery(
+        self, mid_station, recover_via_local
+    ) -> None:
+        coordinator, mid, fetch_mid_runtime = mid_station
+        await mid.refresh()
+        offline = await coordinator._process_station_data()
+        assert offline["devices"][mid.serial_number]["sensors"]["grid_power"] is None
+
+        if recover_via_local:
+            mid._transport = MagicMock(
+                read_midbox_runtime=AsyncMock(
+                    return_value=MidboxRuntimeData(grid_l1_power=700, grid_l2_power=500)
+                )
+            )
+        else:
+            fetch_mid_runtime.return_value = _mid_cloud_payload(lost=False)
+        await mid.refresh()
+        online = await coordinator._process_station_data()
+        expected = 1200 if recover_via_local else -1477
+        assert online["devices"][mid.serial_number]["sensors"]["grid_power"] == expected
 
 
 class TestProcessInverterObjectLost:
